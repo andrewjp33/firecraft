@@ -196,10 +196,13 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
     let w = n.int_of("WPX")?.clamp(0, 65_535) as u32;
     let h = n.int_of("HPX")?.clamp(0, 65_535) as u32;
     let tsz = n.int_of("TSZ").unwrap_or(IMAGE_TILE as i64).clamp(1, 4096) as u32;
-    // The bitmap's top-left is XLCf/YLCf (measured on circles_hi.png); XOFf/YOFf are kept as
-    // read (their role is not yet known).
+    // The pixel buffer (and its tile grid) starts at XLCf/YLCf and is WPXi x HPXi. XOFf/YOFf crop
+    // its top-left: Fireworks' image rectangle is (XLC + XOF, YLC + YOF) .. (XLC + W, YLC + H)
+    // (from the bitmap constructor at 0x62acd0 in Fireworks.exe). Hidden pixels are dropped.
     let x = (n.float_of("XLC").unwrap_or(0.0) - ctx.origin.0).round() as i64;
     let y = (n.float_of("YLC").unwrap_or(0.0) - ctx.origin.1).round() as i64;
+    let xof = n.float_of("XOF").unwrap_or(0.0).round().clamp(0.0, w as f64) as u32;
+    let yof = n.float_of("YOF").unwrap_or(0.0).round().clamp(0.0, h as f64) as u32;
     let mut image = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     let cols = w.div_ceil(tsz).max(1);
     let ids: Vec<u32> = n.child("TIL").map(|t| t.children.iter().filter_map(Node::as_u32).collect()).unwrap_or_default();
@@ -212,6 +215,11 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
                 image.set(px_x as i64, px_y as i64, Rgba::new(px[1], px[2], px[3], px[0]));
             }
         }
+    }
+    if xof > 0 || yof > 0 {
+        let mut visible = RgbaImage::new(w - xof, h - yof, Rgba::TRANSPARENT);
+        visible.draw(&image, -(xof as i64), -(yof as i64), 255);
+        return Some(Bitmap { x: x + xof as i64, y: y + yof as i64, image: visible });
     }
     Some(Bitmap { x, y, image })
 }

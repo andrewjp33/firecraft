@@ -7,6 +7,7 @@ pub mod image;
 pub mod mask;
 pub mod nine;
 pub mod path;
+pub mod transform;
 pub mod wand;
 
 pub use blend::BlendMode;
