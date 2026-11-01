@@ -11,10 +11,10 @@
 //! | Radial (`fc_Circular`) | distance from start / length of start->end |
 //! | Elliptical | sqrt(u^2 + v^2) |
 //! | Rectangular | max(abs u, abs v) |
-//! | Cone | angle around start, from the end handle |
+//! | Cone (`fc_Conical`) | angle between start->point and start->end, over pi |
 //!
-//! Linear and Rectangular (the most used in real documents) are checked against Fireworks'
-//! own renders by `parity_report`; the decorative kinds are approximations for now.
+//! The decorative kinds (Bars, Ripple, Waves, Satin, Folds, Pinch) and the exact handle frame
+//! come from Fireworks MX's gradient function (`0x61ea90`); see docs/behavior/gradients.md.
 
 use crate::image::Rgba;
 
@@ -42,7 +42,7 @@ impl GradientKind {
             "fc_Circular" | "fc_Radial" => Self::Radial,
             "fc_Elliptical" => Self::Elliptical,
             "fc_Rectangular" => Self::Rectangular,
-            "fc_Cone" => Self::Cone,
+            "fc_Conical" | "fc_Cone" => Self::Cone,
             "fc_Starburst" => Self::Starburst,
             "fc_Bars" => Self::Bars,
             "fc_Ripple" | "fc_Ripples" => Self::Ripples,
@@ -83,41 +83,67 @@ fn ramp<T: Copy>(stops: &[(f32, T)], t: f32, lerp: impl Fn(T, T, f32) -> T, defa
 }
 
 impl Gradient {
-    /// Ramp position for the canvas point (`x`, `y`).
+    /// Ramp position for the canvas point (`x`, `y`): Fireworks MX's formulas, read from its
+    /// gradient function (`0x61ea90`). `p` = point - start, `d` = end - start; (u, v) = the point
+    /// in the handle frame (start->end, start->side; 1.0 at each handle); a = p.y/d.y and
+    /// b = p.x/d.x (9999999.9 when the divisor is 0).
     pub fn position(&self, x: f64, y: f64) -> f32 {
+        const HUGE: f64 = 9_999_999.9;
         let (sx, sy) = self.start;
-        let (ax, ay) = (self.end.0 - sx, self.end.1 - sy);
+        let (dx, dy) = (self.end.0 - sx, self.end.1 - sy);
         let (bx, by) = (self.side.0 - sx, self.side.1 - sy);
         let (px, py) = (x - sx, y - sy);
-        let la = (ax * ax + ay * ay).max(1e-9);
-        let lb = (bx * bx + by * by).max(1e-9);
-        let u = (px * ax + py * ay) / la;
-        let v = (px * bx + py * by) / lb;
-        let t = match self.kind {
-            GradientKind::Linear => u,
-            GradientKind::Radial => ((px * px + py * py) / la).sqrt(),
-            GradientKind::Elliptical => (u * u + v * v).sqrt(),
-            GradientKind::Rectangular => u.abs().max(v.abs()),
-            GradientKind::Cone => {
-                let a = py.atan2(px) - ay.atan2(ax);
-                a.rem_euclid(std::f64::consts::TAU) / std::f64::consts::TAU
-            }
-            GradientKind::Starburst => {
-                let a = py.atan2(px) - ay.atan2(ax);
-                let r = ((px * px + py * py) / la).sqrt();
-                r * (0.75 + 0.25 * (8.0 * a).cos())
-            }
-            GradientKind::Bars => (u * 4.0).rem_euclid(1.0),
-            GradientKind::Ripples => (((px * px + py * py) / la).sqrt() * 4.0).rem_euclid(1.0),
-            GradientKind::Waves => ((u + 0.1 * (v * std::f64::consts::TAU * 2.0).sin()) * 3.0).rem_euclid(1.0),
-            GradientKind::Satin => {
-                let r = (u * u + v * v).sqrt();
-                0.5 + 0.5 * (r * std::f64::consts::PI * 3.0).cos()
-            }
-            GradientKind::Folds => 0.5 + 0.5 * (u * std::f64::consts::PI * 4.0).sin(),
-            GradientKind::Pinch => (u.abs() * v.abs()).sqrt().min(1.0),
+        let ld = dx * dx + dy * dy;
+        // Handle frame: solve p = u d + v b.
+        let det = dx * by - dy * bx;
+        let (u, v) = if det.abs() > 1e-12 {
+            ((px * by - py * bx) / det, (dx * py - dy * px) / det)
+        } else {
+            let lb = (bx * bx + by * by).max(1e-12);
+            ((px * dx + py * dy) / ld.max(1e-12), (px * bx + py * by) / lb)
         };
-        t.clamp(0.0, 1.0) as f32
+        let a = if dy == 0.0 { HUGE } else { py / dy };
+        let b = if dx == 0.0 { HUGE } else { px / dx };
+        let t = match self.kind {
+            GradientKind::Linear | GradientKind::Bars => (px * dx + py * dy) / ld.max(1e-12),
+            GradientKind::Radial => (px * px + py * py).sqrt() / ld.sqrt().max(1e-12),
+            GradientKind::Cone => {
+                // The angle between p and d over pi (law of cosines, as Fireworks computes it).
+                let (qx, qy) = (x - self.end.0, y - self.end.1);
+                let lp = px * px + py * py;
+                let c = (ld + lp - (qx * qx + qy * qy)) / (2.0 * ld.sqrt() * lp.sqrt());
+                if c.is_finite() { c.clamp(-1.0, 1.0).acos() * std::f64::consts::FRAC_1_PI } else { 0.0 }
+            }
+            GradientKind::Satin => ((a.sin() * (b - a)) - (3.0 * b).cos()).abs() * 0.5,
+            GradientKind::Pinch => (u * v).abs(),
+            GradientKind::Folds => {
+                let x1 = (b + 0.25f64.sin()).sin() * (a + b).cos();
+                ((3.0 * b * x1).cos() * (24.0 * a * b).sin() * (a + b * a.sin()) * 0.5).abs()
+            }
+            GradientKind::Elliptical | GradientKind::Ripples => (u * u + v * v).sqrt(),
+            GradientKind::Rectangular => u.abs().max(v.abs()),
+            GradientKind::Waves => (a.sin() * (b - a) * (b - a) - (3.0 * b).cos() * (b - a)).abs() * 0.5,
+            // Not in Fireworks MX (a later fill type); kept for files from newer versions.
+            GradientKind::Starburst => {
+                let ang = py.atan2(px) - dy.atan2(dx);
+                (px * px + py * py).sqrt() / ld.sqrt().max(1e-12) * (0.75 + 0.25 * (8.0 * ang).cos())
+            }
+        };
+        // Bars, Ripple, Satin, Pinch and Folds repeat, mirrored, past 1.
+        let t = match self.kind {
+            GradientKind::Bars | GradientKind::Ripples | GradientKind::Satin | GradientKind::Pinch | GradientKind::Folds => {
+                let t = t.abs();
+                if t > 1.0 && t.is_finite() {
+                    let n = t.trunc();
+                    let f = t - n;
+                    if (n as i64) % 2 == 1 { 1.0 - f } else { f }
+                } else {
+                    t
+                }
+            }
+            _ => t,
+        };
+        if t.is_finite() { t.clamp(0.0, 1.0) as f32 } else { 0.0 }
     }
 
     pub fn color_at(&self, x: f64, y: f64) -> Rgba {

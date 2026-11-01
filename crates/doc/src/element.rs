@@ -373,7 +373,9 @@ impl Element {
                     let polys: Vec<Vec<Pt>> = p.contours.iter().map(|c| c.flatten(fx, fy)).collect();
                     match &f.gradient {
                         // Shade in canvas coordinates (the layer's pixel + its canvas offset).
-                        Some(g) => fill_polygons_with(&mut layer, &polys, f.anti_alias, &|x, y| g.color_at(x - fx, y - fy)),
+                        // Fireworks samples gradients at the pixel's integer coordinate (its
+                        // top-left corner), not its centre (measured on Folds/Pinch/Waves).
+                        Some(g) => fill_polygons_with(&mut layer, &polys, f.anti_alias, &|x, y| g.color_at(x - 0.5 - fx, y - 0.5 - fy)),
                         None => fill_polygons(&mut layer, &polys, f.color, f.anti_alias),
                     }
                 }
