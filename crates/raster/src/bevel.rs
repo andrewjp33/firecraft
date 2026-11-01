@@ -63,7 +63,12 @@ pub struct Bevel {
 impl Bevel {
     /// From the effect's parameters (BevelType 0-3).
     pub fn parse(p: &HashMap<String, String>) -> Option<Bevel> {
-        let num = |k: &str, d: f32| p.get(k).and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(d);
+        let num = |k: &str, d: f32| {
+            p.get(k)
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .filter(|v| v.is_finite())
+                .unwrap_or(d)
+        };
         let color = |k: &str, d: Rgba| p.get(k).and_then(|v| Rgba::from_hex(v)).unwrap_or(d);
         let kind = match num("BevelType", 0.0) as i32 {
             0 => BevelKind::Inner,
@@ -133,9 +138,18 @@ impl Bevel {
     /// Signed edge-shape value at distance `d` (Fireworks `0x5dcbc0`, before lighting).
     fn slope_at(&self, d: f64) -> f64 {
         let w = self.width.max(1.0) as f64;
-        let t = (if self.kind == BevelKind::Outer { 1.0 - d / w } else { d / w }).clamp(0.0, 1.0);
+        let t = (if self.kind == BevelKind::Outer {
+            1.0 - d / w
+        } else {
+            d / w
+        })
+        .clamp(0.0, 1.0);
         // Embosses ignore the edge shape (measured).
-        let mut s = if self.kind.emboss() { 1.0 } else { Self::profile(self.slope, t) * self.multiplier as f64 };
+        let mut s = if self.kind.emboss() {
+            1.0
+        } else {
+            Self::profile(self.slope, t) * self.multiplier as f64
+        };
         if self.kind == BevelKind::InsetEmboss {
             s = -s;
         }
@@ -155,9 +169,16 @@ impl Bevel {
         let a = a.abs();
         let round = |x: f64| (x * 255.0).round();
         let hi = round((1.0 - a / 90.0).max(0.0));
-        let sh = if self.kind.emboss() { round((a / 90.0 - 1.0).max(0.0)) } else { round((a / 120.0 - 0.5).max(0.0)) };
+        let sh = if self.kind.emboss() {
+            round((a / 90.0 - 1.0).max(0.0))
+        } else {
+            round((a / 120.0 - 0.5).max(0.0))
+        };
         let k = strength.min(1.0) * (self.contrast as f64 * 0.01);
-        ((hi * k).trunc().clamp(0.0, 255.0) as f32, (sh * k).trunc().clamp(0.0, 255.0) as f32)
+        (
+            (hi * k).trunc().clamp(0.0, 255.0) as f32,
+            (sh * k).trunc().clamp(0.0, 255.0) as f32,
+        )
     }
 
     /// Apply to the object's pixels in `img` (with room around the object for outer bands).
@@ -190,25 +211,49 @@ impl Bevel {
     fn band(&self, inside: &[bool], w: usize, h: usize) -> Band {
         // Inner: distance to the nearest outside pixel; otherwise to the nearest object pixel.
         let inner = self.kind == BevelKind::Inner;
-        let seeds: Vec<bool> = if inner { inside.iter().map(|&b| !b).collect() } else { inside.to_vec() };
+        let seeds: Vec<bool> = if inner {
+            inside.iter().map(|&b| !b).collect()
+        } else {
+            inside.to_vec()
+        };
         let near = nearest_seed(&seeds, w, h, inner);
         let width = self.width as f64;
-        let mut b = Band { on: vec![false; w * h], dist: vec![0.0; w * h], cover: vec![0.0; w * h], normal: vec![0; w * h] };
+        let mut b = Band {
+            on: vec![false; w * h],
+            dist: vec![0.0; w * h],
+            cover: vec![0.0; w * h],
+            normal: vec![0; w * h],
+        };
         for i in 0..w * h {
-            let (Some(&(dx, dy)), Some(&ins)) = (near.get(i), inside.get(i)) else { continue };
+            let (Some(&(dx, dy)), Some(&ins)) = (near.get(i), inside.get(i)) else {
+                continue;
+            };
             if ins != inner || (dx, dy) == (0, 0) {
                 continue;
             }
             let d = ((dx * dx + dy * dy) as f64).sqrt();
             // Outside bands are anti-aliased at their outer edge (rounded corners).
-            let c = if inner { if d > width { 0.0 } else { 1.0 } } else { (width + EDGE_AA - d).clamp(0.0, 1.0) };
+            let c = if inner {
+                if d > width { 0.0 } else { 1.0 }
+            } else {
+                (width + EDGE_AA - d).clamp(0.0, 1.0)
+            };
             if c <= 0.0 {
                 continue;
             }
             let v = tie_vector(&near, w, h, i, (dx, dy), d);
             // Outward normal: towards the outside for Inner, away from the object otherwise.
-            let n = if inner { fw_angle(v.0, v.1) } else { fw_angle(-v.0, -v.1) };
-            if let (Some(on), Some(dd), Some(cv), Some(nn)) = (b.on.get_mut(i), b.dist.get_mut(i), b.cover.get_mut(i), b.normal.get_mut(i)) {
+            let n = if inner {
+                fw_angle(v.0, v.1)
+            } else {
+                fw_angle(-v.0, -v.1)
+            };
+            if let (Some(on), Some(dd), Some(cv), Some(nn)) = (
+                b.on.get_mut(i),
+                b.dist.get_mut(i),
+                b.cover.get_mut(i),
+                b.normal.get_mut(i),
+            ) {
                 *on = true;
                 *dd = d;
                 *cv = c as f32;
@@ -246,7 +291,10 @@ impl Bevel {
             if !b.on.get(i).copied().unwrap_or(false) {
                 continue;
             }
-            let (x, y) = (vx.get(i).copied().unwrap_or(0.0), vy.get(i).copied().unwrap_or(0.0));
+            let (x, y) = (
+                vx.get(i).copied().unwrap_or(0.0),
+                vy.get(i).copied().unwrap_or(0.0),
+            );
             // Without softness use the integer normal exactly (the vector would round it).
             let n = if soft > 0.0 {
                 y.atan2(x).to_degrees()
@@ -272,9 +320,16 @@ impl Bevel {
         let orig = p.orig;
         let mut out = match self.kind {
             BevelKind::Inner => orig,
-            BevelKind::Outer if p.in_band => Rgba { a: (p.cover * self.outer_color.a as f32).round() as u8, ..self.outer_color }.over(orig, 255),
+            BevelKind::Outer if p.in_band => Rgba {
+                a: (p.cover * self.outer_color.a as f32).round() as u8,
+                ..self.outer_color
+            }
+            .over(orig, 255),
             BevelKind::Outer => orig,
-            _ if p.inside && !self.show_object => Rgba { a: (self.face.a as u32 * orig.a as u32 / 255) as u8, ..self.face },
+            _ if p.inside && !self.show_object => Rgba {
+                a: (self.face.a as u32 * orig.a as u32 / 255) as u8,
+                ..self.face
+            },
             _ => orig,
         };
         if p.in_band {
@@ -282,8 +337,14 @@ impl Bevel {
             let (a_hi, a_sh) = (p.hi * c, p.sh * c);
             if self.kind.emboss() {
                 // Shading over a transparent band.
-                out = out.over(self.shadow, (a_sh.clamp(0.0, 255.0) * self.shadow.a as f32 / 255.0).round() as u8);
-                out = out.over(self.hilite, (a_hi.clamp(0.0, 255.0) * self.hilite.a as f32 / 255.0).round() as u8);
+                out = out.over(
+                    self.shadow,
+                    (a_sh.clamp(0.0, 255.0) * self.shadow.a as f32 / 255.0).round() as u8,
+                );
+                out = out.over(
+                    self.hilite,
+                    (a_hi.clamp(0.0, 255.0) * self.hilite.a as f32 / 255.0).round() as u8,
+                );
             } else {
                 let alpha = out.a;
                 out = over(over(out, self.shadow, a_sh), self.hilite, a_hi);
@@ -325,12 +386,23 @@ struct BandPixel {
 fn tie_vector(near: &[(i32, i32)], w: usize, h: usize, i: usize, v: (i32, i32), d: f64) -> (i32, i32) {
     let (x, y) = ((i % w) as i32, (i / w) as i32);
     let d2 = v.0 * v.0 + v.1 * v.1;
-    for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+    for (ox, oy) in [
+        (-1, 0),
+        (1, 0),
+        (0, -1),
+        (0, 1),
+        (-1, -1),
+        (1, -1),
+        (-1, 1),
+        (1, 1),
+    ] {
         let (nx, ny) = (x + ox, y + oy);
         if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
             continue;
         }
-        let Some(&(cx, cy)) = near.get(ny as usize * w + nx as usize) else { continue };
+        let Some(&(cx, cy)) = near.get(ny as usize * w + nx as usize) else {
+            continue;
+        };
         let c = (cx + ox, cy + oy);
         if c != v && c.0 * c.0 + c.1 * c.1 == d2 {
             let sum = (v.0 + c.0, v.1 + c.1);
@@ -350,17 +422,23 @@ const EDGE_AA: f64 = 1.0;
 /// a 16-segment linear table with rounding to whole degrees.
 pub fn fw_angle(dx: i32, dy: i32) -> i32 {
     const BASE: [u32; 16] = [
-        8388608, 68389542, 127926546, 186556858, 243877696, 299540828, 353261819, 404823782, 454076210, 500929980, 545349835, 587345552,
-        626962845, 664274723, 699373771, 732365571,
+        8388608, 68389542, 127926546, 186556858, 243877696, 299540828, 353261819, 404823782, 454076210,
+        500929980, 545349835, 587345552, 626962845, 664274723, 699373771, 732365571,
     ];
-    const SLOPE: [u32; 16] = [14649, 14535, 14314, 13994, 13590, 13115, 12588, 12025, 11439, 10845, 10253, 9672, 9109, 8569, 8055, 7568];
+    const SLOPE: [u32; 16] = [
+        14649, 14535, 14314, 13994, 13590, 13115, 12588, 12025, 11439, 10845, 10253, 9672, 9109, 8569, 8055,
+        7568,
+    ];
     let atan = |num: u32, den: u32| -> i32 {
         if den == 0 {
             return 0;
         }
         let r = ((num & 0xffff) << 16) / (den & 0xffff).max(1);
         let (i, f) = ((r >> 12) as usize, r & 0xfff);
-        let (b, s) = (BASE.get(i).copied().unwrap_or(0), SLOPE.get(i).copied().unwrap_or(0));
+        let (b, s) = (
+            BASE.get(i).copied().unwrap_or(0),
+            SLOPE.get(i).copied().unwrap_or(0),
+        );
         (s.wrapping_mul(f).wrapping_add(b) >> 24) as i32
     };
     if dy == 0 {
@@ -431,7 +509,10 @@ fn nearest_seed(seeds: &[bool], w: usize, h: usize, edge_is_seed: bool) -> Vec<(
         for (x, sx) in lower_envelope(&f).into_iter().enumerate() {
             let r = rows.get(sx).copied().unwrap_or(-INF);
             if let Some(o) = out.get_mut(y * w + x) {
-                *o = ((sx as i64 - x as i64) as i32, (r - y as i64).clamp(-(1 << 30), 1 << 30) as i32);
+                *o = (
+                    (sx as i64 - x as i64) as i32,
+                    (r - y as i64).clamp(-(1 << 30), 1 << 30) as i32,
+                );
             }
         }
     }
@@ -456,7 +537,9 @@ fn nearest_seed(seeds: &[bool], w: usize, h: usize, edge_is_seed: bool) -> Vec<(
 /// Separable Gaussian blur of a plane (exact kernel, radius 3 sigma; zero outside).
 fn gaussian_plane(src: &[f64], w: usize, h: usize, sigma: f64) -> Vec<f64> {
     let r = (sigma * 3.0).ceil().max(1.0) as i64;
-    let kernel: Vec<f64> = (-r..=r).map(|i| (-((i * i) as f64) / (2.0 * sigma * sigma)).exp()).collect();
+    let kernel: Vec<f64> = (-r..=r)
+        .map(|i| (-((i * i) as f64) / (2.0 * sigma * sigma)).exp())
+        .collect();
     let sum: f64 = kernel.iter().sum();
     let kernel: Vec<f64> = kernel.iter().map(|k| k / sum).collect();
     let pass = |input: &[f64], horizontal: bool| -> Vec<f64> {
@@ -518,7 +601,16 @@ mod tests {
 
     #[test]
     fn angle_table_matches_atan2() {
-        for (dx, dy) in [(5, 0), (0, 5), (-5, 0), (0, -5), (3, 3), (-3, -3), (7, 2), (-2, 9)] {
+        for (dx, dy) in [
+            (5, 0),
+            (0, 5),
+            (-5, 0),
+            (0, -5),
+            (3, 3),
+            (-3, -3),
+            (7, 2),
+            (-2, 9),
+        ] {
             let want = (dy as f64).atan2(dx as f64).to_degrees().rem_euclid(360.0);
             let got = (fw_angle(dx, dy) as f64).rem_euclid(360.0);
             assert!((got - want).abs() <= 0.6, "{dx},{dy}: {got} vs {want}");
@@ -536,7 +628,11 @@ mod tests {
             for x in 0..w {
                 let (dx, dy) = near[y * w + x];
                 let d = dx * dx + dy * dy;
-                let best = [(3, 2), (8, 5)].iter().map(|&(sx, sy)| (sx - x as i32).pow(2) + (sy - y as i32).pow(2)).min().unwrap();
+                let best = [(3, 2), (8, 5)]
+                    .iter()
+                    .map(|&(sx, sy)| (sx - x as i32).pow(2) + (sy - y as i32).pow(2))
+                    .min()
+                    .unwrap();
                 assert_eq!(d, best, "({x},{y})");
                 assert!(seeds[((y as i32 + dy) as usize) * w + (x as i32 + dx) as usize]);
             }

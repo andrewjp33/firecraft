@@ -64,7 +64,10 @@ impl BlendMode {
 
     /// From a `BLDi` value; unknown values fall back to Normal.
     pub fn from_fw_code(v: i64) -> Self {
-        Self::ALL.into_iter().find(|m| m.fw_code() == v).unwrap_or_default()
+        Self::ALL
+            .into_iter()
+            .find(|m| m.fw_code() == v)
+            .unwrap_or_default()
     }
 
     /// Name as shown in the Property inspector.
@@ -103,7 +106,11 @@ impl BlendMode {
         }
         if self == BlendMode::Erase {
             let a = (base.a as f64 * (1.0 - sa)).round() as u8;
-            return if a == 0 { Rgba::TRANSPARENT } else { Rgba { a, ..base } };
+            return if a == 0 {
+                Rgba::TRANSPARENT
+            } else {
+                Rgba { a, ..base }
+            };
         }
         let ba = base.a as f64 / 255.0;
         let cb = [base.r as f64, base.g as f64, base.b as f64];
@@ -119,7 +126,9 @@ impl BlendMode {
         }
         let ch = |i: usize| {
             let src = (1.0 - ba) * cs[i] + ba * mixed[i];
-            ((src * sa + cb[i] * ba * (1.0 - sa)) / out_a).round().clamp(0.0, 255.0) as u8
+            ((src * sa + cb[i] * ba * (1.0 - sa)) / out_a)
+                .round()
+                .clamp(0.0, 255.0) as u8
         };
         Rgba::new(ch(0), ch(1), ch(2), (out_a * 255.0).round() as u8)
     }
@@ -148,7 +157,11 @@ impl BlendMode {
                 let (bh, bs, bv) = hsv(b);
                 let (_, ss, _) = hsv(s);
                 // A grey base has no hue to saturate: unchanged.
-                if bs == 0 { b } else { rgb(fwhsl::from_hsv(bh, ss, bv)) }
+                if bs == 0 {
+                    b
+                } else {
+                    rgb(fwhsl::from_hsv(bh, ss, bv))
+                }
             }
             BlendMode::Color => {
                 let (_, _, bv) = hsv(b);
@@ -183,7 +196,11 @@ impl BlendMode {
             BlendMode::Saturation => {
                 let (bh, bs, bv) = colormath::to_hsv(b);
                 let (_, ss, _) = colormath::to_hsv(s);
-                if bs <= 0.0 { b } else { colormath::from_hsv(bh, ss, bv) }
+                if bs <= 0.0 {
+                    b
+                } else {
+                    colormath::from_hsv(bh, ss, bv)
+                }
             }
             BlendMode::Color => {
                 let (_, _, bv) = colormath::to_hsv(b);
@@ -235,24 +252,68 @@ mod tests {
     #[test]
     fn matches_fireworks_measurements() {
         let cases = [
-            (BlendMode::Multiply, op(128, 128, 128), op(100, 200, 150), op(50, 100, 75)),
+            (
+                BlendMode::Multiply,
+                op(128, 128, 128),
+                op(100, 200, 150),
+                op(50, 100, 75),
+            ),
             (BlendMode::Screen, op(200, 40, 40), op(255, 0, 0), op(255, 40, 40)),
-            (BlendMode::Difference, op(128, 128, 128), op(100, 200, 150), op(28, 72, 22)),
-            (BlendMode::Color, op(128, 128, 128), op(100, 200, 150), op(64, 128, 96)),
-            (BlendMode::Saturation, op(40, 180, 60), op(255, 0, 0), op(0, 180, 26)),
-            (BlendMode::Saturation, op(128, 128, 128), op(255, 0, 0), op(128, 128, 128)),
-            (BlendMode::Luminosity, op(200, 40, 40), op(255, 0, 0), op(54, 10, 10)),
-            (BlendMode::Luminosity, op(128, 128, 128), op(240, 120, 20), op(138, 138, 138)),
+            (
+                BlendMode::Difference,
+                op(128, 128, 128),
+                op(100, 200, 150),
+                op(28, 72, 22),
+            ),
+            (
+                BlendMode::Color,
+                op(128, 128, 128),
+                op(100, 200, 150),
+                op(64, 128, 96),
+            ),
+            (
+                BlendMode::Saturation,
+                op(40, 180, 60),
+                op(255, 0, 0),
+                op(0, 180, 26),
+            ),
+            (
+                BlendMode::Saturation,
+                op(128, 128, 128),
+                op(255, 0, 0),
+                op(128, 128, 128),
+            ),
+            (
+                BlendMode::Luminosity,
+                op(200, 40, 40),
+                op(255, 0, 0),
+                op(54, 10, 10),
+            ),
+            (
+                BlendMode::Luminosity,
+                op(128, 128, 128),
+                op(240, 120, 20),
+                op(138, 138, 138),
+            ),
             (BlendMode::Invert, op(200, 40, 40), op(1, 2, 3), op(55, 215, 215)),
         ];
         for (mode, base, top, want) in cases {
             let got = mode.composite(base, top, 255);
             let close = |a: u8, b: u8| a.abs_diff(b) <= 1;
-            assert!(close(got.r, want.r) && close(got.g, want.g) && close(got.b, want.b), "{mode:?}: {got:?} vs {want:?}");
+            assert!(
+                close(got.r, want.r) && close(got.g, want.g) && close(got.b, want.b),
+                "{mode:?}: {got:?} vs {want:?}"
+            );
         }
         // Hue: bit-exact (byte HSL).
-        assert_eq!(BlendMode::Hue.composite(op(40, 180, 60), op(255, 0, 0), 255), op(178, 39, 39));
-        assert_eq!(BlendMode::Erase.composite(op(1, 2, 3), op(9, 9, 9), 255), Rgba::TRANSPARENT);
+        assert_eq!(
+            BlendMode::Hue.composite(op(40, 180, 60), op(255, 0, 0), 255),
+            op(178, 39, 39)
+        );
+        assert_eq!(
+            BlendMode::Erase.composite(op(1, 2, 3), op(9, 9, 9), 255),
+            Rgba::TRANSPARENT
+        );
         // Tint: exact (formula from Fireworks.exe, values measured in Fireworks MX).
         for (base, top, want) in [
             (op(200, 40, 40), op(255, 0, 0), op(239, 12, 12)),

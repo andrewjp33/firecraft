@@ -4,11 +4,11 @@
 //! then drag the bottom-right handle (or type W/H in the Property inspector and Apply). The
 //! result is ordinary paths/bitmaps, so the file stays Fireworks MX compatible.
 
-use egui::{pos2, vec2, Color32, Pos2, Rect, Shape, Stroke, StrokeKind};
+use egui::{Color32, Pos2, Rect, Shape, Stroke, StrokeKind, pos2, vec2};
 use firecraft_engine::DocState;
 use firecraft_raster::nine::Insets;
 
-use crate::{theme, FireCraftApp, View};
+use crate::{FireCraftApp, View, theme};
 
 const GUIDE: Color32 = Color32::from_rgb(0, 120, 220);
 
@@ -33,20 +33,45 @@ enum Drag {
 }
 
 fn key(d: &DocState, b: (f64, f64, f64, f64)) -> (u64, [i64; 4]) {
-    (d.id, [b.0.round() as i64, b.1.round() as i64, b.2.round() as i64, b.3.round() as i64])
+    (
+        d.id,
+        [
+            b.0.round() as i64,
+            b.1.round() as i64,
+            b.2.round() as i64,
+            b.3.round() as i64,
+        ],
+    )
 }
 
 /// Current edit state for the selection, created with default (one-third) guides.
-fn sync<'a>(nine: &'a mut Option<NineEdit>, d: &DocState) -> Option<(&'a mut NineEdit, (f64, f64, f64, f64))> {
+fn sync<'a>(
+    nine: &'a mut Option<NineEdit>,
+    d: &DocState,
+) -> Option<(&'a mut NineEdit, (f64, f64, f64, f64))> {
     let b = d.selection_bounds()?;
     let k = key(d, b);
     if nine.as_ref().is_none_or(|n| n.key != k) {
-        *nine = Some(NineEdit { key: k, insets: Insets::thirds(b.2, b.3), width: b.2.round(), height: b.3.round(), drag: None });
+        *nine = Some(NineEdit {
+            key: k,
+            insets: Insets::thirds(b.2, b.3),
+            width: b.2.round(),
+            height: b.3.round(),
+            drag: None,
+        });
     }
     nine.as_mut().map(|n| (n, b))
 }
 
-pub fn canvas(nine: &mut Option<NineEdit>, d: &mut DocState, _view: &mut View, p: &egui::Painter, resp: &egui::Response, origin: Pos2, z: f32) {
+pub fn canvas(
+    nine: &mut Option<NineEdit>,
+    d: &mut DocState,
+    _view: &mut View,
+    p: &egui::Painter,
+    resp: &egui::Response,
+    origin: Pos2,
+    z: f32,
+) {
     let to_screen = |x: f64, y: f64| pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
 
@@ -68,12 +93,19 @@ pub fn canvas(nine: &mut Option<NineEdit>, d: &mut DocState, _view: &mut View, p
     let gx2 = to_screen(x + w - ins.right, y).x;
     let gy1 = to_screen(x, y + ins.top).y;
     let gy2 = to_screen(x, y + h - ins.bottom).y;
-    let target = Rect::from_min_size(to_screen(x, y), vec2(edit.width as f32 * z, edit.height as f32 * z));
+    let target = Rect::from_min_size(
+        to_screen(x, y),
+        vec2(edit.width as f32 * z, edit.height as f32 * z),
+    );
     let handle = Rect::from_center_size(target.right_bottom(), vec2(8.0, 8.0));
 
     if resp.drag_started() {
         // Where the button went down (the current position has already moved past the threshold).
-        if let Some(q) = resp.ctx.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos()) {
+        if let Some(q) = resp
+            .ctx
+            .input(|i| i.pointer.press_origin())
+            .or(resp.interact_pointer_pos())
+        {
             let near = |a: f32, b: f32| (a - b).abs() <= 4.0;
             edit.drag = if handle.expand(3.0).contains(q) {
                 Some(Drag::Resize)
@@ -119,9 +151,19 @@ pub fn canvas(nine: &mut Option<NineEdit>, d: &mut DocState, _view: &mut View, p
 
     // Overlay: object bounds, target outline, guides, handle.
     let bounds = Rect::from_min_max(to_screen(x, y), to_screen(x + w, y + h));
-    p.rect_stroke(bounds, 0.0, Stroke::new(1.0, theme::HANDLE_BLUE), StrokeKind::Outside);
+    p.rect_stroke(
+        bounds,
+        0.0,
+        Stroke::new(1.0, theme::HANDLE_BLUE),
+        StrokeKind::Outside,
+    );
     if target != bounds {
-        p.rect_stroke(target, 0.0, Stroke::new(1.0, Color32::from_rgb(200, 0, 0)), StrokeKind::Outside);
+        p.rect_stroke(
+            target,
+            0.0,
+            Stroke::new(1.0, Color32::from_rgb(200, 0, 0)),
+            StrokeKind::Outside,
+        );
     }
     let dashed = |a: Pos2, b: Pos2| p.extend(Shape::dashed_line(&[a, b], Stroke::new(1.0, GUIDE), 4.0, 3.0));
     let ext = bounds.expand(6.0);
@@ -138,7 +180,12 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.set_width(150.0);
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(28.0, 28.0), egui::Sense::hover());
-            crate::icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(20.0, 20.0)), firecraft_engine::Tool::NineSlice, true);
+            crate::icons::paint(
+                ui.painter(),
+                Rect::from_center_size(r.center(), vec2(20.0, 20.0)),
+                firecraft_engine::Tool::NineSlice,
+                true,
+            );
             ui.label(egui::RichText::new("9-slice Scaling tool").size(11.0));
         });
     });
@@ -174,7 +221,11 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if ui.button("Reset Guides").clicked() {
                 edit.insets = Insets::thirds(b.2, b.3);
             }
-            ui.weak(format!("from {} x {}  |  result stays Fireworks MX compatible", b.2.round(), b.3.round()));
+            ui.weak(format!(
+                "from {} x {}  |  result stays Fireworks MX compatible",
+                b.2.round(),
+                b.3.round()
+            ));
         });
     });
     if apply {

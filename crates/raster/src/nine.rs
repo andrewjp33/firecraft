@@ -29,7 +29,15 @@ impl AxisMap {
         let m1 = if lo < g1 && g1 < hi { g1 - lo } else { 0.0 };
         let m2 = if lo < g2 && g2 < hi { hi - g2 } else { 0.0 };
         let nine = lo + m1 < hi - m2 && (hi2 - lo2) >= m1 + m2;
-        AxisMap { lo, hi, m1, m2, lo2, hi2, nine }
+        AxisMap {
+            lo,
+            hi,
+            m1,
+            m2,
+            lo2,
+            hi2,
+            nine,
+        }
     }
 
     /// Reference -> target.
@@ -102,7 +110,12 @@ pub struct Insets {
 impl Insets {
     /// Default guides for a box: a third of each side, as the 9-slice tool starts out.
     pub fn thirds(w: f64, h: f64) -> Self {
-        Self { left: (w / 3.0).round(), right: (w / 3.0).round(), top: (h / 3.0).round(), bottom: (h / 3.0).round() }
+        Self {
+            left: (w / 3.0).round(),
+            right: (w / 3.0).round(),
+            top: (h / 3.0).round(),
+            bottom: (h / 3.0).round(),
+        }
     }
 }
 
@@ -118,11 +131,21 @@ pub fn maps(from: (f64, f64, f64, f64), to: (f64, f64, f64, f64), ins: Insets) -
 
 /// Resample `img` (placed with its top-left at `origin` in reference space) into a new image of
 /// `size`, whose top-left lands at `target_origin`. Bilinear sampling, straight alpha.
-pub fn resample(img: &RgbaImage, origin: (f64, f64), mx: &AxisMap, my: &AxisMap, target_origin: (i64, i64), size: (u32, u32)) -> RgbaImage {
+pub fn resample(
+    img: &RgbaImage,
+    origin: (f64, f64),
+    mx: &AxisMap,
+    my: &AxisMap,
+    target_origin: (i64, i64),
+    size: (u32, u32),
+) -> RgbaImage {
     let mut out = RgbaImage::new(size.0, size.1, Rgba::TRANSPARENT);
     for ty in 0..size.1 {
         for tx in 0..size.0 {
-            let (cx, cy) = (target_origin.0 as f64 + tx as f64 + 0.5, target_origin.1 as f64 + ty as f64 + 0.5);
+            let (cx, cy) = (
+                target_origin.0 as f64 + tx as f64 + 0.5,
+                target_origin.1 as f64 + ty as f64 + 0.5,
+            );
             // Sample in the source slice this pixel belongs to (pixel-centre coordinates).
             let (ax, bx) = mx.source_slice(cx);
             let (ay, by) = my.source_slice(cy);
@@ -140,7 +163,12 @@ fn bilinear(img: &RgbaImage, x: f64, y: f64) -> Rgba {
     let clampx = |v: f64| (v as i64).clamp(0, img.width() as i64 - 1);
     let clampy = |v: f64| (v as i64).clamp(0, img.height() as i64 - 1);
     let px = |xx: f64, yy: f64| img.get(clampx(xx), clampy(yy)).unwrap_or(Rgba::TRANSPARENT);
-    let (a, b, c, d) = (px(x0, y0), px(x0 + 1.0, y0), px(x0, y0 + 1.0), px(x0 + 1.0, y0 + 1.0));
+    let (a, b, c, d) = (
+        px(x0, y0),
+        px(x0 + 1.0, y0),
+        px(x0, y0 + 1.0),
+        px(x0 + 1.0, y0 + 1.0),
+    );
     // Interpolate premultiplied so transparent pixels don't bleed colour.
     let w = [(1.0 - fx) * (1.0 - fy), fx * (1.0 - fy), (1.0 - fx) * fy, fx * fy];
     let ps = [a, b, c, d];
@@ -149,9 +177,20 @@ fn bilinear(img: &RgbaImage, x: f64, y: f64) -> Rgba {
         return Rgba::TRANSPARENT;
     }
     let ch = |f: fn(&Rgba) -> u8| -> u8 {
-        (ps.iter().zip(w).map(|(p, w)| f(p) as f64 * p.a as f64 * w).sum::<f64>() / alpha).round().clamp(0.0, 255.0) as u8
+        (ps.iter()
+            .zip(w)
+            .map(|(p, w)| f(p) as f64 * p.a as f64 * w)
+            .sum::<f64>()
+            / alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8
     };
-    Rgba::new(ch(|p| p.r), ch(|p| p.g), ch(|p| p.b), alpha.round().clamp(0.0, 255.0) as u8)
+    Rgba::new(
+        ch(|p| p.r),
+        ch(|p| p.g),
+        ch(|p| p.b),
+        alpha.round().clamp(0.0, 255.0) as u8,
+    )
 }
 
 #[cfg(test)]
@@ -197,7 +236,16 @@ mod tests {
                 }
             }
         }
-        let (mx, my) = maps((0.0, 0.0, 30.0, 30.0), (0.0, 0.0, 90.0, 60.0), Insets { left: 10.0, top: 10.0, right: 10.0, bottom: 10.0 });
+        let (mx, my) = maps(
+            (0.0, 0.0, 30.0, 30.0),
+            (0.0, 0.0, 90.0, 60.0),
+            Insets {
+                left: 10.0,
+                top: 10.0,
+                right: 10.0,
+                bottom: 10.0,
+            },
+        );
         let out = resample(&img, (0.0, 0.0), &mx, &my, (0, 0), (90, 60));
         // Borders stay 10 px wide; the middle stretches.
         assert_eq!(out.get(5, 30).map(|p| p.g), Some(0));

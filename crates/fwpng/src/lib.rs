@@ -54,7 +54,8 @@ pub(crate) fn inflate(data: &[u8], limit: usize) -> Result<Vec<u8>> {
     use std::io::Read;
     let mut out = Vec::new();
     let mut dec = flate2::read::ZlibDecoder::new(data).take(limit as u64 + 1);
-    dec.read_to_end(&mut out).map_err(|e| Error::Zlib(e.to_string()))?;
+    dec.read_to_end(&mut out)
+        .map_err(|e| Error::Zlib(e.to_string()))?;
     if out.len() > limit {
         return Err(Error::TooLarge(limit));
     }

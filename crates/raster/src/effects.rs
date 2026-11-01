@@ -14,22 +14,59 @@ use crate::image::{Rgba, RgbaImage};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
-    HueSaturation { hue: f32, saturation: f32, lightness: f32, colorize: bool },
-    BrightnessContrast { brightness: f32, contrast: f32 },
+    HueSaturation {
+        hue: f32,
+        saturation: f32,
+        lightness: f32,
+        colorize: bool,
+    },
+    BrightnessContrast {
+        brightness: f32,
+        contrast: f32,
+    },
     /// Input low/high, output low/high, gamma per channel: [rgb, r, g, b].
-    Levels { channels: [[f32; 5]; 4] },
+    Levels {
+        channels: [[f32; 5]; 4],
+    },
     Invert,
     ConvertToAlpha,
-    ColorFill { color: Rgba, opacity: f32, mode: BlendMode },
-    GaussianBlur { radius: f32 },
-    MotionBlur { distance: f32, angle: f32 },
-    RadialBlur { amount: f32 },
+    ColorFill {
+        color: Rgba,
+        opacity: f32,
+        mode: BlendMode,
+    },
+    GaussianBlur {
+        radius: f32,
+    },
+    MotionBlur {
+        distance: f32,
+        angle: f32,
+    },
+    RadialBlur {
+        amount: f32,
+    },
     /// Drop shadow (`inner` = Inner Shadow).
-    Shadow { color: Rgba, distance: f32, angle: f32, softness: f32, inner: bool, knock_out: bool },
+    Shadow {
+        color: Rgba,
+        distance: f32,
+        angle: f32,
+        softness: f32,
+        inner: bool,
+        knock_out: bool,
+    },
     /// Glow (outside) or Inner Glow.
-    Glow { color: Rgba, width: f32, opacity: f32, softness: f32, offset: f32, inner: bool },
+    Glow {
+        color: Rgba,
+        width: f32,
+        opacity: f32,
+        softness: f32,
+        offset: f32,
+        inner: bool,
+    },
     /// Curves: control points per channel ([rgb, r, g, b]), each (input, output) 0..255.
-    Curves { channels: [Vec<(f32, f32)>; 4] },
+    Curves {
+        channels: [Vec<(f32, f32)>; 4],
+    },
     /// Inner/Outer Bevel, Raised/Inset Emboss.
     Bevel(crate::bevel::Bevel),
 }
@@ -51,7 +88,12 @@ impl Effect {
     /// From an effect's parameters (`EffectMoaID` plus the other keys), if FireCraft renders it.
     /// `vectors` holds vector-valued parameters (Curves points) as lists of (x, y).
     pub fn parse(p: &HashMap<String, String>, vectors: &HashMap<String, Vec<(f32, f32)>>) -> Option<Effect> {
-        let num = |k: &str, d: f32| p.get(k).and_then(|v| v.trim().parse::<f32>().ok()).filter(|v| v.is_finite()).unwrap_or(d);
+        let num = |k: &str, d: f32| {
+            p.get(k)
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .filter(|v| v.is_finite())
+                .unwrap_or(d)
+        };
         let color = |k: &str, d: Rgba| p.get(k).and_then(|v| Rgba::from_hex(v)).unwrap_or(d);
         let truthy = |k: &str| p.get(k).is_some_and(|v| v == "true" || v == "1");
         let name = p.get("name").map(String::as_str).unwrap_or("");
@@ -63,7 +105,10 @@ impl Effect {
                 lightness: num("lightness_amount", 0.0),
                 colorize: truthy("hls_colorize"),
             },
-            BRIGHT_CONTRAST => Effect::BrightnessContrast { brightness: num("brightness_amount", 0.0), contrast: num("contrast_amount", 0.0) },
+            BRIGHT_CONTRAST => Effect::BrightnessContrast {
+                brightness: num("brightness_amount", 0.0),
+                contrast: num("contrast_amount", 0.0),
+            },
             LEVELS | AUTO_LEVELS => {
                 let ch = |c: &str| {
                     [
@@ -74,16 +119,32 @@ impl Effect {
                         num(&format!("gamma_{c}"), 1.0),
                     ]
                 };
-                Effect::Levels { channels: [ch("rgb"), ch("red"), ch("green"), ch("blue")] }
+                Effect::Levels {
+                    channels: [ch("rgb"), ch("red"), ch("green"), ch("blue")],
+                }
             }
             CURVES => {
                 let pts = |k: &str| vectors.get(k).cloned().unwrap_or_default();
-                Effect::Curves { channels: [pts("rgb_points"), pts("red_points"), pts("green_points"), pts("blue_points")] }
+                Effect::Curves {
+                    channels: [
+                        pts("rgb_points"),
+                        pts("red_points"),
+                        pts("green_points"),
+                        pts("blue_points"),
+                    ],
+                }
             }
             // Radius in pixels (measured: radius 100 spreads a square ~100 px each way).
-            GAUSSIAN => Effect::GaussianBlur { radius: num("gaussian_blur_radius", 1.0) },
-            MOTION_BLUR => Effect::MotionBlur { distance: num("motion_blur_distance", 10.0), angle: num("motion_blur_angle", 0.0) },
-            RADIAL_BLUR => Effect::RadialBlur { amount: num("radial_blur_amount", 5.0) },
+            GAUSSIAN => Effect::GaussianBlur {
+                radius: num("gaussian_blur_radius", 1.0),
+            },
+            MOTION_BLUR => Effect::MotionBlur {
+                distance: num("motion_blur_distance", 10.0),
+                angle: num("motion_blur_angle", 0.0),
+            },
+            RADIAL_BLUR => Effect::RadialBlur {
+                amount: num("radial_blur_amount", 5.0),
+            },
             COLOR_FILL => Effect::ColorFill {
                 color: color("Color", Rgba::BLACK),
                 opacity: num("Opacity", 100.0) / 100.0,
@@ -95,7 +156,8 @@ impl Effect {
                 angle: num("ShadowAngle", 315.0),
                 softness: num("ShadowBlur", 4.0),
                 inner: num("ShadowType", 0.0) == 1.0,
-                knock_out: truthy("ShadowKnockOut") || p.get("ShowObject").is_some_and(|v| v == "false") && name.contains("Knock"),
+                knock_out: truthy("ShadowKnockOut")
+                    || p.get("ShowObject").is_some_and(|v| v == "false") && name.contains("Knock"),
             },
             // Measured: the glow's width is GlowWidth (0 = no glow), colour OuterBevelColor,
             // softness MaskSoftness, gap GlowStartDistance, opacity BevelContrast.
@@ -132,32 +194,59 @@ impl Effect {
     /// Apply the effect with a choice of colour-math precision.
     pub fn apply_with(&self, img: &mut RgbaImage, math: crate::ColorMath) {
         match self {
-            Effect::HueSaturation { hue, saturation, lightness, colorize: false } if math == crate::ColorMath::Precise => {
+            Effect::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+                colorize: false,
+            } if math == crate::ColorMath::Precise => {
                 for p in img.pixels_mut() {
                     if p.a != 0 {
                         let c = [p.r, p.g, p.b].map(f64::from);
-                        let [r, g, b] = crate::colormath::hue_saturation(c, *hue as f64, *saturation as f64, *lightness as f64)
-                            .map(|v| v.round().clamp(0.0, 255.0) as u8);
+                        let [r, g, b] = crate::colormath::hue_saturation(
+                            c,
+                            *hue as f64,
+                            *saturation as f64,
+                            *lightness as f64,
+                        )
+                        .map(|v| v.round().clamp(0.0, 255.0) as u8);
                         *p = Rgba::new(r, g, b, p.a);
                     }
                 }
             }
-            Effect::HueSaturation { hue, saturation, lightness, colorize: false } => {
+            Effect::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+                colorize: false,
+            } => {
                 // Bit-exact Fireworks MX (byte-quantized HSL, see fwhsl).
                 for p in img.pixels_mut() {
                     if p.a != 0 {
-                        let [r, g, b] = crate::fwhsl::hue_saturation(p.r, p.g, p.b, hue.round() as i32, *saturation as f64, *lightness as f64);
+                        let [r, g, b] = crate::fwhsl::hue_saturation(
+                            p.r,
+                            p.g,
+                            p.b,
+                            hue.round() as i32,
+                            *saturation as f64,
+                            *lightness as f64,
+                        );
                         *p = Rgba::new(r, g, b, p.a);
                     }
                 }
             }
-            Effect::HueSaturation { hue, saturation, lightness, colorize: true } => {
-                map_rgb(img, |c| hue_saturation(c, *hue, *saturation, *lightness, true))
-            }
+            Effect::HueSaturation {
+                hue,
+                saturation,
+                lightness,
+                colorize: true,
+            } => map_rgb(img, |c| hue_saturation(c, *hue, *saturation, *lightness, true)),
             Effect::BrightnessContrast { brightness, contrast } => {
                 let (b, c) = (*brightness, *contrast);
                 let k = (100.0 + c) / 100.0;
-                map_rgb(img, |v| v.map(|x| ((x + b - 127.5) * k + 127.5).clamp(0.0, 255.0)))
+                map_rgb(img, |v| {
+                    v.map(|x| ((x + b - 127.5) * k + 127.5).clamp(0.0, 255.0))
+                })
             }
             Effect::Levels { channels } => {
                 let lut = |ch: [f32; 5]| -> [f32; 256] {
@@ -169,7 +258,9 @@ impl Effect {
                 };
                 let all = lut(channels[0]);
                 let per: [[f32; 256]; 3] = [lut(channels[1]), lut(channels[2]), lut(channels[3])];
-                map_rgb(img, |v| std::array::from_fn(|i| per[i][all[v[i] as usize] as usize]))
+                map_rgb(img, |v| {
+                    std::array::from_fn(|i| per[i][all[v[i] as usize] as usize])
+                })
             }
             Effect::Curves { channels } => {
                 let lut = |pts: &Vec<(f32, f32)>| -> [f32; 256] {
@@ -182,20 +273,30 @@ impl Effect {
                         let x = i as f32;
                         let k = p.iter().position(|q| q.0 >= x).unwrap_or(p.len() - 1).max(1);
                         let (a, b) = (p[k - 1], p[k]);
-                        let t = if b.0 > a.0 { ((x - a.0) / (b.0 - a.0)).clamp(0.0, 1.0) } else { 0.0 };
+                        let t = if b.0 > a.0 {
+                            ((x - a.0) / (b.0 - a.0)).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
                         (a.1 + (b.1 - a.1) * t).clamp(0.0, 255.0)
                     })
                 };
                 let all = lut(&channels[0]);
                 let per = [lut(&channels[1]), lut(&channels[2]), lut(&channels[3])];
-                map_rgb(img, |v| std::array::from_fn(|i| per[i][all[v[i] as usize] as usize]))
+                map_rgb(img, |v| {
+                    std::array::from_fn(|i| per[i][all[v[i] as usize] as usize])
+                })
             }
             Effect::Invert => map_rgb(img, |v| v.map(|x| 255.0 - x)),
             Effect::ConvertToAlpha => {
                 for p in img.pixels_mut() {
                     let luma = (p.r as u32 * 109 + p.g as u32 * 366 + p.b as u32 * 37) >> 9;
                     let a = (255 - luma) * p.a as u32 / 255;
-                    *p = if a == 0 { Rgba::TRANSPARENT } else { Rgba::new(0, 0, 0, a as u8) };
+                    *p = if a == 0 {
+                        Rgba::TRANSPARENT
+                    } else {
+                        Rgba::new(0, 0, 0, a as u8)
+                    };
                 }
             }
             Effect::ColorFill { color, opacity, mode } => {
@@ -216,15 +317,32 @@ impl Effect {
             }
             Effect::MotionBlur { distance, angle } => motion_blur(img, *distance, *angle),
             Effect::RadialBlur { amount } => radial_blur(img, *amount),
-            Effect::Shadow { color, distance, angle, softness, inner, knock_out } => {
+            Effect::Shadow {
+                color,
+                distance,
+                angle,
+                softness,
+                inner,
+                knock_out,
+            } => {
                 let a = angle.to_radians();
                 // Fireworks measures the angle counter-clockwise with y up.
-                let (dx, dy) = ((a.cos() * distance).round() as i64, (-a.sin() * distance).round() as i64);
+                let (dx, dy) = (
+                    (a.cos() * distance).round() as i64,
+                    (-a.sin() * distance).round() as i64,
+                );
                 let mut alpha = alpha_plane(img);
                 if *inner {
                     alpha.iter_mut().for_each(|v| *v = 255.0 - *v);
                 }
-                let shifted = shift_plane(&alpha, img.width(), img.height(), dx, dy, if *inner { 255.0 } else { 0.0 });
+                let shifted = shift_plane(
+                    &alpha,
+                    img.width(),
+                    img.height(),
+                    dx,
+                    dy,
+                    if *inner { 255.0 } else { 0.0 },
+                );
                 let soft = blur_plane(&shifted, img.width(), img.height(), *softness * SOFTNESS_SIGMA);
                 if *inner {
                     paint_inside(img, &soft, *color);
@@ -233,7 +351,14 @@ impl Effect {
                 }
             }
             Effect::Bevel(b) => b.apply(img),
-            Effect::Glow { color, width, opacity, softness, offset, inner } => {
+            Effect::Glow {
+                color,
+                width,
+                opacity,
+                softness,
+                offset,
+                inner,
+            } => {
                 if *width <= 0.0 {
                     return;
                 }
@@ -244,7 +369,13 @@ impl Effect {
                 let dist = distance_to(&inside, w, h);
                 let band: Vec<f32> = dist
                     .iter()
-                    .map(|&d| if d > *offset && d <= offset + width { 255.0 } else { 0.0 })
+                    .map(|&d| {
+                        if d > *offset && d <= offset + width {
+                            255.0
+                        } else {
+                            0.0
+                        }
+                    })
                     .collect();
                 let mut soft = blur_plane(&band, w, h, *softness * SOFTNESS_SIGMA);
                 soft.iter_mut().for_each(|v| *v *= opacity.clamp(0.0, 1.0));
@@ -264,8 +395,15 @@ impl Effect {
             // The box-blur approximation reaches 3 sigma (Fireworks' kernel ~2.5).
             Effect::GaussianBlur { radius } => gaussian_sigma(*radius).map_or(0.0, |s| s * 3.0),
             Effect::MotionBlur { distance, .. } => *distance,
-            Effect::Shadow { distance, softness, .. } => distance + softness * 2.0,
-            Effect::Glow { width, softness, offset, .. } => width + offset + softness,
+            Effect::Shadow {
+                distance, softness, ..
+            } => distance + softness * 2.0,
+            Effect::Glow {
+                width,
+                softness,
+                offset,
+                ..
+            } => width + offset + softness,
             Effect::Bevel(b) => b.margin(),
             _ => 0.0,
         };
@@ -378,9 +516,18 @@ fn hue_saturation(c: [f32; 3], hue: f32, sat: f32, light: f32, colorize: bool) -
         // (1 + k) for negative k and towards 1 by (1 - x) * k for positive k (k = amount / 100).
         h = (h + hue / 360.0).rem_euclid(1.0);
         let k = sat.clamp(-100.0, 100.0) / 100.0;
-        s = if k >= 0.0 { s + (1.0 - s) * k } else { s * (1.0 + k) }.clamp(0.0, 1.0);
+        s = if k >= 0.0 {
+            s + (1.0 - s) * k
+        } else {
+            s * (1.0 + k)
+        }
+        .clamp(0.0, 1.0);
     }
-    l = if light >= 0.0 { l + (1.0 - l) * light / 100.0 } else { l * (1.0 + light / 100.0) };
+    l = if light >= 0.0 {
+        l + (1.0 - l) * light / 100.0
+    } else {
+        l * (1.0 + light / 100.0)
+    };
     hsl_to_rgb(h, s, l.clamp(0.0, 1.0))
 }
 
@@ -392,7 +539,11 @@ fn rgb_to_hsl(c: [f32; 3]) -> (f32, f32, f32) {
     if d <= 0.0 {
         return (0.0, 0.0, l);
     }
-    let s = if l <= 0.5 { d / (max + min) } else { d / (2.0 - max - min) };
+    let s = if l <= 0.5 {
+        d / (max + min)
+    } else {
+        d / (2.0 - max - min)
+    };
     let h = if max == r {
         ((g - b) / d).rem_euclid(6.0)
     } else if max == g {
@@ -433,7 +584,9 @@ fn shift_plane(a: &[f32], w: u32, h: u32, dx: i64, dy: i64, fill: f32) -> Vec<f3
         for x in 0..w {
             let (sx, sy) = (x - dx, y - dy);
             if sx >= 0 && sy >= 0 && sx < w && sy < h {
-                if let (Some(o), Some(&v)) = (out.get_mut((y * w + x) as usize), a.get((sy * w + sx) as usize)) {
+                if let (Some(o), Some(&v)) =
+                    (out.get_mut((y * w + x) as usize), a.get((sy * w + sx) as usize))
+                {
                     *o = v;
                 }
             }
@@ -492,7 +645,10 @@ fn paint_under(img: &mut RgbaImage, plane: &[f32], color: Rgba, knock_out: bool)
         let under = Rgba { a: sa, ..color };
         *p = if knock_out {
             // Only the shadow, cut out where the object is.
-            Rgba { a: (sa as u32 * (255 - p.a as u32) / 255) as u8, ..color }
+            Rgba {
+                a: (sa as u32 * (255 - p.a as u32) / 255) as u8,
+                ..color
+            }
         } else {
             under.over(*p, 255)
         };
@@ -516,9 +672,15 @@ fn blur_rgba(img: &mut RgbaImage, radius: f32) {
     // Blur premultiplied channels so transparent pixels don't darken edges.
     let px = img.pixels();
     let a: Vec<f32> = px.iter().map(|p| p.a as f32).collect();
-    let pm = |f: fn(&Rgba) -> u8| -> Vec<f32> { px.iter().map(|p| f(p) as f32 * p.a as f32 / 255.0).collect() };
+    let pm =
+        |f: fn(&Rgba) -> u8| -> Vec<f32> { px.iter().map(|p| f(p) as f32 * p.a as f32 / 255.0).collect() };
     let (r, g, b) = (pm(|p| p.r), pm(|p| p.g), pm(|p| p.b));
-    let (a, r, g, b) = (blur_plane(&a, w, h, radius), blur_plane(&r, w, h, radius), blur_plane(&g, w, h, radius), blur_plane(&b, w, h, radius));
+    let (a, r, g, b) = (
+        blur_plane(&a, w, h, radius),
+        blur_plane(&r, w, h, radius),
+        blur_plane(&g, w, h, radius),
+        blur_plane(&b, w, h, radius),
+    );
     write_premultiplied(img, &a, &r, &g, &b);
 }
 
@@ -530,7 +692,12 @@ fn write_premultiplied(img: &mut RgbaImage, a: &[f32], r: &[f32], g: &[f32], b: 
             continue;
         }
         let c = |v: Option<&f32>| (v.copied().unwrap_or(0.0) * 255.0 / al).round().clamp(0.0, 255.0) as u8;
-        *p = Rgba::new(c(r.get(i)), c(g.get(i)), c(b.get(i)), al.round().clamp(0.0, 255.0) as u8);
+        *p = Rgba::new(
+            c(r.get(i)),
+            c(g.get(i)),
+            c(b.get(i)),
+            al.round().clamp(0.0, 255.0) as u8,
+        );
     }
 }
 
@@ -547,7 +714,9 @@ fn motion_blur(img: &mut RgbaImage, distance: f32, angle: f32) {
             let mut acc = [0f32; 4];
             for s in 0..=steps {
                 let t = s as f32 - steps as f32 / 2.0;
-                let p = src.get(x + (ca * t).round() as i64, y + (sa * t).round() as i64).unwrap_or_default();
+                let p = src
+                    .get(x + (ca * t).round() as i64, y + (sa * t).round() as i64)
+                    .unwrap_or_default();
                 let a = p.a as f32;
                 acc[0] += p.r as f32 * a;
                 acc[1] += p.g as f32 * a;
@@ -558,7 +727,12 @@ fn motion_blur(img: &mut RgbaImage, distance: f32, angle: f32) {
             let out = if acc[3] <= 0.0 {
                 Rgba::TRANSPARENT
             } else {
-                Rgba::new((acc[0] / acc[3]) as u8, (acc[1] / acc[3]) as u8, (acc[2] / acc[3]) as u8, (acc[3] / n) as u8)
+                Rgba::new(
+                    (acc[0] / acc[3]) as u8,
+                    (acc[1] / acc[3]) as u8,
+                    (acc[2] / acc[3]) as u8,
+                    (acc[3] / n) as u8,
+                )
             };
             img.set(x, y, out);
         }
@@ -579,7 +753,12 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
             for k in 0..n {
                 let t = (k as f32 / (n - 1) as f32 - 0.5) * arc;
                 let (s, c) = t.sin_cos();
-                let p = src.get((cx + dx * c - dy * s).round() as i64, (cy + dx * s + dy * c).round() as i64).unwrap_or_default();
+                let p = src
+                    .get(
+                        (cx + dx * c - dy * s).round() as i64,
+                        (cy + dx * s + dy * c).round() as i64,
+                    )
+                    .unwrap_or_default();
                 let a = p.a as f32;
                 acc[0] += p.r as f32 * a;
                 acc[1] += p.g as f32 * a;
@@ -589,7 +768,12 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
             let out = if acc[3] <= 0.0 {
                 Rgba::TRANSPARENT
             } else {
-                Rgba::new((acc[0] / acc[3]) as u8, (acc[1] / acc[3]) as u8, (acc[2] / acc[3]) as u8, (acc[3] / n as f32) as u8)
+                Rgba::new(
+                    (acc[0] / acc[3]) as u8,
+                    (acc[1] / acc[3]) as u8,
+                    (acc[2] / acc[3]) as u8,
+                    (acc[3] / n as f32) as u8,
+                )
             };
             img.set(x, y, out);
         }
@@ -606,11 +790,17 @@ mod tests {
 
     #[test]
     fn parses_known_effects() {
-        let e = Effect::parse(&params(&[("EffectMoaID", GAUSSIAN), ("gaussian_blur_radius", "100")]), &HashMap::new());
+        let e = Effect::parse(
+            &params(&[("EffectMoaID", GAUSSIAN), ("gaussian_blur_radius", "100")]),
+            &HashMap::new(),
+        );
         assert_eq!(e, Some(Effect::GaussianBlur { radius: 100.0 }));
         assert_eq!(gaussian_sigma(100.0), gaussian_sigma(70.0));
         assert_eq!(gaussian_sigma(201.0), None);
-        let e = Effect::parse(&params(&[("EffectMoaID", BEVEL_GLOW), ("BevelType", "0")]), &HashMap::new());
+        let e = Effect::parse(
+            &params(&[("EffectMoaID", BEVEL_GLOW), ("BevelType", "0")]),
+            &HashMap::new(),
+        );
         assert!(matches!(e, Some(Effect::Bevel(_))));
         assert!(Effect::parse(&params(&[("name", "Invert")]), &HashMap::new()).is_some());
     }
@@ -624,13 +814,35 @@ mod tests {
             }
         }
         let mut s = img.clone();
-        Effect::Shadow { color: Rgba::new(0, 0, 0, 165), distance: 5.0, angle: 315.0, softness: 2.0, inner: false, knock_out: false }.apply(&mut s);
+        Effect::Shadow {
+            color: Rgba::new(0, 0, 0, 165),
+            distance: 5.0,
+            angle: 315.0,
+            softness: 2.0,
+            inner: false,
+            knock_out: false,
+        }
+        .apply(&mut s);
         assert!(s.get(28, 28).is_some_and(|p| p.a > 50), "shadow down-right");
         assert_eq!(s.get(20, 20), Some(Rgba::new(255, 0, 0, 255)), "object on top");
         let mut g = img.clone();
-        Effect::Glow { color: Rgba::WHITE, width: 4.0, opacity: 1.0, softness: 0.0, offset: 0.0, inner: false }.apply(&mut g);
-        assert!(g.get(12, 20).is_some_and(|p| p.a == 255 && p.r == 255 && p.g == 255));
-        assert!(g.get(10, 20).is_some_and(|p| p.a == 0), "width 4 stops at distance 4");
+        Effect::Glow {
+            color: Rgba::WHITE,
+            width: 4.0,
+            opacity: 1.0,
+            softness: 0.0,
+            offset: 0.0,
+            inner: false,
+        }
+        .apply(&mut g);
+        assert!(
+            g.get(12, 20)
+                .is_some_and(|p| p.a == 255 && p.r == 255 && p.g == 255)
+        );
+        assert!(
+            g.get(10, 20).is_some_and(|p| p.a == 0),
+            "width 4 stops at distance 4"
+        );
         // Measured corner rounding: diagonal distance 4*sqrt2 = 5.66 is outside a width-4 glow.
         assert!(g.get(11, 11).is_some_and(|p| p.a == 0));
     }
@@ -660,7 +872,13 @@ mod tests {
         ];
         for (input, [h, s, l], want) in cases {
             let mut img = RgbaImage::new(1, 1, Rgba::new(input[0], input[1], input[2], 255));
-            Effect::HueSaturation { hue: h, saturation: s, lightness: l, colorize: false }.apply(&mut img);
+            Effect::HueSaturation {
+                hue: h,
+                saturation: s,
+                lightness: l,
+                colorize: false,
+            }
+            .apply(&mut img);
             let p = img.get(0, 0).unwrap();
             let close = [p.r, p.g, p.b].iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
             assert!(close, "{input:?} {h},{s},{l}: got {p:?}, want {want:?}");
@@ -670,7 +888,13 @@ mod tests {
     #[test]
     fn hue_shift_rotates_colour() {
         let mut img = RgbaImage::new(1, 1, Rgba::new(255, 0, 0, 255));
-        Effect::HueSaturation { hue: 120.0, saturation: 0.0, lightness: 0.0, colorize: false }.apply(&mut img);
+        Effect::HueSaturation {
+            hue: 120.0,
+            saturation: 0.0,
+            lightness: 0.0,
+            colorize: false,
+        }
+        .apply(&mut img);
         let p = img.get(0, 0).unwrap();
         assert!(p.g > 250 && p.r < 5, "{p:?}");
     }

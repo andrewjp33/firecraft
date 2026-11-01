@@ -14,10 +14,27 @@ fn walk(els: &[Element], depth: usize, out: &mut Vec<String>) {
             ElementKind::Other { .. } => "Other",
         };
         let fill = match &e.kind {
-            ElementKind::Path(p) => format!("{:?}", p.fill.as_ref().map(|f| (&f.category, f.color, f.gradient.as_ref().map(|g| (g.start, g.end, g.side, g.colors.len(), g.opacity.len()))))),
+            ElementKind::Path(p) => format!(
+                "{:?}",
+                p.fill.as_ref().map(|f| (
+                    &f.category,
+                    f.color,
+                    f.gradient
+                        .as_ref()
+                        .map(|g| (g.start, g.end, g.side, g.colors.len(), g.opacity.len()))
+                ))
+            ),
             _ => String::new(),
         };
-        out.push(format!("{}{kind} vis={} blend={:?} op={} b={:?} {fill}", "  ".repeat(depth), e.visible, e.blend, e.opacity, e.bounds().map(|b| (b.0.round(), b.1.round(), b.2.round(), b.3.round()))));
+        out.push(format!(
+            "{}{kind} vis={} blend={:?} op={} b={:?} {fill}",
+            "  ".repeat(depth),
+            e.visible,
+            e.blend,
+            e.opacity,
+            e.bounds()
+                .map(|b| (b.0.round(), b.1.round(), b.2.round(), b.3.round()))
+        ));
         match &e.kind {
             ElementKind::Group(c) => walk(c, depth + 1, out),
             ElementKind::Masked { content, mask, .. } => {
@@ -34,11 +51,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a = firecraft_io::open(&std::fs::read(&path)?, None)?;
     let b = firecraft_io::open(&firecraft_io::save_fireworks_png(&a)?, None)?;
     let (mut la, mut lb) = (Vec::new(), Vec::new());
-    for l in &a.layers { walk(l.elements(0), 0, &mut la); }
-    for l in &b.layers { walk(l.elements(0), 0, &mut lb); }
-    for (i, (x, y)) in la.iter().zip(&lb).enumerate() {
-        if x != y { println!("#{i}\n  before: {x}\n  after:  {y}"); }
+    for l in &a.layers {
+        walk(l.elements(0), 0, &mut la);
     }
-    println!("{} vs {} entries; render equal: {}", la.len(), lb.len(), a.render(0) == b.render(0));
+    for l in &b.layers {
+        walk(l.elements(0), 0, &mut lb);
+    }
+    for (i, (x, y)) in la.iter().zip(&lb).enumerate() {
+        if x != y {
+            println!("#{i}\n  before: {x}\n  after:  {y}");
+        }
+    }
+    println!(
+        "{} vs {} entries; render equal: {}",
+        la.len(),
+        lb.len(),
+        a.render(0) == b.render(0)
+    );
     Ok(())
 }

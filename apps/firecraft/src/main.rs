@@ -31,8 +31,14 @@ impl Platform for Desktop {
     }
 
     fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> Option<String> {
-        let name = std::path::Path::new(suggested).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let path = rfd::FileDialog::new().set_file_name(name).add_filter("Fireworks PNG", &["png"]).save_file()?;
+        let name = std::path::Path::new(suggested)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let path = rfd::FileDialog::new()
+            .set_file_name(name)
+            .add_filter("Fireworks PNG", &["png"])
+            .save_file()?;
         std::fs::write(&path, bytes).ok()?;
         Some(path.display().to_string())
     }
@@ -43,7 +49,6 @@ impl Platform for Desktop {
         std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, path).map_err(|e| e.to_string())
     }
-
 }
 
 struct App {
@@ -54,7 +59,10 @@ struct App {
 
 impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        storage.set_string(firecraft_ui_egui::Prefs::STORAGE_KEY, self.inner.prefs.serialize());
+        storage.set_string(
+            firecraft_ui_egui::Prefs::STORAGE_KEY,
+            self.inner.prefs.serialize(),
+        );
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -79,7 +87,9 @@ impl eframe::App for App {
 /// OpenGL (glow) renderer. Override with `WGPU_BACKEND=vulkan|gl|...` or `FIRECRAFT_RENDERER=glow`.
 fn native_options(renderer: eframe::Renderer) -> eframe::NativeOptions {
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("FireCraft").with_inner_size([1280.0, 860.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_title("FireCraft")
+            .with_inner_size([1280.0, 860.0]),
         renderer,
         ..Default::default()
     };
@@ -97,7 +107,10 @@ fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> 
         native_options(renderer),
         Box::new(move |cc| {
             let mut app = FireCraftApp::new(Box::new(Desktop));
-            if let Some(text) = cc.storage.and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY)) {
+            if let Some(text) = cc
+                .storage
+                .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))
+            {
                 app.prefs = firecraft_ui_egui::Prefs::parse(&text);
             }
             for f in files {
@@ -106,7 +119,11 @@ fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> 
                     Err(e) => log::warn!("{f}: {e}"),
                 }
             }
-            Ok(Box::new(App { inner: app, splash, frames: 0 }))
+            Ok(Box::new(App {
+                inner: app,
+                splash,
+                frames: 0,
+            }))
         }),
     )
 }
@@ -119,7 +136,9 @@ fn primary_adapters_are_software() -> bool {
     desc.backends = wgpu::Backends::PRIMARY;
     let instance = wgpu::Instance::new(desc);
     let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::PRIMARY));
-    adapters.iter().all(|a| a.get_info().device_type == wgpu::DeviceType::Cpu)
+    adapters
+        .iter()
+        .all(|a| a.get_info().device_type == wgpu::DeviceType::Cpu)
 }
 
 fn main() -> eframe::Result {
@@ -136,7 +155,9 @@ fn main() -> eframe::Result {
 }
 
 fn run_with_fallback(files: Vec<String>, splash: &SplashHandle) -> eframe::Result {
-    let forced = std::env::var("FIRECRAFT_RENDERER").ok().map(|v| v.to_ascii_lowercase());
+    let forced = std::env::var("FIRECRAFT_RENDERER")
+        .ok()
+        .map(|v| v.to_ascii_lowercase());
     let (first, second) = match forced.as_deref() {
         Some("glow" | "gl" | "opengl") => return run(eframe::Renderer::Glow, files, splash.clone()),
         Some("wgpu") => return run(eframe::Renderer::Wgpu, files, splash.clone()),
@@ -175,7 +196,10 @@ fn env_logger_init() {
             match &self.file {
                 Some(f) => {
                     use std::io::Write;
-                    let _ = f.lock().unwrap_or_else(PoisonError::into_inner).write_all(line.as_bytes());
+                    let _ = f
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .write_all(line.as_bytes());
                 }
                 None => eprint!("{line}"),
             }
@@ -184,7 +208,9 @@ fn env_logger_init() {
     }
     // A Windows GUI app has no console: log to a file instead.
     let file = if cfg!(windows) {
-        std::fs::File::create(std::env::temp_dir().join("firecraft.log")).ok().map(std::sync::Mutex::new)
+        std::fs::File::create(std::env::temp_dir().join("firecraft.log"))
+            .ok()
+            .map(std::sync::Mutex::new)
     } else {
         None
     };

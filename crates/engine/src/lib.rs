@@ -6,10 +6,12 @@
 mod history;
 mod tools;
 
-pub use history::{History, DEFAULT_UNDO_STEPS, MAX_UNDO_STEPS};
+pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use tools::{Tool, ToolOptions};
 
-use firecraft_doc::{Bitmap, BezierPoint, Contour, Document, Element, ElementKind, Fill, Layer, Path, Stroke};
+use firecraft_doc::{
+    BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Layer, Path, Stroke,
+};
 use firecraft_raster::mask::Combine;
 use firecraft_raster::nine::{self, Insets};
 use firecraft_raster::wand::magic_wand;
@@ -71,7 +73,11 @@ impl DocState {
 
     fn element_mut(&mut self, r: ElementRef) -> Option<&mut Element> {
         let f = self.frame();
-        self.doc.layers.get_mut(r.layer)?.elements_mut(f)?.get_mut(r.index)
+        self.doc
+            .layers
+            .get_mut(r.layer)?
+            .elements_mut(f)?
+            .get_mut(r.index)
     }
 
     /// Record an undo step, then apply `f`.
@@ -101,39 +107,103 @@ impl DocState {
     }
 
     fn after_history(&mut self) {
-        self.selection.retain(|r| self.doc.layers.get(r.layer).is_some_and(|l| r.index < l.elements(self.doc.current_frame).len()));
+        self.selection.retain(|r| {
+            self.doc
+                .layers
+                .get(r.layer)
+                .is_some_and(|l| r.index < l.elements(self.doc.current_frame).len())
+        });
         self.pixels = None;
         self.touch();
     }
 
     /// Topmost visible element containing canvas point (`x`, `y`), searching layers top-down.
     pub fn hit_test(&self, x: f64, y: f64) -> Option<ElementRef> {
+        self.hits_at(x, y).into_iter().next()
+    }
+
+    /// Every visible object drawn at canvas point (`x`, `y`), topmost first. Objects are hit on
+    /// their own pixels (within 2 px for thin strokes), not their bounding boxes, as in
+    /// Fireworks; hidden objects and locked or hidden layers are skipped.
+    pub fn hits_at(&self, x: f64, y: f64) -> Vec<ElementRef> {
+        const TOL: i64 = 2;
+        let (px, py) = (x.floor() as i64, y.floor() as i64);
+        let ctx = firecraft_doc::RenderCtx {
+            symbols: &self.doc.symbols,
+            frame: self.frame(),
+            depth: 0,
+            math: self.doc.color_math,
+        };
+        let mut out = Vec::new();
         for (li, layer) in self.doc.layers.iter().enumerate().rev() {
-            if !layer.visible || layer.locked {
+            if !layer.visible_in(self.frame()) || layer.locked {
                 continue;
             }
             for (ei, el) in layer.elements(self.frame()).iter().enumerate().rev() {
-                if let Some((bx, by, bw, bh)) = el.bounds() {
-                    if x >= bx && y >= by && x < bx + bw.max(1.0) && y < by + bh.max(1.0) {
-                        if let ElementKind::Bitmap(b) = &el.kind {
-                            // Bitmaps are hit only on non-transparent pixels, as in Fireworks.
-                            let p = b.image.get((x - bx).floor() as i64, (y - by).floor() as i64);
-                            if p.is_none_or(|p| p.a == 0) {
-                                continue;
-                            }
-                        }
-                        return Some(ElementRef { layer: li, index: ei });
+                if !el.visible {
+                    continue;
+                }
+                let near = el.deep_bounds(&ctx).is_some_and(|(bx, by, bw, bh)| {
+                    let t = TOL as f64;
+                    x >= bx - t && y >= by - t && x < bx + bw.max(1.0) + t && y < by + bh.max(1.0) + t
+                });
+                if !near {
+                    continue;
+                }
+                let hit = match &el.kind {
+                    // Bitmaps: the pixel under the pointer.
+                    ElementKind::Bitmap(b) => b.image.get(px - b.x, py - b.y).is_some_and(|p| p.a > 0),
+                    // Everything else: render the object alone around the point.
+                    _ => {
+                        let n = (2 * TOL + 1) as u32;
+                        let mut probe = firecraft_raster::RgbaImage::new(n, n, Rgba::TRANSPARENT);
+                        let mut solo = el.clone();
+                        solo.opacity = 100.0;
+                        solo.blend = firecraft_raster::BlendMode::Normal;
+                        solo.render_onto(&mut probe, px - TOL, py - TOL, &ctx);
+                        probe.pixels().iter().any(|p| p.a > 0)
                     }
+                };
+                if hit {
+                    out.push(ElementRef { layer: li, index: ei });
                 }
             }
         }
-        None
+        out
+    }
+
+    /// Select Behind: select the object below the currently selected one at this point (the
+    /// topmost if the selection isn't under the point), wrapping around.
+    pub fn select_behind(&mut self, x: f64, y: f64) {
+        let hits = self.hits_at(x, y);
+        let next = match self.selection.as_slice() {
+            [one] => hits
+                .iter()
+                .position(|h| h == one)
+                .map_or(0, |k| (k + 1) % hits.len().max(1)),
+            _ => 0,
+        };
+        match hits.get(next) {
+            Some(&h) => {
+                self.selection = vec![h];
+                self.pixels = None;
+            }
+            None => self.deselect(),
+        }
+    }
+
+    /// Whether canvas point (`x`, `y`) is inside the selection's bounding box (pressing there
+    /// with the Pointer drags the selection, even where another object lies on top).
+    pub fn selection_contains(&self, x: f64, y: f64) -> bool {
+        self.selection_bounds()
+            .is_some_and(|(bx, by, bw, bh)| x >= bx && y >= by && x < bx + bw && y < by + bh)
     }
 
     /// The bitmap a pixel tool acts on at canvas point: the selected bitmap if any, else the
     /// topmost bitmap under the point.
     pub fn pixel_target(&self, x: f64, y: f64) -> Option<ElementRef> {
-        let is_bitmap = |r: &ElementRef| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Bitmap(_)));
+        let is_bitmap =
+            |r: &ElementRef| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Bitmap(_)));
         if let Some(r) = self.selection.iter().find(|r| is_bitmap(r)) {
             return Some(*r);
         }
@@ -183,8 +253,12 @@ impl DocState {
 
     /// Magic wand click at canvas point.
     pub fn magic_wand(&mut self, x: f64, y: f64, opts: &ToolOptions, combine: Combine) {
-        let Some(target) = self.pixel_target(x, y) else { return };
-        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else { return };
+        let Some(target) = self.pixel_target(x, y) else {
+            return;
+        };
+        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
+            return;
+        };
         let (px, py) = ((x - b.x as f64).floor() as i64, (y - b.y as f64).floor() as i64);
         let mask = magic_wand(&b.image, px, py, opts.wand());
         self.combine_pixels(target, mask, combine);
@@ -192,11 +266,21 @@ impl DocState {
 
     /// Rectangular or elliptical marquee in canvas coordinates.
     pub fn marquee(&mut self, rect: (f64, f64, f64, f64), oval: bool, opts: &ToolOptions, combine: Combine) {
-        let (x0, y0, x1, y1) = (rect.0.min(rect.2), rect.1.min(rect.3), rect.0.max(rect.2), rect.1.max(rect.3));
-        let Some(target) = self.pixel_target((x0 + x1) / 2.0, (y0 + y1) / 2.0).or_else(|| self.pixel_target(x0, y0)) else {
+        let (x0, y0, x1, y1) = (
+            rect.0.min(rect.2),
+            rect.1.min(rect.3),
+            rect.0.max(rect.2),
+            rect.1.max(rect.3),
+        );
+        let Some(target) = self
+            .pixel_target((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+            .or_else(|| self.pixel_target(x0, y0))
+        else {
             return;
         };
-        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else { return };
+        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
+            return;
+        };
         let mut mask = Mask::new(b.image.width(), b.image.height());
         let (ox, oy) = (b.x as f64, b.y as f64);
         let (cx, cy, rx, ry) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0);
@@ -228,7 +312,9 @@ impl DocState {
 
     fn combine_pixels(&mut self, target: ElementRef, mask: Mask, combine: Combine) {
         match &mut self.pixels {
-            Some(sel) if sel.target == target && combine != Combine::Replace => sel.mask.combine(&mask, combine),
+            Some(sel) if sel.target == target && combine != Combine::Replace => {
+                sel.mask.combine(&mask, combine)
+            }
             _ => self.pixels = Some(PixelSelection { target, mask }),
         }
         if self.pixels.as_ref().is_some_and(|p| p.mask.is_empty()) {
@@ -241,7 +327,11 @@ impl DocState {
     pub fn delete(&mut self) {
         if let Some(sel) = self.pixels.clone() {
             self.edit("Delete Pixels", |s| {
-                if let Some(Element { kind: ElementKind::Bitmap(b), .. }) = s.element_mut(sel.target) {
+                if let Some(Element {
+                    kind: ElementKind::Bitmap(b),
+                    ..
+                }) = s.element_mut(sel.target)
+                {
                     b.image.clear_masked(&sel.mask);
                 }
             });
@@ -269,24 +359,48 @@ impl DocState {
     /// become a new bitmap object above the source.
     pub fn bitmap_via(&mut self, cut: bool) {
         let Some(sel) = self.pixels.clone() else { return };
-        let Some(Element { kind: ElementKind::Bitmap(src), .. }) = self.element(sel.target) else { return };
-        let Some((bx, by, bw, bh)) = sel.mask.bounds() else { return };
+        let Some(Element {
+            kind: ElementKind::Bitmap(src),
+            ..
+        }) = self.element(sel.target)
+        else {
+            return;
+        };
+        let Some((bx, by, bw, bh)) = sel.mask.bounds() else {
+            return;
+        };
         let full = src.image.extract_masked(&sel.mask);
         let mut piece = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
         piece.draw(&full, -(bx as i64), -(by as i64), 255);
-        let new = Element::new(ElementKind::Bitmap(Bitmap { x: src.x + bx as i64, y: src.y + by as i64, image: piece }));
+        let new = Element::new(ElementKind::Bitmap(Bitmap {
+            x: src.x + bx as i64,
+            y: src.y + by as i64,
+            image: piece,
+        }));
         let label = if cut { "Bitmap via Cut" } else { "Bitmap via Copy" };
         self.edit(label, |s| {
             if cut {
-                if let Some(Element { kind: ElementKind::Bitmap(b), .. }) = s.element_mut(sel.target) {
+                if let Some(Element {
+                    kind: ElementKind::Bitmap(b),
+                    ..
+                }) = s.element_mut(sel.target)
+                {
                     b.image.clear_masked(&sel.mask);
                 }
             }
             let f = s.frame();
-            if let Some(cell) = s.doc.layers.get_mut(sel.target.layer).and_then(|l| l.elements_mut(f)) {
+            if let Some(cell) = s
+                .doc
+                .layers
+                .get_mut(sel.target.layer)
+                .and_then(|l| l.elements_mut(f))
+            {
                 let at = (sel.target.index + 1).min(cell.len());
                 cell.insert(at, new);
-                s.selection = vec![ElementRef { layer: sel.target.layer, index: at }];
+                s.selection = vec![ElementRef {
+                    layer: sel.target.layer,
+                    index: at,
+                }];
             }
             s.pixels = None;
         });
@@ -309,7 +423,12 @@ impl DocState {
 
     /// Add a rectangle or ellipse path from a drag rectangle, using the tool's fill and stroke.
     pub fn add_shape(&mut self, rect: (f64, f64, f64, f64), ellipse: bool, opts: &ToolOptions) {
-        let (x0, y0, x1, y1) = (rect.0.min(rect.2), rect.1.min(rect.3), rect.0.max(rect.2), rect.1.max(rect.3));
+        let (x0, y0, x1, y1) = (
+            rect.0.min(rect.2),
+            rect.1.min(rect.3),
+            rect.0.max(rect.2),
+            rect.1.max(rect.3),
+        );
         if x1 - x0 < 1.0 || y1 - y0 < 1.0 {
             return;
         }
@@ -318,17 +437,47 @@ impl DocState {
             let (cx, cy, rx, ry) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0);
             let k = 0.552_284_75;
             vec![
-                BezierPoint { x: cx, y: y0, pred: (-rx * k, 0.0), succ: (rx * k, 0.0) },
-                BezierPoint { x: x1, y: cy, pred: (0.0, -ry * k), succ: (0.0, ry * k) },
-                BezierPoint { x: cx, y: y1, pred: (rx * k, 0.0), succ: (-rx * k, 0.0) },
-                BezierPoint { x: x0, y: cy, pred: (0.0, ry * k), succ: (0.0, -ry * k) },
+                BezierPoint {
+                    x: cx,
+                    y: y0,
+                    pred: (-rx * k, 0.0),
+                    succ: (rx * k, 0.0),
+                },
+                BezierPoint {
+                    x: x1,
+                    y: cy,
+                    pred: (0.0, -ry * k),
+                    succ: (0.0, ry * k),
+                },
+                BezierPoint {
+                    x: cx,
+                    y: y1,
+                    pred: (rx * k, 0.0),
+                    succ: (-rx * k, 0.0),
+                },
+                BezierPoint {
+                    x: x0,
+                    y: cy,
+                    pred: (0.0, ry * k),
+                    succ: (0.0, -ry * k),
+                },
             ]
         } else {
-            vec![BezierPoint::corner(x0, y0), BezierPoint::corner(x1, y0), BezierPoint::corner(x1, y1), BezierPoint::corner(x0, y1)]
+            vec![
+                BezierPoint::corner(x0, y0),
+                BezierPoint::corner(x1, y0),
+                BezierPoint::corner(x1, y1),
+                BezierPoint::corner(x0, y1),
+            ]
         };
         let path = Path {
             contours: vec![Contour { points, closed: true }],
-            fill: opts.fill.map(|color| Fill { color, category: "fc_Solid".into(), anti_alias: true, gradient: None }),
+            fill: opts.fill.map(|color| Fill {
+                color,
+                category: "fc_Solid".into(),
+                anti_alias: true,
+                gradient: None,
+            }),
             stroke: opts.stroke.map(|color| Stroke {
                 color,
                 category: "bc_Pencil".into(),
@@ -337,13 +486,19 @@ impl DocState {
                 softness: 0,
             }),
         };
-        self.add_element(Element::new(ElementKind::Path(path)), if ellipse { "Ellipse" } else { "Rectangle" });
+        self.add_element(
+            Element::new(ElementKind::Path(path)),
+            if ellipse { "Ellipse" } else { "Rectangle" },
+        );
     }
 
     /// Add a straight line path.
     pub fn add_line(&mut self, a: (f64, f64), b: (f64, f64), opts: &ToolOptions) {
         let path = Path {
-            contours: vec![Contour { points: vec![BezierPoint::corner(a.0, a.1), BezierPoint::corner(b.0, b.1)], closed: false }],
+            contours: vec![Contour {
+                points: vec![BezierPoint::corner(a.0, a.1), BezierPoint::corner(b.0, b.1)],
+                closed: false,
+            }],
             fill: None,
             stroke: Some(Stroke {
                 color: opts.stroke.unwrap_or(Rgba::BLACK),
@@ -363,7 +518,10 @@ impl DocState {
             let f = s.frame();
             if let Some(cell) = s.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) {
                 cell.push(el);
-                s.selection = vec![ElementRef { layer, index: cell.len() - 1 }];
+                s.selection = vec![ElementRef {
+                    layer,
+                    index: cell.len() - 1,
+                }];
             }
             s.pixels = None;
         });
@@ -384,7 +542,13 @@ impl DocState {
 
     pub fn new_layer(&mut self) {
         let n = self.doc.layers.iter().filter(|l| !l.web).count() + 1;
-        let at = self.doc.layers.iter().position(|l| l.web).unwrap_or(self.doc.layers.len()).min(self.doc.current_layer + 1);
+        let at = self
+            .doc
+            .layers
+            .iter()
+            .position(|l| l.web)
+            .unwrap_or(self.doc.layers.len())
+            .min(self.doc.current_layer + 1);
         let frames = self.doc.frames.len();
         self.edit("New Layer", |s| {
             let mut l = Layer::new(format!("Layer {n}"));
@@ -395,7 +559,9 @@ impl DocState {
     }
 
     pub fn delete_layer(&mut self, i: usize) {
-        if self.doc.layers.get(i).is_none_or(|l| l.web) || self.doc.layers.iter().filter(|l| !l.web).count() <= 1 {
+        if self.doc.layers.get(i).is_none_or(|l| l.web)
+            || self.doc.layers.iter().filter(|l| !l.web).count() <= 1
+        {
             return;
         }
         self.edit("Delete Layer", |s| {
@@ -407,7 +573,11 @@ impl DocState {
 
     /// Union of the selected objects' bounds (x, y, w, h).
     pub fn selection_bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        let bs: Vec<_> = self.selection.iter().filter_map(|r| self.element(*r)?.bounds()).collect();
+        let bs: Vec<_> = self
+            .selection
+            .iter()
+            .filter_map(|r| self.element(*r)?.bounds())
+            .collect();
         if bs.is_empty() {
             return None;
         }
@@ -422,7 +592,9 @@ impl DocState {
     /// bounds to `to` keeping the four guide insets fixed. The result is ordinary objects, so the
     /// document stays Fireworks MX compatible.
     pub fn nine_slice_scale(&mut self, to: (f64, f64, f64, f64), insets: Insets) {
-        let Some(from) = self.selection_bounds() else { return };
+        let Some(from) = self.selection_bounds() else {
+            return;
+        };
         if to.2 < 1.0 || to.3 < 1.0 || to.2 > 32_000.0 || to.3 > 32_000.0 {
             return;
         }
@@ -566,7 +738,9 @@ mod tests {
         d.bitmap_via(true);
         let els = d.doc.layers[0].elements(0);
         assert_eq!(els.len(), 2);
-        let ElementKind::Bitmap(b) = &els[1].kind else { panic!() };
+        let ElementKind::Bitmap(b) = &els[1].kind else {
+            panic!()
+        };
         assert_eq!((b.x, b.y), (19, 19));
         // The composite is unchanged by a cut-to-new-object.
         assert_eq!(d.doc.render(0).get(50, 50), Some(Rgba::new(255, 0, 0, 255)));
@@ -577,9 +751,20 @@ mod tests {
         let mut d = DocState::new(Document::new(300, 200, 72.0, Some(Rgba::WHITE)));
         d.add_shape((10.0, 10.0, 70.0, 40.0), true, &ToolOptions::default());
         let before = d.selection_bounds().unwrap();
-        d.nine_slice_scale((10.0, 10.0, 200.0, 30.0), Insets { left: 20.0, right: 20.0, top: 10.0, bottom: 10.0 });
+        d.nine_slice_scale(
+            (10.0, 10.0, 200.0, 30.0),
+            Insets {
+                left: 20.0,
+                right: 20.0,
+                top: 10.0,
+                bottom: 10.0,
+            },
+        );
         let after = d.selection_bounds().unwrap();
-        assert!((after.2 - 200.0).abs() < 1.0 && (after.3 - 30.0).abs() < 1.0, "{before:?} -> {after:?}");
+        assert!(
+            (after.2 - 200.0).abs() < 1.0 && (after.3 - 30.0).abs() < 1.0,
+            "{before:?} -> {after:?}"
+        );
         d.undo();
         assert_eq!(d.selection_bounds(), Some(before));
     }
@@ -589,7 +774,11 @@ mod tests {
         let mut d = DocState::new(Document::new(100, 100, 72.0, Some(Rgba::WHITE)));
         d.history.set_limit(10);
         for i in 0..15 {
-            d.add_shape((i as f64, 0.0, i as f64 + 5.0, 5.0), false, &ToolOptions::default());
+            d.add_shape(
+                (i as f64, 0.0, i as f64 + 5.0, 5.0),
+                false,
+                &ToolOptions::default(),
+            );
         }
         assert_eq!(d.history.labels().count(), 10);
         let count = |d: &DocState| d.doc.layers[0].elements(0).len();
@@ -615,5 +804,47 @@ mod tests {
         assert!(d.hit_test(130.0, 20.0).is_some());
         d.delete();
         assert!(d.doc.layers[0].elements(0).is_empty());
+    }
+
+    /// Two overlapping objects: a canvas-sized bitmap that is transparent except a corner, over
+    /// a small opaque square. Clicks hit pixels, not bounding boxes; Select Behind cycles.
+    #[test]
+    fn hits_by_pixels_and_select_behind_cycles() {
+        let mut doc = Document::new(100, 100, 72.0, Some(Rgba::WHITE));
+        let mut square = RgbaImage::new(20, 20, Rgba::new(255, 0, 0, 255));
+        square.set(0, 0, Rgba::new(255, 0, 0, 255));
+        let mut overlay = RgbaImage::new(100, 100, Rgba::TRANSPARENT);
+        overlay.set(5, 5, Rgba::new(0, 0, 255, 255));
+        for (img, x, y) in [(square, 40, 40), (overlay, 0, 0)] {
+            doc.layers[0]
+                .elements_mut(0)
+                .unwrap()
+                .push(Element::new(ElementKind::Bitmap(firecraft_doc::Bitmap {
+                    x,
+                    y,
+                    image: img,
+                })));
+        }
+        let mut d = DocState::new(doc);
+        // Inside the overlay's box but on its transparent part: the square underneath.
+        assert_eq!(d.hit_test(45.0, 45.0), Some(ElementRef { layer: 0, index: 0 }));
+        assert_eq!(d.hit_test(5.0, 5.0), Some(ElementRef { layer: 0, index: 1 }));
+        assert_eq!(d.hit_test(80.0, 80.0), None);
+        // A hidden object is never hit.
+        d.doc.layers[0].elements_mut(0).unwrap()[0].visible = false;
+        assert_eq!(d.hit_test(45.0, 45.0), None);
+        d.doc.layers[0].elements_mut(0).unwrap()[0].visible = true;
+        // Make the overlay cover the square's spot too, then cycle with Select Behind.
+        if let ElementKind::Bitmap(b) = &mut d.doc.layers[0].elements_mut(0).unwrap()[1].kind {
+            b.image.set(45, 45, Rgba::new(0, 0, 255, 255));
+        }
+        assert_eq!(d.hits_at(45.0, 45.0).len(), 2);
+        d.select_behind(45.0, 45.0);
+        assert_eq!(d.selection, vec![ElementRef { layer: 0, index: 1 }]);
+        d.select_behind(45.0, 45.0);
+        assert_eq!(d.selection, vec![ElementRef { layer: 0, index: 0 }]);
+        d.select_behind(45.0, 45.0);
+        assert_eq!(d.selection, vec![ElementRef { layer: 0, index: 1 }]);
+        assert!(d.selection_contains(50.0, 50.0));
     }
 }

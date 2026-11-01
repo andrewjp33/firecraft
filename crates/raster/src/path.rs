@@ -38,7 +38,12 @@ pub fn fill_polygons(img: &mut RgbaImage, polys: &[Vec<Pt>], color: Rgba, aa: bo
 
 /// Like [`fill_polygons`], with a per-pixel colour (`shade(x, y)` at the pixel centre), used for
 /// gradient fills.
-pub fn fill_polygons_with(img: &mut RgbaImage, polys: &[Vec<Pt>], aa: bool, shade: &dyn Fn(f64, f64) -> Rgba) {
+pub fn fill_polygons_with(
+    img: &mut RgbaImage,
+    polys: &[Vec<Pt>],
+    aa: bool,
+    shade: &dyn Fn(f64, f64) -> Rgba,
+) {
     let pts = polys.iter().flatten();
     let (mut minx, mut miny, mut maxx, mut maxy) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for &(x, y) in pts {
@@ -69,7 +74,9 @@ pub fn fill_polygons_with(img: &mut RgbaImage, polys: &[Vec<Pt>], aa: bool, shad
             for poly in polys {
                 let n = poly.len();
                 for i in 0..n {
-                    let (Some(&a), Some(&b)) = (poly.get(i), poly.get((i + 1) % n)) else { continue };
+                    let (Some(&a), Some(&b)) = (poly.get(i), poly.get((i + 1) % n)) else {
+                        continue;
+                    };
                     if (a.1 <= y && b.1 > y) || (b.1 <= y && a.1 > y) {
                         xs.push(a.0 + (y - a.1) / (b.1 - a.1) * (b.0 - a.0));
                     }
@@ -124,8 +131,14 @@ pub fn stamp_stroke(img: &mut RgbaImage, line: &[Pt], color: Rgba, diameter: f64
     }
     let soft = softness.min(100) as f64 / 100.0;
     for (cx, cy) in dabs {
-        let (xa, xb) = (((cx - r - 1.0).floor() as i64).max(0), ((cx + r + 1.0).ceil() as i64).min(w));
-        let (ya, yb) = (((cy - r - 1.0).floor() as i64).max(0), ((cy + r + 1.0).ceil() as i64).min(h));
+        let (xa, xb) = (
+            ((cx - r - 1.0).floor() as i64).max(0),
+            ((cx + r + 1.0).ceil() as i64).min(w),
+        );
+        let (ya, yb) = (
+            ((cy - r - 1.0).floor() as i64).max(0),
+            ((cy + r + 1.0).ceil() as i64).min(h),
+        );
         for y in ya..yb {
             for x in xa..xb {
                 let d = dist((x as f64 + 0.5, y as f64 + 0.5), (cx, cy));
@@ -170,7 +183,12 @@ mod tests {
     #[test]
     fn half_pixel_edge_is_antialiased() {
         let mut img = RgbaImage::new(4, 4, Rgba::WHITE);
-        fill_polygons(&mut img, &[vec![(0.0, 0.0), (1.5, 0.0), (1.5, 4.0), (0.0, 4.0)]], Rgba::BLACK, true);
+        fill_polygons(
+            &mut img,
+            &[vec![(0.0, 0.0), (1.5, 0.0), (1.5, 4.0), (0.0, 4.0)]],
+            Rgba::BLACK,
+            true,
+        );
         let g = img.get(1, 1).unwrap().r;
         assert!((100..160).contains(&g), "{g}");
     }
@@ -178,7 +196,12 @@ mod tests {
     #[test]
     fn hostile_geometry_is_ignored() {
         let mut img = RgbaImage::new(4, 4, Rgba::WHITE);
-        fill_polygons(&mut img, &[vec![(f64::NAN, 0.0), (1.0, 1.0), (0.0, 1.0)]], Rgba::BLACK, true);
+        fill_polygons(
+            &mut img,
+            &[vec![(f64::NAN, 0.0), (1.0, 1.0), (0.0, 1.0)]],
+            Rgba::BLACK,
+            true,
+        );
         stamp_stroke(&mut img, &[(0.0, 0.0)], Rgba::BLACK, f64::NAN, 0);
         assert_eq!(img.get(0, 0), Some(Rgba::WHITE));
     }

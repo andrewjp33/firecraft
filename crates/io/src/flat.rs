@@ -15,14 +15,24 @@ pub fn decode_png(bytes: &[u8]) -> Result<RgbaImage> {
     if w as u64 * h as u64 > MAX_PIXELS {
         return Err(Error::Unsupported(format!("{w} x {h} image is too large")));
     }
-    let size = reader.output_buffer_size().ok_or_else(|| Error::Png("image too large".into()))?;
+    let size = reader
+        .output_buffer_size()
+        .ok_or_else(|| Error::Png("image too large".into()))?;
     let mut buf = vec![0; size];
-    let info = reader.next_frame(&mut buf).map_err(|e| Error::Png(e.to_string()))?;
+    let info = reader
+        .next_frame(&mut buf)
+        .map_err(|e| Error::Png(e.to_string()))?;
     let data = buf.get(..info.buffer_size()).unwrap_or_default();
     let rgba: Vec<u8> = match info.color_type {
         png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => data.chunks_exact(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => data.chunks_exact(2).flat_map(|c| [c[0], c[0], c[0], c[1]]).collect(),
+        png::ColorType::Rgb => data
+            .chunks_exact(3)
+            .flat_map(|c| [c[0], c[1], c[2], 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => data
+            .chunks_exact(2)
+            .flat_map(|c| [c[0], c[0], c[0], c[1]])
+            .collect(),
         png::ColorType::Grayscale => data.iter().flat_map(|&g| [g, g, g, 255]).collect(),
         png::ColorType::Indexed => return Err(Error::Png("unexpanded palette".into())),
     };
@@ -36,9 +46,17 @@ pub fn encode_png(img: &RgbaImage, ppi: f64) -> Result<Vec<u8>> {
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
         let ppm = (ppi.max(1.0) / 0.0254).round() as u32;
-        enc.set_pixel_dims(Some(png::PixelDimensions { xppu: ppm, yppu: ppm, unit: png::Unit::Meter }));
+        enc.set_pixel_dims(Some(png::PixelDimensions {
+            xppu: ppm,
+            yppu: ppm,
+            unit: png::Unit::Meter,
+        }));
         let mut w = enc.write_header().map_err(|e| Error::Png(e.to_string()))?;
-        let data = if img.width() == 0 || img.height() == 0 { vec![0; 4] } else { img.to_rgba_bytes() };
+        let data = if img.width() == 0 || img.height() == 0 {
+            vec![0; 4]
+        } else {
+            img.to_rgba_bytes()
+        };
         w.write_image_data(&data).map_err(|e| Error::Png(e.to_string()))?;
     }
     Ok(out)

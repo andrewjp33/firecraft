@@ -58,7 +58,10 @@ impl Dialogs {
 }
 
 fn dialog(title: &str) -> egui::Window<'_> {
-    egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
 }
 
 fn rgba_edit(ui: &mut egui::Ui, c: &mut Rgba) -> bool {
@@ -84,7 +87,11 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                 ui.add(DragValue::new(&mut dl.new_h).range(1..=32000).suffix(" Pixels"));
                 ui.end_row();
                 ui.label("Resolution:");
-                ui.add(DragValue::new(&mut dl.new_res).range(1.0..=5000.0).suffix(" Pixels/Inch"));
+                ui.add(
+                    DragValue::new(&mut dl.new_res)
+                        .range(1.0..=5000.0)
+                        .suffix(" Pixels/Inch"),
+                );
                 ui.end_row();
             });
             ui.separator();
@@ -105,7 +112,12 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             let canvas = match dl.new_canvas {
                 CanvasChoice::White => Some(Rgba::WHITE),
                 CanvasChoice::Transparent => None,
-                CanvasChoice::Custom => Some(Rgba::new(dl.new_custom[0], dl.new_custom[1], dl.new_custom[2], 255)),
+                CanvasChoice::Custom => Some(Rgba::new(
+                    dl.new_custom[0],
+                    dl.new_custom[1],
+                    dl.new_custom[2],
+                    255,
+                )),
             };
             let (w, h, r) = (dl.new_w, dl.new_h, dl.new_res);
             dl.new_doc = false;
@@ -242,11 +254,13 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
 /// Fireworks MX / High precision picker (Preferences and the document Property inspector).
 pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raster::ColorMath) -> bool {
     let mut changed = false;
-    egui::ComboBox::from_id_salt(id).selected_text(value.label()).show_ui(ui, |ui| {
-        for m in firecraft_raster::ColorMath::ALL {
-            changed |= ui.selectable_value(value, m, m.label()).changed();
-        }
-    });
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(value.label())
+        .show_ui(ui, |ui| {
+            for m in firecraft_raster::ColorMath::ALL {
+                changed |= ui.selectable_value(value, m, m.label()).changed();
+            }
+        });
     changed
 }
 

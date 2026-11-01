@@ -20,7 +20,11 @@ pub struct Mask {
 impl Mask {
     pub fn new(width: u32, height: u32) -> Self {
         let n = (width as u64 * height as u64).min(crate::image::MAX_PIXELS) as usize;
-        Self { width, height, data: vec![0; n] }
+        Self {
+            width,
+            height,
+            data: vec![0; n],
+        }
     }
 
     pub fn width(&self) -> u32 {
@@ -42,7 +46,9 @@ impl Mask {
     }
 
     pub fn get(&self, x: i64, y: i64) -> u8 {
-        self.index(x, y).and_then(|i| self.data.get(i).copied()).unwrap_or(0)
+        self.index(x, y)
+            .and_then(|i| self.data.get(i).copied())
+            .unwrap_or(0)
     }
 
     pub fn set(&mut self, x: i64, y: i64, v: u8) {

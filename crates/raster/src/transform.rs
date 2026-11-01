@@ -26,20 +26,48 @@ impl Default for Affine {
 }
 
 impl Affine {
-    pub const IDENTITY: Affine = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0, g: 0.0, h: 0.0, i: 1.0 };
+    pub const IDENTITY: Affine = Affine {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+        g: 0.0,
+        h: 0.0,
+        i: 1.0,
+    };
 
     pub fn translate(dx: f64, dy: f64) -> Self {
-        Affine { e: dx, f: dy, ..Self::IDENTITY }
+        Affine {
+            e: dx,
+            f: dy,
+            ..Self::IDENTITY
+        }
     }
 
     /// Row-major 3x3 (row-vector convention).
     fn rows(&self) -> [[f64; 3]; 3] {
-        [[self.a, self.b, self.g], [self.c, self.d, self.h], [self.e, self.f, self.i]]
+        [
+            [self.a, self.b, self.g],
+            [self.c, self.d, self.h],
+            [self.e, self.f, self.i],
+        ]
     }
 
     fn from_rows(m: [[f64; 3]; 3]) -> Self {
         let [[a, b, g], [c, d, h], [e, f, i]] = m;
-        Affine { a, b, c, d, e, f, g, h, i }
+        Affine {
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            g,
+            h,
+            i,
+        }
     }
 
     /// True when there is no perspective (the last column is 0, 0, i).
@@ -50,7 +78,10 @@ impl Affine {
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
         let w = self.g * x + self.h * y + self.i;
         let w = if w.abs() < 1e-12 { 1e-12_f64.copysign(w) } else { w };
-        ((self.a * x + self.c * y + self.e) / w, (self.b * x + self.d * y + self.f) / w)
+        (
+            (self.a * x + self.c * y + self.e) / w,
+            (self.b * x + self.d * y + self.f) / w,
+        )
     }
 
     /// `self` after `first`: apply(then(first)) = self.apply(first.apply(p)).
@@ -72,16 +103,29 @@ impl Affine {
 
     pub fn invert(&self) -> Option<Affine> {
         let m = self.rows();
-        let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
             + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
         if det.abs() < 1e-12 || !det.is_finite() {
             return None;
         }
         let cof = |r0: usize, r1: usize, c0: usize, c1: usize| m[r0][c0] * m[r1][c1] - m[r0][c1] * m[r1][c0];
         let inv = [
-            [cof(1, 2, 1, 2) / det, -cof(0, 2, 1, 2) / det, cof(0, 1, 1, 2) / det],
-            [-cof(1, 2, 0, 2) / det, cof(0, 2, 0, 2) / det, -cof(0, 1, 0, 2) / det],
-            [cof(1, 2, 0, 1) / det, -cof(0, 2, 0, 1) / det, cof(0, 1, 0, 1) / det],
+            [
+                cof(1, 2, 1, 2) / det,
+                -cof(0, 2, 1, 2) / det,
+                cof(0, 1, 1, 2) / det,
+            ],
+            [
+                -cof(1, 2, 0, 2) / det,
+                cof(0, 2, 0, 2) / det,
+                -cof(0, 1, 0, 2) / det,
+            ],
+            [
+                cof(1, 2, 0, 1) / det,
+                -cof(0, 2, 0, 1) / det,
+                cof(0, 1, 0, 1) / det,
+            ],
         ];
         Some(Self::from_rows(inv))
     }
@@ -93,7 +137,12 @@ impl Affine {
 
     /// Bounding box (x, y, w, h) of the transformed rectangle.
     pub fn map_rect(&self, x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
-        let pts = [self.apply(x, y), self.apply(x + w, y), self.apply(x, y + h), self.apply(x + w, y + h)];
+        let pts = [
+            self.apply(x, y),
+            self.apply(x + w, y),
+            self.apply(x, y + h),
+            self.apply(x + w, y + h),
+        ];
         let x0 = pts.iter().map(|p| p.0).fold(f64::MAX, f64::min);
         let y0 = pts.iter().map(|p| p.1).fold(f64::MAX, f64::min);
         let x1 = pts.iter().map(|p| p.0).fold(f64::MIN, f64::max);
@@ -136,9 +185,20 @@ pub fn sample(img: &RgbaImage, x: f64, y: f64) -> Rgba {
         return Rgba::TRANSPARENT;
     }
     let ch = |f: fn(&Rgba) -> u8| -> u8 {
-        (ps.iter().zip(w).map(|(p, w)| f(p) as f64 * p.a as f64 * w).sum::<f64>() / alpha).round().clamp(0.0, 255.0) as u8
+        (ps.iter()
+            .zip(w)
+            .map(|(p, w)| f(p) as f64 * p.a as f64 * w)
+            .sum::<f64>()
+            / alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8
     };
-    Rgba::new(ch(|p| p.r), ch(|p| p.g), ch(|p| p.b), alpha.round().clamp(0.0, 255.0) as u8)
+    Rgba::new(
+        ch(|p| p.r),
+        ch(|p| p.g),
+        ch(|p| p.b),
+        alpha.round().clamp(0.0, 255.0) as u8,
+    )
 }
 
 #[cfg(test)]
@@ -147,18 +207,40 @@ mod tests {
 
     #[test]
     fn compose_and_invert() {
-        let s = Affine { a: 2.0, d: 3.0, ..Affine::IDENTITY };
+        let s = Affine {
+            a: 2.0,
+            d: 3.0,
+            ..Affine::IDENTITY
+        };
         let t = Affine::translate(10.0, 5.0);
         let m = t.then(&s);
         assert_eq!(m.apply(1.0, 1.0), (12.0, 8.0));
         let back = m.invert().unwrap().apply(12.0, 8.0);
         assert!((back.0 - 1.0).abs() < 1e-9 && (back.1 - 1.0).abs() < 1e-9);
-        assert!(Affine { a: 0.0, d: 0.0, ..Affine::IDENTITY }.invert().is_none());
+        assert!(
+            Affine {
+                a: 0.0,
+                d: 0.0,
+                ..Affine::IDENTITY
+            }
+            .invert()
+            .is_none()
+        );
     }
 
     #[test]
     fn perspective_maps_and_inverts() {
-        let m = Affine { a: 1.1, b: 0.006, g: -1.1e-5, c: 0.063, d: 0.44, h: -0.0013, e: 127.7, f: 53.15, i: 0.83 };
+        let m = Affine {
+            a: 1.1,
+            b: 0.006,
+            g: -1.1e-5,
+            c: 0.063,
+            d: 0.44,
+            h: -0.0013,
+            e: 127.7,
+            f: 53.15,
+            i: 0.83,
+        };
         let (x, y) = m.apply(40.0, -25.0);
         let back = m.invert().unwrap().apply(x, y);
         assert!((back.0 - 40.0).abs() < 1e-9 && (back.1 + 25.0).abs() < 1e-9);
@@ -171,7 +253,17 @@ mod tests {
     #[test]
     fn scaling_an_image_doubles_it() {
         let img = RgbaImage::new(4, 4, Rgba::new(255, 0, 0, 255));
-        let (out, x, y) = transform_image(&img, 10, 10, &Affine { a: 2.0, d: 2.0, ..Affine::IDENTITY }).unwrap();
+        let (out, x, y) = transform_image(
+            &img,
+            10,
+            10,
+            &Affine {
+                a: 2.0,
+                d: 2.0,
+                ..Affine::IDENTITY
+            },
+        )
+        .unwrap();
         assert_eq!((x, y, out.width(), out.height()), (20, 20, 8, 8));
         assert_eq!(out.get(4, 4), Some(Rgba::new(255, 0, 0, 255)));
     }

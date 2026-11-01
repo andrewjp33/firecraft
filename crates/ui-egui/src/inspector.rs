@@ -1,12 +1,12 @@
 //! The Property inspector: one context-sensitive panel for the active tool, the selection or
 //! the document (Fireworks MX's signature panel).
 
-use egui::{vec2, Color32, ComboBox, DragValue, Rect, Sense, Slider};
+use egui::{Color32, ComboBox, DragValue, Rect, Sense, Slider, vec2};
 use firecraft_doc::ElementKind;
 use firecraft_engine::Tool;
 use firecraft_raster::{AntiAliasStyle, Edge};
 
-use crate::{icons, theme, tools_panel, FireCraftApp};
+use crate::{FireCraftApp, icons, theme, tools_panel};
 
 fn header(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut open = app.pi_open;
@@ -21,7 +21,12 @@ fn identity(ui: &mut egui::Ui, title: &str, tool: Option<Tool>, extra: impl FnOn
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
             if let Some(t) = tool {
-                icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(20.0, 20.0)), t, true);
+                icons::paint(
+                    ui.painter(),
+                    Rect::from_center_size(r.center(), vec2(20.0, 20.0)),
+                    t,
+                    true,
+                );
             }
             ui.label(egui::RichText::new(title).size(11.0));
         });
@@ -37,22 +42,28 @@ fn edge_combo(ui: &mut egui::Ui, id: &str, edge: &mut Edge) {
         Edge::Feather(_) => "Feather",
     };
     ui.label("Edge:");
-    ComboBox::from_id_salt(id).width(90.0).selected_text(label).show_ui(ui, |ui| {
-        let amount = match edge {
-            Edge::Feather(a) => *a,
-            _ => 10,
-        };
-        ui.selectable_value(edge, Edge::Hard, "Hard Edge");
-        ui.selectable_value(edge, Edge::AntiAlias, "Anti-alias");
-        ui.selectable_value(edge, Edge::Feather(amount), "Feather");
-    });
+    ComboBox::from_id_salt(id)
+        .width(90.0)
+        .selected_text(label)
+        .show_ui(ui, |ui| {
+            let amount = match edge {
+                Edge::Feather(a) => *a,
+                _ => 10,
+            };
+            ui.selectable_value(edge, Edge::Hard, "Hard Edge");
+            ui.selectable_value(edge, Edge::AntiAlias, "Anti-alias");
+            ui.selectable_value(edge, Edge::Feather(amount), "Feather");
+        });
     // The amount box is only live for Feather (grayed otherwise), exactly as in Fireworks MX.
     let mut amount = match edge {
         Edge::Feather(a) => *a,
         _ => 0,
     };
     let feather = matches!(edge, Edge::Feather(_));
-    if ui.add_enabled(feather, DragValue::new(&mut amount).range(0..=250)).changed() {
+    if ui
+        .add_enabled(feather, DragValue::new(&mut amount).range(0..=250))
+        .changed()
+    {
         *edge = Edge::Feather(amount);
     }
 }
@@ -70,7 +81,9 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             Tool::MagicWand => wand(app, ui),
             Tool::NineSlice => crate::nine::inspector(app, ui),
             Tool::Marquee | Tool::OvalMarquee | Tool::Lasso => marquee(app, ui, tool),
-            Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Pen if !has_selection => shape_tool(app, ui, tool),
+            Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Pen if !has_selection => {
+                shape_tool(app, ui, tool)
+            }
             Tool::Zoom | Tool::Hand => view_tool(ui, tool),
             _ if has_selection => object(app, ui),
             _ => document(app, ui),
@@ -113,11 +126,14 @@ fn marquee(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Style:");
-            ComboBox::from_id_salt("marquee_style").width(90.0).selected_text("Normal").show_ui(ui, |ui| {
-                let _ = ui.selectable_label(true, "Normal");
-                ui.add_enabled(false, egui::Button::new("Fixed Ratio"));
-                ui.add_enabled(false, egui::Button::new("Fixed Size"));
-            });
+            ComboBox::from_id_salt("marquee_style")
+                .width(90.0)
+                .selected_text("Normal")
+                .show_ui(ui, |ui| {
+                    let _ = ui.selectable_label(true, "Normal");
+                    ui.add_enabled(false, egui::Button::new("Fixed Ratio"));
+                    ui.add_enabled(false, egui::Button::new("Fixed Size"));
+                });
             edge_combo(ui, "marquee_edge", &mut o.marquee_edge);
         });
         ui.weak("Shift: add to selection   Alt: subtract   Shift+Alt: intersect");
@@ -153,7 +169,11 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
             ui.add(DragValue::new(&mut o.stroke_size).range(1..=100).suffix(" px"));
             ComboBox::from_id_salt("stroke_kind")
                 .width(110.0)
-                .selected_text(if o.stroke.is_some() { "1-Pixel Soft" } else { "None" })
+                .selected_text(if o.stroke.is_some() {
+                    "1-Pixel Soft"
+                } else {
+                    "None"
+                })
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(o.stroke.is_none(), "None").clicked() {
                         o.stroke = None;
@@ -232,34 +252,61 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             icons::glyph(ui, icons::Glyph::Opacity, 16.0);
-            if ui.add(DragValue::new(&mut opacity).range(0.0..=100.0).max_decimals(1).suffix("%")).changed() {
+            if ui
+                .add(
+                    DragValue::new(&mut opacity)
+                        .range(0.0..=100.0)
+                        .max_decimals(1)
+                        .suffix("%"),
+                )
+                .changed()
+            {
                 if let Some(d) = app.session.active_doc_mut() {
                     d.set_opacity(opacity);
                 }
             }
             let current = first.as_ref().map(|e| e.blend).unwrap_or_default();
             let mut chosen = None;
-            ComboBox::from_id_salt("blend").width(90.0).selected_text(current.label()).show_ui(ui, |ui| {
-                for m in firecraft_raster::BlendMode::ALL {
-                    if ui.selectable_label(m == current, m.label()).clicked() && m != current {
-                        chosen = Some(m);
+            ComboBox::from_id_salt("blend")
+                .width(90.0)
+                .selected_text(current.label())
+                .show_ui(ui, |ui| {
+                    for m in firecraft_raster::BlendMode::ALL {
+                        if ui.selectable_label(m == current, m.label()).clicked() && m != current {
+                            chosen = Some(m);
+                        }
                     }
-                }
-            });
+                });
             if let (Some(m), Some(d)) = (chosen, app.session.active_doc_mut()) {
                 d.set_blend(m);
             }
         });
         ui.horizontal(|ui| {
             ui.label("Effects:");
-            ui.add_enabled(false, egui::Button::new("+").small()).on_disabled_hover_text("Live Effects are on the roadmap");
+            ui.add_enabled(false, egui::Button::new("+").small())
+                .on_disabled_hover_text("Live Effects are on the roadmap");
         });
-        let has_effects = first.as_ref().and_then(|e| e.raw.as_ref()).and_then(|r| r.child("EFL")).is_some_and(|e| e.child("EPS").is_some_and(|p| !p.children.is_empty()));
+        let has_effects = first
+            .as_ref()
+            .and_then(|e| e.raw.as_ref())
+            .and_then(|r| r.child("EFL"))
+            .is_some_and(|e| e.child("EPS").is_some_and(|p| !p.children.is_empty()));
         let (r, _) = ui.allocate_exact_size(vec2(160.0, 40.0), Sense::hover());
         ui.painter().rect_filled(r, 0.0, Color32::WHITE);
-        ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            r,
+            0.0,
+            egui::Stroke::new(1.0, theme::BORDER),
+            egui::StrokeKind::Inside,
+        );
         if has_effects {
-            ui.painter().text(r.left_top() + vec2(4.0, 4.0), egui::Align2::LEFT_TOP, "(effects preserved)", egui::FontId::proportional(10.0), Color32::GRAY);
+            ui.painter().text(
+                r.left_top() + vec2(4.0, 4.0),
+                egui::Align2::LEFT_TOP,
+                "(effects preserved)",
+                egui::FontId::proportional(10.0),
+                Color32::GRAY,
+            );
         }
     });
 }

@@ -41,24 +41,34 @@ fn put(parent: &mut Node, node: Node) {
 /// Build the `mkTS` tree and the tiles it references.
 pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     let mut root = doc.raw.clone().unwrap_or_else(new_root);
-    let origin = (root.float_of("XLC").unwrap_or(0.0), root.float_of("YLC").unwrap_or(0.0));
+    let origin = (
+        root.float_of("XLC").unwrap_or(0.0),
+        root.float_of("YLC").unwrap_or(0.0),
+    );
     // New tile ids start above every id of the original file, so kept references stay unique.
     let start = doc.raw_tiles.keys().copied().max().unwrap_or(0).max(0x0100_0000) & !0xF;
-    let mut w = Writer { tiles: Vec::new(), next_id: start, origin, next_rnd: 0x0060_0000 };
+    let mut w = Writer {
+        tiles: Vec::new(),
+        next_id: start,
+        origin,
+        next_rnd: 0x0060_0000,
+    };
 
     put(&mut root, Node::int("FRC", doc.frames.len().max(1) as i64));
     put(&mut root, Node::float("WID", doc.width as f64));
     put(&mut root, Node::float("HIT", doc.height as f64));
     put(&mut root, Node::float("RES", doc.resolution));
     put(&mut root, Node::int("RSU", i64::from(doc.resolution_cm)));
-    put(&mut root, Node::int("BGC", to_argb(doc.canvas.unwrap_or(Rgba::CLEARED))));
+    put(
+        &mut root,
+        Node::int("BGC", to_argb(doc.canvas.unwrap_or(Rgba::CLEARED))),
+    );
     // FireCraft extension (Fireworks MX ignores unknown nodes): FCMi 1 = high-precision colour math.
     root.children.retain(|c| !c.is("FCM"));
     if doc.color_math == ColorMath::Precise {
         root.children.push(Node::int("FCM", 1));
     }
-    let layers =
-        doc.layers.iter().map(|l| write_layer(l, doc, &mut w)).collect();
+    let layers = doc.layers.iter().map(|l| write_layer(l, doc, &mut w)).collect();
     put(&mut root, Node::vector("LYL", layers));
     // Frame delays/export flags back into EXPv > FNLv (kept as read otherwise).
     if let Some(fnl) = root.child_mut("EXP").and_then(|e| e.child_mut("FNL")) {
@@ -92,7 +102,9 @@ fn collect_tile_refs(n: &Node, out: &mut Vec<u32>, depth: usize) {
         out.extend(n.as_u32());
     }
     if depth < firecraft_fwpng::tree::MAX_DEPTH {
-        n.children.iter().for_each(|c| collect_tile_refs(c, out, depth + 1));
+        n.children
+            .iter()
+            .for_each(|c| collect_tile_refs(c, out, depth + 1));
     }
 }
 
@@ -162,13 +174,29 @@ fn write_layer(layer: &Layer, doc: &Document, w: &mut Writer) -> Node {
     let cells = (0..cell_count)
         .map(|f| {
             // Top first on disk (see read_elements).
-            let elements = layer.elements(f).iter().rev().map(|e| write_element(e, w, 0)).collect();
-            Node::vector("CEL", vec![Node::bool("LCK", layer.locked), Node::vector("ELM", elements)])
+            let elements = layer
+                .elements(f)
+                .iter()
+                .rev()
+                .map(|e| write_element(e, w, 0))
+                .collect();
+            Node::vector(
+                "CEL",
+                vec![Node::bool("LCK", layer.locked), Node::vector("ELM", elements)],
+            )
         })
         .collect();
     put(&mut n, Node::vector("CLL", cells));
     let frames = doc.frames.len().max(1);
-    put(&mut n, Node::vector("VIF", (0..frames).map(|f| Node::bool("VIS", layer.visible_in(f))).collect()));
+    put(
+        &mut n,
+        Node::vector(
+            "VIF",
+            (0..frames)
+                .map(|f| Node::bool("VIS", layer.visible_in(f)))
+                .collect(),
+        ),
+    );
     n
 }
 
@@ -182,7 +210,17 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
                 .clone()
                 .filter(|r| r.is("GRP"))
                 .unwrap_or_else(|| Node::vector("GRP", vec![Node::int("GRT", 0)]));
-            put(&mut g, Node::vector("ELM", children.iter().rev().map(|c| write_element(c, w, depth + 1)).collect()));
+            put(
+                &mut g,
+                Node::vector(
+                    "ELM",
+                    children
+                        .iter()
+                        .rev()
+                        .map(|c| write_element(c, w, depth + 1))
+                        .collect(),
+                ),
+            );
             g
         }
         // Text and other elements are re-emitted as read. A text element created in FireCraft (no
@@ -198,14 +236,27 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             (None, None) => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
         },
         ElementKind::Group(_) => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
-        ElementKind::Masked { content, mask, mode, cache } if depth < 64 => {
-            let mut g = el.raw.clone().filter(|r| r.is("GRP")).unwrap_or_else(|| Node::vector("GRP", vec![]));
+        ElementKind::Masked {
+            content,
+            mask,
+            mode,
+            cache,
+        } if depth < 64 => {
+            let mut g = el
+                .raw
+                .clone()
+                .filter(|r| r.is("GRP"))
+                .unwrap_or_else(|| Node::vector("GRP", vec![]));
             put(&mut g, Node::bool("MNA", *mode != MaskMode::Alpha));
-            put(&mut g, Node::int("GRT", if *mode == MaskMode::PathOutline { 2 } else { 1 }));
+            put(
+                &mut g,
+                Node::int("GRT", if *mode == MaskMode::PathOutline { 2 } else { 1 }),
+            );
             let mut elm: Vec<Node> = Vec::new();
             // A bitmap mask (no cached render of a separate mask object) is stored inline as
             // the top ELMv child, without MRMv.
-            let inline = *mode == MaskMode::PathOutline || (cache.is_none() && matches!(mask.kind, ElementKind::Bitmap(_)));
+            let inline = *mode == MaskMode::PathOutline
+                || (cache.is_none() && matches!(mask.kind, ElementKind::Bitmap(_)));
             if inline {
                 let mut stored = (**mask).clone();
                 if let ElementKind::Bitmap(b) = &mut stored.kind {
@@ -222,13 +273,22 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             if inline {
                 g.children.retain(|c| !c.is("MRM"));
             } else {
-                put(&mut g, Node::vector("MRM", vec![write_element(mask, w, depth + 1)]));
+                put(
+                    &mut g,
+                    Node::vector("MRM", vec![write_element(mask, w, depth + 1)]),
+                );
             }
             g
         }
-        ElementKind::Masked { .. } => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
+        ElementKind::Masked { .. } => {
+            Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])])
+        }
         ElementKind::Instance { symbol, matrix, .. } => {
-            let mut n = el.raw.clone().filter(|r| r.is("ALS")).unwrap_or_else(|| Node::vector("ALS", vec![Node::int("MSN", *symbol as i64)]));
+            let mut n = el
+                .raw
+                .clone()
+                .filter(|r| r.is("ALS"))
+                .unwrap_or_else(|| Node::vector("ALS", vec![Node::int("MSN", *symbol as i64)]));
             let (ox, oy) = w.origin;
             let m = firecraft_raster::transform::Affine::translate(ox, oy).then(matrix);
             let mtx = Node::vector(
@@ -270,7 +330,10 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         n.children.retain(|c| !c.is("BLD"));
     }
     if el.opacity < 100.0 || n.child("OPA").is_some() {
-        put(&mut n, Node::int("OPA", (el.opacity.clamp(0.0, 100.0) * 10.0).round() as i64));
+        put(
+            &mut n,
+            Node::int("OPA", (el.opacity.clamp(0.0, 100.0) * 10.0).round() as i64),
+        );
     }
     n
 }
@@ -292,7 +355,9 @@ fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
             let mut data = vec![0u8; (IMAGE_TILE * IMAGE_TILE * 4) as usize];
             for y in 0..IMAGE_TILE {
                 for x in 0..IMAGE_TILE {
-                    let Some(p) = b.image.get((tx + x) as i64, (ty + y) as i64) else { continue };
+                    let Some(p) = b.image.get((tx + x) as i64, (ty + y) as i64) else {
+                        continue;
+                    };
                     let o = ((y * IMAGE_TILE + x) * 4) as usize;
                     if let Some(d) = data.get_mut(o..o + 4) {
                         d.copy_from_slice(&[p.a, p.r, p.g, p.b]);
@@ -327,24 +392,47 @@ fn contour_node(c: &Contour, origin: (f64, f64)) -> Node {
             Node::vector("PBT", kids)
         })
         .collect::<Vec<_>>();
-    let mut kids = vec![Node::bool("ISC", c.closed), Node::float("BSL", 0.0), Node::int("PPC", points.len() as i64)];
+    let mut kids = vec![
+        Node::bool("ISC", c.closed),
+        Node::float("BSL", 0.0),
+        Node::int("PPC", points.len() as i64),
+    ];
     kids.extend(points);
     Node::vector("PBP", kids)
 }
 
 fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut n = raw.cloned().unwrap_or_else(|| {
-        Node::vector("PTH", vec![Node::vector("PAT", vec![]), Node::int("BRP", 1), Node::int("PTT", 0), Node::bool("FOT", false)])
+        Node::vector(
+            "PTH",
+            vec![
+                Node::vector("PAT", vec![]),
+                Node::int("BRP", 1),
+                Node::int("PTT", 0),
+                Node::bool("FOT", false),
+            ],
+        )
     });
     if n.child("RND").is_none() {
         w.next_rnd += 1;
-        let at = n.children.iter().position(|c| c.is("FOT")).map(|i| i + 1).unwrap_or(n.children.len());
+        let at = n
+            .children
+            .iter()
+            .position(|c| c.is("FOT"))
+            .map(|i| i + 1)
+            .unwrap_or(n.children.len());
         n.children.insert(at, Node::int("RND", w.next_rnd));
     }
-    let pbl = Node::vector("PBL", p.contours.iter().map(|c| contour_node(c, w.origin)).collect());
+    let pbl = Node::vector(
+        "PBL",
+        p.contours.iter().map(|c| contour_node(c, w.origin)).collect(),
+    );
     // Geometry the original file had, rebuilt the same way: if unchanged, keep Fireworks' cached
     // stroke polyline (PCLv); otherwise drop it so it is recomputed.
-    let unchanged = raw.and_then(|r| r.child("PBL")).map(|old| same_geometry(old, &pbl)).unwrap_or(false);
+    let unchanged = raw
+        .and_then(|r| r.child("PBL"))
+        .map(|old| same_geometry(old, &pbl))
+        .unwrap_or(false);
     if !unchanged {
         n.children.retain(|c| !c.is("PCL"));
     }
@@ -386,7 +474,14 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
     // Gradient handles follow the object when it is moved or scaled.
     if let Some((s, e, f)) = gradient_handles {
         let (ox, oy) = w.origin;
-        for (tag, v) in [("PSX", s.0 + ox), ("PSY", s.1 + oy), ("PEX", e.0 + ox), ("PEY", e.1 + oy), ("PFX", f.0 + ox), ("PFY", f.1 + oy)] {
+        for (tag, v) in [
+            ("PSX", s.0 + ox),
+            ("PSY", s.1 + oy),
+            ("PEX", e.0 + ox),
+            ("PEY", e.1 + oy),
+            ("PFX", f.0 + ox),
+            ("PFY", f.1 + oy),
+        ] {
             put(&mut n, Node::float(tag, v));
         }
     }
@@ -475,9 +570,18 @@ mod tests {
         let path = Path {
             contours: vec![Contour {
                 closed: true,
-                points: vec![BezierPoint::corner(10.0, 10.0), BezierPoint::corner(60.0, 10.0), BezierPoint::corner(35.0, 50.0)],
+                points: vec![
+                    BezierPoint::corner(10.0, 10.0),
+                    BezierPoint::corner(60.0, 10.0),
+                    BezierPoint::corner(35.0, 50.0),
+                ],
             }],
-            fill: Some(Fill { color: Rgba::new(0, 102, 153, 255), category: "fc_Solid".into(), anti_alias: true, gradient: None }),
+            fill: Some(Fill {
+                color: Rgba::new(0, 102, 153, 255),
+                category: "fc_Solid".into(),
+                anti_alias: true,
+                gradient: None,
+            }),
             stroke: None,
         };
         doc.layers[0].cells[0].push(Element::new(ElementKind::Path(path)));
@@ -494,11 +598,16 @@ mod tests {
         assert!(back.layers[1].web);
         let els = back.layers[0].elements(0);
         assert_eq!(els.len(), 2);
-        let ElementKind::Bitmap(b) = &els[0].kind else { panic!("bitmap expected") };
-        assert_eq!(b.image, match &doc.layers[0].cells[0][0].kind {
-            ElementKind::Bitmap(o) => o.image.clone(),
-            _ => unreachable!(),
-        });
+        let ElementKind::Bitmap(b) = &els[0].kind else {
+            panic!("bitmap expected")
+        };
+        assert_eq!(
+            b.image,
+            match &doc.layers[0].cells[0][0].kind {
+                ElementKind::Bitmap(o) => o.image.clone(),
+                _ => unreachable!(),
+            }
+        );
         assert_eq!(back.render(0), doc.render(0));
         // A second save of the re-opened document is stable.
         let again = crate::save_fireworks_png(&back).unwrap();

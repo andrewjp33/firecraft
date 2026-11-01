@@ -54,7 +54,10 @@ pub fn read_chunks(bytes: &[u8]) -> Result<Vec<Chunk>> {
         if h.finalize() != crc {
             return Err(Error::BadCrc(String::from_utf8_lossy(&kind).into_owned()));
         }
-        chunks.push(Chunk { kind, data: data.to_vec() });
+        chunks.push(Chunk {
+            kind,
+            data: data.to_vec(),
+        });
         pos = end + 4;
         if &kind == b"IEND" {
             break;
@@ -90,7 +93,11 @@ mod crc32fast_like {
             let mut c = n as u32;
             let mut k = 0;
             while k < 8 {
-                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
                 k += 1;
             }
             t[n] = c;

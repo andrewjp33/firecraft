@@ -13,7 +13,7 @@
 
 pub mod element;
 
-pub use element::{Bitmap, BezierPoint, Contour, Element, ElementKind, Fill, MaskMode, Path, Stroke, Text};
+pub use element::{BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, Stroke, Text};
 use firecraft_fwpng::Node;
 use firecraft_raster::{ColorMath, Rgba, RgbaImage};
 
@@ -43,10 +43,18 @@ pub struct RenderCtx<'a> {
 }
 
 impl RenderCtx<'_> {
-    pub const EMPTY: RenderCtx<'static> = RenderCtx { symbols: &[], frame: 0, depth: 0, math: ColorMath::Classic };
+    pub const EMPTY: RenderCtx<'static> = RenderCtx {
+        symbols: &[],
+        frame: 0,
+        depth: 0,
+        math: ColorMath::Classic,
+    };
 
     pub fn deeper(&self) -> Self {
-        Self { depth: self.depth + 1, ..*self }
+        Self {
+            depth: self.depth + 1,
+            ..*self
+        }
     }
 }
 
@@ -61,7 +69,11 @@ pub struct Frame {
 
 impl Default for Frame {
     fn default() -> Self {
-        Self { name: "Frame 1".into(), delay: 7, export: true }
+        Self {
+            name: "Frame 1".into(),
+            delay: 7,
+            export: true,
+        }
     }
 }
 
@@ -100,7 +112,11 @@ impl Layer {
     }
 
     pub fn web_layer() -> Self {
-        Self { web: true, shared: true, ..Self::new("Web Layer") }
+        Self {
+            web: true,
+            shared: true,
+            ..Self::new("Web Layer")
+        }
     }
 
     /// Shown in `frame`.
@@ -111,7 +127,11 @@ impl Layer {
     /// Elements shown in `frame` (bottom to top).
     pub fn elements(&self, frame: usize) -> &[Element] {
         let i = if self.shared { 0 } else { frame };
-        self.cells.get(i).or_else(|| self.cells.first()).map(Vec::as_slice).unwrap_or_default()
+        self.cells
+            .get(i)
+            .or_else(|| self.cells.first())
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub fn elements_mut(&mut self, frame: usize) -> Option<&mut Vec<Element>> {
@@ -180,7 +200,11 @@ impl Document {
         let mut doc = Self::new(img.width(), img.height(), 72.0, None);
         doc.layers[0].name = "Background".into();
         if let Some(cell) = doc.layers[0].elements_mut(0) {
-            cell.push(Element::new(ElementKind::Bitmap(Bitmap { x: 0, y: 0, image: img })));
+            cell.push(Element::new(ElementKind::Bitmap(Bitmap {
+                x: 0,
+                y: 0,
+                image: img,
+            })));
         }
         doc.path = name;
         doc
@@ -196,7 +220,12 @@ impl Document {
     /// Flatten the given frame to an image (canvas colour underneath).
     pub fn render(&self, frame: usize) -> RgbaImage {
         let mut out = RgbaImage::new(self.width, self.height, self.canvas.unwrap_or(Rgba::TRANSPARENT));
-        let ctx = RenderCtx { symbols: &self.symbols, frame, depth: 0, math: self.color_math };
+        let ctx = RenderCtx {
+            symbols: &self.symbols,
+            frame,
+            depth: 0,
+            math: self.color_math,
+        };
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
             for el in layer.elements(frame) {
                 el.render_onto(&mut out, 0, 0, &ctx);

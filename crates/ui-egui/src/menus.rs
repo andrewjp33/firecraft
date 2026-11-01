@@ -10,7 +10,9 @@ use firecraft_engine::Tool;
 use crate::FireCraftApp;
 
 fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
-    let clicked = ui.add_enabled(enabled, Button::new(label).shortcut_text(shortcut)).clicked();
+    let clicked = ui
+        .add_enabled(enabled, Button::new(label).shortcut_text(shortcut))
+        .clicked();
     if clicked {
         ui.close();
     }
@@ -18,17 +20,29 @@ fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
 }
 
 fn todo(ui: &mut egui::Ui, label: &str, shortcut: &str) {
-    ui.add_enabled(false, Button::new(label).shortcut_text(shortcut)).on_disabled_hover_text("Not implemented yet");
+    ui.add_enabled(false, Button::new(label).shortcut_text(shortcut))
+        .on_disabled_hover_text("Not implemented yet");
 }
 
 pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let has_doc = app.session.active_doc().is_some();
     let can_undo = app.session.active_doc().is_some_and(|d| d.history.can_undo());
     let can_redo = app.session.active_doc().is_some_and(|d| d.history.can_redo());
-    let undo_label = app.session.active_doc().and_then(|d| d.history.next_undo().map(|l| format!("Undo {l}"))).unwrap_or_else(|| "Can't Undo".into());
-    let redo_label = app.session.active_doc().and_then(|d| d.history.next_redo().map(|l| format!("Redo {l}"))).unwrap_or_else(|| "Can't Redo".into());
+    let undo_label = app
+        .session
+        .active_doc()
+        .and_then(|d| d.history.next_undo().map(|l| format!("Undo {l}")))
+        .unwrap_or_else(|| "Can't Undo".into());
+    let redo_label = app
+        .session
+        .active_doc()
+        .and_then(|d| d.history.next_redo().map(|l| format!("Redo {l}")))
+        .unwrap_or_else(|| "Can't Redo".into());
     let has_pixels = app.session.active_doc().is_some_and(|d| d.pixels.is_some());
-    let has_sel = app.session.active_doc().is_some_and(|d| !d.selection.is_empty() || d.pixels.is_some());
+    let has_sel = app
+        .session
+        .active_doc()
+        .is_some_and(|d| !d.selection.is_empty() || d.pixels.is_some());
 
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
@@ -193,7 +207,16 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Ungroup", "Ctrl+Shift+G");
         });
         ui.menu_button("Text", |ui| {
-            for l in ["Font", "Size", "Style", "Align", "Editor...", "Attach to Path", "Convert to Paths", "Check Spelling..."] {
+            for l in [
+                "Font",
+                "Size",
+                "Style",
+                "Align",
+                "Editor...",
+                "Attach to Path",
+                "Convert to Paths",
+                "Check Spelling...",
+            ] {
                 todo(ui, l, "");
             }
         });
@@ -219,7 +242,10 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 app.prefs.show_properties = v;
             }
             let mut v = app.prefs.show_dock;
-            if ui.checkbox(&mut v, "Panels (Optimize, Layers, Frames, History...)").changed() {
+            if ui
+                .checkbox(&mut v, "Panels (Optimize, Layers, Frames, History...)")
+                .changed()
+            {
                 app.prefs.show_dock = v;
             }
             ui.separator();
@@ -228,9 +254,17 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 app.prefs.tabs = tabs;
             }
             ui.separator();
-            let titles: Vec<String> = app.session.docs.iter().map(|d| format!("{} @ {:.0}%", d.doc.title(), d.zoom * 100.0)).collect();
+            let titles: Vec<String> = app
+                .session
+                .docs
+                .iter()
+                .map(|d| format!("{} @ {:.0}%", d.doc.title(), d.zoom * 100.0))
+                .collect();
             for (i, t) in titles.iter().enumerate() {
-                if ui.radio(i == app.session.active, format!("{} {t}", i + 1)).clicked() {
+                if ui
+                    .radio(i == app.session.active, format!("{} {t}", i + 1))
+                    .clicked()
+                {
                     app.session.active = i;
                     ui.close();
                 }
@@ -283,7 +317,11 @@ pub fn save(app: &mut FireCraftApp, save_as: bool) {
         Ok(b) => b,
         Err(e) => return app.error(format!("Save failed: {e}")),
     };
-    let existing = d.doc.path.clone().filter(|p| !save_as && (p.contains('/') || p.contains('\\')));
+    let existing = d
+        .doc
+        .path
+        .clone()
+        .filter(|p| !save_as && (p.contains('/') || p.contains('\\')));
     let result = match existing {
         Some(path) => app.platform.write_file(&path, &bytes).map(|_| Some(path)),
         None => Ok(app.platform.save_file(&d.doc.title(), &bytes)),
@@ -379,7 +417,12 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
         with_doc(app, |d| d.delete());
     }
     // Arrow keys nudge the selection (Shift: 10 px).
-    for (k, dx, dy) in [(Key::ArrowLeft, -1.0, 0.0), (Key::ArrowRight, 1.0, 0.0), (Key::ArrowUp, 0.0, -1.0), (Key::ArrowDown, 0.0, 1.0)] {
+    for (k, dx, dy) in [
+        (Key::ArrowLeft, -1.0, 0.0),
+        (Key::ArrowRight, 1.0, 0.0),
+        (Key::ArrowUp, 0.0, -1.0),
+        (Key::ArrowDown, 0.0, 1.0),
+    ] {
         if pressed(Modifiers::SHIFT, k) {
             with_doc(app, |d| d.move_selection(dx * 10.0, dy * 10.0, "Move"));
         } else if pressed(Modifiers::NONE, k) {
@@ -388,7 +431,7 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks).
     let letters: [(Key, &[Tool]); 13] = [
-        (Key::V, &[Tool::Pointer]),
+        (Key::V, &[Tool::Pointer, Tool::SelectBehind]),
         (Key::Q, &[Tool::Scale, Tool::NineSlice]),
         (Key::M, &[Tool::Marquee, Tool::OvalMarquee]),
         (Key::W, &[Tool::MagicWand]),

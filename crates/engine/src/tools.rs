@@ -8,6 +8,9 @@ pub enum Tool {
     // Select
     #[default]
     Pointer,
+    /// Fireworks MX's Select Behind tool (the Pointer's flyout): each click on the same spot
+    /// selects the next object down.
+    SelectBehind,
     Subselect,
     Scale,
     /// Fireworks CS5's 9-slice Scaling tool (shares the Scale tool's slot).
@@ -46,6 +49,7 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Tool::Pointer => "Pointer tool",
+            Tool::SelectBehind => "Select Behind tool",
             Tool::Subselect => "Subselection tool",
             Tool::Scale => "Scale tool",
             Tool::NineSlice => "9-slice Scaling tool",
@@ -78,7 +82,7 @@ impl Tool {
     /// Single-key shortcut (Fireworks MX defaults).
     pub fn shortcut(self) -> Option<char> {
         Some(match self {
-            Tool::Pointer => 'V',
+            Tool::Pointer | Tool::SelectBehind => 'V',
             Tool::Subselect => 'A',
             Tool::Scale | Tool::NineSlice => 'Q',
             Tool::Crop => 'C',
@@ -110,6 +114,7 @@ impl Tool {
         matches!(
             self,
             Tool::Pointer
+                | Tool::SelectBehind
                 | Tool::NineSlice
                 | Tool::Marquee
                 | Tool::OvalMarquee
@@ -152,6 +157,11 @@ impl Default for ToolOptions {
 
 impl ToolOptions {
     pub fn wand(&self) -> WandOptions {
-        WandOptions { tolerance: self.tolerance, edge: self.wand_edge, aa_style: self.aa_style, contiguous: true }
+        WandOptions {
+            tolerance: self.tolerance,
+            edge: self.wand_edge,
+            aa_style: self.aa_style,
+            contiguous: true,
+        }
     }
 }

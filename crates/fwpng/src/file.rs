@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
-use crate::chunk::{read_chunks, write_chunks, Chunk};
+use crate::chunk::{Chunk, read_chunks, write_chunks};
 use crate::tile::Tile;
 use crate::tree::Node;
-use crate::{inflate, deflate, Result, MAX_INFLATE};
+use crate::{MAX_INFLATE, Result, deflate, inflate};
 
 /// The 72-byte `mkBF` header Fireworks MX writes (magic `FADECAFE`, then `00000004`, then zeros).
 pub fn default_mkbf() -> Vec<u8> {
@@ -22,7 +22,9 @@ pub struct FwPng {
 
 impl FwPng {
     pub fn read(bytes: &[u8]) -> Result<Self> {
-        Ok(Self { chunks: read_chunks(bytes)? })
+        Ok(Self {
+            chunks: read_chunks(bytes)?,
+        })
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -49,7 +51,9 @@ impl FwPng {
     }
 
     fn parse_tree(&self, kind: &[u8; 4]) -> Result<Option<Node>> {
-        let Some(c) = self.chunk(kind) else { return Ok(None) };
+        let Some(c) = self.chunk(kind) else {
+            return Ok(None);
+        };
         let raw = inflate(&c.data, MAX_INFLATE)?;
         Ok(Some(Node::parse(&raw)?))
     }
@@ -76,8 +80,7 @@ impl FwPng {
     ) -> Result<Self> {
         let flat = read_chunks(flat_png)?;
         let mut chunks = Vec::with_capacity(flat.len() + tiles.len() + 4);
-        let (head, tail): (Vec<_>, Vec<_>) =
-            flat.into_iter().partition(|c| !c.is(b"IDAT") && !c.is(b"IEND"));
+        let (head, tail): (Vec<_>, Vec<_>) = flat.into_iter().partition(|c| !c.is(b"IDAT") && !c.is(b"IEND"));
         chunks.extend(head);
         chunks.extend(extra.iter().cloned());
         chunks.push(Chunk::new(b"mkBF", default_mkbf()));

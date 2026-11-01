@@ -31,7 +31,12 @@ pub struct Tile {
 
 impl Tile {
     pub fn new(id: u32, data: Vec<u8>) -> Self {
-        Self { id, flags: 0, reserved: [0; 64], data }
+        Self {
+            id,
+            flags: 0,
+            reserved: [0; 64],
+            data,
+        }
     }
 
     pub fn decode(chunk: &[u8]) -> Result<Tile> {
@@ -42,12 +47,19 @@ impl Tile {
         if word(0)? != TILE_MAGIC {
             return Err(Error::Tile("bad magic"));
         }
-        let reserved: [u8; 64] =
-            chunk.get(12..HEADER_LEN).and_then(|s| s.try_into().ok()).ok_or(Error::Tile("truncated header"))?;
+        let reserved: [u8; 64] = chunk
+            .get(12..HEADER_LEN)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(Error::Tile("truncated header"))?;
         let body = chunk.get(HEADER_LEN..).ok_or(Error::Tile("missing payload"))?;
         // A 256 x 256 x 4 tile is the largest observed layout; allow that much.
         let data = crate::inflate(body, 256 * 256 * 4)?;
-        Ok(Tile { id: word(4)?, flags: word(8)?, reserved, data })
+        Ok(Tile {
+            id: word(4)?,
+            flags: word(8)?,
+            reserved,
+            data,
+        })
     }
 
     pub fn encode(&self) -> Vec<u8> {

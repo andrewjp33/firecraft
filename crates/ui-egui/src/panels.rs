@@ -1,11 +1,11 @@
 //! The right-hand panel dock: Optimize, Layers, Frames and History, Assets, Answers.
 
-use egui::{vec2, Color32, Rect, RichText, Sense, Stroke, StrokeKind};
+use egui::{Color32, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
 use firecraft_doc::ElementKind;
 use firecraft_engine::ElementRef;
 
 use crate::icons::{self, Glyph};
-use crate::{theme, FireCraftApp};
+use crate::{FireCraftApp, theme};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Group {
@@ -17,11 +17,14 @@ enum Group {
 }
 
 fn group_open(ui: &egui::Ui, g: Group, default: bool) -> bool {
-    ui.ctx().data(|d| d.get_temp(egui::Id::unique(("dock_open", g as u8)))).unwrap_or(default)
+    ui.ctx()
+        .data(|d| d.get_temp(egui::Id::unique(("dock_open", g as u8))))
+        .unwrap_or(default)
 }
 
 fn set_group_open(ui: &egui::Ui, g: Group, v: bool) {
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique(("dock_open", g as u8)), v));
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(egui::Id::unique(("dock_open", g as u8)), v));
 }
 
 fn group(ui: &mut egui::Ui, g: Group, title: &str, default: bool, body: impl FnOnce(&mut egui::Ui)) {
@@ -29,49 +32,81 @@ fn group(ui: &mut egui::Ui, g: Group, title: &str, default: bool, body: impl FnO
     theme::group_header(ui, title, &mut open);
     set_group_open(ui, g, open);
     if open {
-        egui::Frame::new().fill(theme::PANEL).inner_margin(egui::Margin::same(3)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            body(ui);
-        });
+        egui::Frame::new()
+            .fill(theme::PANEL)
+            .inner_margin(egui::Margin::same(3))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                body(ui);
+            });
     }
     ui.add_space(2.0);
 }
 
 pub fn dock(app: &mut FireCraftApp, ui: &mut egui::Ui) {
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        group(ui, Group::Optimize, "Optimize", false, |ui| {
-            ui.label("Export format: PNG 32");
-            ui.weak("GIF/JPEG optimization and palettes are on the roadmap.");
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            group(ui, Group::Optimize, "Optimize", false, |ui| {
+                ui.label("Export format: PNG 32");
+                ui.weak("GIF/JPEG optimization and palettes are on the roadmap.");
+            });
+            group(ui, Group::Layers, "Layers", true, |ui| layers(app, ui));
+            group(ui, Group::Frames, "Frames and History", true, |ui| {
+                frames_history(app, ui)
+            });
+            group(ui, Group::Assets, "Assets", false, |ui| {
+                ui.weak("Styles, URL and Library panels are on the roadmap.");
+            });
+            group(ui, Group::Answers, "Answers", false, |ui| {
+                ui.weak("FireCraft documentation: docs/ in the source tree.");
+            });
         });
-        group(ui, Group::Layers, "Layers", true, |ui| layers(app, ui));
-        group(ui, Group::Frames, "Frames and History", true, |ui| frames_history(app, ui));
-        group(ui, Group::Assets, "Assets", false, |ui| {
-            ui.weak("Styles, URL and Library panels are on the roadmap.");
-        });
-        group(ui, Group::Answers, "Answers", false, |ui| {
-            ui.weak("FireCraft documentation: docs/ in the source tree.");
-        });
-    });
 }
 
 fn thumbnail(ui: &mut egui::Ui, kind: &ElementKind) {
     let (r, _) = ui.allocate_exact_size(vec2(26.0, 20.0), Sense::hover());
     let p = ui.painter();
     p.rect_filled(r, 0.0, Color32::WHITE);
-    p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_gray(170)), StrokeKind::Inside);
+    p.rect_stroke(
+        r,
+        0.0,
+        Stroke::new(1.0, Color32::from_gray(170)),
+        StrokeKind::Inside,
+    );
     let inner = r.shrink(4.0);
     match kind {
         ElementKind::Bitmap(_) => {
-            p.rect_filled(Rect::from_min_size(inner.min, inner.size() / 2.0), 0.0, Color32::from_rgb(230, 120, 60));
-            p.rect_filled(Rect::from_min_size(inner.center(), inner.size() / 2.0), 0.0, Color32::from_rgb(60, 130, 220));
+            p.rect_filled(
+                Rect::from_min_size(inner.min, inner.size() / 2.0),
+                0.0,
+                Color32::from_rgb(230, 120, 60),
+            );
+            p.rect_filled(
+                Rect::from_min_size(inner.center(), inner.size() / 2.0),
+                0.0,
+                Color32::from_rgb(60, 130, 220),
+            );
         }
         ElementKind::Path(path) => {
-            let c = path.fill.as_ref().map(|f| f.color).or(path.stroke.as_ref().map(|s| s.color));
-            let c = c.map(|c| Color32::from_rgb(c.r, c.g, c.b)).unwrap_or(Color32::GRAY);
+            let c = path
+                .fill
+                .as_ref()
+                .map(|f| f.color)
+                .or(path.stroke.as_ref().map(|s| s.color));
+            let c = c
+                .map(|c| Color32::from_rgb(c.r, c.g, c.b))
+                .unwrap_or(Color32::GRAY);
             p.rect_stroke(inner, 0.0, Stroke::new(1.5, c), StrokeKind::Inside);
         }
         ElementKind::Text(_) => {
-            p.text(r.center(), egui::Align2::CENTER_CENTER, "T", egui::FontId::proportional(12.0), Color32::BLACK);
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                "T",
+                egui::FontId::proportional(12.0),
+                Color32::BLACK,
+            );
         }
         _ => {
             p.rect_filled(inner, 0.0, Color32::from_rgb(120, 220, 120));
@@ -92,10 +127,23 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut toggle_disc: Option<usize> = None;
     // Top layer first, as Fireworks lists them.
     for li in (0..d.doc.layers.len()).rev() {
-        let Some(layer) = d.doc.layers.get(li) else { continue };
+        let Some(layer) = d.doc.layers.get(li) else {
+            continue;
+        };
         let current = d.doc.current_layer == li;
         ui.horizontal(|ui| {
-            if icons::glyph_button(ui, if layer.disclosed { Glyph::Minus } else { Glyph::Plus }, 14.0, true).clicked() {
+            if icons::glyph_button(
+                ui,
+                if layer.disclosed {
+                    Glyph::Minus
+                } else {
+                    Glyph::Plus
+                },
+                14.0,
+                true,
+            )
+            .clicked()
+            {
                 toggle_disc = Some(li);
             }
             let eye = icons::glyph_button(ui, Glyph::Eye, 16.0, true);
@@ -114,7 +162,13 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             icons::glyph(ui, if layer.web { Glyph::Globe } else { Glyph::Folder }, 15.0);
             let name = layer.name.clone();
-            let text = if current { RichText::new(name).color(Color32::WHITE).background_color(theme::SELECT_BLUE) } else { RichText::new(name) };
+            let text = if current {
+                RichText::new(name)
+                    .color(Color32::WHITE)
+                    .background_color(theme::SELECT_BLUE)
+            } else {
+                RichText::new(name)
+            };
             if ui.add(egui::Label::new(text).sense(Sense::click())).clicked() {
                 set_current = Some(li);
             }
@@ -123,15 +177,32 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             for (ei, el) in layer.elements(frame).iter().enumerate().rev() {
                 let r = ElementRef { layer: li, index: ei };
                 let selected = d.selection.contains(&r);
-                ui.horizontal(|ui| {
+                // The whole row (thumbnail, name and the space after it) selects the object.
+                let background = ui.painter().add(egui::Shape::Noop);
+                let row = ui.horizontal(|ui| {
                     ui.add_space(46.0);
                     thumbnail(ui, &el.kind);
                     let label = el.label();
-                    let text = if selected { RichText::new(label).color(Color32::WHITE).background_color(theme::SELECT_BLUE) } else { RichText::new(label) };
-                    if ui.add(egui::Label::new(text).sense(Sense::click())).clicked() {
-                        select = Some(r);
-                    }
+                    let text = if selected {
+                        RichText::new(label).color(Color32::WHITE)
+                    } else {
+                        RichText::new(label)
+                    };
+                    ui.add(egui::Label::new(text).selectable(false));
+                    ui.add_space(ui.available_width());
                 });
+                let rect = row.response.rect;
+                if selected {
+                    let band = egui::Rect::from_min_max(egui::pos2(rect.left() + 44.0, rect.top()), rect.max);
+                    ui.painter().set(
+                        background,
+                        egui::Shape::rect_filled(band, 0.0, theme::SELECT_BLUE),
+                    );
+                }
+                let click = ui.interact(rect, ui.id().with(("layer_row", li, ei)), Sense::click());
+                if click.clicked() {
+                    select = Some(r);
+                }
             }
         }
     }
@@ -156,18 +227,33 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
     if let Some(r) = select {
         d.doc.current_layer = r.layer;
-        d.selection = vec![r];
+        // Shift+click adds or removes an object, as on the canvas.
+        if ui.input(|i| i.modifiers.shift) {
+            if let Some(k) = d.selection.iter().position(|s| *s == r) {
+                d.selection.remove(k);
+            } else {
+                d.selection.push(r);
+            }
+        } else {
+            d.selection = vec![r];
+        }
         d.pixels = None;
     }
     ui.separator();
     ui.horizontal(|ui| {
         ui.label(format!("Frame {}", frame + 1));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if icons::glyph_button(ui, Glyph::Trash, 16.0, true).on_hover_text("Delete Layer").clicked() {
+            if icons::glyph_button(ui, Glyph::Trash, 16.0, true)
+                .on_hover_text("Delete Layer")
+                .clicked()
+            {
                 let cur = d.doc.current_layer;
                 d.delete_layer(cur);
             }
-            if icons::glyph_button(ui, Glyph::Plus, 16.0, true).on_hover_text("New Layer").clicked() {
+            if icons::glyph_button(ui, Glyph::Plus, 16.0, true)
+                .on_hover_text("New Layer")
+                .clicked()
+            {
                 d.new_layer();
             }
         });
@@ -182,7 +268,9 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.selectable_value(&mut history, true, "History");
     });
     ui.ctx().data_mut(|d| d.insert_temp(tab_id, history));
-    let Some(d) = app.session.active_doc_mut() else { return };
+    let Some(d) = app.session.active_doc_mut() else {
+        return;
+    };
     if history {
         // Every step, oldest first; steps after the current one are greyed (undone). Clicking a
         // step moves the document to the state just after it, backwards or forwards.
@@ -192,7 +280,9 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let mut target: Option<usize> = None;
         let row = |ui: &mut egui::Ui, text: String, active: bool, here: bool| {
             let rt = if here {
-                RichText::new(text).color(Color32::WHITE).background_color(theme::SELECT_BLUE)
+                RichText::new(text)
+                    .color(Color32::WHITE)
+                    .background_color(theme::SELECT_BLUE)
             } else if active {
                 RichText::new(text)
             } else {
@@ -217,26 +307,38 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         }
         ui.horizontal(|ui| {
-            ui.add_enabled(false, egui::Button::new("Replay")).on_disabled_hover_text("Replaying steps is on the roadmap");
+            ui.add_enabled(false, egui::Button::new("Replay"))
+                .on_disabled_hover_text("Replaying steps is on the roadmap");
             ui.weak(format!("{} of {} steps", current, d.history.limit));
         });
     } else {
         let mut pick = None;
-        egui::ScrollArea::vertical().max_height(220.0).id_salt("frames_list").show(ui, |ui| {
-            for (i, f) in d.doc.frames.iter().enumerate() {
-                let cur = i == d.doc.current_frame;
-                ui.horizontal(|ui| {
-                    let text = format!("{}  {}", i + 1, f.name);
-                    let rt = if cur { RichText::new(text).color(Color32::WHITE).background_color(theme::SELECT_BLUE) } else { RichText::new(text) };
-                    if ui.add(egui::Label::new(rt).sense(Sense::click())).clicked() {
-                        pick = Some(i);
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.weak(f.delay.to_string()))
+        egui::ScrollArea::vertical()
+            .max_height(220.0)
+            .id_salt("frames_list")
+            .show(ui, |ui| {
+                for (i, f) in d.doc.frames.iter().enumerate() {
+                    let cur = i == d.doc.current_frame;
+                    ui.horizontal(|ui| {
+                        let text = format!("{}  {}", i + 1, f.name);
+                        let rt = if cur {
+                            RichText::new(text)
+                                .color(Color32::WHITE)
+                                .background_color(theme::SELECT_BLUE)
+                        } else {
+                            RichText::new(text)
+                        };
+                        if ui.add(egui::Label::new(rt).sense(Sense::click())).clicked() {
+                            pick = Some(i);
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.weak(f.delay.to_string())
+                        })
                         .response
                         .on_hover_text("Frame delay (1/100 s)");
-                });
-            }
-        });
+                    });
+                }
+            });
         if let Some(i) = pick {
             d.doc.current_frame = i;
         }

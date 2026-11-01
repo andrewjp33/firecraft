@@ -39,7 +39,9 @@ pub trait Platform {
     fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> Option<String>;
     /// Write to a known path (Save on an already-saved document). Default: ask.
     fn write_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
-        self.save_file(path, bytes).map(|_| ()).ok_or_else(|| "cancelled".into())
+        self.save_file(path, bytes)
+            .map(|_| ())
+            .ok_or_else(|| "cancelled".into())
     }
     /// Begin reading a dropped file (browsers read files asynchronously); results are returned
     /// later by [`Platform::take_opened`].
@@ -110,7 +112,12 @@ impl Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { tabs: false, show_tools: true, show_properties: true, show_dock: true, undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS,
+        Self {
+            tabs: false,
+            show_tools: true,
+            show_properties: true,
+            show_dock: true,
+            undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS,
             color_math: firecraft_raster::ColorMath::Classic,
         }
     }
@@ -183,7 +190,13 @@ impl FireCraftApp {
     }
 
     fn quit_dialog(&mut self, ctx: &egui::Context) {
-        let names: Vec<String> = self.session.docs.iter().filter(|d| d.dirty).map(|d| d.doc.title()).collect();
+        let names: Vec<String> = self
+            .session
+            .docs
+            .iter()
+            .filter(|d| d.dirty)
+            .map(|d| d.doc.title())
+            .collect();
         egui::Window::new("Quit FireCraft")
             .collapsible(false)
             .resizable(false)
@@ -229,7 +242,10 @@ impl FireCraftApp {
         }
 
         // Closing the window (Exit, Ctrl+Q, the title bar's close button) with unsaved work asks first.
-        if ctx.input(|i| i.viewport().close_requested()) && !self.quit_confirmed && self.session.docs.iter().any(|d| d.dirty) {
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quit_confirmed
+            && self.session.docs.iter().any(|d| d.dirty)
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.quit_prompt = true;
         }
@@ -243,25 +259,40 @@ impl FireCraftApp {
             }
         }
         menus::shortcuts(self, &ctx);
-        egui::Panel::top("menu_bar").frame(theme::menu_frame()).show(ui, |ui| menus::menu_bar(self, ui));
+        egui::Panel::top("menu_bar")
+            .frame(theme::menu_frame())
+            .show(ui, |ui| menus::menu_bar(self, ui));
         if self.prefs.show_tools {
-            egui::Panel::left("tools").exact_size(66.0).resizable(false).frame(theme::panel_frame()).show(ui, |ui| {
-                tools_panel::show(self, ui)
-            });
+            egui::Panel::left("tools")
+                .exact_size(66.0)
+                .resizable(false)
+                .frame(theme::panel_frame())
+                .show(ui, |ui| tools_panel::show(self, ui));
         }
         if self.prefs.show_dock {
-            egui::Panel::right("dock").default_size(230.0).frame(theme::dock_frame()).show(ui, |ui| panels::dock(self, ui));
+            egui::Panel::right("dock")
+                .default_size(230.0)
+                .frame(theme::dock_frame())
+                .show(ui, |ui| panels::dock(self, ui));
         }
         if self.prefs.show_properties {
             let h = if self.pi_open { 128.0 } else { 22.0 };
-            egui::Panel::bottom("properties").exact_size(h).resizable(false).frame(theme::panel_frame()).show(ui, |ui| {
-                inspector::show(self, ui)
-            });
+            egui::Panel::bottom("properties")
+                .exact_size(h)
+                .resizable(false)
+                .frame(theme::panel_frame())
+                .show(ui, |ui| inspector::show(self, ui));
         }
-        egui::CentralPanel::default().frame(theme::workspace_frame()).show(ui, |ui| canvas::workspace(self, ui));
+        egui::CentralPanel::default()
+            .frame(theme::workspace_frame())
+            .show(ui, |ui| canvas::workspace(self, ui));
         dialogs::show(self, &ctx);
         if let Some((msg, is_err)) = self.status.clone() {
-            let color = if is_err { Color32::from_rgb(180, 0, 0) } else { Color32::from_gray(40) };
+            let color = if is_err {
+                Color32::from_rgb(180, 0, 0)
+            } else {
+                Color32::from_gray(40)
+            };
             egui::Area::new(egui::Id::unique("status_toast"))
                 .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -150.0])
                 .show(&ctx, |ui| {
@@ -284,7 +315,12 @@ mod prefs_tests {
 
     #[test]
     fn prefs_round_trip() {
-        let p = Prefs { tabs: true, undo_steps: 250, color_math: firecraft_raster::ColorMath::Precise, ..Prefs::default() };
+        let p = Prefs {
+            tabs: true,
+            undo_steps: 250,
+            color_math: firecraft_raster::ColorMath::Precise,
+            ..Prefs::default()
+        };
         assert_eq!(Prefs::parse(&p.serialize()), p);
         assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());
     }

@@ -36,7 +36,11 @@ mod web {
         }
 
         fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> Option<String> {
-            let name = suggested.rsplit(['/', '\\']).next().unwrap_or(suggested).to_owned();
+            let name = suggested
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(suggested)
+                .to_owned();
             download(&name, bytes).ok()?;
             Some(name)
         }
@@ -74,19 +78,30 @@ mod web {
 
     pub fn start() {
         wasm_bindgen_futures::spawn_local(async {
-            let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
-            let Some(canvas) = document.get_element_by_id("firecraft_canvas").and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+            let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+                return;
+            };
+            let Some(canvas) = document
+                .get_element_by_id("firecraft_canvas")
+                .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
             else {
                 return;
             };
             let result = eframe::WebRunner::new()
-                .start(canvas, eframe::WebOptions::default(), Box::new(|cc| {
-                    let mut app = FireCraftApp::new(Box::new(Browser::default()));
-                    if let Some(text) = cc.storage.and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY)) {
-                        app.prefs = firecraft_ui_egui::Prefs::parse(&text);
-                    }
-                    Ok(Box::new(App(app)))
-                }))
+                .start(
+                    canvas,
+                    eframe::WebOptions::default(),
+                    Box::new(|cc| {
+                        let mut app = FireCraftApp::new(Box::new(Browser::default()));
+                        if let Some(text) = cc
+                            .storage
+                            .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))
+                        {
+                            app.prefs = firecraft_ui_egui::Prefs::parse(&text);
+                        }
+                        Ok(Box::new(App(app)))
+                    }),
+                )
                 .await;
             if let Some(loading) = document.get_element_by_id("firecraft_loading") {
                 loading.remove();

@@ -65,7 +65,12 @@ pub const MAX_DEPTH: usize = 256;
 
 impl Node {
     pub fn vector(tag: &str, children: Vec<Node>) -> Self {
-        Self { tag: tag3(tag), kind: Kind::Vector, text: String::new(), children }
+        Self {
+            tag: tag3(tag),
+            kind: Kind::Vector,
+            text: String::new(),
+            children,
+        }
     }
     pub fn int(tag: &str, v: i64) -> Self {
         Self::scalar(tag, Kind::Int, format!("{:x}", v as u32))
@@ -80,7 +85,12 @@ impl Node {
         Self::scalar(tag, Kind::Str, v.to_owned())
     }
     fn scalar(tag: &str, kind: Kind, text: String) -> Self {
-        Self { tag: tag3(tag), kind, text, children: Vec::new() }
+        Self {
+            tag: tag3(tag),
+            kind,
+            text,
+            children: Vec::new(),
+        }
     }
 
     /// The tag as a string, e.g. `"LAY"`.
@@ -204,7 +214,11 @@ impl Node {
 
 fn tag3(tag: &str) -> [u8; 3] {
     let b = tag.as_bytes();
-    [b.first().copied().unwrap_or(b'?'), b.get(1).copied().unwrap_or(b'?'), b.get(2).copied().unwrap_or(b'?')]
+    [
+        b.first().copied().unwrap_or(b'?'),
+        b.get(1).copied().unwrap_or(b'?'),
+        b.get(2).copied().unwrap_or(b'?'),
+    ]
 }
 
 /// Float text in Fireworks' style: no trailing ".0" for integral values, otherwise up to 6
@@ -228,7 +242,10 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn err(&self, reason: &'static str) -> Error {
-        Error::Tree { offset: self.i, reason }
+        Error::Tree {
+            offset: self.i,
+            reason,
+        }
     }
 
     fn byte(&self) -> Option<u8> {
@@ -247,34 +264,52 @@ impl Parser<'_> {
         if depth > MAX_DEPTH {
             return Err(self.err("nesting too deep"));
         }
-        let head = self.b.get(self.i..self.i + 4).ok_or_else(|| self.err("truncated node header"))?;
+        let head = self
+            .b
+            .get(self.i..self.i + 4)
+            .ok_or_else(|| self.err("truncated node header"))?;
         let tag = [head[0], head[1], head[2]];
         let kind = Kind::from_byte(head[3]).ok_or_else(|| self.err("unknown value kind"))?;
         self.i += 4;
         self.expect(b'{', "expected '{'")?;
-        let mut node = Node { tag, kind, text: String::new(), children: Vec::new() };
+        let mut node = Node {
+            tag,
+            kind,
+            text: String::new(),
+            children: Vec::new(),
+        };
         match kind {
-            Kind::Vector => {
-                loop {
-                    match self.byte() {
-                        Some(b'}') => break,
-                        Some(_) => node.children.push(self.node(depth + 1)?),
-                        None => return Err(self.err("unterminated vector")),
-                    }
+            Kind::Vector => loop {
+                match self.byte() {
+                    Some(b'}') => break,
+                    Some(_) => node.children.push(self.node(depth + 1)?),
+                    None => return Err(self.err("unterminated vector")),
                 }
-            }
+            },
             Kind::Str => {
-                let n = self.b.get(self.i..self.i + 2).ok_or_else(|| self.err("truncated string length"))?;
+                let n = self
+                    .b
+                    .get(self.i..self.i + 2)
+                    .ok_or_else(|| self.err("truncated string length"))?;
                 let n = u16::from_be_bytes([n[0], n[1]]) as usize;
                 self.i += 2;
-                let raw = self.b.get(self.i..self.i + 2 * n).ok_or_else(|| self.err("truncated string"))?;
-                let units: Vec<u16> = raw.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+                let raw = self
+                    .b
+                    .get(self.i..self.i + 2 * n)
+                    .ok_or_else(|| self.err("truncated string"))?;
+                let units: Vec<u16> = raw
+                    .chunks_exact(2)
+                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .collect();
                 node.text = String::from_utf16_lossy(&units);
                 self.i += 2 * n;
             }
             _ => {
                 let rest = self.b.get(self.i..).unwrap_or_default();
-                let end = rest.iter().position(|&c| c == b'}').ok_or_else(|| self.err("unterminated scalar"))?;
+                let end = rest
+                    .iter()
+                    .position(|&c| c == b'}')
+                    .ok_or_else(|| self.err("unterminated scalar"))?;
                 node.text = String::from_utf8_lossy(&rest[..end]).into_owned();
                 self.i += end;
             }
@@ -314,7 +349,14 @@ mod tests {
 
     #[test]
     fn hostile_input_is_an_error() {
-        for bad in [&b""[..], b"MKB", b"MKBx{}", b"MKBv{", b"MKBs{\xff\xff}", b"MKBi{12"] {
+        for bad in [
+            &b""[..],
+            b"MKB",
+            b"MKBx{}",
+            b"MKBv{",
+            b"MKBs{\xff\xff}",
+            b"MKBi{12",
+        ] {
             assert!(Node::parse(bad).is_err(), "{bad:?}");
         }
         let deep = "AAAv{".repeat(MAX_DEPTH + 10);

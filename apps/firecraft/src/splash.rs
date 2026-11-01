@@ -35,9 +35,18 @@ pub fn spawn() -> Option<Child> {
     }
     let exe = std::env::current_exe().ok()?;
     // Debug builds show the splash's errors in the terminal; release builds keep it quiet.
-    let stderr = if cfg!(debug_assertions) { Stdio::inherit() } else { Stdio::null() };
-    let mut child =
-        Command::new(exe).arg("--splash").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(stderr).spawn().ok()?;
+    let stderr = if cfg!(debug_assertions) {
+        Stdio::inherit()
+    } else {
+        Stdio::null()
+    };
+    let mut child = Command::new(exe)
+        .arg("--splash")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(stderr)
+        .spawn()
+        .ok()?;
     // Wait until the splash has been painted before the caller starts the GPU: initialising some
     // GPU drivers (notably in VMs) stalls the display server for seconds, and a splash that hasn't
     // painted yet would stay invisible until it's over.
@@ -91,7 +100,12 @@ pub fn run() {
         std::process::exit(0);
     });
     let Ok(event_loop) = EventLoop::new() else { return };
-    let mut app = Splash { window: None, surface: None, pixels: render(), announced: false };
+    let mut app = Splash {
+        window: None,
+        surface: None,
+        pixels: render(),
+        announced: false,
+    };
     let _ = event_loop.run_app(&mut app);
 }
 
@@ -123,10 +137,16 @@ impl ApplicationHandler for Splash {
                 p.y + (s.height as i32 - H as i32) / 2,
             ));
         }
-        let Ok(window) = el.create_window(attrs) else { return el.exit() };
+        let Ok(window) = el.create_window(attrs) else {
+            return el.exit();
+        };
         let window = Rc::new(window);
-        let Ok(context) = softbuffer::Context::new(window.clone()) else { return el.exit() };
-        let Ok(surface) = softbuffer::Surface::new(&context, window.clone()) else { return el.exit() };
+        let Ok(context) = softbuffer::Context::new(window.clone()) else {
+            return el.exit();
+        };
+        let Ok(surface) = softbuffer::Surface::new(&context, window.clone()) else {
+            return el.exit();
+        };
         window.request_redraw();
         self.window = Some(window);
         self.surface = Some(surface);
@@ -136,16 +156,26 @@ impl ApplicationHandler for Splash {
         match event {
             WindowEvent::CloseRequested => el.exit(),
             WindowEvent::RedrawRequested => {
-                let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return };
+                let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else {
+                    return;
+                };
                 let size = window.inner_size();
-                let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
+                let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
+                    return;
+                };
                 if surface.resize(w, h).is_err() {
                     return;
                 }
-                let Ok(mut buffer) = surface.buffer_mut() else { return };
+                let Ok(mut buffer) = surface.buffer_mut() else {
+                    return;
+                };
                 for (y, row) in buffer.chunks_mut(size.width as usize).enumerate() {
                     for (x, px) in row.iter_mut().enumerate() {
-                        let src = if (x as u32) < W && (y as u32) < H { self.pixels.get(y * W as usize + x) } else { None };
+                        let src = if (x as u32) < W && (y as u32) < H {
+                            self.pixels.get(y * W as usize + x)
+                        } else {
+                            None
+                        };
                         *px = src.copied().unwrap_or(0);
                     }
                 }
@@ -168,7 +198,11 @@ fn rgb(r: f32, g: f32, b: f32) -> u32 {
 }
 
 fn unpack(p: u32) -> [f32; 3] {
-    [((p >> 16) & 255) as f32 / 255.0, ((p >> 8) & 255) as f32 / 255.0, (p & 255) as f32 / 255.0]
+    [
+        ((p >> 16) & 255) as f32 / 255.0,
+        ((p >> 8) & 255) as f32 / 255.0,
+        (p & 255) as f32 / 255.0,
+    ]
 }
 
 /// Blend colour `c` onto `buf` at (x, y) with coverage `a`.
@@ -176,10 +210,16 @@ fn plot(buf: &mut [u32], x: i32, y: i32, c: [f32; 3], a: f32) {
     if x < 0 || y < 0 || x >= W as i32 || y >= H as i32 || a <= 0.0 {
         return;
     }
-    let Some(p) = buf.get_mut((y as u32 * W + x as u32) as usize) else { return };
+    let Some(p) = buf.get_mut((y as u32 * W + x as u32) as usize) else {
+        return;
+    };
     let d = unpack(*p);
     let a = a.min(1.0);
-    *p = rgb(d[0] + (c[0] - d[0]) * a, d[1] + (c[1] - d[1]) * a, d[2] + (c[2] - d[2]) * a);
+    *p = rgb(
+        d[0] + (c[0] - d[0]) * a,
+        d[1] + (c[1] - d[1]) * a,
+        d[2] + (c[2] - d[2]) * a,
+    );
 }
 
 fn text(buf: &mut [u32], font: &FontRef, s: &str, size: f32, x: f32, baseline: f32, c: [f32; 3]) {
@@ -196,7 +236,15 @@ fn text(buf: &mut [u32], font: &FontRef, s: &str, size: f32, x: f32, baseline: f
         prev = Some(id);
         if let Some(outline) = font.outline_glyph(glyph) {
             let b = outline.px_bounds();
-            outline.draw(|gx, gy, cov| plot(buf, b.min.x as i32 + gx as i32, b.min.y as i32 + gy as i32, c, cov));
+            outline.draw(|gx, gy, cov| {
+                plot(
+                    buf,
+                    b.min.x as i32 + gx as i32,
+                    b.min.y as i32 + gy as i32,
+                    c,
+                    cov,
+                )
+            });
         }
     }
 }
@@ -213,8 +261,11 @@ fn render() -> Vec<u32> {
         }
     }
     // Firework bursts: rays of fading sparks.
-    let bursts: [(f32, f32, f32, [f32; 3]); 3] =
-        [(345.0, 95.0, 70.0, [1.0, 0.62, 0.15]), (405.0, 175.0, 38.0, [1.0, 0.85, 0.35]), (290.0, 185.0, 30.0, [0.95, 0.35, 0.45])];
+    let bursts: [(f32, f32, f32, [f32; 3]); 3] = [
+        (345.0, 95.0, 70.0, [1.0, 0.62, 0.15]),
+        (405.0, 175.0, 38.0, [1.0, 0.85, 0.35]),
+        (290.0, 185.0, 30.0, [0.95, 0.35, 0.45]),
+    ];
     for (cx, cy, r, c) in bursts {
         for k in 0..28 {
             let a = k as f32 / 28.0 * std::f32::consts::TAU;
@@ -232,9 +283,33 @@ fn render() -> Vec<u32> {
     }
     if let Ok(font) = FontRef::try_from_slice(epaint_default_fonts::UBUNTU_LIGHT) {
         text(&mut buf, &font, "FireCraft", 52.0, 28.0, 150.0, [1.0, 1.0, 1.0]);
-        text(&mut buf, &font, &format!("Version {}", env!("CARGO_PKG_VERSION")), 15.0, 32.0, 178.0, [0.8, 0.8, 0.9]);
-        text(&mut buf, &font, "Starting up...", 13.0, 32.0, 236.0, [1.0, 0.75, 0.4]);
-        text(&mut buf, &font, "Open source web graphics editor  |  MIT OR Apache-2.0", 11.0, 32.0, 262.0, [0.6, 0.6, 0.72]);
+        text(
+            &mut buf,
+            &font,
+            &format!("Version {}", env!("CARGO_PKG_VERSION")),
+            15.0,
+            32.0,
+            178.0,
+            [0.8, 0.8, 0.9],
+        );
+        text(
+            &mut buf,
+            &font,
+            "Starting up...",
+            13.0,
+            32.0,
+            236.0,
+            [1.0, 0.75, 0.4],
+        );
+        text(
+            &mut buf,
+            &font,
+            "Open source web graphics editor  |  MIT OR Apache-2.0",
+            11.0,
+            32.0,
+            262.0,
+            [0.6, 0.6, 0.72],
+        );
     }
     // Thin frame.
     for x in 0..W {

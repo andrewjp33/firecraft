@@ -41,7 +41,11 @@ pub fn to_hsl(c: [f64; 3]) -> (f64, f64, f64) {
     if d <= 0.0 {
         return (0.0, 0.0, l);
     }
-    let s = if l <= 0.5 { d / (mx + mn) } else { d / (2.0 - mx - mn) };
+    let s = if l <= 0.5 {
+        d / (mx + mn)
+    } else {
+        d / (2.0 - mx - mn)
+    };
     (hue_of(r, g, b, mx, d), s, l)
 }
 
@@ -110,9 +114,17 @@ pub fn hue_saturation(c: [f64; 3], hue: f64, sat: f64, light: f64) -> [f64; 3] {
     let (h, s, l) = to_hsl(c);
     let adjust = |x: f64, amount: f64| {
         let k = (amount / 100.0).clamp(-1.0, 1.0);
-        if k >= 0.0 { x + (1.0 - x) * k } else { x * (1.0 + k) }
+        if k >= 0.0 {
+            x + (1.0 - x) * k
+        } else {
+            x * (1.0 + k)
+        }
     };
-    from_hsl(h + hue, adjust(s, sat).clamp(0.0, 1.0), adjust(l, light).clamp(0.0, 1.0))
+    from_hsl(
+        h + hue,
+        adjust(s, sat).clamp(0.0, 1.0),
+        adjust(l, light).clamp(0.0, 1.0),
+    )
 }
 
 #[cfg(test)]
@@ -125,7 +137,13 @@ mod tests {
 
     #[test]
     fn round_trips_are_lossless() {
-        for c in [[200.0, 40.0, 40.0], [40.0, 180.0, 60.0], [30.0, 60.0, 200.0], [128.0, 128.0, 128.0], [12.5, 200.25, 99.0]] {
+        for c in [
+            [200.0, 40.0, 40.0],
+            [40.0, 180.0, 60.0],
+            [30.0, 60.0, 200.0],
+            [128.0, 128.0, 128.0],
+            [12.5, 200.25, 99.0],
+        ] {
             let (h, s, l) = to_hsl(c);
             assert!(close(from_hsl(h, s, l), c), "hsl {c:?}");
             let (h, s, v) = to_hsv(c);

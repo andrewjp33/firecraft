@@ -3,12 +3,12 @@
 use firecraft_fwpng::Node;
 use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
-use firecraft_raster::nine::{resample, AxisMap};
-use firecraft_raster::path::{fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke, Pt};
-use firecraft_raster::transform::{sample, transform_image, Affine};
+use firecraft_raster::nine::{AxisMap, resample};
+use firecraft_raster::path::{Pt, fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke};
+use firecraft_raster::transform::{Affine, sample, transform_image};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
-use crate::{RenderCtx, MAX_SYMBOL_DEPTH};
+use crate::{MAX_SYMBOL_DEPTH, RenderCtx};
 
 /// A bitmap object. Pixels are in canvas coordinates starting at (`x`, `y`).
 #[derive(Clone, Debug, PartialEq)]
@@ -31,7 +31,11 @@ pub struct BezierPoint {
 
 impl BezierPoint {
     pub fn corner(x: f64, y: f64) -> Self {
-        Self { x, y, ..Self::default() }
+        Self {
+            x,
+            y,
+            ..Self::default()
+        }
     }
 }
 
@@ -45,12 +49,16 @@ impl Contour {
     /// Flatten to a polyline in canvas pixels, offset by (`ox`, `oy`).
     pub fn flatten(&self, ox: f64, oy: f64) -> Vec<Pt> {
         let mut out = Vec::new();
-        let Some(first) = self.points.first() else { return out };
+        let Some(first) = self.points.first() else {
+            return out;
+        };
         out.push((first.x + ox, first.y + oy));
         let n = self.points.len();
         let segs = if self.closed { n } else { n.saturating_sub(1) };
         for i in 0..segs {
-            let (Some(a), Some(b)) = (self.points.get(i), self.points.get((i + 1) % n)) else { break };
+            let (Some(a), Some(b)) = (self.points.get(i), self.points.get((i + 1) % n)) else {
+                break;
+            };
             flatten_cubic(
                 (a.x + ox, a.y + oy),
                 (a.x + a.succ.0 + ox, a.y + a.succ.1 + oy),
@@ -123,12 +131,25 @@ pub enum ElementKind {
     Group(Vec<Element>),
     /// An object (or objects) with an element mask. `cache` is Fireworks' pre-rendered mask
     /// bitmap, kept so it is written back as read.
-    Masked { content: Vec<Element>, mask: Box<Element>, mode: MaskMode, cache: Option<Box<Element>> },
+    Masked {
+        content: Vec<Element>,
+        mask: Box<Element>,
+        mode: MaskMode,
+        cache: Option<Box<Element>>,
+    },
     /// An instance of a symbol from the document's library, placed by `matrix` (symbol space ->
     /// canvas). `bounds` is the placed symbol's bounding box, computed when the file is read.
-    Instance { symbol: u32, name: String, matrix: Affine, bounds: Option<(f64, f64, f64, f64)> },
+    Instance {
+        symbol: u32,
+        name: String,
+        matrix: Affine,
+        bounds: Option<(f64, f64, f64, f64)>,
+    },
     /// Slices, hotspots and anything not yet modelled.
-    Other { kind: String, cached: Option<Bitmap> },
+    Other {
+        kind: String,
+        cached: Option<Bitmap>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -147,7 +168,15 @@ pub struct Element {
 
 impl Element {
     pub fn new(kind: ElementKind) -> Self {
-        Self { name: None, visible: true, opacity: 100.0, blend: BlendMode::Normal, effects: Vec::new(), kind, raw: None }
+        Self {
+            name: None,
+            visible: true,
+            opacity: 100.0,
+            blend: BlendMode::Normal,
+            effects: Vec::new(),
+            kind,
+            raw: None,
+        }
     }
 
     /// The label the Layers panel shows.
@@ -173,9 +202,19 @@ impl Element {
     /// Bounding box (x, y, w, h) in canvas pixels, if known.
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         match &self.kind {
-            ElementKind::Bitmap(b) => Some((b.x as f64, b.y as f64, b.image.width() as f64, b.image.height() as f64)),
+            ElementKind::Bitmap(b) => Some((
+                b.x as f64,
+                b.y as f64,
+                b.image.width() as f64,
+                b.image.height() as f64,
+            )),
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
-                Some((b.x as f64, b.y as f64, b.image.width() as f64, b.image.height() as f64))
+                Some((
+                    b.x as f64,
+                    b.y as f64,
+                    b.image.width() as f64,
+                    b.image.height() as f64,
+                ))
             }
             ElementKind::Path(p) => {
                 let pts: Vec<Pt> = p.contours.iter().flat_map(|c| c.flatten(0.0, 0.0)).collect();
@@ -224,7 +263,9 @@ impl Element {
                 b.y += dy.round() as i64;
             }
             ElementKind::Group(children) => children.iter_mut().for_each(|c| c.translate(dx, dy)),
-            ElementKind::Masked { content, mask, cache, .. } => {
+            ElementKind::Masked {
+                content, mask, cache, ..
+            } => {
                 content.iter_mut().for_each(|c| c.translate(dx, dy));
                 mask.translate(dx, dy);
                 if let Some(c) = cache {
@@ -257,7 +298,12 @@ impl Element {
                     let (ax, ay) = m.apply(pt.x, pt.y);
                     let pr = m.apply(pt.x + pt.pred.0, pt.y + pt.pred.1);
                     let su = m.apply(pt.x + pt.succ.0, pt.y + pt.succ.1);
-                    *pt = BezierPoint { x: ax, y: ay, pred: (pr.0 - ax, pr.1 - ay), succ: (su.0 - ax, su.1 - ay) };
+                    *pt = BezierPoint {
+                        x: ax,
+                        y: ay,
+                        pred: (pr.0 - ax, pr.1 - ay),
+                        succ: (su.0 - ax, su.1 - ay),
+                    };
                 }
                 if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
                     for h in [&mut g.start, &mut g.end, &mut g.side] {
@@ -268,9 +314,13 @@ impl Element {
                     s.diameter = (s.diameter * m.scale()).max(0.1);
                 }
             }
-            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => map_bitmap(b),
+            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
+                map_bitmap(b)
+            }
             ElementKind::Group(children) => children.iter_mut().for_each(|c| c.transform(m)),
-            ElementKind::Masked { content, mask, cache, .. } => {
+            ElementKind::Masked {
+                content, mask, cache, ..
+            } => {
                 content.iter_mut().for_each(|c| c.transform(m));
                 mask.transform(m);
                 if let Some(c) = cache {
@@ -289,7 +339,9 @@ impl Element {
 
     /// The objects an instance shows in the current frame, placed on the canvas.
     fn instance_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
-        let ElementKind::Instance { matrix, .. } = &self.kind else { return None };
+        let ElementKind::Instance { matrix, .. } = &self.kind else {
+            return None;
+        };
         let mut out = self.symbol_elements(ctx)?;
         out.iter_mut().for_each(|e| e.transform(matrix));
         Some(out)
@@ -312,7 +364,9 @@ impl Element {
             (x0 <= x1).then(|| (x0, y0, x1 - x0, y1 - y0))
         };
         match &self.kind {
-            ElementKind::Instance { matrix, bounds: None, .. } => {
+            ElementKind::Instance {
+                matrix, bounds: None, ..
+            } => {
                 let inner = ctx.deeper();
                 let kids = self.symbol_elements(ctx)?;
                 let (x, y, w, h) = union(&mut kids.iter().filter_map(|c| c.deep_bounds(&inner)))?;
@@ -325,7 +379,9 @@ impl Element {
 
     /// The objects an instance's symbol shows in the current frame, in symbol space.
     fn symbol_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
-        let ElementKind::Instance { symbol, .. } = &self.kind else { return None };
+        let ElementKind::Instance { symbol, .. } = &self.kind else {
+            return None;
+        };
         if ctx.depth >= MAX_SYMBOL_DEPTH {
             return None;
         }
@@ -347,7 +403,14 @@ impl Element {
             let x1 = mx.apply((b.x + b.image.width() as i64) as f64).round();
             let y1 = my.apply((b.y + b.image.height() as i64) as f64).round();
             let size = ((x1 - x0).max(1.0) as u32, (y1 - y0).max(1.0) as u32);
-            b.image = resample(&b.image, (b.x as f64, b.y as f64), mx, my, (x0 as i64, y0 as i64), size);
+            b.image = resample(
+                &b.image,
+                (b.x as f64, b.y as f64),
+                mx,
+                my,
+                (x0 as i64, y0 as i64),
+                size,
+            );
             b.x = x0 as i64;
             b.y = y0 as i64;
         };
@@ -358,7 +421,12 @@ impl Element {
                     let (ax, ay) = (mx.apply(pt.x), my.apply(pt.y));
                     let pred = (mx.apply(pt.x + pt.pred.0) - ax, my.apply(pt.y + pt.pred.1) - ay);
                     let succ = (mx.apply(pt.x + pt.succ.0) - ax, my.apply(pt.y + pt.succ.1) - ay);
-                    *pt = BezierPoint { x: ax, y: ay, pred, succ };
+                    *pt = BezierPoint {
+                        x: ax,
+                        y: ay,
+                        pred,
+                        succ,
+                    };
                 }
                 if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
                     for h in [&mut g.start, &mut g.end, &mut g.side] {
@@ -366,9 +434,13 @@ impl Element {
                     }
                 }
             }
-            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => map_bitmap(b),
+            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
+                map_bitmap(b)
+            }
             ElementKind::Group(children) => children.iter_mut().for_each(|c| c.map_nine(mx, my)),
-            ElementKind::Masked { content, mask, cache, .. } => {
+            ElementKind::Masked {
+                content, mask, cache, ..
+            } => {
                 content.iter_mut().for_each(|c| c.map_nine(mx, my));
                 mask.map_nine(mx, my);
                 if let Some(c) = cache {
@@ -381,7 +453,14 @@ impl Element {
 
     /// The element's own pixels before opacity, blend mode and effects, as an image and its
     /// position in `out` coordinates (`out`'s top-left is canvas (`ox`, `oy`), size `w` x `h`).
-    pub fn rasterize(&self, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> Option<(RgbaImage, i64, i64)> {
+    pub fn rasterize(
+        &self,
+        ox: i64,
+        oy: i64,
+        w: u32,
+        h: u32,
+        ctx: &RenderCtx,
+    ) -> Option<(RgbaImage, i64, i64)> {
         match &self.kind {
             ElementKind::Bitmap(b) => Some((b.image.clone(), b.x - ox, b.y - oy)),
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
@@ -406,7 +485,9 @@ impl Element {
                         // Shade in canvas coordinates (the layer's pixel + its canvas offset).
                         // Fireworks samples gradients at the pixel's integer coordinate (its
                         // top-left corner), not its centre (measured on Folds/Pinch/Waves).
-                        Some(g) => fill_polygons_with(&mut layer, &polys, f.anti_alias, &|x, y| g.color_at(x - 0.5 - fx, y - 0.5 - fy)),
+                        Some(g) => fill_polygons_with(&mut layer, &polys, f.anti_alias, &|x, y| {
+                            g.color_at(x - 0.5 - fx, y - 0.5 - fy)
+                        }),
                         None => fill_polygons(&mut layer, &polys, f.color, f.anti_alias),
                     }
                 }
@@ -425,7 +506,9 @@ impl Element {
             }
             ElementKind::Group(children) => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
+                children
+                    .iter()
+                    .for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
                 Some((layer, 0, 0))
             }
             ElementKind::Instance { matrix, .. } if !matrix.is_affine() => {
@@ -446,12 +529,17 @@ impl Element {
                     return None;
                 }
                 let (fx, fy) = (x0.floor() as i64 - 2, y0.floor() as i64 - 2);
-                let (fw, fh) = ((x1.ceil() as i64 + 2 - fx).max(1), (y1.ceil() as i64 + 2 - fy).max(1));
+                let (fw, fh) = (
+                    (x1.ceil() as i64 + 2 - fx).max(1),
+                    (y1.ceil() as i64 + 2 - fy).max(1),
+                );
                 if fw * fh > 1 << 26 {
                     return None;
                 }
                 let mut flat = RgbaImage::new(fw as u32, fh as u32, Rgba::TRANSPARENT);
-                children.iter().for_each(|c| c.render_onto(&mut flat, fx, fy, &inner));
+                children
+                    .iter()
+                    .for_each(|c| c.render_onto(&mut flat, fx, fy, &inner));
                 // Inverse-map each output pixel; only points in front of the horizon (w > 0 on the
                 // same side as the matrix's own w) are visible.
                 let inv = matrix.invert()?;
@@ -475,12 +563,18 @@ impl Element {
                 let children = self.instance_elements(ctx)?;
                 let inner = ctx.deeper();
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, &inner));
+                children
+                    .iter()
+                    .for_each(|c| c.render_onto(&mut layer, ox, oy, &inner));
                 Some((layer, 0, 0))
             }
-            ElementKind::Masked { content, mask, mode, .. } => {
+            ElementKind::Masked {
+                content, mask, mode, ..
+            } => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                content.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
+                content
+                    .iter()
+                    .for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
                 let coverage = mask_coverage(mask, *mode, ox, oy, w, h, ctx);
                 for (p, &m) in layer.pixels_mut().iter_mut().zip(coverage.pixels()) {
                     p.a = (p.a as u32 * m.a as u32 / 255) as u8;
@@ -514,7 +608,9 @@ impl Element {
             return;
         }
         if self.effects.is_empty() {
-            let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else { return };
+            let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else {
+                return;
+            };
             out.draw_blend_with(&img, x, y, opacity, self.blend, ctx.math);
             return;
         }
@@ -526,7 +622,9 @@ impl Element {
         if ew * eh > 1 << 28 {
             return;
         }
-        let Some((img, x, y)) = self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx) else { return };
+        let Some((img, x, y)) = self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx) else {
+            return;
+        };
         let (bx, by) = ((x - m).max(0), (y - m).max(0));
         let bw = ((x + img.width() as i64 + m).min(ew) - bx).max(0) as u32;
         let bh = ((y + img.height() as i64 + m).min(eh) - by).max(0) as u32;
@@ -543,7 +641,15 @@ impl Element {
 }
 
 /// Per-pixel mask strength (in the alpha channel) of `mask` over the output area.
-fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> RgbaImage {
+fn mask_coverage(
+    mask: &Element,
+    mode: MaskMode,
+    ox: i64,
+    oy: i64,
+    w: u32,
+    h: u32,
+    ctx: &RenderCtx,
+) -> RgbaImage {
     let mut m = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     match mode {
         MaskMode::PathOutline => {
@@ -553,7 +659,12 @@ fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u3
             shape.blend = BlendMode::Normal;
             shape.visible = true;
             if let ElementKind::Path(p) = &mut shape.kind {
-                p.fill = Some(Fill { color: Rgba::WHITE, category: "fc_Solid".into(), anti_alias: true, gradient: None });
+                p.fill = Some(Fill {
+                    color: Rgba::WHITE,
+                    category: "fc_Solid".into(),
+                    anti_alias: true,
+                    gradient: None,
+                });
                 p.stroke = None;
             }
             shape.render_onto(&mut m, ox, oy, ctx);

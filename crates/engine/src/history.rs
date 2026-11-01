@@ -18,7 +18,11 @@ pub struct History {
 
 impl Default for History {
     fn default() -> Self {
-        Self { undo: Vec::new(), redo: Vec::new(), limit: DEFAULT_UNDO_STEPS }
+        Self {
+            undo: Vec::new(),
+            redo: Vec::new(),
+            limit: DEFAULT_UNDO_STEPS,
+        }
     }
 }
 

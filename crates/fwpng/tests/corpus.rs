@@ -53,7 +53,9 @@ fn corpus_round_trip() {
                 use std::io::Read;
                 let c = png.chunks.iter().find(|c| c.is(b"mkTS")).unwrap();
                 let mut v = Vec::new();
-                flate2::read::ZlibDecoder::new(&c.data[..]).read_to_end(&mut v).unwrap();
+                flate2::read::ZlibDecoder::new(&c.data[..])
+                    .read_to_end(&mut v)
+                    .unwrap();
                 v
             };
             assert_eq!(tree.to_bytes(), raw, "{}: tree round trip", f.display());

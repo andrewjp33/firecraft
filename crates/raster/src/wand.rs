@@ -59,13 +59,22 @@ pub struct WandOptions {
 impl Default for WandOptions {
     fn default() -> Self {
         // Fireworks MX's shipped default tolerance is 32.
-        Self { tolerance: 32, edge: Edge::AntiAlias, aa_style: AntiAliasStyle::Smooth, contiguous: true }
+        Self {
+            tolerance: 32,
+            edge: Edge::AntiAlias,
+            aa_style: AntiAliasStyle::Smooth,
+            contiguous: true,
+        }
     }
 }
 
 /// Fireworks' colour distance (see module docs).
 pub fn distance(seed: Rgba, p: Rgba) -> u32 {
-    let d = [p.r as i32 - seed.r as i32, p.g as i32 - seed.g as i32, p.b as i32 - seed.b as i32];
+    let d = [
+        p.r as i32 - seed.r as i32,
+        p.g as i32 - seed.g as i32,
+        p.b as i32 - seed.b as i32,
+    ];
     let up = d.iter().copied().max().unwrap_or(0).max(0);
     let down = (-d.iter().copied().min().unwrap_or(0)).max(0);
     (up + down) as u32
@@ -179,7 +188,11 @@ fn smooth_coverage(img: &RgbaImage, mask: &Mask, seed: Rgba, x: i64, y: i64, p: 
         num += (pp[i] - o[i]) * e;
         den += e * e;
     }
-    let unmix = if den > 1.0 { (num / den).clamp(0.0, 1.0) } else { 0.0 };
+    let unmix = if den > 1.0 {
+        (num / den).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     // Geometric: share of the 3x3 block inside the region (a straight edge gives 1/3).
     let geo = inside_count as f32 / 9.0;
     (unmix.max(geo) * 255.0).round() as u8
@@ -218,7 +231,12 @@ mod tests {
     }
 
     fn classic(tol: u8, edge: Edge) -> WandOptions {
-        WandOptions { tolerance: tol, edge, aa_style: AntiAliasStyle::Classic, contiguous: true }
+        WandOptions {
+            tolerance: tol,
+            edge,
+            aa_style: AntiAliasStyle::Classic,
+            contiguous: true,
+        }
     }
 
     fn histogram(m: &Mask) -> (usize, usize, Vec<u8>) {
@@ -280,7 +298,10 @@ mod tests {
     fn smooth_aa_is_visible_at_any_tolerance() {
         let img = disc(false);
         for tol in [0u8, 10, 32] {
-            let opts = WandOptions { tolerance: tol, ..WandOptions::default() };
+            let opts = WandOptions {
+                tolerance: tol,
+                ..WandOptions::default()
+            };
             let (_, partial, vals) = histogram(&magic_wand(&img, 50, 50, opts));
             assert!(partial > 100, "tol {tol}");
             let mean = vals.iter().map(|&v| v as u32).sum::<u32>() / vals.len() as u32;
@@ -291,7 +312,10 @@ mod tests {
     #[test]
     fn smooth_aa_recovers_soft_edge_coverage() {
         let img = disc(true);
-        let opts = WandOptions { tolerance: 10, ..WandOptions::default() };
+        let opts = WandOptions {
+            tolerance: 10,
+            ..WandOptions::default()
+        };
         let m = magic_wand(&img, 50, 50, opts);
         // A ring pixel whose source is ~50% red should be ~50% selected.
         let mut checked = 0;
@@ -321,7 +345,12 @@ mod tests {
         let mut img = disc(false);
         let m = magic_wand(&img, 50, 50, classic(32, Edge::AntiAlias));
         img.clear_masked(&m);
-        let partial: Vec<u8> = img.pixels().iter().map(|p| p.a).filter(|&a| a > 0 && a < 255).collect();
+        let partial: Vec<u8> = img
+            .pixels()
+            .iter()
+            .map(|p| p.a)
+            .filter(|&a| a > 0 && a < 255)
+            .collect();
         assert_eq!(partial.len(), 172);
         assert!(partial.iter().all(|&a| a == 223)); // measured: 255 - 32
         assert_eq!(img.get(50, 50), Some(Rgba::CLEARED));

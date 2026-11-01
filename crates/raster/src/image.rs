@@ -12,11 +12,31 @@ pub struct Rgba {
 }
 
 impl Rgba {
-    pub const TRANSPARENT: Rgba = Rgba { r: 0, g: 0, b: 0, a: 0 };
+    pub const TRANSPARENT: Rgba = Rgba {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
     /// What Fireworks MX leaves in a fully deleted pixel (observed: `00FFFFFF` ARGB).
-    pub const CLEARED: Rgba = Rgba { r: 255, g: 255, b: 255, a: 0 };
-    pub const WHITE: Rgba = Rgba { r: 255, g: 255, b: 255, a: 255 };
-    pub const BLACK: Rgba = Rgba { r: 0, g: 0, b: 0, a: 255 };
+    pub const CLEARED: Rgba = Rgba {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 0,
+    };
+    pub const WHITE: Rgba = Rgba {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    pub const BLACK: Rgba = Rgba {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
 
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
@@ -28,7 +48,12 @@ impl Rgba {
         let v = u32::from_str_radix(s, 16).ok()?;
         match s.len() {
             6 => Some(Self::new((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)),
-            8 => Some(Self::new((v >> 24) as u8, (v >> 16) as u8, (v >> 8) as u8, v as u8)),
+            8 => Some(Self::new(
+                (v >> 24) as u8,
+                (v >> 16) as u8,
+                (v >> 8) as u8,
+                v as u8,
+            )),
             _ => None,
         }
     }
@@ -55,7 +80,12 @@ impl Rgba {
         let mix = |s: u8, d: u8| -> u8 {
             ((s as u32 * sa + d as u32 * da * (255 - sa) / 255) / out_a).min(255) as u8
         };
-        Rgba::new(mix(src.r, self.r), mix(src.g, self.g), mix(src.b, self.b), out_a as u8)
+        Rgba::new(
+            mix(src.r, self.r),
+            mix(src.g, self.g),
+            mix(src.b, self.b),
+            out_a as u8,
+        )
     }
 }
 
@@ -76,19 +106,34 @@ impl RgbaImage {
     pub fn new(width: u32, height: u32, fill: Rgba) -> Self {
         let n = width as u64 * height as u64;
         if n > MAX_PIXELS {
-            return Self { width: 0, height: 0, pixels: Default::default() };
+            return Self {
+                width: 0,
+                height: 0,
+                pixels: Default::default(),
+            };
         }
-        Self { width, height, pixels: std::sync::Arc::new(vec![fill; n as usize]) }
+        Self {
+            width,
+            height,
+            pixels: std::sync::Arc::new(vec![fill; n as usize]),
+        }
     }
 
     /// Wrap pixels; `None` if the length does not match.
     pub fn from_pixels(width: u32, height: u32, pixels: Vec<Rgba>) -> Option<Self> {
-        (pixels.len() as u64 == width as u64 * height as u64).then(|| Self { width, height, pixels: std::sync::Arc::new(pixels) })
+        (pixels.len() as u64 == width as u64 * height as u64).then(|| Self {
+            width,
+            height,
+            pixels: std::sync::Arc::new(pixels),
+        })
     }
 
     /// From tightly packed RGBA bytes.
     pub fn from_rgba_bytes(width: u32, height: u32, bytes: &[u8]) -> Option<Self> {
-        let px = bytes.chunks_exact(4).map(|c| Rgba::new(c[0], c[1], c[2], c[3])).collect();
+        let px = bytes
+            .chunks_exact(4)
+            .map(|c| Rgba::new(c[0], c[1], c[2], c[3]))
+            .collect();
         Self::from_pixels(width, height, px)
     }
 
@@ -129,12 +174,19 @@ impl RgbaImage {
     /// Remove the selected pixels (Edit > Clear / Delete). Partial coverage scales alpha;
     /// fully removed pixels become [`Rgba::CLEARED`] as in Fireworks MX.
     pub fn clear_masked(&mut self, mask: &Mask) {
-        for (p, &m) in std::sync::Arc::make_mut(&mut self.pixels).iter_mut().zip(mask.data()) {
+        for (p, &m) in std::sync::Arc::make_mut(&mut self.pixels)
+            .iter_mut()
+            .zip(mask.data())
+        {
             if m == 0 {
                 continue;
             }
             let a = p.a as u32 * (255 - m as u32) / 255;
-            *p = if a == 0 { Rgba::CLEARED } else { Rgba { a: a as u8, ..*p } };
+            *p = if a == 0 {
+                Rgba::CLEARED
+            } else {
+                Rgba { a: a as u8, ..*p }
+            };
         }
     }
 
@@ -147,26 +199,51 @@ impl RgbaImage {
             .zip(mask.data())
             .map(|(p, &m)| {
                 let a = p.a as u32 * m as u32 / 255;
-                if a == 0 { Rgba::TRANSPARENT } else { Rgba { a: a as u8, ..*p } }
+                if a == 0 {
+                    Rgba::TRANSPARENT
+                } else {
+                    Rgba { a: a as u8, ..*p }
+                }
             })
             .collect();
-        RgbaImage { width: self.width, height: self.height, pixels: std::sync::Arc::new(pixels) }
+        RgbaImage {
+            width: self.width,
+            height: self.height,
+            pixels: std::sync::Arc::new(pixels),
+        }
     }
 
     /// Composite `src` onto this image at offset (`dx`, `dy`).
     /// Composite `src` at (`dx`, `dy`) with a blend mode.
-    pub fn draw_blend(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8, mode: crate::blend::BlendMode) {
+    pub fn draw_blend(
+        &mut self,
+        src: &RgbaImage,
+        dx: i64,
+        dy: i64,
+        opacity: u8,
+        mode: crate::blend::BlendMode,
+    ) {
         self.draw_blend_with(src, dx, dy, opacity, mode, crate::ColorMath::Classic);
     }
 
     /// [`draw_blend`](Self::draw_blend) with a choice of colour-math precision.
-    pub fn draw_blend_with(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8, mode: crate::blend::BlendMode, math: crate::ColorMath) {
+    pub fn draw_blend_with(
+        &mut self,
+        src: &RgbaImage,
+        dx: i64,
+        dy: i64,
+        opacity: u8,
+        mode: crate::blend::BlendMode,
+        math: crate::ColorMath,
+    ) {
         if mode == crate::blend::BlendMode::Normal {
             return self.draw(src, dx, dy, opacity);
         }
         for y in 0..src.height as i64 {
             for x in 0..src.width as i64 {
-                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else { continue };
+                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else {
+                    continue;
+                };
                 if s.a == 0 {
                     continue;
                 }
@@ -180,7 +257,9 @@ impl RgbaImage {
     pub fn draw(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8) {
         for y in 0..src.height as i64 {
             for x in 0..src.width as i64 {
-                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else { continue };
+                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else {
+                    continue;
+                };
                 if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
                     *d = d.over(s, opacity);
                 }
@@ -198,7 +277,10 @@ mod tests {
         let w = Rgba::WHITE;
         assert_eq!(w.over(Rgba::new(255, 0, 0, 255), 255), Rgba::new(255, 0, 0, 255));
         assert_eq!(w.over(Rgba::new(255, 0, 0, 0), 255), w);
-        assert_eq!(Rgba::TRANSPARENT.over(Rgba::new(10, 20, 30, 128), 255), Rgba::new(10, 20, 30, 128));
+        assert_eq!(
+            Rgba::TRANSPARENT.over(Rgba::new(10, 20, 30, 128), 255),
+            Rgba::new(10, 20, 30, 128)
+        );
     }
 
     #[test]

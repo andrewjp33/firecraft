@@ -43,15 +43,22 @@ pub fn apply(ctx: &egui::Context) {
 }
 
 pub fn menu_frame() -> Frame {
-    Frame::new().fill(Color32::WHITE).inner_margin(Margin::symmetric(4, 2))
+    Frame::new()
+        .fill(Color32::WHITE)
+        .inner_margin(Margin::symmetric(4, 2))
 }
 
 pub fn panel_frame() -> Frame {
-    Frame::new().fill(PANEL).inner_margin(Margin::same(2)).stroke(Stroke::new(1.0, BORDER))
+    Frame::new()
+        .fill(PANEL)
+        .inner_margin(Margin::same(2))
+        .stroke(Stroke::new(1.0, BORDER))
 }
 
 pub fn dock_frame() -> Frame {
-    Frame::new().fill(Color32::from_rgb(0xA6, 0xA6, 0xA6)).inner_margin(Margin::same(2))
+    Frame::new()
+        .fill(Color32::from_rgb(0xA6, 0xA6, 0xA6))
+        .inner_margin(Margin::same(2))
 }
 
 pub fn workspace_frame() -> Frame {
@@ -65,11 +72,33 @@ pub fn group_header(ui: &mut egui::Ui, title: &str, open: &mut bool) {
     p.rect_filled(rect, 0.0, HEADER);
     // Gripper dots on the left, as in Fireworks.
     for i in 0..3 {
-        p.circle_filled(egui::pos2(rect.left() + 4.0, rect.top() + 5.0 + i as f32 * 4.0), 0.8, Color32::from_gray(90));
+        p.circle_filled(
+            egui::pos2(rect.left() + 4.0, rect.top() + 5.0 + i as f32 * 4.0),
+            0.8,
+            Color32::from_gray(90),
+        );
     }
-    let g = if *open { crate::icons::Glyph::TriangleDown } else { crate::icons::Glyph::TriangleRight };
-    crate::icons::paint_glyph(p, egui::Rect::from_center_size(egui::pos2(rect.left() + 15.0, rect.center().y), egui::vec2(9.0, 9.0)), g, Color32::from_gray(30));
-    p.text(egui::pos2(rect.left() + 24.0, rect.center().y), egui::Align2::LEFT_CENTER, title, egui::FontId::proportional(12.0), HEADER_TEXT);
+    let g = if *open {
+        crate::icons::Glyph::TriangleDown
+    } else {
+        crate::icons::Glyph::TriangleRight
+    };
+    crate::icons::paint_glyph(
+        p,
+        egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 15.0, rect.center().y),
+            egui::vec2(9.0, 9.0),
+        ),
+        g,
+        Color32::from_gray(30),
+    );
+    p.text(
+        egui::pos2(rect.left() + 24.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::FontId::proportional(12.0),
+        HEADER_TEXT,
+    );
     if resp.clicked() {
         *open = !*open;
     }

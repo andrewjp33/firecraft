@@ -68,7 +68,9 @@ pub struct Gradient {
 }
 
 fn ramp<T: Copy>(stops: &[(f32, T)], t: f32, lerp: impl Fn(T, T, f32) -> T, default: T) -> T {
-    let Some(&(p0, first)) = stops.first() else { return default };
+    let Some(&(p0, first)) = stops.first() else {
+        return default;
+    };
     if t <= p0 {
         return first;
     }
@@ -112,7 +114,11 @@ impl Gradient {
                 let (qx, qy) = (x - self.end.0, y - self.end.1);
                 let lp = px * px + py * py;
                 let c = (ld + lp - (qx * qx + qy * qy)) / (2.0 * ld.sqrt() * lp.sqrt());
-                if c.is_finite() { c.clamp(-1.0, 1.0).acos() * std::f64::consts::FRAC_1_PI } else { 0.0 }
+                if c.is_finite() {
+                    c.clamp(-1.0, 1.0).acos() * std::f64::consts::FRAC_1_PI
+                } else {
+                    0.0
+                }
             }
             GradientKind::Satin => ((a.sin() * (b - a)) - (3.0 * b).cos()).abs() * 0.5,
             GradientKind::Pinch => (u * v).abs(),
@@ -131,7 +137,11 @@ impl Gradient {
         };
         // Bars, Ripple, Satin, Pinch and Folds repeat, mirrored, past 1.
         let t = match self.kind {
-            GradientKind::Bars | GradientKind::Ripples | GradientKind::Satin | GradientKind::Pinch | GradientKind::Folds => {
+            GradientKind::Bars
+            | GradientKind::Ripples
+            | GradientKind::Satin
+            | GradientKind::Pinch
+            | GradientKind::Folds => {
                 let t = t.abs();
                 if t > 1.0 && t.is_finite() {
                     let n = t.trunc();
@@ -143,7 +153,11 @@ impl Gradient {
             }
             _ => t,
         };
-        if t.is_finite() { t.clamp(0.0, 1.0) as f32 } else { 0.0 }
+        if t.is_finite() {
+            t.clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        }
     }
 
     pub fn color_at(&self, x: f64, y: f64) -> Rgba {
@@ -153,8 +167,16 @@ impl Gradient {
             Rgba::new(m(a.r, b.r), m(a.g, b.g), m(a.b, b.b), m(a.a, b.a))
         };
         let c = ramp(&self.colors, t, lerp_c, Rgba::BLACK);
-        let a = ramp(&self.opacity, t, |a: u8, b: u8, f| (a as f32 + (b as f32 - a as f32) * f).round() as u8, 255);
-        Rgba { a: (c.a as u32 * a as u32 / 255) as u8, ..c }
+        let a = ramp(
+            &self.opacity,
+            t,
+            |a: u8, b: u8, f| (a as f32 + (b as f32 - a as f32) * f).round() as u8,
+            255,
+        );
+        Rgba {
+            a: (c.a as u32 * a as u32 / 255) as u8,
+            ..c
+        }
     }
 
     /// Move all handles.

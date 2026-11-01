@@ -24,7 +24,11 @@ pub fn to_hsl(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
         (0.0, 0.0)
     } else {
         let d = mx - mn;
-        let s = if l <= 0.5 { d / (mx + mn) } else { d / (2.0 - mx - mn) };
+        let s = if l <= 0.5 {
+            d / (mx + mn)
+        } else {
+            d / (2.0 - mx - mn)
+        };
         let h = if rr == mx {
             (gg - bb) / d
         } else if gg == mx {
@@ -37,7 +41,11 @@ pub fn to_hsl(r: u8, g: u8, b: u8) -> (u8, u8, u8) {
     if h < 0.0 {
         h += 360.0;
     }
-    (trunc_byte(h * (1.0 / 360.0) * 255.0), trunc_byte(l * 255.0), trunc_byte(s * 255.0))
+    (
+        trunc_byte(h * (1.0 / 360.0) * 255.0),
+        trunc_byte(l * 255.0),
+        trunc_byte(s * 255.0),
+    )
 }
 
 /// (hue, lightness, saturation) bytes -> RGB.
@@ -130,7 +138,11 @@ pub fn hue_saturation(r: u8, g: u8, b: u8, hue: i32, sat: f64, light: f64) -> [u
     let h2 = (((deg + hue) * 256) / 360) as u8;
     let adjust = |x: u8, amount: f64| -> u8 {
         let k = amount * 0.01;
-        let delta = if k >= 0.0 { (255.0 - x as f64) * k } else { x as f64 * k };
+        let delta = if k >= 0.0 {
+            (255.0 - x as f64) * k
+        } else {
+            x as f64 * k
+        };
         (x as i32 + delta as i32) as u8
     };
     from_hsl(h2, adjust(l, light), adjust(s, sat))
@@ -163,7 +175,11 @@ mod tests {
             ([200, 40, 40], 0, 0.0, 40.0, [228, 119, 119]),
         ];
         for (c, h, s, l, want) in cases {
-            assert_eq!(hue_saturation(c[0], c[1], c[2], h, s, l), want, "{c:?} {h} {s} {l}");
+            assert_eq!(
+                hue_saturation(c[0], c[1], c[2], h, s, l),
+                want,
+                "{c:?} {h} {s} {l}"
+            );
         }
     }
 }
