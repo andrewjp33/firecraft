@@ -1,6 +1,7 @@
 //! Document elements (Fireworks "objects").
 
 use firecraft_fwpng::Node;
+use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{resample, AxisMap};
 use firecraft_raster::path::{fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke, Pt};
@@ -131,6 +132,8 @@ pub struct Element {
     /// 0..=100, as in the Property inspector.
     pub opacity: u8,
     pub blend: BlendMode,
+    /// Live Effects FireCraft renders, in order (the full list stays in `raw`).
+    pub effects: Vec<Effect>,
     pub kind: ElementKind,
     /// Original Fireworks node (effects, textures, gradients...), re-emitted on save.
     pub raw: Option<Node>,
@@ -138,7 +141,7 @@ pub struct Element {
 
 impl Element {
     pub fn new(kind: ElementKind) -> Self {
-        Self { name: None, visible: true, opacity: 100, blend: BlendMode::Normal, kind, raw: None }
+        Self { name: None, visible: true, opacity: 100, blend: BlendMode::Normal, effects: Vec::new(), kind, raw: None }
     }
 
     /// The label the Layers panel shows.
@@ -333,14 +336,30 @@ impl Element {
         let opacity = (self.opacity.min(100) as u32 * 255 / 100) as u8;
         // A plain group passes its children's blending through to what lies beneath it.
         if let ElementKind::Group(children) = &self.kind {
-            if opacity == 255 && self.blend == BlendMode::Normal {
+            if opacity == 255 && self.blend == BlendMode::Normal && self.effects.is_empty() {
                 children.iter().for_each(|c| c.render_onto(out, ox, oy));
                 return;
             }
         }
-        if let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height()) {
+        let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height()) else { return };
+        if self.effects.is_empty() {
             out.draw_blend(&img, x, y, opacity, self.blend);
+            return;
         }
+        // Effects can draw outside the object (shadows, glows, blurs): work in a padded buffer.
+        let m = self.effects.iter().map(Effect::margin).max().unwrap_or(0) as i64;
+        let (bx, by) = ((x - m).max(0), (y - m).max(0));
+        let bw = ((x + img.width() as i64 + m).min(out.width() as i64) - bx).max(0) as u32;
+        let bh = ((y + img.height() as i64 + m).min(out.height() as i64) - by).max(0) as u32;
+        if bw == 0 || bh == 0 {
+            return;
+        }
+        let mut buf = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
+        buf.draw(&img, x - bx, y - by, 255);
+        for e in &self.effects {
+            e.apply(&mut buf);
+        }
+        out.draw_blend(&buf, bx, by, opacity, self.blend);
     }
 }
 
