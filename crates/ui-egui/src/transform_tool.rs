@@ -260,9 +260,18 @@ fn pick(
     q: Pos2,
     to_screen: &dyn Fn(Pt) -> Pos2,
     to_doc: &dyn Fn(Pos2) -> Pt,
+    shift: bool,
 ) -> Handle {
-    let near = |pt: Pt| to_screen(pt).distance(q) <= 6.0;
-    if near(pivot_of(edit)) {
+    let is_inside = inside(&edit.quad, to_doc(q));
+    // Handles grab within 6 px inside the box but only on their square outside it, where
+    // dragging rotates (as in Fireworks).
+    let near = |pt: Pt| {
+        let dist = to_screen(pt).distance(q);
+        dist <= if is_inside { 6.0 } else { 4.0 }
+    };
+    let pivot = near(pivot_of(edit));
+    // Shift: the handle under the pivot rather than the pivot.
+    if pivot && !shift {
         return Handle::Pivot;
     }
     if let Some(k) = (0..4).find(|&k| near(edit.quad[k])) {
@@ -271,11 +280,42 @@ fn pick(
     if let Some(e) = (0..4).find(|&e| near(mid(edit.quad[edge(e).0], edit.quad[edge(e).1]))) {
         return Handle::Edge(e);
     }
-    if inside(&edit.quad, to_doc(q)) {
-        Handle::Move
-    } else {
-        Handle::Rotate
+    if pivot {
+        return Handle::Pivot;
     }
+    if is_inside { Handle::Move } else { Handle::Rotate }
+}
+
+/// Snap points for the pivot in box coordinates: corners, edge midpoints and the centre.
+const SNAPS: [Pt; 9] = [
+    (0.0, 0.0),
+    (0.5, 0.0),
+    (1.0, 0.0),
+    (1.0, 0.5),
+    (1.0, 1.0),
+    (0.5, 1.0),
+    (0.0, 1.0),
+    (0.0, 0.5),
+    (0.5, 0.5),
+];
+
+/// The pivot at document point `p` in box coordinates, snapped to the nearest snap point
+/// within 8 screen pixels unless `free` (Ctrl).
+fn pivot_at(edit: &TransformEdit, p: Pt, to_screen: &dyn Fn(Pt) -> Pos2, free: bool) -> Option<Pt> {
+    let m = box_map(&edit.quad)?;
+    let uv = m.invert()?.apply(p.0, p.1);
+    if free {
+        return Some(uv);
+    }
+    let here = to_screen(p);
+    let best = SNAPS
+        .iter()
+        .map(|&s| (s, to_screen(m.apply(s.0, s.1)).distance(here)))
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    Some(match best {
+        Some((snap, dist)) if dist <= 8.0 => snap,
+        _ => uv,
+    })
 }
 
 /// The resize cursor closest to screen direction `dir` (y down).
@@ -373,7 +413,7 @@ pub fn canvas(
             .input(|i| i.pointer.press_origin())
             .or(resp.interact_pointer_pos())
         {
-            let handle = pick(edit, q, &to_screen, &to_doc);
+            let handle = pick(edit, q, &to_screen, &to_doc, mods.shift);
             edit.drag = Some(Drag {
                 handle,
                 start_quad: edit.quad,
@@ -384,10 +424,10 @@ pub fn canvas(
     }
     if let (Some(drag), Some(q)) = (edit.drag, resp.interact_pointer_pos()) {
         if drag.handle == Handle::Pivot {
-            // Move the pivot; store it in box coordinates.
-            if let Some(inv) = box_map(&edit.quad).and_then(|m| m.invert()) {
-                let (x, y) = to_doc(q);
-                edit.pivot_uv = inv.apply(x, y);
+            // Move the pivot (snapping to the box's corners, edge midpoints and centre; Ctrl:
+            // free); it's stored in box coordinates.
+            if let Some(uv) = pivot_at(edit, to_doc(q), &to_screen, mods.ctrl || mods.command) {
+                edit.pivot_uv = uv;
             }
         } else {
             edit.quad = dragged(tool, &drag, to_doc(q), mods.shift, mods.alt);
@@ -395,9 +435,10 @@ pub fn canvas(
     }
     // Cursor: what a drag here does (or is doing).
     if let Some(hover) = resp.hover_pos().or(resp.interact_pointer_pos()) {
-        let h = edit
-            .drag
-            .map_or_else(|| pick(edit, hover, &to_screen, &to_doc), |d| d.handle);
+        let h = edit.drag.map_or_else(
+            || pick(edit, hover, &to_screen, &to_doc, mods.shift),
+            |d| d.handle,
+        );
         let icon = cursor_for(tool, h, edit, &to_screen);
         resp.ctx.set_cursor_icon(icon);
         if icon == egui::CursorIcon::None {
@@ -465,7 +506,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
             Tool::Distort => "Drag any corner or side handle freely.",
             _ => "Drag a handle to resize (Shift: keep proportions, Alt: from the centre).",
         });
-        ui.weak("Drag inside the box to move, outside it to rotate (Shift: 15 degree steps) about the pivot; drag the pivot to move it.");
+        ui.weak("Drag inside the box to move, outside it to rotate (Shift: 15 degree steps) about the pivot. Drag the pivot to move it: it snaps to the box's corners, sides and centre (Ctrl: no snapping; Shift: grab the handle under the pivot).");
         let has = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
         if !has {
             ui.weak("Select one or more objects first.");
@@ -543,5 +584,29 @@ mod tests {
             "{rot:?}"
         );
         assert!(rot[0].0.abs() < 1e-9 && rot[0].1.abs() < 1e-9);
+    }
+
+    #[test]
+    fn pivot_snaps_unless_free() {
+        let rect = (0.0, 0.0, 100.0, 50.0);
+        let edit = TransformEdit {
+            doc: 0,
+            refs: Vec::new(),
+            revision: 0,
+            originals: Vec::new(),
+            rect,
+            quad: corners(rect),
+            pivot_uv: (0.5, 0.5),
+            drag: None,
+        };
+        let to_screen = |p: Pt| pos2(p.0 as f32, p.1 as f32);
+        // 3 px from the top-right corner: snaps there.
+        assert_eq!(pivot_at(&edit, (97.0, 2.0), &to_screen, false), Some((1.0, 0.0)));
+        // Ctrl: stays where it was dropped.
+        let free = pivot_at(&edit, (97.0, 2.0), &to_screen, true).unwrap();
+        assert!((free.0 - 0.97).abs() < 1e-9 && (free.1 - 0.04).abs() < 1e-9);
+        // Far from every snap point: free.
+        let mid = pivot_at(&edit, (30.0, 20.0), &to_screen, false).unwrap();
+        assert!((mid.0 - 0.3).abs() < 1e-9);
     }
 }
