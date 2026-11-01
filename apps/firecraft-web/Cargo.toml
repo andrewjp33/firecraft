@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 firecraft-ui-egui = { workspace = true }
-eframe = { workspace = true, features = ["glow", "default_fonts"] }
+eframe = { workspace = true, features = ["glow", "default_fonts", "persistence"] }
 egui = { workspace = true }
 log = { workspace = true }
 

@@ -7,7 +7,7 @@
 
 use firecraft_doc::{Bitmap, Contour, Document, Element, ElementKind, Layer, MaskMode, Path};
 use firecraft_fwpng::{Node, Tile};
-use firecraft_raster::Rgba;
+use firecraft_raster::{ColorMath, Rgba};
 
 use crate::read::IMAGE_TILE;
 
@@ -40,7 +40,7 @@ fn put(parent: &mut Node, node: Node) {
 
 /// Build the `mkTS` tree and the tiles it references.
 pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
-    let mut root = doc.raw.clone().unwrap_or_else(|| new_root());
+    let mut root = doc.raw.clone().unwrap_or_else(new_root);
     let origin = (root.float_of("XLC").unwrap_or(0.0), root.float_of("YLC").unwrap_or(0.0));
     // New tile ids start above every id of the original file, so kept references stay unique.
     let start = doc.raw_tiles.keys().copied().max().unwrap_or(0).max(0x0100_0000) & !0xF;
@@ -52,6 +52,11 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     put(&mut root, Node::float("RES", doc.resolution));
     put(&mut root, Node::int("RSU", i64::from(doc.resolution_cm)));
     put(&mut root, Node::int("BGC", to_argb(doc.canvas.unwrap_or(Rgba::CLEARED))));
+    // FireCraft extension (Fireworks MX ignores unknown nodes): FCMi 1 = high-precision colour math.
+    root.children.retain(|c| !c.is("FCM"));
+    if doc.color_math == ColorMath::Precise {
+        root.children.push(Node::int("FCM", 1));
+    }
     let layers =
         doc.layers.iter().map(|l| write_layer(l, doc, &mut w)).collect();
     put(&mut root, Node::vector("LYL", layers));

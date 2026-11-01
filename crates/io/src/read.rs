@@ -9,7 +9,7 @@ use firecraft_doc::{
 use firecraft_fwpng::{FwPng, Node, Tile};
 use firecraft_raster::gradient::{Gradient, GradientKind};
 use firecraft_raster::transform::Affine;
-use firecraft_raster::{Rgba, RgbaImage};
+use firecraft_raster::{ColorMath, Rgba, RgbaImage};
 
 use crate::{Error, Result};
 
@@ -53,6 +53,7 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
 
     let mut doc = Document::new(width, height, root.float_of("RES").unwrap_or(72.0), (bg.a > 0).then_some(bg));
     doc.resolution_cm = root.int_of("RSU") == Some(1);
+    doc.color_math = if root.int_of("FCM") == Some(1) { ColorMath::Precise } else { ColorMath::Classic };
     // Frame delays (1/100 s) and export flags: EXPv > FNLv > FNMv{FNDi, VISb}.
     let fnm: Vec<&Node> = root.child("EXP").and_then(|e| e.child("FNL")).map(|l| l.children_tagged("FNM").collect()).unwrap_or_default();
     doc.frames = (0..frame_count)

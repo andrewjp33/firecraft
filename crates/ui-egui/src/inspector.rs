@@ -271,6 +271,7 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         return;
     };
     let canvas = d.doc.canvas;
+    let color_math = d.doc.color_math;
     let title = d.doc.title();
     identity(ui, "Document", None, |ui| {
         ui.label(egui::RichText::new(title).size(11.0));
@@ -286,6 +287,17 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             ui.add_enabled(false, egui::Button::new("Image Size...")).on_disabled_hover_text("Coming soon");
         });
+        ui.horizontal(|ui| {
+            ui.label("Color math:");
+            let mut math = color_math;
+            if crate::dialogs::color_math_combo(ui, "doc_color_math", &mut math) {
+                if let Some(d) = app.session.active_doc_mut() {
+                    d.set_color_math(math);
+                }
+            }
+        })
+        .response
+        .on_hover_text("Fireworks MX: bit-exact Fireworks formulas. High precision: the same formulas in double precision (blend modes, Hue/Saturation). FireCraft-only; Fireworks MX renders the file with its own math.");
     });
 }
 

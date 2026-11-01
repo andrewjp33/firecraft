@@ -60,11 +60,59 @@ pub struct Prefs {
     pub show_dock: bool,
     /// Edit > Preferences > Undo Steps.
     pub undo_steps: usize,
+    /// Colour math for new documents.
+    pub color_math: firecraft_raster::ColorMath,
+}
+
+impl Prefs {
+    /// Key under which the apps store the preferences (eframe storage).
+    pub const STORAGE_KEY: &'static str = "firecraft.prefs";
+
+    /// `key=value` lines; unknown keys are ignored so older/newer versions can share the file.
+    pub fn serialize(&self) -> String {
+        let math = match self.color_math {
+            firecraft_raster::ColorMath::Classic => "classic",
+            firecraft_raster::ColorMath::Precise => "precise",
+        };
+        format!(
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\ncolor_math={math}\n",
+            self.tabs, self.show_tools, self.show_properties, self.show_dock, self.undo_steps
+        )
+    }
+
+    pub fn parse(text: &str) -> Self {
+        let mut p = Self::default();
+        for (k, v) in text.lines().filter_map(|l| l.split_once('=')) {
+            let flag = v.trim() == "true";
+            match k.trim() {
+                "tabs" => p.tabs = flag,
+                "show_tools" => p.show_tools = flag,
+                "show_properties" => p.show_properties = flag,
+                "show_dock" => p.show_dock = flag,
+                "undo_steps" => {
+                    if let Ok(n) = v.trim().parse::<usize>() {
+                        p.undo_steps = n.clamp(1, firecraft_engine::MAX_UNDO_STEPS);
+                    }
+                }
+                "color_math" => {
+                    p.color_math = if v.trim() == "precise" {
+                        firecraft_raster::ColorMath::Precise
+                    } else {
+                        firecraft_raster::ColorMath::Classic
+                    }
+                }
+                _ => {}
+            }
+        }
+        p
+    }
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { tabs: false, show_tools: true, show_properties: true, show_dock: true, undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS }
+        Self { tabs: false, show_tools: true, show_properties: true, show_dock: true, undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS,
+            color_math: firecraft_raster::ColorMath::Classic,
+        }
     }
 }
 
@@ -227,5 +275,17 @@ impl FireCraftApp {
                     });
                 });
         }
+    }
+}
+
+#[cfg(test)]
+mod prefs_tests {
+    use super::*;
+
+    #[test]
+    fn prefs_round_trip() {
+        let p = Prefs { tabs: true, undo_steps: 250, color_math: firecraft_raster::ColorMath::Precise, ..Prefs::default() };
+        assert_eq!(Prefs::parse(&p.serialize()), p);
+        assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());
     }
 }

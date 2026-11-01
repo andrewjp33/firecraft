@@ -4,8 +4,9 @@
 //! base colour's HSV value; Luminosity sets the HSV value to the blend colour's luma. Tint and the
 //! luma weights come from Fireworks.exe itself (blend function table at 0x56d9c4).
 
-use crate::image::Rgba;
+use crate::colormath::{self, ColorMath};
 use crate::fwhsl;
+use crate::image::Rgba;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum BlendMode {
@@ -85,9 +86,15 @@ impl BlendMode {
         }
     }
 
-    /// Composite `top` (straight alpha) onto `base` with extra `opacity` (0..=255).
+    /// Composite `top` (straight alpha) onto `base` with extra `opacity` (0..=255), bit-exact
+    /// Fireworks MX.
     pub fn composite(self, base: Rgba, top: Rgba, opacity: u8) -> Rgba {
-        let sa = top.a as f32 * opacity as f32 / (255.0 * 255.0);
+        self.composite_with(base, top, opacity, ColorMath::Classic)
+    }
+
+    /// [`composite`](Self::composite) with a choice of colour-math precision.
+    pub fn composite_with(self, base: Rgba, top: Rgba, opacity: u8, math: ColorMath) -> Rgba {
+        let sa = top.a as f64 * opacity as f64 / (255.0 * 255.0);
         if sa <= 0.0 {
             return base;
         }
@@ -95,13 +102,16 @@ impl BlendMode {
             return base.over(top, opacity);
         }
         if self == BlendMode::Erase {
-            let a = (base.a as f32 * (1.0 - sa)).round() as u8;
+            let a = (base.a as f64 * (1.0 - sa)).round() as u8;
             return if a == 0 { Rgba::TRANSPARENT } else { Rgba { a, ..base } };
         }
-        let ba = base.a as f32 / 255.0;
-        let cb = [base.r as f32, base.g as f32, base.b as f32];
-        let cs = [top.r as f32, top.g as f32, top.b as f32];
-        let mixed = self.mix(cb, cs);
+        let ba = base.a as f64 / 255.0;
+        let cb = [base.r as f64, base.g as f64, base.b as f64];
+        let cs = [top.r as f64, top.g as f64, top.b as f64];
+        let mixed = match math {
+            ColorMath::Classic => self.mix(cb, cs),
+            ColorMath::Precise => self.mix_precise(cb, cs),
+        };
         // W3C compositing: where the base is transparent the source shows unblended.
         let out_a = sa + ba * (1.0 - sa);
         if out_a <= 0.0 {
@@ -115,14 +125,14 @@ impl BlendMode {
     }
 
     /// The blend function B(base, blend) on opaque colours (0..=255 per channel).
-    fn mix(self, b: [f32; 3], s: [f32; 3]) -> [f32; 3] {
-        let per = |f: fn(f32, f32) -> f32| [f(b[0], s[0]), f(b[1], s[1]), f(b[2], s[2])];
+    fn mix(self, b: [f64; 3], s: [f64; 3]) -> [f64; 3] {
+        let per = |f: fn(f64, f64) -> f64| [f(b[0], s[0]), f(b[1], s[1]), f(b[2], s[2])];
         match self {
             BlendMode::Normal | BlendMode::Erase => s,
             BlendMode::Multiply => per(|b, s| b * s / 255.0),
             BlendMode::Screen => per(|b, s| 255.0 - (255.0 - b) * (255.0 - s) / 255.0),
-            BlendMode::Darken => per(f32::min),
-            BlendMode::Lighten => per(f32::max),
+            BlendMode::Darken => per(f64::min),
+            BlendMode::Lighten => per(f64::max),
             BlendMode::Difference => per(|b, s| (b - s).abs()),
             BlendMode::Invert => per(|b, _| 255.0 - b),
             BlendMode::Hue => {
@@ -153,33 +163,64 @@ impl BlendMode {
                 // Fireworks MX (blend function at 0x56d6b0): move the base towards the blend colour
                 // by how dark the base is, in integer arithmetic with /255 rounding.
                 let k = 255 - luma(b);
-                let ch = |b: f32, s: f32| -> f32 {
+                let ch = |b: f64, s: f64| -> f64 {
                     let v = (s as i32 - b as i32) * k + b as i32 * 255 + 0x80;
-                    (((v >> 8) + v) >> 8) as f32
+                    (((v >> 8) + v) >> 8) as f64
                 };
                 [ch(b[0], s[0]), ch(b[1], s[1]), ch(b[2], s[2])]
             }
+        }
+    }
+
+    /// The same blend functions in double precision (no byte quantization in between).
+    fn mix_precise(self, b: [f64; 3], s: [f64; 3]) -> [f64; 3] {
+        match self {
+            BlendMode::Hue => {
+                let (sh, _, _) = colormath::to_hsl(s);
+                let (_, bs, bl) = colormath::to_hsl(b);
+                colormath::from_hsl(sh, bs, bl)
+            }
+            BlendMode::Saturation => {
+                let (bh, bs, bv) = colormath::to_hsv(b);
+                let (_, ss, _) = colormath::to_hsv(s);
+                if bs <= 0.0 { b } else { colormath::from_hsv(bh, ss, bv) }
+            }
+            BlendMode::Color => {
+                let (_, _, bv) = colormath::to_hsv(b);
+                let (sh, ss, _) = colormath::to_hsv(s);
+                colormath::from_hsv(sh, ss, bv)
+            }
+            BlendMode::Luminosity => {
+                let (bh, bs, _) = colormath::to_hsv(b);
+                colormath::from_hsv(bh, bs, colormath::luma(s))
+            }
+            BlendMode::Tint => {
+                let k = (255.0 - colormath::luma(b)) / 255.0;
+                [0, 1, 2].map(|i| b[i] + (s[i] - b[i]) * k)
+            }
+            // The rest are already exact in floating point.
+            _ => self.mix(b, s),
         }
     }
 }
 
 /// Fireworks' luma: Rec. 709 weights 0.2125/0.7154/0.0721 scaled by 512 (109/366/37), computed
 /// once at startup in Fireworks MX and shared by the blend functions.
-fn luma(c: [f32; 3]) -> i32 {
+fn luma(c: [f64; 3]) -> i32 {
     (c[0] as i32 * 109 + c[1] as i32 * 366 + c[2] as i32 * 37) >> 9
 }
 
-fn byte(c: [f32; 3]) -> [u8; 3] {
+fn byte(c: [f64; 3]) -> [u8; 3] {
     c.map(|v| v.round().clamp(0.0, 255.0) as u8)
 }
 
-fn hsv(c: [f32; 3]) -> (u8, u8, u8) {
+fn hsv(c: [f64; 3]) -> (u8, u8, u8) {
     let [r, g, b] = byte(c);
     fwhsl::to_hsv(r, g, b)
 }
 
-fn rgb(c: [u8; 3]) -> [f32; 3] {
-    c.map(f32::from)
+fn rgb(c: [u8; 3]) -> [f64; 3] {
+    c.map(f64::from)
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ pub mod element;
 
 pub use element::{Bitmap, BezierPoint, Contour, Element, ElementKind, Fill, MaskMode, Path, Stroke, Text};
 use firecraft_fwpng::Node;
-use firecraft_raster::{Rgba, RgbaImage};
+use firecraft_raster::{ColorMath, Rgba, RgbaImage};
 
 /// Canvas colour: Fireworks offers white, transparent or a custom colour.
 pub type CanvasColor = Option<Rgba>;
@@ -39,10 +39,11 @@ pub struct RenderCtx<'a> {
     pub symbols: &'a [Symbol],
     pub frame: usize,
     pub depth: u32,
+    pub math: ColorMath,
 }
 
 impl RenderCtx<'_> {
-    pub const EMPTY: RenderCtx<'static> = RenderCtx { symbols: &[], frame: 0, depth: 0 };
+    pub const EMPTY: RenderCtx<'static> = RenderCtx { symbols: &[], frame: 0, depth: 0, math: ColorMath::Classic };
 
     pub fn deeper(&self) -> Self {
         Self { depth: self.depth + 1, ..*self }
@@ -147,6 +148,9 @@ pub struct Document {
     pub symbols: std::sync::Arc<Vec<Symbol>>,
     /// Absolute path or display name; `None` for "Untitled".
     pub path: Option<String>,
+    /// Fireworks-exact or double-precision colour formulas (a FireCraft extension, saved in a
+    /// node Fireworks MX ignores).
+    pub color_math: ColorMath,
 }
 
 impl Document {
@@ -167,6 +171,7 @@ impl Document {
             raw_tiles: Default::default(),
             symbols: Default::default(),
             path: None,
+            color_math: ColorMath::Classic,
         }
     }
 
@@ -191,7 +196,7 @@ impl Document {
     /// Flatten the given frame to an image (canvas colour underneath).
     pub fn render(&self, frame: usize) -> RgbaImage {
         let mut out = RgbaImage::new(self.width, self.height, self.canvas.unwrap_or(Rgba::TRANSPARENT));
-        let ctx = RenderCtx { symbols: &self.symbols, frame, depth: 0 };
+        let ctx = RenderCtx { symbols: &self.symbols, frame, depth: 0, math: self.color_math };
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
             for el in layer.elements(frame) {
                 el.render_onto(&mut out, 0, 0, &ctx);

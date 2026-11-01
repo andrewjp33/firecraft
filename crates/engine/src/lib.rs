@@ -466,6 +466,13 @@ impl DocState {
         self.edit("Canvas Color", |s| s.doc.canvas = canvas);
     }
 
+    /// Fireworks-exact or high-precision colour formulas for this document.
+    pub fn set_color_math(&mut self, math: firecraft_raster::ColorMath) {
+        if self.doc.color_math != math {
+            self.edit("Color Math", |s| s.doc.color_math = math);
+        }
+    }
+
     /// Modify > Canvas > Canvas Size (anchored top-left).
     pub fn set_canvas_size(&mut self, w: u32, h: u32) {
         if w == 0 || h == 0 || w > 32_000 || h > 32_000 {

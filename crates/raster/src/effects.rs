@@ -121,8 +121,24 @@ impl Effect {
 
     /// Apply to `img` (the object's pixels; effects may draw outside the object, so callers pass
     /// a buffer with room around it).
+    /// Apply the effect, bit-exact Fireworks MX.
     pub fn apply(&self, img: &mut RgbaImage) {
+        self.apply_with(img, crate::ColorMath::Classic);
+    }
+
+    /// Apply the effect with a choice of colour-math precision.
+    pub fn apply_with(&self, img: &mut RgbaImage, math: crate::ColorMath) {
         match self {
+            Effect::HueSaturation { hue, saturation, lightness, colorize: false } if math == crate::ColorMath::Precise => {
+                for p in img.pixels_mut() {
+                    if p.a != 0 {
+                        let c = [p.r, p.g, p.b].map(f64::from);
+                        let [r, g, b] = crate::colormath::hue_saturation(c, *hue as f64, *saturation as f64, *lightness as f64)
+                            .map(|v| v.round().clamp(0.0, 255.0) as u8);
+                        *p = Rgba::new(r, g, b, p.a);
+                    }
+                }
+            }
             Effect::HueSaturation { hue, saturation, lightness, colorize: false } => {
                 // Bit-exact Fireworks MX (byte-quantized HSL, see fwhsl).
                 for p in img.pixels_mut() {
@@ -186,7 +202,7 @@ impl Effect {
                         continue;
                     }
                     let opaque = Rgba { a: 255, ..*p };
-                    let c = mode.composite(opaque, *color, op);
+                    let c = mode.composite_with(opaque, *color, op, math);
                     *p = Rgba { a: p.a, ..c };
                 }
             }

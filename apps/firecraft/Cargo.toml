@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 firecraft-ui-egui = { workspace = true }
-eframe = { workspace = true, features = ["wgpu", "glow", "wayland", "x11", "default_fonts", "accesskit"] }
+eframe = { workspace = true, features = ["wgpu", "glow", "wayland", "x11", "default_fonts", "accesskit", "persistence"] }
 egui = { workspace = true }
 rfd = { workspace = true }
 pollster = "0.4"

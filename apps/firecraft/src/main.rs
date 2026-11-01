@@ -53,6 +53,10 @@ struct App {
 }
 
 impl eframe::App for App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(firecraft_ui_egui::Prefs::STORAGE_KEY, self.inner.prefs.serialize());
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.inner.ui(ui);
         // Close the splash once a frame has actually reached the screen (the second frame).
@@ -91,8 +95,11 @@ fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> 
     eframe::run_native(
         "FireCraft",
         native_options(renderer),
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
             let mut app = FireCraftApp::new(Box::new(Desktop));
+            if let Some(text) = cc.storage.and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY)) {
+                app.prefs = firecraft_ui_egui::Prefs::parse(&text);
+            }
             for f in files {
                 match std::fs::read(&f) {
                     Ok(bytes) => app.open_bytes(f, &bytes),

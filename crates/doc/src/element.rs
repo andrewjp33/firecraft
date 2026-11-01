@@ -439,7 +439,7 @@ impl Element {
         }
         if self.effects.is_empty() {
             let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else { return };
-            out.draw_blend(&img, x, y, opacity, self.blend);
+            out.draw_blend_with(&img, x, y, opacity, self.blend, ctx.math);
             return;
         }
         // Effects can draw outside the object (shadows, glows, blurs) and are affected by the
@@ -460,9 +460,9 @@ impl Element {
         let mut buf = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
         buf.draw(&img, x - bx, y - by, 255);
         for e in &self.effects {
-            e.apply(&mut buf);
+            e.apply_with(&mut buf, ctx.math);
         }
-        out.draw_blend(&buf, bx - m, by - m, opacity, self.blend);
+        out.draw_blend_with(&buf, bx - m, by - m, opacity, self.blend, ctx.math);
     }
 }
 

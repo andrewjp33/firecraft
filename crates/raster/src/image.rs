@@ -156,6 +156,11 @@ impl RgbaImage {
     /// Composite `src` onto this image at offset (`dx`, `dy`).
     /// Composite `src` at (`dx`, `dy`) with a blend mode.
     pub fn draw_blend(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8, mode: crate::blend::BlendMode) {
+        self.draw_blend_with(src, dx, dy, opacity, mode, crate::ColorMath::Classic);
+    }
+
+    /// [`draw_blend`](Self::draw_blend) with a choice of colour-math precision.
+    pub fn draw_blend_with(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8, mode: crate::blend::BlendMode, math: crate::ColorMath) {
         if mode == crate::blend::BlendMode::Normal {
             return self.draw(src, dx, dy, opacity);
         }
@@ -166,7 +171,7 @@ impl RgbaImage {
                     continue;
                 }
                 if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
-                    *d = mode.composite(*d, s, opacity);
+                    *d = mode.composite_with(*d, s, opacity, math);
                 }
             }
         }

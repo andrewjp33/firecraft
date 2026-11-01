@@ -110,6 +110,9 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             let (w, h, r) = (dl.new_w, dl.new_h, dl.new_res);
             dl.new_doc = false;
             app.session.new_document(w, h, r, canvas);
+            if let Some(d) = app.session.active_doc_mut() {
+                d.doc.color_math = app.prefs.color_math;
+            }
             return;
         }
         if cancel {
@@ -230,6 +233,14 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                 ui.label("Undo Steps:");
                 ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
             });
+            ui.separator();
+            ui.strong("Color math");
+            ui.horizontal(|ui| {
+                ui.label("New documents:");
+                color_math_combo(ui, "prefs_color_math", &mut prefs.color_math);
+            });
+            ui.weak("Fireworks MX: bit-exact Fireworks formulas (byte-rounded hue, saturation and lightness).\nHigh precision: the same formulas in double precision. Saved in the PNG; Fireworks MX ignores it.");
+            ui.separator();
             let mut classic = o.aa_style == firecraft_raster::AntiAliasStyle::Classic;
             if ui
                 .checkbox(&mut classic, "Classic (Fireworks MX) anti-alias for selection tools")
@@ -258,4 +269,15 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             app.dialogs.about = false;
         }
     }
+}
+
+/// Fireworks MX / High precision picker (Preferences and the document Property inspector).
+pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raster::ColorMath) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id).selected_text(value.label()).show_ui(ui, |ui| {
+        for m in firecraft_raster::ColorMath::ALL {
+            changed |= ui.selectable_value(value, m, m.label()).changed();
+        }
+    });
+    changed
 }

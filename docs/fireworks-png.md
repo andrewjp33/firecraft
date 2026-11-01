@@ -94,3 +94,13 @@ So FireCraft saves in tiers:
 2. **Fireworks CS6 (planned, opt-in on Save As/Export).** For documents whose features need CS6 to
    understand them (pages, persistent 9-slice symbols as CS edits them). FirePixel's reader/writer
    (Apache-2.0) is the reference for that structure.
+
+## FireCraft extensions
+
+Stored as extra nodes in the root `mkTS` tree. Fireworks MX opens such files normally, ignores the
+nodes, and drops them if it re-saves the file.
+
+| Node | Meaning |
+|---|---|
+| `FCMi` | Colour math: `1` = high precision (double-precision blend modes and Hue/Saturation). Absent = Fireworks-exact. |
+

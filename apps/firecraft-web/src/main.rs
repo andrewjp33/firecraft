@@ -63,6 +63,10 @@ mod web {
     struct App(FireCraftApp);
 
     impl eframe::App for App {
+        fn save(&mut self, storage: &mut dyn eframe::Storage) {
+            storage.set_string(firecraft_ui_egui::Prefs::STORAGE_KEY, self.0.prefs.serialize());
+        }
+
         fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
             self.0.ui(ui);
         }
@@ -76,7 +80,13 @@ mod web {
                 return;
             };
             let result = eframe::WebRunner::new()
-                .start(canvas, eframe::WebOptions::default(), Box::new(|_cc| Ok(Box::new(App(FireCraftApp::new(Box::new(Browser::default())))))))
+                .start(canvas, eframe::WebOptions::default(), Box::new(|cc| {
+                    let mut app = FireCraftApp::new(Box::new(Browser::default()));
+                    if let Some(text) = cc.storage.and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY)) {
+                        app.prefs = firecraft_ui_egui::Prefs::parse(&text);
+                    }
+                    Ok(Box::new(App(app)))
+                }))
                 .await;
             if let Some(loading) = document.get_element_by_id("firecraft_loading") {
                 loading.remove();

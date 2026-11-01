@@ -35,3 +35,12 @@ All modes are bit-exact on the measured grid. Fireworks has two colour models, b
   (0, 85, 170 for red, green, blue). Used by Saturation, Color and Luminosity.
 
 Partial opacity is a linear mix between the base and the blended colour (measured at 25/50/75%).
+
+## High-precision colour math (FireCraft option)
+
+Document Property inspector > Color math (default for new documents in Preferences). "High
+precision" keeps the same colour models and parameters but computes in `f64` and rounds once
+(`crates/raster/src/colormath.rs`): no ~1.4 degree hue steps, no byte truncation of saturation and
+lightness, float luma and Tint. Images between steps stay 8 bits per channel. Saved as `FCMi`
+(see fireworks-png.md); Fireworks MX renders such files with its own math.
+
