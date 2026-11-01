@@ -30,6 +30,9 @@ pub struct TransformEdit {
     rect: (f64, f64, f64, f64),
     /// Where the box's corners are now: top-left, top-right, bottom-right, bottom-left.
     quad: [Pt; 4],
+    /// Pivot (rotation centre) in box coordinates, (0.5, 0.5) = the middle; it keeps its place
+    /// in the box as the box moves and changes shape.
+    pivot_uv: Pt,
     drag: Option<Drag>,
 }
 
@@ -37,6 +40,8 @@ pub struct TransformEdit {
 struct Drag {
     handle: Handle,
     start_quad: [Pt; 4],
+    /// The pivot when the drag began (document coordinates).
+    pivot: Pt,
     start: Pt,
 }
 
@@ -47,6 +52,7 @@ enum Handle {
     Edge(usize),
     Move,
     Rotate,
+    Pivot,
 }
 
 fn corners(r: (f64, f64, f64, f64)) -> [Pt; 4] {
@@ -68,6 +74,7 @@ fn sync<'a>(edit: &'a mut Option<TransformEdit>, d: &DocState) -> Option<&'a mut
             originals: d.selected_elements(),
             rect,
             quad: corners(rect),
+            pivot_uv: (0.5, 0.5),
             drag: None,
         });
     }
@@ -124,8 +131,9 @@ fn dragged(tool: Tool, drag: &Drag, p: Pt, shift: bool, alt: bool) -> [Pt; 4] {
     let delta = sub(p, drag.start);
     match drag.handle {
         Handle::Move => q.map(|c| add(c, delta)),
+        Handle::Pivot => q,
         Handle::Rotate => {
-            let c = centre(&q);
+            let c = drag.pivot;
             let a0 = (drag.start.1 - c.1).atan2(drag.start.0 - c.0);
             let mut da = (p.1 - c.1).atan2(p.0 - c.0) - a0;
             if shift {
@@ -234,6 +242,102 @@ fn scale_box(q: &[Pt; 4], handle: Handle, k: usize, p: Pt, shift: bool, alt: boo
     [at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1)]
 }
 
+/// Box coordinates (0..1) <-> document coordinates through the box's current shape.
+fn box_map(q: &[Pt; 4]) -> Option<Affine> {
+    Affine::rect_to_quad((0.0, 0.0, 1.0, 1.0), *q)
+}
+
+fn pivot_of(edit: &TransformEdit) -> Pt {
+    box_map(&edit.quad).map_or_else(
+        || centre(&edit.quad),
+        |m| m.apply(edit.pivot_uv.0, edit.pivot_uv.1),
+    )
+}
+
+/// What a press at screen point `q` would grab.
+fn pick(
+    edit: &TransformEdit,
+    q: Pos2,
+    to_screen: &dyn Fn(Pt) -> Pos2,
+    to_doc: &dyn Fn(Pos2) -> Pt,
+) -> Handle {
+    let near = |pt: Pt| to_screen(pt).distance(q) <= 6.0;
+    if near(pivot_of(edit)) {
+        return Handle::Pivot;
+    }
+    if let Some(k) = (0..4).find(|&k| near(edit.quad[k])) {
+        return Handle::Corner(k);
+    }
+    if let Some(e) = (0..4).find(|&e| near(mid(edit.quad[edge(e).0], edit.quad[edge(e).1]))) {
+        return Handle::Edge(e);
+    }
+    if inside(&edit.quad, to_doc(q)) {
+        Handle::Move
+    } else {
+        Handle::Rotate
+    }
+}
+
+/// The resize cursor closest to screen direction `dir` (y down).
+fn resize_cursor(dir: egui::Vec2) -> egui::CursorIcon {
+    let a = dir.y.atan2(dir.x).to_degrees().rem_euclid(180.0);
+    match ((a + 22.5) / 45.0) as i32 % 4 {
+        0 => egui::CursorIcon::ResizeHorizontal,
+        1 => egui::CursorIcon::ResizeNwSe,
+        2 => egui::CursorIcon::ResizeVertical,
+        _ => egui::CursorIcon::ResizeNeSw,
+    }
+}
+
+/// Cursor for a handle, showing what dragging it does.
+fn cursor_for(
+    tool: Tool,
+    h: Handle,
+    edit: &TransformEdit,
+    to_screen: &dyn Fn(Pt) -> Pos2,
+) -> egui::CursorIcon {
+    let q = &edit.quad;
+    let c = to_screen(centre(q));
+    match h {
+        Handle::Move => egui::CursorIcon::Move,
+        Handle::Rotate => egui::CursorIcon::None, // drawn: a rotate arrow
+        Handle::Pivot => egui::CursorIcon::Crosshair,
+        Handle::Corner(_) | Handle::Edge(_) if tool == Tool::Distort => egui::CursorIcon::Crosshair,
+        Handle::Edge(e) if tool == Tool::Skew => {
+            // Sliding along the edge.
+            let (a, b) = edge(e);
+            resize_cursor(to_screen(q[b]) - to_screen(q[a]))
+        }
+        Handle::Corner(_) if tool == Tool::Skew => resize_cursor(to_screen(q[1]) - to_screen(q[0])),
+        Handle::Corner(k) => resize_cursor(to_screen(q[k]) - c),
+        Handle::Edge(e) => resize_cursor(to_screen(mid(q[edge(e).0], q[edge(e).1])) - c),
+    }
+}
+
+/// A rotate cursor: a three-quarter circle with an arrowhead, drawn at the pointer.
+fn paint_rotate_cursor(p: &egui::Painter, at: Pos2) {
+    let r = 7.0;
+    let pts: Vec<Pos2> = (0..=18)
+        .map(|i| {
+            let a = (-200.0 + i as f32 * 14.0).to_radians();
+            at + vec2(a.cos(), a.sin()) * r
+        })
+        .collect();
+    let end = *pts.last().unwrap_or(&at);
+    for (w, col) in [(3.5, Color32::WHITE), (1.5, Color32::BLACK)] {
+        p.add(egui::Shape::line(pts.clone(), Stroke::new(w, col)));
+        p.add(egui::Shape::convex_polygon(
+            vec![
+                end + vec2(-4.0, -1.0),
+                end + vec2(3.0, -3.0),
+                end + vec2(1.0, 4.0),
+            ],
+            col,
+            Stroke::new(w - 1.5, col),
+        ));
+    }
+}
+
 pub fn canvas(
     transform: &mut Option<TransformEdit>,
     d: &mut DocState,
@@ -269,30 +373,36 @@ pub fn canvas(
             .input(|i| i.pointer.press_origin())
             .or(resp.interact_pointer_pos())
         {
-            let near = |pt: Pt| to_screen(pt).distance(q) <= 6.0;
-            let pd = to_doc(q);
-            let handle = (0..4)
-                .find(|&k| near(edit.quad[k]))
-                .map(Handle::Corner)
-                .or_else(|| {
-                    (0..4)
-                        .find(|&e| near(mid(edit.quad[edge(e).0], edit.quad[edge(e).1])))
-                        .map(Handle::Edge)
-                })
-                .unwrap_or(if inside(&edit.quad, pd) {
-                    Handle::Move
-                } else {
-                    Handle::Rotate
-                });
+            let handle = pick(edit, q, &to_screen, &to_doc);
             edit.drag = Some(Drag {
                 handle,
                 start_quad: edit.quad,
-                start: pd,
+                pivot: pivot_of(edit),
+                start: to_doc(q),
             });
         }
     }
     if let (Some(drag), Some(q)) = (edit.drag, resp.interact_pointer_pos()) {
-        edit.quad = dragged(tool, &drag, to_doc(q), mods.shift, mods.alt);
+        if drag.handle == Handle::Pivot {
+            // Move the pivot; store it in box coordinates.
+            if let Some(inv) = box_map(&edit.quad).and_then(|m| m.invert()) {
+                let (x, y) = to_doc(q);
+                edit.pivot_uv = inv.apply(x, y);
+            }
+        } else {
+            edit.quad = dragged(tool, &drag, to_doc(q), mods.shift, mods.alt);
+        }
+    }
+    // Cursor: what a drag here does (or is doing).
+    if let Some(hover) = resp.hover_pos().or(resp.interact_pointer_pos()) {
+        let h = edit
+            .drag
+            .map_or_else(|| pick(edit, hover, &to_screen, &to_doc), |d| d.handle);
+        let icon = cursor_for(tool, h, edit, &to_screen);
+        resp.ctx.set_cursor_icon(icon);
+        if icon == egui::CursorIcon::None {
+            paint_rotate_cursor(p, hover);
+        }
     }
     if resp.drag_stopped() {
         if let Some(drag) = edit.drag.take() {
@@ -328,7 +438,9 @@ pub fn canvas(
         handle(pts[k]);
         handle(to_screen(mid(edit.quad[edge(k).0], edit.quad[edge(k).1])));
     }
-    let c = to_screen(centre(&edit.quad));
+    // The pivot (drag it to rotate about another point).
+    let c = to_screen(pivot_of(edit));
+    p.circle_filled(c, 3.5, Color32::WHITE);
     p.circle_stroke(c, 3.5, Stroke::new(1.0, theme::HANDLE_BLUE));
 }
 
@@ -353,7 +465,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
             Tool::Distort => "Drag any corner or side handle freely.",
             _ => "Drag a handle to resize (Shift: keep proportions, Alt: from the centre).",
         });
-        ui.weak("Drag inside the box to move, outside it to rotate (Shift: 15 degree steps).");
+        ui.weak("Drag inside the box to move, outside it to rotate (Shift: 15 degree steps) about the pivot; drag the pivot to move it.");
         let has = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
         if !has {
             ui.weak("Select one or more objects first.");
@@ -369,6 +481,7 @@ mod tests {
         Drag {
             handle,
             start_quad: q,
+            pivot: centre(&q),
             start,
         }
     }
@@ -421,5 +534,14 @@ mod tests {
             false,
         );
         assert_eq!(m[0], (5.0, 2.0));
+        // Rotate 90 degrees about a pivot at the top-left corner.
+        let mut r = drag(Handle::Rotate, q, (10.0, 0.0));
+        r.pivot = (0.0, 0.0);
+        let rot = dragged(Tool::Scale, &r, (0.0, 10.0), false, false);
+        assert!(
+            (rot[1].0).abs() < 1e-9 && (rot[1].1 - 100.0).abs() < 1e-9,
+            "{rot:?}"
+        );
+        assert!(rot[0].0.abs() < 1e-9 && rot[0].1.abs() < 1e-9);
     }
 }

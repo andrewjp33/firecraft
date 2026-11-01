@@ -116,16 +116,114 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
         tip += " (not yet implemented)";
     }
     if let (false, Some(n)) = (alts.is_empty(), next) {
-        tip += &format!("\nRight-click: {}", n.label());
+        tip += &format!("\nPress and hold for more tools (right-click: {})", n.label());
     }
-    let resp = resp.on_hover_text(tip);
-    if resp.clicked() {
+    let flyout_id = egui::Id::unique("tool_flyout");
+    let open: Option<Tool> = ui.ctx().data(|d| d.get_temp(flyout_id)).flatten();
+    let resp = if open.is_some() {
+        resp
+    } else {
+        resp.on_hover_text(tip)
+    };
+    if !alts.is_empty() {
+        // Fireworks: press and hold a tool with the small arrow (or click the arrow) for a menu of
+        // the tools sharing its slot.
+        let arrow = Rect::from_min_max(r.right_bottom() - vec2(9.0, 9.0), r.right_bottom());
+        let held = resp.is_pointer_button_down_on()
+            && ui
+                .ctx()
+                .input(|i| i.pointer.press_start_time().is_some_and(|t| i.time - t >= 0.35));
+        let on_arrow = resp.clicked()
+            && resp
+                .interact_pointer_pos()
+                .is_some_and(|q| arrow.expand(2.0).contains(q));
+        if resp.is_pointer_button_down_on() {
+            ui.ctx().request_repaint();
+        }
+        if (held || on_arrow) && open != Some(slot) {
+            ui.ctx().data_mut(|d| d.insert_temp(flyout_id, Some(slot)));
+        }
+        if ui.ctx().data(|d| d.get_temp::<Option<Tool>>(flyout_id)).flatten() == Some(slot) {
+            flyout(app, ui.ctx(), slot, &group, r, flyout_id);
+        }
+        if on_arrow {
+            return;
+        }
+    }
+    if resp.clicked() && open.is_none() {
         app.session.tool = shown;
     }
     if resp.secondary_clicked() && !alts.is_empty() {
         if let Some(n) = next {
             app.session.tool = n;
         }
+    }
+}
+
+/// The slot's tools as a menu beside the button; picking one selects it, clicking elsewhere
+/// closes the menu.
+fn flyout(
+    app: &mut FireCraftApp,
+    ctx: &egui::Context,
+    slot: Tool,
+    group: &[Tool],
+    button: Rect,
+    id: egui::Id,
+) {
+    let area = egui::Area::new(id.with(slot))
+        .order(egui::Order::Foreground)
+        .fixed_pos(button.right_top() + vec2(2.0, 0.0));
+    let shown = area.show(ctx, |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.spacing_mut().item_spacing = vec2(2.0, 1.0);
+            for &t in group {
+                let label = match t.shortcut() {
+                    Some(k) => format!("{}  ({k})", t.label()),
+                    None => t.label().to_owned(),
+                };
+                let (row, resp) = ui.allocate_exact_size(vec2(190.0, 22.0), Sense::click());
+                if resp.hovered() || app.session.tool == t {
+                    let fill = if resp.hovered() {
+                        theme::SELECT_BLUE
+                    } else {
+                        Color32::from_gray(225)
+                    };
+                    ui.painter().rect_filled(row, 1.0, fill);
+                }
+                icons::paint(
+                    ui.painter(),
+                    Rect::from_min_size(row.min, vec2(22.0, 22.0)),
+                    t,
+                    t.implemented(),
+                );
+                let col = if resp.hovered() {
+                    Color32::WHITE
+                } else {
+                    Color32::from_gray(20)
+                };
+                ui.painter().text(
+                    row.left_center() + vec2(28.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    col,
+                );
+                if resp.clicked() {
+                    app.session.tool = t;
+                    ctx.data_mut(|d| d.insert_temp::<Option<Tool>>(id, None));
+                }
+            }
+        });
+    });
+    // A press outside the menu (other than the release of the opening press) closes it.
+    let outside = ctx.input(|i| {
+        i.pointer.any_pressed()
+            && i.pointer
+                .interact_pos()
+                .is_some_and(|p| !shown.response.rect.contains(p) && !button.contains(p))
+    });
+    if outside {
+        ctx.data_mut(|d| d.insert_temp::<Option<Tool>>(id, None));
     }
 }
 
