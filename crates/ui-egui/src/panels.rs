@@ -199,7 +199,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         egui::Shape::rect_filled(band, 0.0, theme::SELECT_BLUE),
                     );
                 }
-                let click = ui.interact(rect, ui.id().with(("layer_row", li, ei)), Sense::click());
+                let click = ui.interact(rect, ui.scope_id().with(("layer_row", li, ei)), Sense::click());
                 if click.clicked() {
                     select = Some(r);
                 }
