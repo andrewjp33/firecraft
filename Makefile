@@ -3,6 +3,8 @@
 # Requirements: Rust (rustup) for everything; `sudo apt install mingw-w64` for Windows builds;
 # `cargo install trunk` + `rustup target add wasm32-unknown-unknown` for the web build.
 
+# rustup installs into ~/.cargo/bin; make it work even if that isn't on the shell's PATH.
+export PATH := $(HOME)/.cargo/bin:$(PATH)
 CARGO ?= cargo
 WIN_TARGET := x86_64-pc-windows-gnu
 # Fireworks documents to compare against (make parity).
