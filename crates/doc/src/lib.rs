@@ -68,6 +68,8 @@ impl Default for Frame {
 pub struct Layer {
     pub name: String,
     pub visible: bool,
+    /// Per-frame visibility (Fireworks keeps one flag per frame); empty = visible in all frames.
+    pub frame_visible: Vec<bool>,
     pub locked: bool,
     /// Expanded in the Layers panel.
     pub disclosed: bool,
@@ -86,6 +88,7 @@ impl Layer {
         Self {
             name: name.into(),
             visible: true,
+            frame_visible: Vec::new(),
             locked: false,
             disclosed: true,
             shared: false,
@@ -97,6 +100,11 @@ impl Layer {
 
     pub fn web_layer() -> Self {
         Self { web: true, shared: true, ..Self::new("Web Layer") }
+    }
+
+    /// Shown in `frame`.
+    pub fn visible_in(&self, frame: usize) -> bool {
+        self.visible && self.frame_visible.get(frame).copied().unwrap_or(true)
     }
 
     /// Elements shown in `frame` (bottom to top).
@@ -184,7 +192,7 @@ impl Document {
     pub fn render(&self, frame: usize) -> RgbaImage {
         let mut out = RgbaImage::new(self.width, self.height, self.canvas.unwrap_or(Rgba::TRANSPARENT));
         let ctx = RenderCtx { symbols: &self.symbols, frame, depth: 0 };
-        for layer in self.layers.iter().filter(|l| l.visible) {
+        for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
             for el in layer.elements(frame) {
                 el.render_onto(&mut out, 0, 0, &ctx);
             }

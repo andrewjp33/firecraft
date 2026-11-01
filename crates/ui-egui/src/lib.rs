@@ -79,6 +79,9 @@ struct View {
     drag_secondary: bool,
     preview: bool,
     open: bool,
+    /// Animation playback (status bar play button).
+    playing: bool,
+    last_tick: f64,
 }
 
 pub struct FireCraftApp {

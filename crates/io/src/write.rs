@@ -55,6 +55,14 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     let layers =
         doc.layers.iter().enumerate().map(|(i, l)| write_layer(l, i == doc.current_layer, doc, &mut w)).collect();
     put(&mut root, Node::vector("LYL", layers));
+    // Frame delays/export flags back into EXPv > FNLv (kept as read otherwise).
+    if let Some(fnl) = root.child_mut("EXP").and_then(|e| e.child_mut("FNL")) {
+        let fnms: Vec<&mut Node> = fnl.children.iter_mut().filter(|c| c.is("FNM")).collect();
+        for (f, n) in doc.frames.iter().zip(fnms) {
+            put(n, Node::int("FND", f.delay as i64));
+            put(n, Node::bool("VIS", f.export));
+        }
+    }
     // Carry over original tiles still referenced (presets, textures, cached text, mkBS images).
     let mut referenced = Vec::new();
     collect_tile_refs(&root, &mut referenced, 0);
@@ -151,7 +159,8 @@ fn write_layer(layer: &Layer, current: bool, doc: &Document, w: &mut Writer) -> 
         })
         .collect();
     put(&mut n, Node::vector("CLL", cells));
-    put(&mut n, Node::vector("VIF", vec![Node::bool("VIS", layer.visible)]));
+    let frames = doc.frames.len().max(1);
+    put(&mut n, Node::vector("VIF", (0..frames).map(|f| Node::bool("VIS", layer.visible_in(f))).collect()));
     n
 }
 

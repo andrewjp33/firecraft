@@ -297,7 +297,7 @@ impl Element {
         let sym = ctx.symbols.iter().find(|s| s.id == *symbol)?;
         let frame = ctx.frame % sym.frames.max(1);
         let mut out = Vec::new();
-        for layer in sym.layers.iter().filter(|l| l.visible && !l.web) {
+        for layer in sym.layers.iter().filter(|l| l.visible_in(frame) && !l.web) {
             for el in layer.elements(frame) {
                 let mut e = el.clone();
                 e.transform(matrix);

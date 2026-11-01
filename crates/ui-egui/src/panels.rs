@@ -221,15 +221,25 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ui.weak(format!("{} of {} steps", current, d.history.limit));
         });
     } else {
-        for (i, f) in d.doc.frames.iter().enumerate() {
-            let cur = i == d.doc.current_frame;
-            ui.horizontal(|ui| {
-                let text = format!("{}  {}", i + 1, f.name);
-                let rt = if cur { RichText::new(text).color(Color32::WHITE).background_color(theme::SELECT_BLUE) } else { RichText::new(text) };
-                ui.label(rt);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.weak(f.delay.to_string()));
-            });
+        let mut pick = None;
+        egui::ScrollArea::vertical().max_height(220.0).id_salt("frames_list").show(ui, |ui| {
+            for (i, f) in d.doc.frames.iter().enumerate() {
+                let cur = i == d.doc.current_frame;
+                ui.horizontal(|ui| {
+                    let text = format!("{}  {}", i + 1, f.name);
+                    let rt = if cur { RichText::new(text).color(Color32::WHITE).background_color(theme::SELECT_BLUE) } else { RichText::new(text) };
+                    if ui.add(egui::Label::new(rt).sense(Sense::click())).clicked() {
+                        pick = Some(i);
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.weak(f.delay.to_string()))
+                        .response
+                        .on_hover_text("Frame delay (1/100 s)");
+                });
+            }
+        });
+        if let Some(i) = pick {
+            d.doc.current_frame = i;
         }
-        ui.weak("Animation editing is on the roadmap.");
+        ui.weak("Adding, removing and timing frames is on the roadmap.");
     }
 }

@@ -110,10 +110,31 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
     // Status bar: frame controls and document size, like Fireworks' document window footer.
     egui::Panel::bottom(egui::Id::unique(("doc_status", id))).frame(egui::Frame::new()).show(ui, |ui| {
         ui.horizontal(|ui| {
-            for g in [crate::icons::Glyph::First, crate::icons::Glyph::Play, crate::icons::Glyph::Last] {
-                crate::icons::glyph_button(ui, g, 14.0, false);
-            }
             if let Some(d) = app.session.docs.get_mut(index) {
+                let n = d.doc.frames.len().max(1);
+                let view = app.views.entry(id).or_default();
+                let multi = n > 1;
+                if crate::icons::glyph_button(ui, crate::icons::Glyph::First, 14.0, multi).on_hover_text("First frame").clicked() {
+                    d.doc.current_frame = 0;
+                }
+                let play = if view.playing { crate::icons::Glyph::Stop } else { crate::icons::Glyph::Play };
+                if crate::icons::glyph_button(ui, play, 14.0, multi).on_hover_text("Play/Stop").clicked() {
+                    view.playing = !view.playing;
+                    view.last_tick = ui.ctx().input(|i| i.time);
+                }
+                if crate::icons::glyph_button(ui, crate::icons::Glyph::Last, 14.0, multi).on_hover_text("Last frame").clicked() {
+                    d.doc.current_frame = n - 1;
+                }
+                // Playback: advance by each frame's delay (1/100 s).
+                if view.playing && multi {
+                    let now = ui.ctx().input(|i| i.time);
+                    let delay = d.doc.frames.get(d.doc.current_frame).map(|f| f.delay.max(1)).unwrap_or(7) as f64 / 100.0;
+                    if now - view.last_tick >= delay {
+                        d.doc.current_frame = (d.doc.current_frame + 1) % n;
+                        view.last_tick = now;
+                    }
+                    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(delay.min(1.0) / 2.0));
+                }
                 ui.label(format!("{}", d.doc.current_frame + 1));
                 ui.separator();
                 ui.label(format!("{} x {}", d.doc.width, d.doc.height));
@@ -169,7 +190,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let to_screen = |x: f64, y: f64| -> Pos2 { pos2(origin.x + x as f32 * z, origin.y + y as f32 * z) };
 
     // Composite texture, refreshed when the document changes.
-    let stale = view.texture.as_ref().is_none_or(|(rev, _)| *rev != d.revision);
+    // Re-render when the document or the shown frame changes.
+    let key = (d.revision << 16) ^ d.doc.current_frame as u64;
+    let stale = view.texture.as_ref().is_none_or(|(k, _)| *k != key);
     if stale {
         let img = d.doc.render(d.doc.current_frame);
         let color = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &img.to_rgba_bytes());

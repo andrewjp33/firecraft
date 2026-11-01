@@ -53,7 +53,18 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
 
     let mut doc = Document::new(width, height, root.float_of("RES").unwrap_or(72.0), (bg.a > 0).then_some(bg));
     doc.resolution_cm = root.int_of("RSU") == Some(1);
-    doc.frames = (1..=frame_count).map(|i| Frame { name: format!("Frame {i}"), ..Frame::default() }).collect();
+    // Frame delays (1/100 s) and export flags: EXPv > FNLv > FNMv{FNDi, VISb}.
+    let fnm: Vec<&Node> = root.child("EXP").and_then(|e| e.child("FNL")).map(|l| l.children_tagged("FNM").collect()).unwrap_or_default();
+    doc.frames = (0..frame_count)
+        .map(|i| {
+            let f = fnm.get(i);
+            Frame {
+                name: format!("Frame {}", i + 1),
+                delay: f.and_then(|f| f.int_of("FND")).unwrap_or(7).clamp(0, 65_535) as u32,
+                export: f.and_then(|f| f.bool_of("VIS")).unwrap_or(true),
+            }
+        })
+        .collect();
     doc.layers = root
         .child("LYL")
         .map(|lyl| lyl.children_tagged("LAY").map(|l| read_layer(l, &ctx)).collect())
@@ -78,7 +89,13 @@ fn read_layer(n: &Node, ctx: &Ctx) -> Layer {
     layer.web = n.bool_of("URL").unwrap_or(false);
     layer.shared = n.bool_of("MSL").unwrap_or(false);
     layer.disclosed = n.bool_of("DIS").unwrap_or(true);
-    layer.visible = n.child("VIF").and_then(|v| v.bool_of("VIS")).unwrap_or(true);
+    // VIFv: one VISb per frame.
+    let vis: Vec<bool> = n.child("VIF").map(|v| v.children_tagged("VIS").filter_map(Node::as_bool).collect()).unwrap_or_default();
+    if vis.iter().all(|&v| v == vis.first().copied().unwrap_or(true)) {
+        layer.visible = vis.first().copied().unwrap_or(true);
+    } else {
+        layer.frame_visible = vis;
+    }
     layer.cells = n
         .child("CLL")
         .map(|cll| {

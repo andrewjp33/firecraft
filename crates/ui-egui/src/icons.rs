@@ -156,6 +156,7 @@ pub enum Glyph {
     Opacity,
     First,
     Play,
+    Stop,
     Last,
 }
 
@@ -218,6 +219,9 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
             p.rect_stroke(Rect::from_min_max(at(0.15, 0.15), at(0.85, 0.85)), 0.0, s, egui::StrokeKind::Inside);
             p.rect_filled(Rect::from_min_max(at(0.15, 0.15), at(0.5, 0.5)), 0.0, c);
             p.rect_filled(Rect::from_min_max(at(0.5, 0.5), at(0.85, 0.85)), 0.0, c);
+        }
+        Glyph::Stop => {
+            p.rect_filled(Rect::from_min_max(at(0.25, 0.25), at(0.75, 0.75)), 0.0, c);
         }
         Glyph::First | Glyph::Last => {
             let (bar, tip, base) = if g == Glyph::First { (0.25, 0.3, 0.75) } else { (0.75, 0.7, 0.25) };
