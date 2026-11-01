@@ -1,0 +1,14 @@
+[package]
+name = "firecraft-doc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FireCraft document model: canvas, layers, frames, bitmap/vector/text elements"
+
+[lints]
+workspace = true
+
+[dependencies]
+firecraft-raster = { workspace = true }
+firecraft-fwpng = { workspace = true }

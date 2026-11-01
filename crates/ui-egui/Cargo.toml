@@ -1,0 +1,18 @@
+[package]
+name = "firecraft-ui-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FireCraft's egui shell: the Fireworks MX-style workspace"
+
+[lints]
+workspace = true
+
+[dependencies]
+firecraft-raster = { workspace = true }
+firecraft-doc = { workspace = true }
+firecraft-io = { workspace = true }
+firecraft-engine = { workspace = true }
+egui = { workspace = true, features = ["default_fonts"] }
+log = { workspace = true }

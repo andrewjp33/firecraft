@@ -1,0 +1,257 @@
+//! Modal-style dialogs: New Document, Canvas Size, colour pickers, Preferences, About.
+
+use egui::{Color32, DragValue};
+use firecraft_engine::DocState;
+use firecraft_raster::Rgba;
+
+use crate::FireCraftApp;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CanvasChoice {
+    White,
+    Transparent,
+    Custom,
+}
+
+#[derive(Clone, Debug)]
+pub struct Dialogs {
+    pub new_doc: bool,
+    pub new_w: u32,
+    pub new_h: u32,
+    pub new_res: f64,
+    pub new_canvas: CanvasChoice,
+    pub new_custom: [u8; 3],
+    pub canvas_size: Option<(u32, u32)>,
+    pub canvas_color: bool,
+    /// Editing the stroke (`true`) or fill (`false`) tool colour.
+    pub color_target: Option<bool>,
+    pub prefs: bool,
+    pub about: bool,
+    pub feather: Option<u32>,
+}
+
+impl Default for Dialogs {
+    fn default() -> Self {
+        Self {
+            new_doc: false,
+            new_w: 660,
+            new_h: 440,
+            new_res: 72.0,
+            new_canvas: CanvasChoice::White,
+            new_custom: [255, 255, 255],
+            canvas_size: None,
+            canvas_color: false,
+            color_target: None,
+            prefs: false,
+            about: false,
+            feather: None,
+        }
+    }
+}
+
+impl Dialogs {
+    pub fn open_canvas_size(&mut self, d: Option<&DocState>) {
+        if let Some(d) = d {
+            self.canvas_size = Some((d.doc.width, d.doc.height));
+        }
+    }
+}
+
+fn dialog(title: &str) -> egui::Window<'_> {
+    egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+}
+
+fn rgba_edit(ui: &mut egui::Ui, c: &mut Rgba) -> bool {
+    let mut arr = [c.r, c.g, c.b, c.a];
+    let changed = ui.color_edit_button_srgba_unmultiplied(&mut arr).changed();
+    *c = Rgba::new(arr[0], arr[1], arr[2], arr[3]);
+    ui.label(c.to_hex());
+    changed
+}
+
+pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let dl = &mut app.dialogs;
+    if dl.new_doc {
+        let mut create = false;
+        let mut cancel = false;
+        dialog("New Document").show(ctx, |ui| {
+            ui.strong("Canvas Size");
+            egui::Grid::new("newdoc").show(ui, |ui| {
+                ui.label("Width:");
+                ui.add(DragValue::new(&mut dl.new_w).range(1..=32000).suffix(" Pixels"));
+                ui.end_row();
+                ui.label("Height:");
+                ui.add(DragValue::new(&mut dl.new_h).range(1..=32000).suffix(" Pixels"));
+                ui.end_row();
+                ui.label("Resolution:");
+                ui.add(DragValue::new(&mut dl.new_res).range(1.0..=5000.0).suffix(" Pixels/Inch"));
+                ui.end_row();
+            });
+            ui.separator();
+            ui.strong("Canvas Color");
+            ui.radio_value(&mut dl.new_canvas, CanvasChoice::White, "White");
+            ui.radio_value(&mut dl.new_canvas, CanvasChoice::Transparent, "Transparent");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut dl.new_canvas, CanvasChoice::Custom, "Custom");
+                ui.color_edit_button_srgb(&mut dl.new_custom);
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                create = ui.button("OK").clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+        });
+        if create {
+            let canvas = match dl.new_canvas {
+                CanvasChoice::White => Some(Rgba::WHITE),
+                CanvasChoice::Transparent => None,
+                CanvasChoice::Custom => Some(Rgba::new(dl.new_custom[0], dl.new_custom[1], dl.new_custom[2], 255)),
+            };
+            let (w, h, r) = (dl.new_w, dl.new_h, dl.new_res);
+            dl.new_doc = false;
+            app.session.new_document(w, h, r, canvas);
+            return;
+        }
+        if cancel {
+            dl.new_doc = false;
+        }
+    }
+    let dl = &mut app.dialogs;
+    if let Some((mut w, mut h)) = dl.canvas_size {
+        let mut ok = false;
+        let mut cancel = false;
+        dialog("Canvas Size").show(ctx, |ui| {
+            egui::Grid::new("canvassize").show(ui, |ui| {
+                ui.label("Width:");
+                ui.add(DragValue::new(&mut w).range(1..=32000).suffix(" Pixels"));
+                ui.end_row();
+                ui.label("Height:");
+                ui.add(DragValue::new(&mut h).range(1..=32000).suffix(" Pixels"));
+                ui.end_row();
+            });
+            ui.weak("Anchor: top left (other anchors coming soon)");
+            ui.horizontal(|ui| {
+                ok = ui.button("OK").clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+        });
+        dl.canvas_size = Some((w, h));
+        if ok {
+            dl.canvas_size = None;
+            if let Some(d) = app.session.active_doc_mut() {
+                d.set_canvas_size(w, h);
+            }
+        } else if cancel {
+            dl.canvas_size = None;
+        }
+    }
+    let dl = &mut app.dialogs;
+    if dl.canvas_color {
+        let mut close = false;
+        if let Some(d) = app.session.active_doc_mut() {
+            let mut canvas = d.doc.canvas;
+            dialog("Canvas Color").show(ctx, |ui| {
+                let mut transparent = canvas.is_none();
+                ui.checkbox(&mut transparent, "Transparent");
+                if transparent {
+                    canvas = None;
+                } else {
+                    let mut c = canvas.unwrap_or(Rgba::WHITE);
+                    rgba_edit(ui, &mut c);
+                    canvas = Some(Rgba { a: 255, ..c });
+                }
+                close = ui.button("OK").clicked();
+            });
+            if canvas != d.doc.canvas {
+                d.set_canvas(canvas);
+            }
+        } else {
+            close = true;
+        }
+        if close {
+            app.dialogs.canvas_color = false;
+        }
+    }
+    let dl = &mut app.dialogs;
+    if let Some(stroke) = dl.color_target {
+        let mut close = false;
+        let o = &mut app.session.options;
+        let slot = if stroke { &mut o.stroke } else { &mut o.fill };
+        dialog(if stroke { "Stroke Color" } else { "Fill Color" }).show(ctx, |ui| {
+            let mut none = slot.is_none();
+            ui.checkbox(&mut none, "None");
+            if none {
+                *slot = None;
+            } else {
+                let mut c = slot.unwrap_or(Rgba::BLACK);
+                rgba_edit(ui, &mut c);
+                *slot = Some(c);
+            }
+            close = ui.button("OK").clicked();
+        });
+        if close {
+            app.dialogs.color_target = None;
+        }
+    }
+    let dl = &mut app.dialogs;
+    if let Some(mut r) = dl.feather {
+        let mut ok = false;
+        let mut cancel = false;
+        dialog("Feather Selection").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Radius:");
+                ui.add(DragValue::new(&mut r).range(0..=250).suffix(" Pixels"));
+            });
+            ui.horizontal(|ui| {
+                ok = ui.button("OK").clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+        });
+        dl.feather = Some(r);
+        if ok {
+            dl.feather = None;
+            if let Some(d) = app.session.active_doc_mut() {
+                d.feather_pixels(r);
+            }
+        } else if cancel {
+            dl.feather = None;
+        }
+    }
+    if app.dialogs.prefs {
+        let mut close = false;
+        let prefs = &mut app.prefs;
+        let o = &mut app.session.options;
+        dialog("Preferences").show(ctx, |ui| {
+            ui.strong("Workspace");
+            ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
+            ui.separator();
+            ui.strong("Editing");
+            let mut classic = o.aa_style == firecraft_raster::AntiAliasStyle::Classic;
+            if ui
+                .checkbox(&mut classic, "Classic (Fireworks MX) anti-alias for selection tools")
+                .on_hover_text("Fireworks MX ties anti-alias strength to Tolerance; FireCraft's default computes real edge coverage.")
+                .changed()
+            {
+                o.aa_style = if classic { firecraft_raster::AntiAliasStyle::Classic } else { firecraft_raster::AntiAliasStyle::Smooth };
+            }
+            close = ui.button("OK").clicked();
+        });
+        if close {
+            app.dialogs.prefs = false;
+        }
+    }
+    if app.dialogs.about {
+        let mut close = false;
+        dialog("About FireCraft").show(ctx, |ui| {
+            ui.heading(egui::RichText::new("FireCraft").color(Color32::from_rgb(220, 90, 20)));
+            ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+            ui.label("An open-source web graphics editor in the spirit of Macromedia Fireworks MX.");
+            ui.label("Part of the Craft family of apps. MIT OR Apache-2.0.");
+            ui.weak("Fireworks is a trademark of Adobe. FireCraft is an independent, clean-room project.");
+            close = ui.button("OK").clicked();
+        });
+        if close {
+            app.dialogs.about = false;
+        }
+    }
+}

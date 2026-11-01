@@ -1,0 +1,23 @@
+[package]
+name = "firecraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FireCraft: an open-source Fireworks-style web graphics editor"
+
+[lints]
+workspace = true
+
+[dependencies]
+firecraft-ui-egui = { workspace = true }
+eframe = { workspace = true, features = ["wgpu", "glow", "wayland", "x11", "default_fonts", "accesskit"] }
+egui = { workspace = true }
+rfd = { workspace = true }
+pollster = "0.4"
+log = { workspace = true }
+# Software-rendered startup splash (no GPU needed).
+winit = "0.30"
+softbuffer = "0.4"
+ab_glyph = "0.2"
+epaint_default_fonts = "0.37"

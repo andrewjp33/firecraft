@@ -1,0 +1,414 @@
+//! Menu bar (Fireworks MX's menus, in order) and keyboard shortcuts.
+//!
+//! Items FireCraft does not implement yet are shown disabled so the menus read like Fireworks'
+//! and the gaps are visible. "Send to"/"Launch and Edit" integrations with other applications are
+//! intentionally out of scope (see docs/roadmap.md).
+
+use egui::{Button, Key, KeyboardShortcut, Modifiers};
+use firecraft_engine::Tool;
+
+use crate::FireCraftApp;
+
+fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
+    let clicked = ui.add_enabled(enabled, Button::new(label).shortcut_text(shortcut)).clicked();
+    if clicked {
+        ui.close();
+    }
+    clicked
+}
+
+fn todo(ui: &mut egui::Ui, label: &str, shortcut: &str) {
+    ui.add_enabled(false, Button::new(label).shortcut_text(shortcut)).on_disabled_hover_text("Not implemented yet");
+}
+
+pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let has_doc = app.session.active_doc().is_some();
+    let can_undo = app.session.active_doc().is_some_and(|d| d.history.can_undo());
+    let can_redo = app.session.active_doc().is_some_and(|d| d.history.can_redo());
+    let undo_label = app.session.active_doc().and_then(|d| d.history.next_undo().map(|l| format!("Undo {l}"))).unwrap_or_else(|| "Can't Undo".into());
+    let redo_label = app.session.active_doc().and_then(|d| d.history.next_redo().map(|l| format!("Redo {l}"))).unwrap_or_else(|| "Can't Redo".into());
+    let has_pixels = app.session.active_doc().is_some_and(|d| d.pixels.is_some());
+    let has_sel = app.session.active_doc().is_some_and(|d| !d.selection.is_empty() || d.pixels.is_some());
+
+    egui::MenuBar::new().ui(ui, |ui| {
+        ui.menu_button("File", |ui| {
+            if item(ui, "New...", "Ctrl+N", true) {
+                app.dialogs.new_doc = true;
+            }
+            if item(ui, "Open...", "Ctrl+O", true) {
+                open(app);
+            }
+            todo(ui, "Open Recent", "");
+            todo(ui, "Reconstitute Table...", "");
+            todo(ui, "Scan", "");
+            if item(ui, "Close", "Ctrl+W", has_doc) {
+                let i = app.session.active;
+                app.session.close(i);
+            }
+            ui.separator();
+            if item(ui, "Save", "Ctrl+S", has_doc) {
+                save(app, false);
+            }
+            if item(ui, "Save As...", "Ctrl+Shift+S", has_doc) {
+                save(app, true);
+            }
+            todo(ui, "Save a Copy...", "");
+            todo(ui, "Revert", "");
+            ui.separator();
+            todo(ui, "Import...", "Ctrl+R");
+            if item(ui, "Export...", "Ctrl+Shift+R", has_doc) {
+                export(app);
+            }
+            todo(ui, "Export Preview...", "Ctrl+Shift+X");
+            todo(ui, "Update HTML...", "");
+            ui.separator();
+            todo(ui, "Export Wizard...", "");
+            todo(ui, "Batch Process...", "");
+            todo(ui, "Preview in Browser", "");
+            ui.separator();
+            todo(ui, "Print...", "Ctrl+P");
+            todo(ui, "HTML Setup...", "");
+            ui.separator();
+            if item(ui, "Exit", "Ctrl+Q", true) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        });
+        ui.menu_button("Edit", |ui| {
+            if item(ui, &undo_label, "Ctrl+Z", can_undo) {
+                with_doc(app, |d| d.undo());
+            }
+            if item(ui, &redo_label, "Ctrl+Y", can_redo) {
+                with_doc(app, |d| d.redo());
+            }
+            ui.separator();
+            ui.menu_button("Insert", |ui| {
+                if item(ui, "New Layer", "", has_doc) {
+                    with_doc(app, |d| d.new_layer());
+                }
+                ui.separator();
+                if item(ui, "Bitmap via Copy", "", has_pixels) {
+                    with_doc(app, |d| d.bitmap_via(false));
+                }
+                if item(ui, "Bitmap via Cut", "", has_pixels) {
+                    with_doc(app, |d| d.bitmap_via(true));
+                }
+            });
+            todo(ui, "Libraries", "");
+            todo(ui, "Find and Replace...", "Ctrl+F");
+            ui.separator();
+            todo(ui, "Cut", "Ctrl+X");
+            todo(ui, "Copy", "Ctrl+C");
+            todo(ui, "Paste", "Ctrl+V");
+            if item(ui, "Clear", "Backspace", has_sel) {
+                with_doc(app, |d| d.delete());
+            }
+            ui.separator();
+            todo(ui, "Duplicate", "Ctrl+Alt+D");
+            todo(ui, "Clone", "Ctrl+Shift+D");
+            ui.separator();
+            todo(ui, "Crop Selected Bitmap", "");
+            todo(ui, "Crop Document", "");
+            ui.separator();
+            if item(ui, "Preferences...", "Ctrl+U", true) {
+                app.dialogs.prefs = true;
+            }
+            todo(ui, "Keyboard Shortcuts...", "");
+        });
+        ui.menu_button("View", |ui| {
+            if item(ui, "Zoom In", "Ctrl+=", has_doc) {
+                zoom(app, 2.0);
+            }
+            if item(ui, "Zoom Out", "Ctrl+-", has_doc) {
+                zoom(app, 0.5);
+            }
+            if item(ui, "100%", "Ctrl+1", has_doc) {
+                with_doc(app, |d| d.zoom = 1.0);
+            }
+            if item(ui, "Fit All", "Ctrl+0", has_doc) {
+                fit(app);
+            }
+            ui.separator();
+            todo(ui, "Rulers", "Ctrl+Alt+R");
+            todo(ui, "Grid", "");
+            todo(ui, "Guides", "");
+            ui.separator();
+            let tools = app.prefs.show_tools && app.prefs.show_properties && app.prefs.show_dock;
+            if item(ui, if tools { "Hide Panels" } else { "Show Panels" }, "F4", true) {
+                toggle_panels(app);
+            }
+        });
+        ui.menu_button("Select", |ui| {
+            if item(ui, "Select All", "Ctrl+A", has_doc) {
+                with_doc(app, |d| d.select_all());
+            }
+            if item(ui, "Deselect", "Ctrl+D", has_sel) {
+                with_doc(app, |d| d.deselect());
+            }
+            todo(ui, "Superselect", "Ctrl+Right");
+            todo(ui, "Subselect", "Ctrl+Left");
+            ui.separator();
+            todo(ui, "Select Similar", "");
+            if item(ui, "Select Inverse", "Ctrl+Shift+I", has_pixels) {
+                with_doc(app, |d| d.select_inverse());
+            }
+            if item(ui, "Feather...", "", has_pixels) {
+                app.dialogs.feather = Some(10);
+            }
+            todo(ui, "Expand Marquee...", "");
+            todo(ui, "Contract Marquee...", "");
+            todo(ui, "Border Marquee...", "");
+            todo(ui, "Smooth Marquee...", "");
+        });
+        ui.menu_button("Modify", |ui| {
+            ui.menu_button("Canvas", |ui| {
+                if item(ui, "Canvas Size...", "", has_doc) {
+                    app.dialogs.open_canvas_size(app.session.active_doc());
+                }
+                if item(ui, "Canvas Color...", "", has_doc) {
+                    app.dialogs.canvas_color = true;
+                }
+                todo(ui, "Image Size...", "");
+                todo(ui, "Fit Canvas", "");
+                todo(ui, "Rotate 180°", "");
+            });
+            todo(ui, "Animation", "");
+            todo(ui, "Symbol", "");
+            todo(ui, "Pop-up Menu", "");
+            ui.separator();
+            todo(ui, "Mask", "");
+            todo(ui, "Selective JPEG", "");
+            ui.separator();
+            todo(ui, "Flatten Selection", "Ctrl+Alt+Shift+Z");
+            todo(ui, "Merge Down", "Ctrl+E");
+            todo(ui, "Flatten Layers", "");
+            ui.separator();
+            todo(ui, "Transform", "");
+            todo(ui, "Arrange", "");
+            todo(ui, "Align", "");
+            ui.separator();
+            todo(ui, "Combine Paths", "");
+            todo(ui, "Alter Path", "");
+            ui.separator();
+            todo(ui, "Group", "Ctrl+G");
+            todo(ui, "Ungroup", "Ctrl+Shift+G");
+        });
+        ui.menu_button("Text", |ui| {
+            for l in ["Font", "Size", "Style", "Align", "Editor...", "Attach to Path", "Convert to Paths", "Check Spelling..."] {
+                todo(ui, l, "");
+            }
+        });
+        ui.menu_button("Commands", |ui| {
+            todo(ui, "Manage Saved Commands...", "");
+            todo(ui, "Run Script...", "");
+            ui.weak("JavaScript commands (Fireworks API) are on the roadmap.");
+        });
+        ui.menu_button("Filters", |ui| {
+            todo(ui, "Repeat Filter", "Ctrl+Alt+Shift+X");
+            ui.separator();
+            for l in ["Adjust Color", "Blur", "Other", "Sharpen"] {
+                todo(ui, l, "");
+            }
+        });
+        ui.menu_button("Window", |ui| {
+            let mut v = app.prefs.show_tools;
+            if ui.checkbox(&mut v, "Tools").changed() {
+                app.prefs.show_tools = v;
+            }
+            let mut v = app.prefs.show_properties;
+            if ui.checkbox(&mut v, "Properties").changed() {
+                app.prefs.show_properties = v;
+            }
+            let mut v = app.prefs.show_dock;
+            if ui.checkbox(&mut v, "Panels (Optimize, Layers, Frames, History...)").changed() {
+                app.prefs.show_dock = v;
+            }
+            ui.separator();
+            let mut tabs = app.prefs.tabs;
+            if ui.checkbox(&mut tabs, "Documents in Tabs").changed() {
+                app.prefs.tabs = tabs;
+            }
+            ui.separator();
+            let titles: Vec<String> = app.session.docs.iter().map(|d| format!("{} @ {:.0}%", d.doc.title(), d.zoom * 100.0)).collect();
+            for (i, t) in titles.iter().enumerate() {
+                if ui.radio(i == app.session.active, format!("{} {t}", i + 1)).clicked() {
+                    app.session.active = i;
+                    ui.close();
+                }
+            }
+        });
+        ui.menu_button("Help", |ui| {
+            if item(ui, "About FireCraft", "", true) {
+                app.dialogs.about = true;
+            }
+        });
+    });
+}
+
+fn with_doc(app: &mut FireCraftApp, f: impl FnOnce(&mut firecraft_engine::DocState)) {
+    if let Some(d) = app.session.active_doc_mut() {
+        f(d);
+    }
+}
+
+fn zoom(app: &mut FireCraftApp, factor: f32) {
+    with_doc(app, |d| d.zoom = (d.zoom * factor).clamp(1.0 / 16.0, 64.0));
+}
+
+fn fit(app: &mut FireCraftApp) {
+    if let Some(id) = app.session.active_doc().map(|d| d.id) {
+        if let Some(v) = app.views.get_mut(&id) {
+            v.pan = egui::Vec2::ZERO;
+        }
+        // The canvas view computes the fitting zoom on its next frame.
+        with_doc(app, |d| d.zoom = 0.0);
+    }
+}
+
+fn toggle_panels(app: &mut FireCraftApp) {
+    let shown = app.prefs.show_tools && app.prefs.show_properties && app.prefs.show_dock;
+    app.prefs.show_tools = !shown;
+    app.prefs.show_properties = !shown;
+    app.prefs.show_dock = !shown;
+}
+
+pub fn open(app: &mut FireCraftApp) {
+    if let Some((name, bytes)) = app.platform.open_file() {
+        app.open_bytes(name, &bytes);
+    }
+}
+
+pub fn save(app: &mut FireCraftApp, save_as: bool) {
+    let Some(d) = app.session.active_doc() else { return };
+    let bytes = match firecraft_io::save_fireworks_png(&d.doc) {
+        Ok(b) => b,
+        Err(e) => return app.error(format!("Save failed: {e}")),
+    };
+    let existing = d.doc.path.clone().filter(|p| !save_as && (p.contains('/') || p.contains('\\')));
+    let result = match existing {
+        Some(path) => app.platform.write_file(&path, &bytes).map(|_| Some(path)),
+        None => Ok(app.platform.save_file(&d.doc.title(), &bytes)),
+    };
+    match result {
+        Ok(Some(path)) => {
+            if let Some(d) = app.session.active_doc_mut() {
+                d.doc.path = Some(path.clone());
+                d.dirty = false;
+            }
+            app.info(format!("Saved {path}"));
+        }
+        Ok(None) => {}
+        Err(e) => app.error(format!("Save failed: {e}")),
+    }
+}
+
+pub fn export(app: &mut FireCraftApp) {
+    let Some(d) = app.session.active_doc() else { return };
+    let name = d.doc.title().trim_end_matches(".png").to_owned() + "-export.png";
+    match firecraft_io::export_png(&d.doc) {
+        Ok(bytes) => {
+            if let Some(p) = app.platform.save_file(&name, &bytes) {
+                app.info(format!("Exported {p}"));
+            }
+        }
+        Err(e) => app.error(format!("Export failed: {e}")),
+    }
+}
+
+#[allow(clippy::cognitive_complexity)] // a flat shortcut table; to be replaced by craft-keymap
+pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
+    // Don't steal keys from text fields.
+    if ctx.egui_wants_keyboard_input() {
+        return;
+    }
+    let cmd = Modifiers::COMMAND;
+    let pressed = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
+    if pressed(cmd | Modifiers::SHIFT, Key::S) {
+        save(app, true);
+    } else if pressed(cmd, Key::S) {
+        save(app, false);
+    }
+    if pressed(cmd, Key::Q) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+    if pressed(cmd, Key::N) {
+        app.dialogs.new_doc = true;
+    }
+    if pressed(cmd, Key::O) {
+        open(app);
+    }
+    if pressed(cmd, Key::W) {
+        let i = app.session.active;
+        app.session.close(i);
+    }
+    if pressed(cmd | Modifiers::SHIFT, Key::R) {
+        export(app);
+    }
+    if pressed(cmd | Modifiers::SHIFT, Key::Z) || pressed(cmd, Key::Y) {
+        with_doc(app, |d| d.redo());
+    } else if pressed(cmd, Key::Z) {
+        with_doc(app, |d| d.undo());
+    }
+    if pressed(cmd, Key::A) {
+        with_doc(app, |d| d.select_all());
+    }
+    if pressed(cmd, Key::D) {
+        with_doc(app, |d| d.deselect());
+    }
+    if pressed(cmd | Modifiers::SHIFT, Key::I) {
+        with_doc(app, |d| d.select_inverse());
+    }
+    if pressed(cmd, Key::U) {
+        app.dialogs.prefs = true;
+    }
+    if pressed(cmd, Key::Equals) || pressed(cmd, Key::Plus) {
+        zoom(app, 2.0);
+    }
+    if pressed(cmd, Key::Minus) {
+        zoom(app, 0.5);
+    }
+    if pressed(cmd, Key::Num1) {
+        with_doc(app, |d| d.zoom = 1.0);
+    }
+    if pressed(cmd, Key::Num0) {
+        fit(app);
+    }
+    if pressed(Modifiers::NONE, Key::F4) {
+        toggle_panels(app);
+    }
+    if pressed(Modifiers::NONE, Key::Delete) || pressed(Modifiers::NONE, Key::Backspace) {
+        with_doc(app, |d| d.delete());
+    }
+    // Arrow keys nudge the selection (Shift: 10 px).
+    for (k, dx, dy) in [(Key::ArrowLeft, -1.0, 0.0), (Key::ArrowRight, 1.0, 0.0), (Key::ArrowUp, 0.0, -1.0), (Key::ArrowDown, 0.0, 1.0)] {
+        if pressed(Modifiers::SHIFT, k) {
+            with_doc(app, |d| d.move_selection(dx * 10.0, dy * 10.0, "Move"));
+        } else if pressed(Modifiers::NONE, k) {
+            with_doc(app, |d| d.move_selection(dx, dy, "Move"));
+        }
+    }
+    // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks).
+    let letters: [(Key, &[Tool]); 13] = [
+        (Key::V, &[Tool::Pointer]),
+        (Key::Q, &[Tool::Scale, Tool::NineSlice]),
+        (Key::M, &[Tool::Marquee, Tool::OvalMarquee]),
+        (Key::W, &[Tool::MagicWand]),
+        (Key::I, &[Tool::Eyedropper]),
+        (Key::N, &[Tool::Line]),
+        (Key::U, &[Tool::Rectangle, Tool::Ellipse]),
+        (Key::H, &[Tool::Hand]),
+        (Key::Z, &[Tool::Zoom]),
+        (Key::L, &[Tool::Lasso]),
+        (Key::P, &[Tool::Pen]),
+        (Key::T, &[Tool::Text]),
+        (Key::B, &[Tool::Brush]),
+    ];
+    for (k, tools) in letters {
+        if pressed(Modifiers::NONE, k) {
+            let cur = tools.iter().position(|t| *t == app.session.tool);
+            let next = cur.map(|i| (i + 1) % tools.len()).unwrap_or(0);
+            if let Some(t) = tools.get(next) {
+                app.session.tool = *t;
+            }
+        }
+    }
+}

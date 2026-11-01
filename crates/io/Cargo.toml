@@ -1,0 +1,17 @@
+[package]
+name = "firecraft-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "FireCraft document I/O: Fireworks PNG (editable) and flat images"
+
+[lints]
+workspace = true
+
+[dependencies]
+firecraft-fwpng = { workspace = true }
+firecraft-raster = { workspace = true }
+firecraft-doc = { workspace = true }
+png = { workspace = true }
+thiserror = { workspace = true }
