@@ -38,7 +38,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // A frame export: render that frame of the source document instead.
         let frame_ref = (doc.raw.is_none()).then(|| frame_source(&path)).flatten();
         let (doc, frame) = match frame_ref.clone() {
-            Some((src, f)) => match std::fs::read(&src).ok().and_then(|b| firecraft_io::open(&b, Some(src.clone())).ok()) {
+            Some((src, f)) => match std::fs::read(&src)
+                .ok()
+                .and_then(|b| firecraft_io::open(&b, Some(src.clone())).ok())
+            {
                 Some(d) => (d, f),
                 None => (doc, 0),
             },
@@ -152,4 +155,3 @@ fn frame_source(path: &str) -> Option<(String, usize)> {
     let src = p.with_file_name(format!("{doc}.png"));
     src.exists().then(|| (src.to_string_lossy().into_owned(), n - 1))
 }
-

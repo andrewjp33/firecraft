@@ -67,6 +67,8 @@ pub struct Prefs {
     pub color_math: firecraft_raster::ColorMath,
     /// Magic Wand / selection anti-alias style last chosen in the Property inspector.
     pub aa_style: firecraft_raster::AntiAliasStyle,
+    /// File > New's last settings: width, height, resolution, canvas (None = transparent).
+    pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
 }
 
 impl Prefs {
@@ -84,8 +86,18 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\ncolor_math={math}\naa_style={aa}\n",
-            self.tabs, self.show_tools, self.show_properties, self.show_dock, self.undo_steps
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\n",
+            self.tabs,
+            self.show_tools,
+            self.show_properties,
+            self.show_dock,
+            self.undo_steps,
+            self.new_doc.0,
+            self.new_doc.1,
+            self.new_doc.2,
+            self.new_doc
+                .3
+                .map_or_else(|| "transparent".to_owned(), |c| c.to_hex()),
         )
     }
 
@@ -103,11 +115,18 @@ impl Prefs {
                         p.undo_steps = n.clamp(1, firecraft_engine::MAX_UNDO_STEPS);
                     }
                 }
-                "color_math" => {
+                // (The pre-2026-11-01 key "color_math" recorded the old Fireworks MX default and is
+                // ignored, so the new FireCraft default applies.)
+                "new_doc_color_math" => {
                     p.color_math = if v.trim() == "precise" {
                         firecraft_raster::ColorMath::Precise
                     } else {
                         firecraft_raster::ColorMath::Classic
+                    }
+                }
+                "new_doc" => {
+                    if let Some(d) = parse_new_doc(v.trim()) {
+                        p.new_doc = d;
                     }
                 }
                 "aa_style" => {
@@ -124,6 +143,23 @@ impl Prefs {
     }
 }
 
+/// `WxH@RES:canvas` with canvas `transparent` or a hex colour.
+fn parse_new_doc(v: &str) -> Option<(u32, u32, f64, Option<firecraft_raster::Rgba>)> {
+    let (size, rest) = v.split_once('@')?;
+    let (w, h) = size.split_once('x')?;
+    let (res, canvas) = rest.split_once(':')?;
+    let (w, h, res): (u32, u32, f64) = (w.parse().ok()?, h.parse().ok()?, res.parse().ok()?);
+    if !(1..=32_000).contains(&w) || !(1..=32_000).contains(&h) || !(1.0..=5000.0).contains(&res) {
+        return None;
+    }
+    let canvas = if canvas == "transparent" {
+        None
+    } else {
+        Some(firecraft_raster::Rgba::from_hex(canvas)?)
+    };
+    Some((w, h, res, canvas))
+}
+
 impl Default for Prefs {
     fn default() -> Self {
         Self {
@@ -132,8 +168,10 @@ impl Default for Prefs {
             show_properties: true,
             show_dock: true,
             undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS,
-            color_math: firecraft_raster::ColorMath::Classic,
+            // FireCraft's improved formulas by default (Fireworks-exact is an option).
+            color_math: firecraft_raster::ColorMath::Precise,
             aa_style: firecraft_raster::AntiAliasStyle::Smooth,
+            new_doc: (660, 440, 72.0, Some(firecraft_raster::Rgba::WHITE)),
         }
     }
 }
@@ -240,6 +278,7 @@ impl FireCraftApp {
     /// Apply loaded preferences (also the tool options they remember).
     pub fn set_prefs(&mut self, prefs: Prefs) {
         self.session.options.aa_style = prefs.aa_style;
+        self.dialogs.set_new_doc(prefs.new_doc);
         self.prefs = prefs;
     }
 

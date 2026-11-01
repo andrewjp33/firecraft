@@ -17,12 +17,13 @@ pub enum ColorMath {
 }
 
 impl ColorMath {
-    pub const ALL: [ColorMath; 2] = [ColorMath::Classic, ColorMath::Precise];
+    /// FireCraft's improved formulas first (the default for new documents).
+    pub const ALL: [ColorMath; 2] = [ColorMath::Precise, ColorMath::Classic];
 
     pub fn label(self) -> &'static str {
         match self {
-            ColorMath::Classic => "Fireworks MX",
-            ColorMath::Precise => "High precision",
+            ColorMath::Classic => "Fireworks MX (exact)",
+            ColorMath::Precise => "FireCraft (high precision)",
         }
     }
 }

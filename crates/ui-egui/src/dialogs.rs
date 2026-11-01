@@ -50,6 +50,21 @@ impl Default for Dialogs {
 }
 
 impl Dialogs {
+    /// File > New's fields from remembered settings.
+    pub fn set_new_doc(&mut self, (w, h, res, canvas): (u32, u32, f64, Option<Rgba>)) {
+        self.new_w = w;
+        self.new_h = h;
+        self.new_res = res;
+        self.new_canvas = match canvas {
+            None => CanvasChoice::Transparent,
+            Some(c) if c == Rgba::WHITE => CanvasChoice::White,
+            Some(c) => {
+                self.new_custom = [c.r, c.g, c.b];
+                CanvasChoice::Custom
+            }
+        };
+    }
+
     pub fn open_canvas_size(&mut self, d: Option<&DocState>) {
         if let Some(d) = d {
             self.canvas_size = Some((d.doc.width, d.doc.height));
@@ -121,6 +136,8 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             };
             let (w, h, r) = (dl.new_w, dl.new_h, dl.new_res);
             dl.new_doc = false;
+            // Remembered for next time (and across sessions), as in Fireworks.
+            app.prefs.new_doc = (w, h, r, canvas);
             app.session.new_document(w, h, r, canvas);
             if let Some(d) = app.session.active_doc_mut() {
                 d.doc.color_math = app.prefs.color_math;
@@ -283,7 +300,7 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.label("New documents:");
             color_math_combo(ui, "prefs_color_math", &mut prefs.color_math);
         });
-        ui.weak("Fireworks MX: bit-exact Fireworks formulas (byte-rounded hue, saturation and lightness).\nHigh precision: the same formulas in double precision. Saved in the PNG; Fireworks MX ignores it.");
+        ui.weak("FireCraft: Fireworks' formulas in double precision (no byte rounding of hue, saturation, lightness).\nFireworks MX: bit-exact Fireworks results. Files from Fireworks always open with Fireworks MX math.");
         ui.separator();
         close = ui.button("OK").clicked();
     });

@@ -108,13 +108,13 @@ fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ComboBox::from_id_salt("aa_style")
                 .width(140.0)
                 .selected_text(match o.aa_style {
-                    AntiAliasStyle::Smooth => "Smooth (FireCraft)",
-                    AntiAliasStyle::Classic => "Classic (Fireworks MX)",
+                    AntiAliasStyle::Smooth => "FireCraft (smooth)",
+                    AntiAliasStyle::Classic => "Fireworks MX (classic)",
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut o.aa_style, AntiAliasStyle::Smooth, "Smooth (FireCraft)")
+                    ui.selectable_value(&mut o.aa_style, AntiAliasStyle::Smooth, "FireCraft (smooth)")
                         .on_hover_text("Edge coverage from the image itself, independent of Tolerance");
-                    ui.selectable_value(&mut o.aa_style, AntiAliasStyle::Classic, "Classic (Fireworks MX)")
+                    ui.selectable_value(&mut o.aa_style, AntiAliasStyle::Classic, "Fireworks MX (classic)")
                         .on_hover_text("Bit-compatible with Fireworks MX: edge strength equals Tolerance");
                 });
         });
@@ -345,7 +345,7 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         })
         .response
-        .on_hover_text("Fireworks MX: bit-exact Fireworks formulas. High precision: the same formulas in double precision (blend modes, Hue/Saturation). FireCraft-only; Fireworks MX renders the file with its own math.");
+        .on_hover_text("FireCraft: Fireworks' formulas in double precision (blend modes, Hue/Saturation). Fireworks MX: bit-exact Fireworks results. Fireworks MX itself always renders with its own math.");
     });
 }
 
