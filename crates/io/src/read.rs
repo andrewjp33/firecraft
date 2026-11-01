@@ -50,7 +50,7 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
         .or_else(|| doc.layers.iter().position(|l| !l.web))
         .unwrap_or(0);
     doc.raw_secondary = fw.secondary_tree()?;
-    doc.raw_tiles = tiles.clone();
+    doc.raw_tiles = std::sync::Arc::new(tiles.clone());
     doc.raw = Some(root);
     Ok(doc)
 }
@@ -81,8 +81,10 @@ fn read_layer(n: &Node, ctx: &Ctx) -> Layer {
 
 const MAX_GROUP_DEPTH: usize = 64;
 
+/// `ELMv` lists objects top first (as the Layers panel shows them); the model keeps them
+/// bottom first (drawing order), so the list is reversed here and in the writer.
 fn read_elements(elm: &Node, ctx: &Ctx, depth: usize) -> Vec<Element> {
-    elm.children.iter().filter_map(|c| read_element(c, ctx, depth)).collect()
+    elm.children.iter().rev().filter_map(|c| read_element(c, ctx, depth)).collect()
 }
 
 fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {

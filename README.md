@@ -26,7 +26,8 @@ Working today:
   the **9-slice Scaling tool** from Fireworks CS5 (output stays MX compatible;
   [docs/behavior/nine-slice.md](docs/behavior/nine-slice.md)).
 - Edit > Clear, Edit > Insert > Bitmap via Cut/Copy, Select All/Deselect/Inverse/Feather,
-  Canvas Size/Colour, layers (new, delete, show/hide, lock), 20-step undo/redo with History panel,
+  Canvas Size/Colour, layers (new, delete, show/hide, lock), undo/redo (100 steps by default, up to
+  999 in Preferences) with a History panel that moves back and forward,
   PNG export, drag-and-drop open.
 
 ### The Magic Wand anti-alias fix

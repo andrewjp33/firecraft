@@ -6,7 +6,7 @@
 mod history;
 mod tools;
 
-pub use history::History;
+pub use history::{History, DEFAULT_UNDO_STEPS, MAX_UNDO_STEPS};
 pub use tools::{Tool, ToolOptions};
 
 use firecraft_doc::{Bitmap, BezierPoint, Contour, Document, Element, ElementKind, Fill, Layer, Path, Stroke};
@@ -563,6 +563,27 @@ mod tests {
         assert!((after.2 - 200.0).abs() < 1.0 && (after.3 - 30.0).abs() < 1.0, "{before:?} -> {after:?}");
         d.undo();
         assert_eq!(d.selection_bounds(), Some(before));
+    }
+
+    #[test]
+    fn history_limit_and_navigation() {
+        let mut d = DocState::new(Document::new(100, 100, 72.0, Some(Rgba::WHITE)));
+        d.history.set_limit(10);
+        for i in 0..15 {
+            d.add_shape((i as f64, 0.0, i as f64 + 5.0, 5.0), false, &ToolOptions::default());
+        }
+        assert_eq!(d.history.labels().count(), 10);
+        let count = |d: &DocState| d.doc.layers[0].elements(0).len();
+        assert_eq!(count(&d), 15);
+        for _ in 0..4 {
+            d.undo();
+        }
+        assert_eq!(count(&d), 11);
+        assert_eq!(d.history.redo_labels().count(), 4);
+        d.redo();
+        d.redo();
+        assert_eq!(count(&d), 13);
+        assert_eq!(d.history.labels().count() + d.history.redo_labels().count(), 10);
     }
 
     #[test]

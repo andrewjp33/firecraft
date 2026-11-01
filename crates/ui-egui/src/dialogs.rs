@@ -226,6 +226,10 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
             ui.separator();
             ui.strong("Editing");
+            ui.horizontal(|ui| {
+                ui.label("Undo Steps:");
+                ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
+            });
             let mut classic = o.aa_style == firecraft_raster::AntiAliasStyle::Classic;
             if ui
                 .checkbox(&mut classic, "Classic (Fireworks MX) anti-alias for selection tools")

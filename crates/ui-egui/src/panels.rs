@@ -184,28 +184,41 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.ctx().data_mut(|d| d.insert_temp(tab_id, history));
     let Some(d) = app.session.active_doc_mut() else { return };
     if history {
-        let mut undo_to: Option<usize> = None;
-        let labels: Vec<String> = d.history.labels().map(str::to_owned).collect();
-        let redo: Vec<String> = d.history.redo_labels().map(str::to_owned).collect();
-        let n = labels.len();
-        for (i, l) in labels.iter().enumerate() {
-            if ui.selectable_label(false, format!("{}. {l}", i + 1)).on_hover_text("Click to undo back to here").clicked() {
-                undo_to = Some(n - i);
+        // Every step, oldest first; steps after the current one are greyed (undone). Clicking a
+        // step moves the document to the state just after it, backwards or forwards.
+        let done: Vec<String> = d.history.labels().map(str::to_owned).collect();
+        let undone: Vec<String> = d.history.redo_labels().map(str::to_owned).collect();
+        let current = done.len();
+        let mut target: Option<usize> = None;
+        let row = |ui: &mut egui::Ui, text: String, active: bool, here: bool| {
+            let rt = if here {
+                RichText::new(text).color(Color32::WHITE).background_color(theme::SELECT_BLUE)
+            } else if active {
+                RichText::new(text)
+            } else {
+                RichText::new(text).color(Color32::GRAY)
+            };
+            ui.add(egui::Label::new(rt).sense(Sense::click())).clicked()
+        };
+        if row(ui, "(Original)".into(), true, current == 0) {
+            target = Some(0);
+        }
+        for (i, l) in done.iter().chain(undone.iter()).enumerate() {
+            if row(ui, format!("{}. {l}", i + 1), i < current, i + 1 == current) {
+                target = Some(i + 1);
             }
         }
-        for l in redo.iter().rev() {
-            ui.label(RichText::new(format!("   {l}")).color(Color32::GRAY));
-        }
-        if labels.is_empty() && redo.is_empty() {
-            ui.weak("No steps yet");
-        }
-        if let Some(k) = undo_to {
-            for _ in 0..k.saturating_sub(1) {
+        if let Some(t) = target {
+            for _ in t..current {
                 d.undo();
+            }
+            for _ in current..t {
+                d.redo();
             }
         }
         ui.horizontal(|ui| {
             ui.add_enabled(false, egui::Button::new("Replay")).on_disabled_hover_text("Replaying steps is on the roadmap");
+            ui.weak(format!("{} of {} steps", current, d.history.limit));
         });
     } else {
         for (i, f) in d.doc.frames.iter().enumerate() {

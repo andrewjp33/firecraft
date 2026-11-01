@@ -145,7 +145,8 @@ fn write_layer(layer: &Layer, current: bool, doc: &Document, w: &mut Writer) -> 
     let cell_count = if layer.shared { 1 } else { doc.frames.len().max(1) };
     let cells = (0..cell_count)
         .map(|f| {
-            let elements = layer.elements(f).iter().map(|e| write_element(e, w, 0)).collect();
+            // Top first on disk (see read_elements).
+            let elements = layer.elements(f).iter().rev().map(|e| write_element(e, w, 0)).collect();
             Node::vector("CEL", vec![Node::bool("LCK", layer.locked), Node::vector("ELM", elements)])
         })
         .collect();
@@ -164,7 +165,7 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
                 .clone()
                 .filter(|r| r.is("GRP"))
                 .unwrap_or_else(|| Node::vector("GRP", vec![Node::int("GRT", 0)]));
-            put(&mut g, Node::vector("ELM", children.iter().map(|c| write_element(c, w, depth + 1)).collect()));
+            put(&mut g, Node::vector("ELM", children.iter().rev().map(|c| write_element(c, w, depth + 1)).collect()));
             g
         }
         // Text and other elements are re-emitted as read. A text element created in FireCraft (no

@@ -1,10 +1,13 @@
-//! Undo/redo as document snapshots (simple and always correct; bitmap data is cloned, so very
-//! large documents will want tile-level copy-on-write later).
+//! Undo/redo as document snapshots. Snapshots are cheap: bitmaps and the original file's data are
+//! shared copy-on-write, so a step only stores what it changed.
 
 use firecraft_doc::Document;
 
-/// Fireworks MX's default number of undo steps.
-pub const DEFAULT_UNDO_STEPS: usize = 20;
+/// FireCraft's default number of undo steps (Fireworks MX defaults to 20). Snapshots share
+/// unchanged bitmaps, so long histories stay cheap.
+pub const DEFAULT_UNDO_STEPS: usize = 100;
+/// Upper bound offered in Preferences.
+pub const MAX_UNDO_STEPS: usize = 999;
 
 #[derive(Clone, Debug)]
 pub struct History {
@@ -27,6 +30,13 @@ impl History {
             self.undo.remove(0);
         }
         self.redo.clear();
+    }
+
+    /// Change the number of kept steps, dropping the oldest if needed.
+    pub fn set_limit(&mut self, limit: usize) {
+        self.limit = limit.clamp(1, MAX_UNDO_STEPS);
+        let excess = self.undo.len().saturating_sub(self.limit);
+        self.undo.drain(..excess);
     }
 
     pub fn undo(&mut self, current: &Document) -> Option<Document> {

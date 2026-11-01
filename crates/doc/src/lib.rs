@@ -105,7 +105,7 @@ pub struct Document {
     pub raw_secondary: Option<Node>,
     /// Pixel tiles of the original file, by id. Raw nodes kept above (presets, textures, text
     /// caches, `mkBS`) reference them, so they are written back with the document.
-    pub raw_tiles: std::collections::HashMap<u32, firecraft_fwpng::Tile>,
+    pub raw_tiles: std::sync::Arc<std::collections::HashMap<u32, firecraft_fwpng::Tile>>,
     /// Absolute path or display name; `None` for "Untitled".
     pub path: Option<String>,
 }
@@ -125,7 +125,7 @@ impl Document {
             current_frame: 0,
             raw: None,
             raw_secondary: None,
-            raw_tiles: std::collections::HashMap::new(),
+            raw_tiles: Default::default(),
             path: None,
         }
     }

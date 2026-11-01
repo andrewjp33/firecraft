@@ -59,12 +59,13 @@ impl Rgba {
     }
 }
 
-/// A rectangular RGBA image.
+/// A rectangular RGBA image. Pixels are shared copy-on-write: cloning is cheap (undo snapshots
+/// share unchanged bitmaps) and the first write to a shared image copies it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RgbaImage {
     width: u32,
     height: u32,
-    pixels: Vec<Rgba>,
+    pixels: std::sync::Arc<Vec<Rgba>>,
 }
 
 /// Images larger than this many pixels are refused (64k x 64k guards hostile sizes).
@@ -75,14 +76,14 @@ impl RgbaImage {
     pub fn new(width: u32, height: u32, fill: Rgba) -> Self {
         let n = width as u64 * height as u64;
         if n > MAX_PIXELS {
-            return Self { width: 0, height: 0, pixels: Vec::new() };
+            return Self { width: 0, height: 0, pixels: Default::default() };
         }
-        Self { width, height, pixels: vec![fill; n as usize] }
+        Self { width, height, pixels: std::sync::Arc::new(vec![fill; n as usize]) }
     }
 
     /// Wrap pixels; `None` if the length does not match.
     pub fn from_pixels(width: u32, height: u32, pixels: Vec<Rgba>) -> Option<Self> {
-        (pixels.len() as u64 == width as u64 * height as u64).then_some(Self { width, height, pixels })
+        (pixels.len() as u64 == width as u64 * height as u64).then(|| Self { width, height, pixels: std::sync::Arc::new(pixels) })
     }
 
     /// From tightly packed RGBA bytes.
@@ -105,7 +106,7 @@ impl RgbaImage {
         &self.pixels
     }
     pub fn pixels_mut(&mut self) -> &mut [Rgba] {
-        &mut self.pixels
+        std::sync::Arc::make_mut(&mut self.pixels).as_mut_slice()
     }
 
     fn index(&self, x: i64, y: i64) -> Option<usize> {
@@ -119,7 +120,7 @@ impl RgbaImage {
 
     pub fn set(&mut self, x: i64, y: i64, p: Rgba) {
         if let Some(i) = self.index(x, y) {
-            if let Some(d) = self.pixels.get_mut(i) {
+            if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
                 *d = p;
             }
         }
@@ -128,7 +129,7 @@ impl RgbaImage {
     /// Remove the selected pixels (Edit > Clear / Delete). Partial coverage scales alpha;
     /// fully removed pixels become [`Rgba::CLEARED`] as in Fireworks MX.
     pub fn clear_masked(&mut self, mask: &Mask) {
-        for (p, &m) in self.pixels.iter_mut().zip(mask.data()) {
+        for (p, &m) in std::sync::Arc::make_mut(&mut self.pixels).iter_mut().zip(mask.data()) {
             if m == 0 {
                 continue;
             }
@@ -149,7 +150,7 @@ impl RgbaImage {
                 if a == 0 { Rgba::TRANSPARENT } else { Rgba { a: a as u8, ..*p } }
             })
             .collect();
-        RgbaImage { width: self.width, height: self.height, pixels }
+        RgbaImage { width: self.width, height: self.height, pixels: std::sync::Arc::new(pixels) }
     }
 
     /// Composite `src` onto this image at offset (`dx`, `dy`).
@@ -157,7 +158,7 @@ impl RgbaImage {
         for y in 0..src.height as i64 {
             for x in 0..src.width as i64 {
                 let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else { continue };
-                if let Some(d) = self.pixels.get_mut(i) {
+                if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
                     *d = d.over(s, opacity);
                 }
             }
@@ -182,6 +183,16 @@ mod tests {
         assert_eq!(Rgba::from_hex("#df0000"), Some(Rgba::new(0xdf, 0, 0, 255)));
         assert_eq!(Rgba::from_hex("#0000003f"), Some(Rgba::new(0, 0, 0, 0x3f)));
         assert_eq!(Rgba::from_hex("zz"), None);
+    }
+
+    #[test]
+    fn clones_share_until_written() {
+        let a = RgbaImage::new(4, 4, Rgba::WHITE);
+        let mut b = a.clone();
+        assert!(std::ptr::eq(a.pixels().as_ptr(), b.pixels().as_ptr()));
+        b.set(0, 0, Rgba::BLACK);
+        assert_eq!(a.get(0, 0), Some(Rgba::WHITE));
+        assert_eq!(b.get(0, 0), Some(Rgba::BLACK));
     }
 
     #[test]

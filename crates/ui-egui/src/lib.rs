@@ -58,11 +58,13 @@ pub struct Prefs {
     pub show_tools: bool,
     pub show_properties: bool,
     pub show_dock: bool,
+    /// Edit > Preferences > Undo Steps.
+    pub undo_steps: usize,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { tabs: false, show_tools: true, show_properties: true, show_dock: true }
+        Self { tabs: false, show_tools: true, show_properties: true, show_dock: true, undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS }
     }
 }
 
@@ -184,6 +186,11 @@ impl FireCraftApp {
             self.quit_dialog(&ctx);
         }
 
+        for d in &mut self.session.docs {
+            if d.history.limit != self.prefs.undo_steps {
+                d.history.set_limit(self.prefs.undo_steps);
+            }
+        }
         menus::shortcuts(self, &ctx);
         egui::Panel::top("menu_bar").frame(theme::menu_frame()).show(ui, |ui| menus::menu_bar(self, ui));
         if self.prefs.show_tools {

@@ -13,6 +13,10 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 
 ## Next
 
+Rendering parity on real files is tracked in [parity.md](parity.md); its feature table ranks
+items 5 and 6 (live effects, gradient fills) and blend modes highly.
+
+
 1. **Clipboard** (Cut/Copy/Paste objects and pixels), Duplicate/Clone, Group/Ungroup, Arrange
 2. **Pen and Subselection** tools; editing bezier points; Scale/Crop tools; Transform
 3. **Brush, Pencil, Eraser, Paint Bucket** (Fireworks' brush presets: `BPLv` fields)
