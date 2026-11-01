@@ -354,7 +354,96 @@ fn cursor_for(
     }
 }
 
+/// The rotate cursor as a 32x32 RGBA bitmap: a three-quarter circle with an arrowhead, white
+/// with a black outline like the standard cursors, anti-aliased. Built once.
+fn rotate_cursor_image() -> egui::CustomCursorImage {
+    static IMG: std::sync::OnceLock<std::sync::Arc<[u8]>> = std::sync::OnceLock::new();
+    const N: usize = 32;
+    let rgba = IMG.get_or_init(|| {
+        let (c, r) = ((16.0f32, 16.0f32), 8.5f32);
+        let (a0, a1) = ((-200f32).to_radians(), 52f32.to_radians());
+        let end = (c.0 + r * a1.cos(), c.1 + r * a1.sin());
+        let (tx, ty) = (-a1.sin(), a1.cos()); // direction of travel at the arc's end
+        let (rx, ry) = (a1.cos(), a1.sin());
+        let tri = [
+            (end.0 + 5.5 * tx, end.1 + 5.5 * ty),
+            (end.0 + 5.0 * rx - 1.5 * tx, end.1 + 5.0 * ry - 1.5 * ty),
+            (end.0 - 5.0 * rx - 1.5 * tx, end.1 - 5.0 * ry - 1.5 * ty),
+        ];
+        // Distance from (x, y) to the arc's centre line and to the arrowhead.
+        let arc_dist = |x: f32, y: f32| {
+            let (dx, dy) = (x - c.0, y - c.1);
+            let a = a0 + (dy.atan2(dx) - a0).rem_euclid(std::f32::consts::TAU);
+            if a <= a1 {
+                ((dx * dx + dy * dy).sqrt() - r).abs()
+            } else {
+                let p0 = (c.0 + r * a0.cos(), c.1 + r * a0.sin());
+                ((x - p0.0).hypot(y - p0.1)).min((x - end.0).hypot(y - end.1))
+            }
+        };
+        let tri_dist = |x: f32, y: f32| {
+            // Negative inside (convex triangle: max of signed edge distances).
+            let mut d = f32::MIN;
+            for i in 0..3 {
+                let (p, q) = (tri[i], tri[(i + 1) % 3]);
+                let (ex, ey) = (q.0 - p.0, q.1 - p.1);
+                let len = ex.hypot(ey).max(1e-6);
+                // Outward normal for a clockwise-or-not triangle: orient by the centroid.
+                let (cx, cy) = (
+                    (tri[0].0 + tri[1].0 + tri[2].0) / 3.0,
+                    (tri[0].1 + tri[1].1 + tri[2].1) / 3.0,
+                );
+                let mut s = ((x - p.0) * ey - (y - p.1) * ex) / len;
+                if ((cx - p.0) * ey - (cy - p.1) * ex) > 0.0 {
+                    s = -s;
+                }
+                d = d.max(s);
+            }
+            d
+        };
+        let mut out = vec![0u8; N * N * 4];
+        const SS: usize = 4;
+        for py in 0..N {
+            for px in 0..N {
+                let (mut white, mut black) = (0.0f32, 0.0f32);
+                for sy in 0..SS {
+                    for sx in 0..SS {
+                        let (x, y) = (
+                            px as f32 + (sx as f32 + 0.5) / SS as f32,
+                            py as f32 + (sy as f32 + 0.5) / SS as f32,
+                        );
+                        let body = arc_dist(x, y) - 1.4;
+                        let head = tri_dist(x, y);
+                        let d = body.min(head);
+                        if d <= 0.0 {
+                            white += 1.0;
+                        } else if d <= 1.2 {
+                            black += 1.0;
+                        }
+                    }
+                }
+                let n = (SS * SS) as f32;
+                let a = (white + black) / n;
+                if a > 0.0 {
+                    let v = (255.0 * white / (white + black)).round() as u8;
+                    let i = (py * N + px) * 4;
+                    if let Some(px) = out.get_mut(i..i + 4) {
+                        px.copy_from_slice(&[v, v, v, (a * 255.0).round() as u8]);
+                    }
+                }
+            }
+        }
+        out.into()
+    });
+    egui::CustomCursorImage {
+        rgba: rgba.clone(),
+        size: [N as u16, N as u16],
+        hotspot: [16, 16],
+    }
+}
+
 /// A rotate cursor: a three-quarter circle with an arrowhead, drawn at the pointer.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn paint_rotate_cursor(p: &egui::Painter, at: Pos2) {
     let r = 7.0;
     let pts: Vec<Pos2> = (0..=18)
@@ -440,9 +529,18 @@ pub fn canvas(
             |d| d.handle,
         );
         let icon = cursor_for(tool, h, edit, &to_screen);
-        resp.ctx.set_cursor_icon(icon);
         if icon == egui::CursorIcon::None {
-            paint_rotate_cursor(p, hover);
+            // Rotate: a real OS cursor bitmap (no lag, no overlap with the system cursor);
+            // integrations without bitmap cursors (the web) get a drawn one instead.
+            if cfg!(target_arch = "wasm32") {
+                resp.ctx.set_cursor_icon(icon);
+                paint_rotate_cursor(p, hover);
+            } else {
+                resp.ctx.set_cursor_icon(egui::CursorIcon::Default);
+                resp.ctx.set_cursor_image(Some(rotate_cursor_image()));
+            }
+        } else {
+            resp.ctx.set_cursor_icon(icon);
         }
     }
     if resp.drag_stopped() {
@@ -608,5 +706,17 @@ mod tests {
         // Far from every snap point: free.
         let mid = pivot_at(&edit, (30.0, 20.0), &to_screen, false).unwrap();
         assert!((mid.0 - 0.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rotate_cursor_bitmap_is_white_with_black_outline() {
+        let img = rotate_cursor_image();
+        assert_eq!(img.rgba.len(), 32 * 32 * 4);
+        let px = |x: usize, y: usize| &img.rgba[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4];
+        // On the arc (left side, radius 8.5 from the centre): opaque white.
+        assert_eq!(px(7, 16), &[255, 255, 255, 255]);
+        // The centre is empty; something black exists (the outline).
+        assert_eq!(px(16, 16)[3], 0);
+        assert!(img.rgba.chunks(4).any(|p| p[3] == 255 && p[0] == 0));
     }
 }
