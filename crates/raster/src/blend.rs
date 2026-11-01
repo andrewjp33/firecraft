@@ -5,6 +5,7 @@
 //! luma weights come from Fireworks.exe itself (blend function table at 0x56d9c4).
 
 use crate::image::Rgba;
+use crate::fwhsl;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum BlendMode {
@@ -125,24 +126,28 @@ impl BlendMode {
             BlendMode::Difference => per(|b, s| (b - s).abs()),
             BlendMode::Invert => per(|b, _| 255.0 - b),
             BlendMode::Hue => {
-                let (_, bs, bv) = to_hsv(b);
-                let (sh, _, _) = to_hsv(s);
-                // A grey base has no hue to replace: unchanged (measured).
-                if bs == 0.0 { b } else { from_hsv(sh, bs, bv) }
+                // Bit-exact: the blend colour's hue with the base's lightness and saturation, in
+                // Fireworks' byte HSL (blend function 0x56d270).
+                let (bb, ss) = (byte(b), byte(s));
+                let (sh, _, _) = fwhsl::to_hsl(ss[0], ss[1], ss[2]);
+                let (_, bl, bs) = fwhsl::to_hsl(bb[0], bb[1], bb[2]);
+                rgb(fwhsl::from_hsl(sh, bl, bs))
             }
+            // Bit-exact: Fireworks' integer HSV (fwhsl::to_hsv / from_hsv).
             BlendMode::Saturation => {
-                let (bh, bs, bv) = to_hsv(b);
-                let (_, ss, _) = to_hsv(s);
-                if bs == 0.0 { b } else { from_hsv(bh, ss, bv) }
+                let (bh, bs, bv) = hsv(b);
+                let (_, ss, _) = hsv(s);
+                // A grey base has no hue to saturate: unchanged.
+                if bs == 0 { b } else { rgb(fwhsl::from_hsv(bh, ss, bv)) }
             }
             BlendMode::Color => {
-                let (_, _, bv) = to_hsv(b);
-                let (sh, ss, _) = to_hsv(s);
-                from_hsv(sh, ss, bv)
+                let (_, _, bv) = hsv(b);
+                let (sh, ss, _) = hsv(s);
+                rgb(fwhsl::from_hsv(sh, ss, bv))
             }
             BlendMode::Luminosity => {
-                let (bh, bs, _) = to_hsv(b);
-                from_hsv(bh, bs, luma(s) as f32)
+                let (bh, bs, _) = hsv(b);
+                rgb(fwhsl::from_hsv(bh, bs, luma(s).clamp(0, 255) as u8))
             }
             BlendMode::Tint => {
                 // Fireworks MX (blend function at 0x56d6b0): move the base towards the blend colour
@@ -164,37 +169,17 @@ fn luma(c: [f32; 3]) -> i32 {
     (c[0] as i32 * 109 + c[1] as i32 * 366 + c[2] as i32 * 37) >> 9
 }
 
-/// RGB (0..=255) -> (hue 0..6, saturation 0..1, value 0..=255).
-fn to_hsv(c: [f32; 3]) -> (f32, f32, f32) {
-    let max = c[0].max(c[1]).max(c[2]);
-    let min = c[0].min(c[1]).min(c[2]);
-    let d = max - min;
-    if max <= 0.0 || d <= 0.0 {
-        return (0.0, 0.0, max);
-    }
-    let h = if max == c[0] {
-        ((c[1] - c[2]) / d).rem_euclid(6.0)
-    } else if max == c[1] {
-        (c[2] - c[0]) / d + 2.0
-    } else {
-        (c[0] - c[1]) / d + 4.0
-    };
-    (h, d / max, max)
+fn byte(c: [f32; 3]) -> [u8; 3] {
+    c.map(|v| v.round().clamp(0.0, 255.0) as u8)
 }
 
-fn from_hsv(h: f32, s: f32, v: f32) -> [f32; 3] {
-    let c = v * s;
-    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
-    let m = v - c;
-    let (r, g, b) = match h as i32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    [r + m, g + m, b + m]
+fn hsv(c: [f32; 3]) -> (u8, u8, u8) {
+    let [r, g, b] = byte(c);
+    fwhsl::to_hsv(r, g, b)
+}
+
+fn rgb(c: [u8; 3]) -> [f32; 3] {
+    c.map(f32::from)
 }
 
 #[cfg(test)]
@@ -224,9 +209,8 @@ mod tests {
             let close = |a: u8, b: u8| a.abs_diff(b) <= 1;
             assert!(close(got.r, want.r) && close(got.g, want.g) && close(got.b, want.b), "{mode:?}: {got:?} vs {want:?}");
         }
-        // Hue: within the measured rounding of Fireworks' integer HSV.
-        let got = BlendMode::Hue.composite(op(40, 180, 60), op(255, 0, 0), 255);
-        assert!(got.r.abs_diff(178) <= 3 && got.g.abs_diff(39) <= 3, "{got:?}");
+        // Hue: bit-exact (byte HSL).
+        assert_eq!(BlendMode::Hue.composite(op(40, 180, 60), op(255, 0, 0), 255), op(178, 39, 39));
         assert_eq!(BlendMode::Erase.composite(op(1, 2, 3), op(9, 9, 9), 255), Rgba::TRANSPARENT);
         // Tint: exact (formula from Fireworks.exe, values measured in Fireworks MX).
         for (base, top, want) in [

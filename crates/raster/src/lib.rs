@@ -2,6 +2,7 @@
 
 pub mod blend;
 pub mod effects;
+pub mod fwhsl;
 pub mod gradient;
 pub mod image;
 pub mod mask;

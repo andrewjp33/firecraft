@@ -437,16 +437,23 @@ impl Element {
             }
             return;
         }
-        let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else { return };
         if self.effects.is_empty() {
+            let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else { return };
             out.draw_blend(&img, x, y, opacity, self.blend);
             return;
         }
-        // Effects can draw outside the object (shadows, glows, blurs): work in a padded buffer.
+        // Effects can draw outside the object (shadows, glows, blurs) and are affected by the
+        // object's pixels beyond the output's edge (a blur near the canvas edge): rasterize the
+        // output area grown by the effect margin, and give the object that margin of padding.
         let m = self.effects.iter().map(Effect::margin).max().unwrap_or(0) as i64;
+        let (ew, eh) = (out.width() as i64 + 2 * m, out.height() as i64 + 2 * m);
+        if ew * eh > 1 << 28 {
+            return;
+        }
+        let Some((img, x, y)) = self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx) else { return };
         let (bx, by) = ((x - m).max(0), (y - m).max(0));
-        let bw = ((x + img.width() as i64 + m).min(out.width() as i64) - bx).max(0) as u32;
-        let bh = ((y + img.height() as i64 + m).min(out.height() as i64) - by).max(0) as u32;
+        let bw = ((x + img.width() as i64 + m).min(ew) - bx).max(0) as u32;
+        let bh = ((y + img.height() as i64 + m).min(eh) - by).max(0) as u32;
         if bw == 0 || bh == 0 {
             return;
         }
@@ -455,7 +462,7 @@ impl Element {
         for e in &self.effects {
             e.apply(&mut buf);
         }
-        out.draw_blend(&buf, bx, by, opacity, self.blend);
+        out.draw_blend(&buf, bx - m, by - m, opacity, self.blend);
     }
 }
 

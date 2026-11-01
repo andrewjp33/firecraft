@@ -123,8 +123,17 @@ impl Effect {
     /// a buffer with room around it).
     pub fn apply(&self, img: &mut RgbaImage) {
         match self {
-            Effect::HueSaturation { hue, saturation, lightness, colorize } => {
-                map_rgb(img, |c| hue_saturation(c, *hue, *saturation, *lightness, *colorize))
+            Effect::HueSaturation { hue, saturation, lightness, colorize: false } => {
+                // Bit-exact Fireworks MX (byte-quantized HSL, see fwhsl).
+                for p in img.pixels_mut() {
+                    if p.a != 0 {
+                        let [r, g, b] = crate::fwhsl::hue_saturation(p.r, p.g, p.b, hue.round() as i32, *saturation as f64, *lightness as f64);
+                        *p = Rgba::new(r, g, b, p.a);
+                    }
+                }
+            }
+            Effect::HueSaturation { hue, saturation, lightness, colorize: true } => {
+                map_rgb(img, |c| hue_saturation(c, *hue, *saturation, *lightness, true))
             }
             Effect::BrightnessContrast { brightness, contrast } => {
                 let (b, c) = (*brightness, *contrast);
@@ -181,8 +190,11 @@ impl Effect {
                     *p = Rgba { a: p.a, ..c };
                 }
             }
-            // Measured in Fireworks MX: the blur is a Gaussian with sigma = 0.715 x radius.
-            Effect::GaussianBlur { radius } => blur_rgba(img, radius * 0.715),
+            Effect::GaussianBlur { radius } => {
+                if let Some(sigma) = gaussian_sigma(*radius) {
+                    blur_rgba(img, sigma)
+                }
+            }
             Effect::MotionBlur { distance, angle } => motion_blur(img, *distance, *angle),
             Effect::RadialBlur { amount } => radial_blur(img, *amount),
             Effect::Shadow { color, distance, angle, softness, inner, knock_out } => {
@@ -229,7 +241,8 @@ impl Effect {
     /// Extra room an effect needs around the object, in pixels.
     pub fn margin(&self) -> u32 {
         let m = match self {
-            Effect::GaussianBlur { radius } => radius * 0.715 * 3.0,
+            // The box-blur approximation reaches 3 sigma (Fireworks' kernel ~2.5).
+            Effect::GaussianBlur { radius } => gaussian_sigma(*radius).map_or(0.0, |s| s * 3.0),
             Effect::MotionBlur { distance, .. } => *distance,
             Effect::Shadow { distance, softness, .. } => distance + softness * 2.0,
             Effect::Glow { width, softness, offset, .. } => width + offset + softness,
@@ -324,14 +337,27 @@ fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
     }
 }
 
+/// Gaussian Blur's sigma for a `gaussian_blur_radius`, measured in Fireworks MX (step-edge fits for
+/// radii 1-249): sigma = 1.021 x radius with the kernel reaching ~2.5 x radius; radii above 70 blur
+/// like 70, and radii above 200 don't blur at all.
+pub fn gaussian_sigma(radius: f32) -> Option<f32> {
+    if !(radius > 0.0 && radius <= 200.0) {
+        return None;
+    }
+    Some(radius.min(70.0) * 1.021)
+}
+
 fn hue_saturation(c: [f32; 3], hue: f32, sat: f32, light: f32, colorize: bool) -> [f32; 3] {
     let (mut h, mut s, mut l) = rgb_to_hsl(c);
     if colorize {
         h = hue.rem_euclid(360.0) / 360.0;
         s = (sat.clamp(0.0, 100.0) / 100.0).max(0.25);
     } else {
+        // Measured in Fireworks MX: hue adds degrees; saturation and lightness move towards 0 by
+        // (1 + k) for negative k and towards 1 by (1 - x) * k for positive k (k = amount / 100).
         h = (h + hue / 360.0).rem_euclid(1.0);
-        s = (s * (1.0 + sat / 100.0)).clamp(0.0, 1.0);
+        let k = sat.clamp(-100.0, 100.0) / 100.0;
+        s = if k >= 0.0 { s + (1.0 - s) * k } else { s * (1.0 + k) }.clamp(0.0, 1.0);
     }
     l = if light >= 0.0 { l + (1.0 - l) * light / 100.0 } else { l * (1.0 + light / 100.0) };
     hsl_to_rgb(h, s, l.clamp(0.0, 1.0))
@@ -556,6 +582,8 @@ mod tests {
     fn parses_known_effects() {
         let e = Effect::parse(&params(&[("EffectMoaID", GAUSSIAN), ("gaussian_blur_radius", "100")]), &HashMap::new());
         assert_eq!(e, Some(Effect::GaussianBlur { radius: 100.0 }));
+        assert_eq!(gaussian_sigma(100.0), gaussian_sigma(70.0));
+        assert_eq!(gaussian_sigma(201.0), None);
         let e = Effect::parse(&params(&[("EffectMoaID", BEVEL_GLOW), ("BevelType", "0")]), &HashMap::new());
         assert_eq!(e, None, "inner bevel not rendered yet");
         assert!(Effect::parse(&params(&[("name", "Invert")]), &HashMap::new()).is_some());
@@ -589,6 +617,28 @@ mod tests {
         assert_eq!(d[12], 0.0);
         assert!((d[0] - 8f32.sqrt()).abs() < 1e-4);
         assert!((d[14] - 2.0).abs() < 1e-4);
+    }
+
+    /// Fireworks MX renders (oracle_hsl): (input, [hue, sat, light], output).
+    #[test]
+    fn hue_saturation_matches_fireworks() {
+        let cases: [([u8; 3], [f32; 3], [u8; 3]); 8] = [
+            ([200, 40, 40], [-172.0, 0.0, 0.0], [40, 175, 199]),
+            ([40, 180, 60], [-172.0, 0.0, 0.0], [178, 39, 140]),
+            ([30, 60, 200], [45.0, 0.0, 0.0], [121, 30, 199]),
+            ([128, 128, 128], [0.0, 50.0, 0.0], [191, 64, 64]),
+            ([200, 40, 40], [0.0, 50.0, 0.0], [219, 20, 20]),
+            ([200, 40, 40], [0.0, -50.0, 0.0], [160, 80, 80]),
+            ([200, 40, 40], [0.0, 0.0, -40.0], [119, 24, 24]),
+            ([200, 40, 40], [0.0, 0.0, 40.0], [228, 119, 119]),
+        ];
+        for (input, [h, s, l], want) in cases {
+            let mut img = RgbaImage::new(1, 1, Rgba::new(input[0], input[1], input[2], 255));
+            Effect::HueSaturation { hue: h, saturation: s, lightness: l, colorize: false }.apply(&mut img);
+            let p = img.get(0, 0).unwrap();
+            let close = [p.r, p.g, p.b].iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
+            assert!(close, "{input:?} {h},{s},{l}: got {p:?}, want {want:?}");
+        }
     }
 
     #[test]

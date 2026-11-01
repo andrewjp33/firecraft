@@ -72,11 +72,8 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
     if doc.layers.is_empty() {
         doc.layers.push(Layer::new("Layer 1"));
     }
-    doc.current_layer = root
-        .child("LYL")
-        .and_then(|lyl| lyl.children_tagged("LAY").position(|l| l.bool_of("MCL") == Some(true)))
-        .or_else(|| doc.layers.iter().position(|l| !l.web))
-        .unwrap_or(0);
+    // The current layer isn't stored (MCLb is per-layer sharing): start on the top normal layer.
+    doc.current_layer = doc.layers.iter().rposition(|l| !l.web).unwrap_or(0);
     doc.symbols = std::sync::Arc::new(symbols);
     doc.raw_secondary = fw.secondary_tree()?;
     doc.raw_tiles = std::sync::Arc::new(tiles.clone());
@@ -87,7 +84,9 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
 fn read_layer(n: &Node, ctx: &Ctx) -> Layer {
     let mut layer = Layer::new(n.str_of("LNM").unwrap_or("Layer"));
     layer.web = n.bool_of("URL").unwrap_or(false);
-    layer.shared = n.bool_of("MSL").unwrap_or(false);
+    // MCLb{1} = the layer has its own content per frame; MCLb{0} = shared across frames
+    // (confirmed with Fireworks MX's layer.sharing on tubes.png; MSLb is something else).
+    layer.shared = !n.bool_of("MCL").unwrap_or(true);
     layer.disclosed = n.bool_of("DIS").unwrap_or(true);
     // VIFv: one VISb per frame.
     let vis: Vec<bool> = n.child("VIF").map(|v| v.children_tagged("VIS").filter_map(Node::as_bool).collect()).unwrap_or_default();

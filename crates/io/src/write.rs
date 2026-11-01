@@ -53,7 +53,7 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     put(&mut root, Node::int("RSU", i64::from(doc.resolution_cm)));
     put(&mut root, Node::int("BGC", to_argb(doc.canvas.unwrap_or(Rgba::CLEARED))));
     let layers =
-        doc.layers.iter().enumerate().map(|(i, l)| write_layer(l, i == doc.current_layer, doc, &mut w)).collect();
+        doc.layers.iter().map(|l| write_layer(l, doc, &mut w)).collect();
     put(&mut root, Node::vector("LYL", layers));
     // Frame delays/export flags back into EXPv > FNLv (kept as read otherwise).
     if let Some(fnl) = root.child_mut("EXP").and_then(|e| e.child_mut("FNL")) {
@@ -129,7 +129,7 @@ fn new_root() -> Node {
     )
 }
 
-fn write_layer(layer: &Layer, current: bool, doc: &Document, w: &mut Writer) -> Node {
+fn write_layer(layer: &Layer, doc: &Document, w: &mut Writer) -> Node {
     let mut n = layer.raw.clone().unwrap_or_else(|| {
         Node::vector(
             "LAY",
@@ -147,8 +147,11 @@ fn write_layer(layer: &Layer, current: bool, doc: &Document, w: &mut Writer) -> 
     });
     put(&mut n, Node::bool("URL", layer.web));
     put(&mut n, Node::string("LNM", &layer.name));
-    put(&mut n, Node::bool("MSL", layer.shared));
-    put(&mut n, Node::bool("MCL", current));
+    // MSLb: meaning unknown (1 on the Web Layer); kept as read, set for new layers.
+    if layer.raw.is_none() {
+        put(&mut n, Node::bool("MSL", layer.web));
+    }
+    put(&mut n, Node::bool("MCL", !layer.shared));
     put(&mut n, Node::bool("DIS", layer.disclosed));
     let cell_count = if layer.shared { 1 } else { doc.frames.len().max(1) };
     let cells = (0..cell_count)

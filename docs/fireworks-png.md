@@ -40,7 +40,8 @@ MKBv  FRCi frames, RQNi ?, XLCf/YLCf canvas origin, WIDf/HITf size, RESf, RSUi (
        MNFv]  preset lists: optional
       LYLv  LAYv*  (bottom layer first)
       GRDv grid, GDSv guides, OSBi, OSAi
-LAYv  BKGb, URLb (web layer), LNMs name, MSLb (shared across frames), MCLb (current), DISb (expanded),
+LAYv  BKGb, URLb (web layer), LNMs name, MSLb (unknown; 1 on the Web Layer), MCLb (1 = own content per
+      frame, 0 = shared across frames: Fireworks then shows cell 0 in every frame), DISb (expanded),
       CLLv  CELv* (one per frame)  { LCKb, ELMv elements }, VIFv { VISb }
 IMGv  XOFf YOFf XLCf YLCf (document space), WPXi HPXi, TSZi, TILv { TIDi* }
       pixel buffer/tile grid at (XLC, YLC) sized WPX x HPX; visible image rect is
