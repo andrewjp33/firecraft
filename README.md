@@ -54,7 +54,17 @@ adapted from [FirePixel](https://github.com/Zignixx/firepixel) (Apache-2.0); see
 
 ## Build and run
 
-Requires Rust 1.95+ (edition 2024).
+Requires Rust 1.95+ (edition 2024). The Makefile wraps the common commands (`make help`):
+
+```sh
+make build        # Linux debug build   -> target/debug/firecraft
+make run FILE=x.png
+make windows      # Windows .exe (needs: sudo apt install mingw-w64)
+make test         # all tests
+make parity       # compare renders with Fireworks for ../ref_fw_images (REF_DIR=...)
+```
+
+Or with cargo directly:
 
 ```sh
 cargo run --release -p firecraft -- [file.png ...]     # desktop
