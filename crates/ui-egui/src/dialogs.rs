@@ -268,7 +268,6 @@ pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raste
 fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     let mut close = false;
     let prefs = &mut app.prefs;
-    let o = &mut app.session.options;
     dialog("Preferences").show(ctx, |ui| {
         ui.strong("Workspace");
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
@@ -286,14 +285,6 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         });
         ui.weak("Fireworks MX: bit-exact Fireworks formulas (byte-rounded hue, saturation and lightness).\nHigh precision: the same formulas in double precision. Saved in the PNG; Fireworks MX ignores it.");
         ui.separator();
-        let mut classic = o.aa_style == firecraft_raster::AntiAliasStyle::Classic;
-        if ui
-            .checkbox(&mut classic, "Classic (Fireworks MX) anti-alias for selection tools")
-            .on_hover_text("Fireworks MX ties anti-alias strength to Tolerance; FireCraft's default computes real edge coverage.")
-            .changed()
-        {
-            o.aa_style = if classic { firecraft_raster::AntiAliasStyle::Classic } else { firecraft_raster::AntiAliasStyle::Smooth };
-        }
         close = ui.button("OK").clicked();
     });
     if close {

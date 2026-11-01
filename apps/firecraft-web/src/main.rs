@@ -97,7 +97,7 @@ mod web {
                             .storage
                             .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))
                         {
-                            app.prefs = firecraft_ui_egui::Prefs::parse(&text);
+                            app.set_prefs(firecraft_ui_egui::Prefs::parse(&text));
                         }
                         Ok(Box::new(App(app)))
                     }),

@@ -111,7 +111,7 @@ fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> 
                 .storage
                 .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))
             {
-                app.prefs = firecraft_ui_egui::Prefs::parse(&text);
+                app.set_prefs(firecraft_ui_egui::Prefs::parse(&text));
             }
             for f in files {
                 match std::fs::read(&f) {

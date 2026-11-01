@@ -64,6 +64,8 @@ pub struct Prefs {
     pub undo_steps: usize,
     /// Colour math for new documents.
     pub color_math: firecraft_raster::ColorMath,
+    /// Magic Wand / selection anti-alias style last chosen in the Property inspector.
+    pub aa_style: firecraft_raster::AntiAliasStyle,
 }
 
 impl Prefs {
@@ -76,8 +78,12 @@ impl Prefs {
             firecraft_raster::ColorMath::Classic => "classic",
             firecraft_raster::ColorMath::Precise => "precise",
         };
+        let aa = match self.aa_style {
+            firecraft_raster::AntiAliasStyle::Smooth => "smooth",
+            firecraft_raster::AntiAliasStyle::Classic => "classic",
+        };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\ncolor_math={math}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\ncolor_math={math}\naa_style={aa}\n",
             self.tabs, self.show_tools, self.show_properties, self.show_dock, self.undo_steps
         )
     }
@@ -103,6 +109,13 @@ impl Prefs {
                         firecraft_raster::ColorMath::Classic
                     }
                 }
+                "aa_style" => {
+                    p.aa_style = if v.trim() == "classic" {
+                        firecraft_raster::AntiAliasStyle::Classic
+                    } else {
+                        firecraft_raster::AntiAliasStyle::Smooth
+                    }
+                }
                 _ => {}
             }
         }
@@ -119,6 +132,7 @@ impl Default for Prefs {
             show_dock: true,
             undo_steps: firecraft_engine::DEFAULT_UNDO_STEPS,
             color_math: firecraft_raster::ColorMath::Classic,
+            aa_style: firecraft_raster::AntiAliasStyle::Smooth,
         }
     }
 }
@@ -220,7 +234,15 @@ impl FireCraftApp {
     }
 
     /// Draw one frame. Call from `eframe::App::ui`.
+    /// Apply loaded preferences (also the tool options they remember).
+    pub fn set_prefs(&mut self, prefs: Prefs) {
+        self.session.options.aa_style = prefs.aa_style;
+        self.prefs = prefs;
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // Tool options the preferences remember.
+        self.prefs.aa_style = self.session.options.aa_style;
         let ctx = ui.ctx().clone();
         if !self.styled {
             theme::apply(&ctx);

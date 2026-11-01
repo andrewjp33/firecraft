@@ -597,11 +597,6 @@ fn shift_plane(a: &[f32], w: u32, h: u32, dx: i64, dy: i64, fill: f32) -> Vec<f3
 
 /// Gaussian blur of a single plane with standard deviation `sigma`, as three box passes (box
 /// radius r gives sigma ~ r + 0.5).
-/// Gaussian-like blur of a single plane (three box passes per axis), for other effect modules.
-pub(crate) fn blur_plane_pub(a: &[f32], w: u32, h: u32, sigma: f32) -> Vec<f32> {
-    blur_plane(a, w, h, sigma)
-}
-
 fn blur_plane(a: &[f32], w: u32, h: u32, sigma: f32) -> Vec<f32> {
     let mut v = a.to_vec();
     if sigma < 0.5 || w == 0 || h == 0 {
