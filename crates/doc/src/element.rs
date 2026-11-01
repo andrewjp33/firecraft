@@ -135,8 +135,8 @@ pub enum ElementKind {
 pub struct Element {
     pub name: Option<String>,
     pub visible: bool,
-    /// 0..=100, as in the Property inspector.
-    pub opacity: u8,
+    /// Percent, 0..=100 (Fireworks stores tenths of a percent in `OPAi`).
+    pub opacity: f32,
     pub blend: BlendMode,
     /// Live Effects FireCraft renders, in order (the full list stays in `raw`).
     pub effects: Vec<Effect>,
@@ -147,7 +147,7 @@ pub struct Element {
 
 impl Element {
     pub fn new(kind: ElementKind) -> Self {
-        Self { name: None, visible: true, opacity: 100, blend: BlendMode::Normal, effects: Vec::new(), kind, raw: None }
+        Self { name: None, visible: true, opacity: 100.0, blend: BlendMode::Normal, effects: Vec::new(), kind, raw: None }
     }
 
     /// The label the Layers panel shows.
@@ -417,10 +417,10 @@ impl Element {
 
     /// Composite this element onto `out` (whose top-left is canvas (`ox`, `oy`)).
     pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64, ctx: &RenderCtx) {
-        if !self.visible || self.opacity == 0 {
+        if !self.visible || self.opacity <= 0.0 {
             return;
         }
-        let opacity = (self.opacity.min(100) as u32 * 255 / 100) as u8;
+        let opacity = (self.opacity.clamp(0.0, 100.0) * 2.55).round() as u8;
         // A plain group passes its children's blending through to what lies beneath it.
         let plain = opacity == 255 && self.blend == BlendMode::Normal && self.effects.is_empty();
         if let ElementKind::Group(children) = &self.kind {
@@ -473,7 +473,7 @@ fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u3
         MaskMode::PathOutline => {
             // The outline alone: render the shape as an opaque fill.
             let mut shape = mask.clone();
-            shape.opacity = 100;
+            shape.opacity = 100.0;
             shape.blend = BlendMode::Normal;
             shape.visible = true;
             if let ElementKind::Path(p) = &mut shape.kind {

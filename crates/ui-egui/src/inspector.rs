@@ -228,11 +228,11 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.separator();
     }
     // Opacity / blend / effects column.
-    let mut opacity = first.as_ref().map(|e| e.opacity).unwrap_or(100);
+    let mut opacity = first.as_ref().map(|e| e.opacity).unwrap_or(100.0);
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             icons::glyph(ui, icons::Glyph::Opacity, 16.0);
-            if ui.add(DragValue::new(&mut opacity).range(0..=100).suffix("%")).changed() {
+            if ui.add(DragValue::new(&mut opacity).range(0.0..=100.0).max_decimals(1).suffix("%")).changed() {
                 if let Some(d) = app.session.active_doc_mut() {
                     d.set_opacity(opacity);
                 }

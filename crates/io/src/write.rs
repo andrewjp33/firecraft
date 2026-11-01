@@ -259,8 +259,8 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
     } else {
         n.children.retain(|c| !c.is("BLD"));
     }
-    if el.opacity != 100 || n.child("OPA").is_some() {
-        put(&mut n, Node::int("OPA", el.opacity as i64));
+    if el.opacity < 100.0 || n.child("OPA").is_some() {
+        put(&mut n, Node::int("OPA", (el.opacity.clamp(0.0, 100.0) * 10.0).round() as i64));
     }
     n
 }

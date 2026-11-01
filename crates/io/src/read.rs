@@ -146,8 +146,9 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
     if let Some(b) = n.int_of("BLD") {
         el.blend = firecraft_raster::BlendMode::from_fw_code(b);
     }
+    // OPAi: tenths of a percent (Fireworks saves 25/50/75% as 250/501/749); absent = 100%.
     if let Some(o) = n.int_of("OPA") {
-        el.opacity = o.clamp(0, 100) as u8;
+        el.opacity = (o.clamp(0, 1000) as f32) / 10.0;
     }
     Some(el)
 }

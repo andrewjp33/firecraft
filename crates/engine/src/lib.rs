@@ -438,12 +438,12 @@ impl DocState {
     }
 
     /// Set opacity (0..=100) on selected objects.
-    pub fn set_opacity(&mut self, opacity: u8) {
+    pub fn set_opacity(&mut self, opacity: f32) {
         let refs = self.selection.clone();
         self.edit("Opacity", |s| {
             for r in refs {
                 if let Some(e) = s.element_mut(r) {
-                    e.opacity = opacity.min(100);
+                    e.opacity = opacity.clamp(0.0, 100.0);
                 }
             }
         });
