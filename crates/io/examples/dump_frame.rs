@@ -3,7 +3,10 @@ use firecraft_doc::{Element, ElementKind};
 fn show(e: &Element, d: usize) {
     let k = match &e.kind {
         ElementKind::Instance { symbol, .. } => format!("Instance {symbol:x}"),
-        ElementKind::Bitmap(b) => format!("Bitmap {}x{} at {},{}", b.image.width(), b.image.height(), b.x, b.y),
+        ElementKind::Bitmap(b) => {
+            let c = b.image.get(b.image.width() as i64 / 2, b.image.height() as i64 / 2);
+            format!("Bitmap {}x{} at {},{} center={c:?}", b.image.width(), b.image.height(), b.x, b.y)
+        }
         ElementKind::Group(_) => "Group".into(),
         ElementKind::Masked { .. } => "Masked".into(),
         ElementKind::Path(_) => "Path".into(),
@@ -11,7 +14,16 @@ fn show(e: &Element, d: usize) {
         ElementKind::Other { kind, .. } => kind.clone(),
     };
     println!("{}{k} vis={} op={} blend={:?} effects={:?}", "  ".repeat(d), e.visible, e.opacity, e.blend, e.effects);
-    if let ElementKind::Group(c) = &e.kind { c.iter().for_each(|c| show(c, d + 1)); }
+    match &e.kind {
+        ElementKind::Group(c) => c.iter().for_each(|c| show(c, d + 1)),
+        ElementKind::Masked { content, mask, mode, .. } => {
+            println!("{}mask ({mode:?}):", "  ".repeat(d + 1));
+            show(mask, d + 2);
+            println!("{}content:", "  ".repeat(d + 1));
+            content.iter().for_each(|c| show(c, d + 2));
+        }
+        _ => {}
+    }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().skip(1).collect();

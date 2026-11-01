@@ -229,6 +229,18 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
     match n.int_of("GRT").unwrap_or(0) {
         1 => {
             let Some(mask) = n.child("MRM").and_then(|m| m.children.first()).and_then(|m| read_element(m, ctx, depth + 1)) else {
+                // A bitmap mask has no MRMv: the first (top) ELMv child is the mask itself, stored
+                // inverted (Fireworks keeps 255 - value; measured: a white mask is saved black).
+                if kids.len() >= 2 && kids.first().is_some_and(|k| k.is("IMG")) {
+                    if let Some(mut mask) = read_element(kids.remove(0), ctx, depth + 1) {
+                        if let ElementKind::Bitmap(b) = &mut mask.kind {
+                            invert_mask_bitmap(&mut b.image);
+                        }
+                        let content = kids.iter().rev().filter_map(|c| read_element(c, ctx, depth + 1)).collect();
+                        let mode = if grayscale { MaskMode::Grayscale } else { MaskMode::Alpha };
+                        return ElementKind::Masked { content, mask: Box::new(mask), mode, cache: None };
+                    }
+                }
                 return plain_group(n, ctx, depth);
             };
             // The cache is an IMGv on top whose bounds match the mask's.
@@ -256,6 +268,14 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
             ElementKind::Masked { content, mask: Box::new(mask), mode: MaskMode::PathOutline, cache: None }
         }
         _ => plain_group(n, ctx, depth),
+    }
+}
+
+/// Fireworks stores bitmap masks with inverted colour channels (alpha unchanged); the same
+/// function converts both ways.
+pub(crate) fn invert_mask_bitmap(img: &mut RgbaImage) {
+    for p in img.pixels_mut() {
+        *p = Rgba::new(255 - p.r, 255 - p.g, 255 - p.b, p.a);
     }
 }
 

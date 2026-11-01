@@ -203,14 +203,23 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             put(&mut g, Node::bool("MNA", *mode != MaskMode::Alpha));
             put(&mut g, Node::int("GRT", if *mode == MaskMode::PathOutline { 2 } else { 1 }));
             let mut elm: Vec<Node> = Vec::new();
-            if *mode == MaskMode::PathOutline {
-                elm.push(write_element(mask, w, depth + 1));
+            // A bitmap mask (no cached render of a separate mask object) is stored inline as
+            // the top ELMv child, without MRMv.
+            let inline = *mode == MaskMode::PathOutline || (cache.is_none() && matches!(mask.kind, ElementKind::Bitmap(_)));
+            if inline {
+                let mut stored = (**mask).clone();
+                if let ElementKind::Bitmap(b) = &mut stored.kind {
+                    if *mode != MaskMode::PathOutline {
+                        crate::read::invert_mask_bitmap(&mut b.image);
+                    }
+                }
+                elm.push(write_element(&stored, w, depth + 1));
             } else if let Some(c) = cache {
                 elm.push(write_element(c, w, depth + 1));
             }
             elm.extend(content.iter().rev().map(|c| write_element(c, w, depth + 1)));
             put(&mut g, Node::vector("ELM", elm));
-            if *mode == MaskMode::PathOutline {
+            if inline {
                 g.children.retain(|c| !c.is("MRM"));
             } else {
                 put(&mut g, Node::vector("MRM", vec![write_element(mask, w, depth + 1)]));
