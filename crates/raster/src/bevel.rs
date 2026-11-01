@@ -170,15 +170,30 @@ impl Bevel {
         if !inside.iter().any(|&b| b) {
             return;
         }
+        let band = self.band(&inside, w, h);
+        let (hi, sh) = self.shading(&band, w, h);
+        let src = img.clone();
+        for (i, p) in img.pixels_mut().iter_mut().enumerate() {
+            let px = BandPixel {
+                orig: src.pixels().get(i).copied().unwrap_or_default(),
+                in_band: band.on.get(i).copied().unwrap_or(false),
+                inside: inside.get(i).copied().unwrap_or(false),
+                cover: band.cover.get(i).copied().unwrap_or(1.0),
+                hi: hi.get(i).copied().unwrap_or(0.0),
+                sh: sh.get(i).copied().unwrap_or(0.0),
+            };
+            *p = self.composite(&px);
+        }
+    }
+
+    /// Band pixels with their distance, coverage and outward normal.
+    fn band(&self, inside: &[bool], w: usize, h: usize) -> Band {
         // Inner: distance to the nearest outside pixel; otherwise to the nearest object pixel.
         let inner = self.kind == BevelKind::Inner;
-        let seeds: Vec<bool> = if inner { inside.iter().map(|&b| !b).collect() } else { inside.clone() };
+        let seeds: Vec<bool> = if inner { inside.iter().map(|&b| !b).collect() } else { inside.to_vec() };
         let near = nearest_seed(&seeds, w, h, inner);
         let width = self.width as f64;
-        let mut band = vec![false; w * h];
-        let mut dist = vec![0f64; w * h];
-        let mut cover = vec![0f32; w * h];
-        let mut normal = vec![0i32; w * h];
+        let mut b = Band { on: vec![false; w * h], dist: vec![0.0; w * h], cover: vec![0.0; w * h], normal: vec![0; w * h] };
         for i in 0..w * h {
             let (Some(&(dx, dy)), Some(&ins)) = (near.get(i), inside.get(i)) else { continue };
             if ins != inner || (dx, dy) == (0, 0) {
@@ -190,46 +205,29 @@ impl Bevel {
             if c <= 0.0 {
                 continue;
             }
-            if let Some(cv) = cover.get_mut(i) {
-                *cv = c as f32;
-            }
+            let v = tie_vector(&near, w, h, i, (dx, dy), d);
             // Outward normal: towards the outside for Inner, away from the object otherwise.
-            // Two equally near edges (a mitred corner): Fireworks lights along their sum when
-            // they are within 90 degrees of each other (|sum| >= sqrt(2) d).
-            let (x, y) = ((i % w) as i32, (i / w) as i32);
-            let d2 = dx * dx + dy * dy;
-            let mut v = (dx, dy);
-            for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
-                let (nx, ny) = (x + ox, y + oy);
-                if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
-                    continue;
-                }
-                let Some(&(cx, cy)) = near.get(ny as usize * w + nx as usize) else { continue };
-                let c = (cx + ox, cy + oy);
-                if c != (dx, dy) && c.0 * c.0 + c.1 * c.1 == d2 {
-                    let sum = (dx + c.0, dy + c.1);
-                    if ((sum.0 * sum.0 + sum.1 * sum.1) as f64).sqrt() + 1e-9 >= std::f64::consts::SQRT_2 * d {
-                        v = sum;
-                    }
-                    break;
-                }
-            }
             let n = if inner { fw_angle(v.0, v.1) } else { fw_angle(-v.0, -v.1) };
-            if let (Some(bb), Some(dd), Some(nn)) = (band.get_mut(i), dist.get_mut(i), normal.get_mut(i)) {
-                *bb = true;
+            if let (Some(on), Some(dd), Some(cv), Some(nn)) = (b.on.get_mut(i), b.dist.get_mut(i), b.cover.get_mut(i), b.normal.get_mut(i)) {
+                *on = true;
                 *dd = d;
+                *cv = c as f32;
                 *nn = n;
             }
         }
-        // The tilt field: s * unit normal (a negative edge shape faces the other way).
-        // AngleSoftness smooths it with a Gaussian (sigma ~0.26 x softness, softness capped at
-        // 10): corners round off, and the tilt fades near the band's edges and where the shape
-        // changes sign.
+        b
+    }
+
+    /// Highlight and shadow alpha maps. The tilt field is s * unit normal (a negative edge
+    /// shape faces the other way); AngleSoftness smooths it with a Gaussian (sigma ~0.26 x
+    /// softness, softness capped at 10), so corners round off and the tilt fades near the band's
+    /// edges and where the shape changes sign.
+    fn shading(&self, b: &Band, w: usize, h: usize) -> (Vec<f32>, Vec<f32>) {
         let (mut vx, mut vy) = (vec![0f64; w * h], vec![0f64; w * h]);
         for i in 0..w * h {
-            if band.get(i).copied().unwrap_or(false) {
-                let s = self.slope_at(dist.get(i).copied().unwrap_or(0.0));
-                let r = (normal.get(i).copied().unwrap_or(0) as f64).to_radians();
+            if b.on.get(i).copied().unwrap_or(false) {
+                let s = self.slope_at(b.dist.get(i).copied().unwrap_or(0.0));
+                let r = (b.normal.get(i).copied().unwrap_or(0) as f64).to_radians();
                 if let (Some(x), Some(y)) = (vx.get_mut(i), vy.get_mut(i)) {
                     *x = s * r.cos();
                     *y = s * r.sin();
@@ -245,69 +243,104 @@ impl Bevel {
         let mut hi = vec![0f32; w * h];
         let mut sh = vec![0f32; w * h];
         for i in 0..w * h {
-            if !band.get(i).copied().unwrap_or(false) {
+            if !b.on.get(i).copied().unwrap_or(false) {
                 continue;
             }
             let (x, y) = (vx.get(i).copied().unwrap_or(0.0), vy.get(i).copied().unwrap_or(0.0));
-            let strength = x.hypot(y);
             // Without softness use the integer normal exactly (the vector would round it).
             let n = if soft > 0.0 {
                 y.atan2(x).to_degrees()
             } else {
-                normal.get(i).copied().unwrap_or(0) as f64 + if self.slope_at(dist.get(i).copied().unwrap_or(0.0)) < 0.0 { 180.0 } else { 0.0 }
+                let flip = self.slope_at(b.dist.get(i).copied().unwrap_or(0.0)) < 0.0;
+                b.normal.get(i).copied().unwrap_or(0) as f64 + if flip { 180.0 } else { 0.0 }
             };
-            let (a, b) = self.light(n, strength);
+            let (a, c) = self.light(n, x.hypot(y));
             if let (Some(hh), Some(ss)) = (hi.get_mut(i), sh.get_mut(i)) {
                 *hh = a;
-                *ss = b;
+                *ss = c;
             }
         }
+        (hi, sh)
+    }
+
+    /// One output pixel: band colour, shading, then the button overlay.
+    fn composite(&self, p: &BandPixel) -> Rgba {
         let over = |base: Rgba, c: Rgba, alpha: f32| -> Rgba {
             let a = (alpha.clamp(0.0, 255.0) * c.a as f32 / 255.0).round() as u8;
             base.over(Rgba { a: 255, ..c }, a)
         };
-        let src = img.clone();
-        for (i, p) in img.pixels_mut().iter_mut().enumerate() {
-            let (Some(&in_band), Some(&ins)) = (band.get(i), inside.get(i)) else { continue };
-            let orig = src.pixels().get(i).copied().unwrap_or_default();
-            let mut out = match self.kind {
-                BevelKind::Inner => orig,
-                BevelKind::Outer if in_band => {
-                    let c = cover.get(i).copied().unwrap_or(1.0);
-                    Rgba { a: (c * self.outer_color.a as f32).round() as u8, ..self.outer_color }.over(orig, 255)
-                }
-                BevelKind::Outer => orig,
-                _ if ins && !self.show_object => Rgba { a: (self.face.a as u32 * orig.a as u32 / 255) as u8, ..self.face },
-                _ => orig,
-            };
-            if in_band {
-                let c = if self.kind.emboss() { cover.get(i).copied().unwrap_or(1.0) } else { 1.0 };
-                let (a_hi, a_sh) = (hi.get(i).copied().unwrap_or(0.0) * c, sh.get(i).copied().unwrap_or(0.0) * c);
+        let orig = p.orig;
+        let mut out = match self.kind {
+            BevelKind::Inner => orig,
+            BevelKind::Outer if p.in_band => Rgba { a: (p.cover * self.outer_color.a as f32).round() as u8, ..self.outer_color }.over(orig, 255),
+            BevelKind::Outer => orig,
+            _ if p.inside && !self.show_object => Rgba { a: (self.face.a as u32 * orig.a as u32 / 255) as u8, ..self.face },
+            _ => orig,
+        };
+        if p.in_band {
+            let c = if self.kind.emboss() { p.cover } else { 1.0 };
+            let (a_hi, a_sh) = (p.hi * c, p.sh * c);
+            if self.kind.emboss() {
+                // Shading over a transparent band.
+                out = out.over(self.shadow, (a_sh.clamp(0.0, 255.0) * self.shadow.a as f32 / 255.0).round() as u8);
+                out = out.over(self.hilite, (a_hi.clamp(0.0, 255.0) * self.hilite.a as f32 / 255.0).round() as u8);
+            } else {
                 let alpha = out.a;
-                if self.kind.emboss() {
-                    // Shading over a transparent band.
-                    out = out.over(self.shadow, (a_sh.clamp(0.0, 255.0) * self.shadow.a as f32 / 255.0).round() as u8);
-                    out = out.over(self.hilite, (a_hi.clamp(0.0, 255.0) * self.hilite.a as f32 / 255.0).round() as u8);
-                } else {
-                    out = over(over(out, self.shadow, a_sh), self.hilite, a_hi);
-                    out.a = alpha;
-                }
+                out = over(over(out, self.shadow, a_sh), self.hilite, a_hi);
+                out.a = alpha;
             }
-            if out.a > 0 && (in_band || ins) {
-                let overlay = match self.button {
-                    1 | 3 => Some(self.hit_color),
-                    2 => Some(self.down_color),
-                    _ => None,
-                };
-                if let Some(c) = overlay {
-                    let alpha = out.a;
-                    out = Rgba { a: 255, ..out }.over(Rgba { a: 255, ..c }, c.a);
-                    out.a = alpha;
-                }
+        }
+        let overlay = match self.button {
+            1 | 3 => Some(self.hit_color),
+            2 => Some(self.down_color),
+            _ => None,
+        };
+        if let (Some(c), true) = (overlay, out.a > 0 && (p.in_band || p.inside)) {
+            let alpha = out.a;
+            out = Rgba { a: 255, ..out }.over(Rgba { a: 255, ..c }, c.a);
+            out.a = alpha;
+        }
+        out
+    }
+}
+
+struct Band {
+    on: Vec<bool>,
+    dist: Vec<f64>,
+    cover: Vec<f32>,
+    normal: Vec<i32>,
+}
+
+struct BandPixel {
+    orig: Rgba,
+    in_band: bool,
+    inside: bool,
+    cover: f32,
+    hi: f32,
+    sh: f32,
+}
+
+/// Two equally near edges (a mitred corner): Fireworks lights along their sum when they are
+/// within 90 degrees of each other (|sum| >= sqrt(2) d). Otherwise the nearest-edge vector.
+fn tie_vector(near: &[(i32, i32)], w: usize, h: usize, i: usize, v: (i32, i32), d: f64) -> (i32, i32) {
+    let (x, y) = ((i % w) as i32, (i / w) as i32);
+    let d2 = v.0 * v.0 + v.1 * v.1;
+    for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+        let (nx, ny) = (x + ox, y + oy);
+        if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 {
+            continue;
+        }
+        let Some(&(cx, cy)) = near.get(ny as usize * w + nx as usize) else { continue };
+        let c = (cx + ox, cy + oy);
+        if c != v && c.0 * c.0 + c.1 * c.1 == d2 {
+            let sum = (v.0 + c.0, v.1 + c.1);
+            if ((sum.0 * sum.0 + sum.1 * sum.1) as f64).sqrt() + 1e-9 >= std::f64::consts::SQRT_2 * d {
+                return sum;
             }
-            *p = out;
+            break;
         }
     }
+    v
 }
 
 /// Outside bands' anti-aliased edge: coverage = clamp(width + EDGE_AA - d, 0, 1).

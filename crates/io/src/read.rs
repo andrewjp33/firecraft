@@ -184,7 +184,18 @@ fn read_instance(n: &Node, ctx: &Ctx) -> ElementKind {
     let symbol = n.u32_of("MSN").unwrap_or(0);
     let m = n.child("MTX");
     let g = |t: &str, d: f64| m.and_then(|m| m.float_of(t)).unwrap_or(d);
-    let matrix = Affine { a: g("M00", 1.0), b: g("M01", 0.0), c: g("M10", 0.0), d: g("M11", 1.0), e: g("M20", 0.0) - ctx.origin.0, f: g("M21", 0.0) - ctx.origin.1 };
+    let doc_space = Affine {
+        a: g("M00", 1.0),
+        b: g("M01", 0.0),
+        g: g("M02", 0.0),
+        c: g("M10", 0.0),
+        d: g("M11", 1.0),
+        h: g("M12", 0.0),
+        e: g("M20", 0.0),
+        f: g("M21", 0.0),
+        i: g("M22", 1.0),
+    };
+    let matrix = Affine::translate(-ctx.origin.0, -ctx.origin.1).then(&doc_space);
     let (name, sb) = ctx.symbols.get(&symbol).cloned().unwrap_or_else(|| ("Symbol".into(), None));
     let bounds = sb.map(|b| matrix.map_rect(b.0, b.1, b.2, b.3));
     ElementKind::Instance { symbol, name, matrix, bounds }

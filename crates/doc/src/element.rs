@@ -5,7 +5,7 @@ use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{resample, AxisMap};
 use firecraft_raster::path::{fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke, Pt};
-use firecraft_raster::transform::{transform_image, Affine};
+use firecraft_raster::transform::{sample, transform_image, Affine};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
 use crate::{RenderCtx, MAX_SYMBOL_DEPTH};
@@ -232,8 +232,7 @@ impl Element {
                 }
             }
             ElementKind::Instance { matrix, bounds, .. } => {
-                matrix.e += dx;
-                matrix.f += dy;
+                *matrix = Affine::translate(dx, dy).then(matrix);
                 if let Some(b) = bounds {
                     b.0 += dx;
                     b.1 += dy;
@@ -290,7 +289,43 @@ impl Element {
 
     /// The objects an instance shows in the current frame, placed on the canvas.
     fn instance_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
-        let ElementKind::Instance { symbol, matrix, .. } = &self.kind else { return None };
+        let ElementKind::Instance { matrix, .. } = &self.kind else { return None };
+        let mut out = self.symbol_elements(ctx)?;
+        out.iter_mut().for_each(|e| e.transform(matrix));
+        Some(out)
+    }
+
+    /// Bounds including symbol instances whose bounds weren't known when the file was read
+    /// (instances nested inside symbols): computed from the symbol's contents.
+    pub fn deep_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
+        if ctx.depth >= MAX_SYMBOL_DEPTH {
+            return None;
+        }
+        let union = |items: &mut dyn Iterator<Item = (f64, f64, f64, f64)>| {
+            let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+            for (bx, by, bw, bh) in items {
+                x0 = x0.min(bx);
+                y0 = y0.min(by);
+                x1 = x1.max(bx + bw);
+                y1 = y1.max(by + bh);
+            }
+            (x0 <= x1).then(|| (x0, y0, x1 - x0, y1 - y0))
+        };
+        match &self.kind {
+            ElementKind::Instance { matrix, bounds: None, .. } => {
+                let inner = ctx.deeper();
+                let kids = self.symbol_elements(ctx)?;
+                let (x, y, w, h) = union(&mut kids.iter().filter_map(|c| c.deep_bounds(&inner)))?;
+                Some(matrix.map_rect(x, y, w, h))
+            }
+            ElementKind::Group(children) => union(&mut children.iter().filter_map(|c| c.deep_bounds(ctx))),
+            _ => self.bounds(),
+        }
+    }
+
+    /// The objects an instance's symbol shows in the current frame, in symbol space.
+    fn symbol_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
+        let ElementKind::Instance { symbol, .. } = &self.kind else { return None };
         if ctx.depth >= MAX_SYMBOL_DEPTH {
             return None;
         }
@@ -298,11 +333,7 @@ impl Element {
         let frame = ctx.frame % sym.frames.max(1);
         let mut out = Vec::new();
         for layer in sym.layers.iter().filter(|l| l.visible_in(frame) && !l.web) {
-            for el in layer.elements(frame) {
-                let mut e = el.clone();
-                e.transform(matrix);
-                out.push(e);
-            }
+            out.extend(layer.elements(frame).iter().cloned());
         }
         Some(out)
     }
@@ -397,6 +428,49 @@ impl Element {
                 children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
                 Some((layer, 0, 0))
             }
+            ElementKind::Instance { matrix, .. } if !matrix.is_affine() => {
+                // Perspective: render the symbol flat, then warp its pixels (exact for fills and
+                // effects, unlike mapping the geometry).
+                let children = self.symbol_elements(ctx)?;
+                let inner = ctx.deeper();
+                let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                for c in &children {
+                    if let Some((bx, by, bw, bh)) = c.deep_bounds(&inner) {
+                        x0 = x0.min(bx);
+                        y0 = y0.min(by);
+                        x1 = x1.max(bx + bw);
+                        y1 = y1.max(by + bh);
+                    }
+                }
+                if x0 > x1 {
+                    return None;
+                }
+                let (fx, fy) = (x0.floor() as i64 - 2, y0.floor() as i64 - 2);
+                let (fw, fh) = ((x1.ceil() as i64 + 2 - fx).max(1), (y1.ceil() as i64 + 2 - fy).max(1));
+                if fw * fh > 1 << 26 {
+                    return None;
+                }
+                let mut flat = RgbaImage::new(fw as u32, fh as u32, Rgba::TRANSPARENT);
+                children.iter().for_each(|c| c.render_onto(&mut flat, fx, fy, &inner));
+                // Inverse-map each output pixel; only points in front of the horizon (w > 0 on the
+                // same side as the matrix's own w) are visible.
+                let inv = matrix.invert()?;
+                let side = matrix.i.signum();
+                let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+                for ty in 0..h as i64 {
+                    for tx in 0..w as i64 {
+                        let (sx, sy) = inv.apply((ox + tx) as f64 + 0.5, (oy + ty) as f64 + 0.5);
+                        if (matrix.g * sx + matrix.h * sy + matrix.i) * side <= 0.0 {
+                            continue;
+                        }
+                        let p = sample(&flat, sx - fx as f64 - 0.5, sy - fy as f64 - 0.5);
+                        if p.a != 0 {
+                            layer.set(tx, ty, p);
+                        }
+                    }
+                }
+                Some((layer, 0, 0))
+            }
             ElementKind::Instance { .. } => {
                 let children = self.instance_elements(ctx)?;
                 let inner = ctx.deeper();
@@ -432,7 +506,7 @@ impl Element {
             }
         }
         // A plain instance passes through the same way.
-        if plain && matches!(self.kind, ElementKind::Instance { .. }) {
+        if plain && matches!(&self.kind, ElementKind::Instance { matrix, .. } if matrix.is_affine()) {
             let inner = ctx.deeper();
             for c in self.instance_elements(ctx).unwrap_or_default() {
                 c.render_onto(out, ox, oy, &inner);

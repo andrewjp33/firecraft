@@ -230,18 +230,19 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         ElementKind::Instance { symbol, matrix, .. } => {
             let mut n = el.raw.clone().filter(|r| r.is("ALS")).unwrap_or_else(|| Node::vector("ALS", vec![Node::int("MSN", *symbol as i64)]));
             let (ox, oy) = w.origin;
+            let m = firecraft_raster::transform::Affine::translate(ox, oy).then(matrix);
             let mtx = Node::vector(
                 "MTX",
                 vec![
-                    Node::float("M00", matrix.a),
-                    Node::float("M01", matrix.b),
-                    Node::float("M02", 0.0),
-                    Node::float("M10", matrix.c),
-                    Node::float("M11", matrix.d),
-                    Node::float("M12", 0.0),
-                    Node::float("M20", matrix.e + ox),
-                    Node::float("M21", matrix.f + oy),
-                    Node::float("M22", 1.0),
+                    Node::float("M00", m.a),
+                    Node::float("M01", m.b),
+                    Node::float("M02", m.g),
+                    Node::float("M10", m.c),
+                    Node::float("M11", m.d),
+                    Node::float("M12", m.h),
+                    Node::float("M20", m.e),
+                    Node::float("M21", m.f),
+                    Node::float("M22", m.i),
                 ],
             );
             put(&mut n, mtx);
