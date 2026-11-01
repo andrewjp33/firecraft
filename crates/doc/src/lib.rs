@@ -13,7 +13,7 @@
 
 pub mod element;
 
-pub use element::{Bitmap, BezierPoint, Contour, Element, ElementKind, Fill, Path, Stroke, Text};
+pub use element::{Bitmap, BezierPoint, Contour, Element, ElementKind, Fill, MaskMode, Path, Stroke, Text};
 use firecraft_fwpng::Node;
 use firecraft_raster::{Rgba, RgbaImage};
 

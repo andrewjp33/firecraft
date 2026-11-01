@@ -1,8 +1,9 @@
 //! Document elements (Fireworks "objects").
 
 use firecraft_fwpng::Node;
+use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{resample, AxisMap};
-use firecraft_raster::path::{fill_polygons, flatten_cubic, stamp_stroke, Pt};
+use firecraft_raster::path::{fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke, Pt};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
 /// A bitmap object. Pixels are in canvas coordinates starting at (`x`, `y`).
@@ -61,9 +62,11 @@ impl Contour {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fill {
     pub color: Rgba,
-    /// Fireworks fill category, e.g. "fc_Solid", "fc_Linear" (gradients render solid for now).
+    /// Fireworks fill category, e.g. "fc_Solid", "fc_Linear".
     pub category: String,
     pub anti_alias: bool,
+    /// Gradient fills (handles in canvas coordinates); `None` for solid fills.
+    pub gradient: Option<Gradient>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,12 +100,26 @@ pub struct Text {
     pub cached: Option<Bitmap>,
 }
 
+/// How a mask hides its content (Fireworks MX element masks).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaskMode {
+    /// Modify > Mask > "mask to image", grayscale: the mask's luminance (times its alpha).
+    Grayscale,
+    /// "mask to image", alpha channel: the mask's alpha.
+    Alpha,
+    /// "mask to path": the mask path's outline clips; its fill and stroke are ignored.
+    PathOutline,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ElementKind {
     Bitmap(Bitmap),
     Path(Path),
     Text(Text),
     Group(Vec<Element>),
+    /// An object (or objects) with an element mask. `cache` is Fireworks' pre-rendered mask
+    /// bitmap, kept so it is written back as read.
+    Masked { content: Vec<Element>, mask: Box<Element>, mode: MaskMode, cache: Option<Box<Element>> },
     /// Slices, hotspots, symbol instances and anything not yet modelled.
     Other { kind: String, cached: Option<Bitmap> },
 }
@@ -135,6 +152,10 @@ impl Element {
             ElementKind::Path(_) => "Path".into(),
             ElementKind::Text(t) => t.text.chars().take(24).collect(),
             ElementKind::Group(_) => "Group".into(),
+            ElementKind::Masked { content, .. } => match content.as_slice() {
+                [one] => format!("{} (masked)", one.label()),
+                _ => "Masked Group".into(),
+            },
             ElementKind::Other { kind, .. } => kind.clone(),
         }
     }
@@ -157,6 +178,8 @@ impl Element {
                 }
                 (x0 <= x1).then(|| (x0, y0, x1 - x0, y1 - y0))
             }
+            // Only what the mask reveals can show: its bounds bound the result.
+            ElementKind::Masked { mask, .. } => mask.bounds(),
             ElementKind::Group(children) => {
                 let bs: Vec<_> = children.iter().filter_map(Element::bounds).collect();
                 let x0 = bs.iter().map(|b| b.0).fold(f64::MAX, f64::min);
@@ -181,12 +204,22 @@ impl Element {
                     pt.x += dx;
                     pt.y += dy;
                 }
+                if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
+                    g.translate(dx, dy);
+                }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
                 b.x += dx.round() as i64;
                 b.y += dy.round() as i64;
             }
             ElementKind::Group(children) => children.iter_mut().for_each(|c| c.translate(dx, dy)),
+            ElementKind::Masked { content, mask, cache, .. } => {
+                content.iter_mut().for_each(|c| c.translate(dx, dy));
+                mask.translate(dx, dy);
+                if let Some(c) = cache {
+                    c.translate(dx, dy);
+                }
+            }
             _ => {}
         }
     }
@@ -213,9 +246,21 @@ impl Element {
                     let succ = (mx.apply(pt.x + pt.succ.0) - ax, my.apply(pt.y + pt.succ.1) - ay);
                     *pt = BezierPoint { x: ax, y: ay, pred, succ };
                 }
+                if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
+                    for h in [&mut g.start, &mut g.end, &mut g.side] {
+                        *h = (mx.apply(h.0), my.apply(h.1));
+                    }
+                }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => map_bitmap(b),
             ElementKind::Group(children) => children.iter_mut().for_each(|c| c.map_nine(mx, my)),
+            ElementKind::Masked { content, mask, cache, .. } => {
+                content.iter_mut().for_each(|c| c.map_nine(mx, my));
+                mask.map_nine(mx, my);
+                if let Some(c) = cache {
+                    c.map_nine(mx, my);
+                }
+            }
             _ => {}
         }
     }
@@ -243,7 +288,11 @@ impl Element {
                 let (fx, fy) = (-((ox + x0) as f64), -((oy + y0) as f64));
                 if let Some(f) = &p.fill {
                     let polys: Vec<Vec<Pt>> = p.contours.iter().map(|c| c.flatten(fx, fy)).collect();
-                    fill_polygons(&mut layer, &polys, f.color, f.anti_alias);
+                    match &f.gradient {
+                        // Shade in canvas coordinates (the layer's pixel + its canvas offset).
+                        Some(g) => fill_polygons_with(&mut layer, &polys, f.anti_alias, &|x, y| g.color_at(x - fx, y - fy)),
+                        None => fill_polygons(&mut layer, &polys, f.color, f.anti_alias),
+                    }
                 }
                 if let Some(s) = &p.stroke {
                     for c in &p.contours {
@@ -261,6 +310,15 @@ impl Element {
             ElementKind::Group(children) => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
                 children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy));
+                Some((layer, 0, 0))
+            }
+            ElementKind::Masked { content, mask, mode, .. } => {
+                let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+                content.iter().for_each(|c| c.render_onto(&mut layer, ox, oy));
+                let coverage = mask_coverage(mask, *mode, ox, oy, w, h);
+                for (p, &m) in layer.pixels_mut().iter_mut().zip(coverage.pixels()) {
+                    p.a = (p.a as u32 * m.a as u32 / 255) as u8;
+                }
                 Some((layer, 0, 0))
             }
             _ => None,
@@ -284,4 +342,36 @@ impl Element {
             out.draw_blend(&img, x, y, opacity, self.blend);
         }
     }
+}
+
+/// Per-pixel mask strength (in the alpha channel) of `mask` over the output area.
+fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u32) -> RgbaImage {
+    let mut m = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+    match mode {
+        MaskMode::PathOutline => {
+            // The outline alone: render the shape as an opaque fill.
+            let mut shape = mask.clone();
+            shape.opacity = 100;
+            shape.blend = BlendMode::Normal;
+            shape.visible = true;
+            if let ElementKind::Path(p) = &mut shape.kind {
+                p.fill = Some(Fill { color: Rgba::WHITE, category: "fc_Solid".into(), anti_alias: true, gradient: None });
+                p.stroke = None;
+            }
+            shape.render_onto(&mut m, ox, oy);
+        }
+        MaskMode::Grayscale | MaskMode::Alpha => {
+            let mut shown = mask.clone();
+            shown.visible = true;
+            shown.render_onto(&mut m, ox, oy);
+            if mode == MaskMode::Grayscale {
+                for p in m.pixels_mut() {
+                    // Fireworks' luma (Rec. 709 weights x 512), times the mask's own alpha.
+                    let luma = (p.r as u32 * 109 + p.g as u32 * 366 + p.b as u32 * 37) >> 9;
+                    p.a = (luma * p.a as u32 / 255) as u8;
+                }
+            }
+        }
+    }
+    m
 }

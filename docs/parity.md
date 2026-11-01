@@ -26,5 +26,9 @@ across the set (objects inside layers):
 | Symbol instances (`ALSv`) | 119 | 4 |
 | Animation | `tubes.png`: 103 frames | 1 |
 
+Progress (match %): blend modes took tubes2 12 -> 56; gradient fills took cone to 100;
+masks and hidden objects took cone3 0.5 -> 99, comicBorder 62 -> 99.7, 769_edit2 51 -> 100,
+hd 37 -> 90, tablet 30 -> 90. Remaining gaps are mostly live effects, symbols and text.
+
 Fixed thanks to this set: objects within a layer are stored **top first** (`ELMv`), the reverse of
 drawing order.

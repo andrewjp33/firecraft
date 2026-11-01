@@ -5,7 +5,7 @@
 //! presets, export settings) as Fireworks wrote it. New documents get the minimal tree shape
 //! observed in Fireworks MX output (see docs/fireworks-png.md).
 
-use firecraft_doc::{Bitmap, Contour, Document, Element, ElementKind, Layer, Path};
+use firecraft_doc::{Bitmap, Contour, Document, Element, ElementKind, Layer, MaskMode, Path};
 use firecraft_fwpng::{Node, Tile};
 use firecraft_raster::Rgba;
 
@@ -181,7 +181,33 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             (None, None) => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
         },
         ElementKind::Group(_) => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
+        ElementKind::Masked { content, mask, mode, cache } if depth < 64 => {
+            let mut g = el.raw.clone().filter(|r| r.is("GRP")).unwrap_or_else(|| Node::vector("GRP", vec![]));
+            put(&mut g, Node::bool("MNA", *mode != MaskMode::Alpha));
+            put(&mut g, Node::int("GRT", if *mode == MaskMode::PathOutline { 2 } else { 1 }));
+            let mut elm: Vec<Node> = Vec::new();
+            if *mode == MaskMode::PathOutline {
+                elm.push(write_element(mask, w, depth + 1));
+            } else if let Some(c) = cache {
+                elm.push(write_element(c, w, depth + 1));
+            }
+            elm.extend(content.iter().rev().map(|c| write_element(c, w, depth + 1)));
+            put(&mut g, Node::vector("ELM", elm));
+            if *mode == MaskMode::PathOutline {
+                g.children.retain(|c| !c.is("MRM"));
+            } else {
+                put(&mut g, Node::vector("MRM", vec![write_element(mask, w, depth + 1)]));
+            }
+            g
+        }
+        ElementKind::Masked { .. } => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
     };
+    // Visibility: Fireworks writes VISb{0} (first) for hidden objects only.
+    if el.visible {
+        n.children.retain(|c| !c.is("VIS"));
+    } else if n.child("VIS").is_none() {
+        n.children.insert(0, Node::bool("VIS", false));
+    }
     // Blend mode: Normal is written as an absent tag (as Fireworks does).
     if el.blend != firecraft_raster::BlendMode::Normal {
         let bld = Node::int("BLD", el.blend.fw_code());
@@ -277,9 +303,13 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
     if !unchanged {
         put(&mut n, pbl);
     }
+    let mut gradient_handles = None;
     if let Some(attrs) = n.child_mut("PAT") {
         match &p.fill {
             Some(f) => {
+                if let Some(g) = &f.gradient {
+                    gradient_handles = Some((g.start, g.end, g.side));
+                }
                 put(attrs, Node::int("FCL", to_argb(f.color)));
                 if attrs.child("FPL").is_none() {
                     attrs.children.push(fill_preset());
@@ -303,6 +333,13 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         }
         if attrs.child("BCL").is_none() {
             attrs.children.insert(0, Node::int("BCL", to_argb(Rgba::BLACK)));
+        }
+    }
+    // Gradient handles follow the object when it is moved or scaled.
+    if let Some((s, e, f)) = gradient_handles {
+        let (ox, oy) = w.origin;
+        for (tag, v) in [("PSX", s.0 + ox), ("PSY", s.1 + oy), ("PEX", e.0 + ox), ("PEY", e.1 + oy), ("PFX", f.0 + ox), ("PFY", f.1 + oy)] {
+            put(&mut n, Node::float(tag, v));
         }
     }
     n
@@ -392,7 +429,7 @@ mod tests {
                 closed: true,
                 points: vec![BezierPoint::corner(10.0, 10.0), BezierPoint::corner(60.0, 10.0), BezierPoint::corner(35.0, 50.0)],
             }],
-            fill: Some(Fill { color: Rgba::new(0, 102, 153, 255), category: "fc_Solid".into(), anti_alias: true }),
+            fill: Some(Fill { color: Rgba::new(0, 102, 153, 255), category: "fc_Solid".into(), anti_alias: true, gradient: None }),
             stroke: None,
         };
         doc.layers[0].cells[0].push(Element::new(ElementKind::Path(path)));

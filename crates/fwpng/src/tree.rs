@@ -207,7 +207,8 @@ fn tag3(tag: &str) -> [u8; 3] {
     [b.first().copied().unwrap_or(b'?'), b.get(1).copied().unwrap_or(b'?'), b.get(2).copied().unwrap_or(b'?')]
 }
 
-/// Float text in Fireworks' style: no trailing ".0" for integral values, otherwise shortest form.
+/// Float text in Fireworks' style: no trailing ".0" for integral values, otherwise up to 6
+/// decimals (as Fireworks writes; fewer would move gradient handles and points slightly).
 pub fn fmt_float(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_owned();
@@ -215,7 +216,7 @@ pub fn fmt_float(v: f64) -> String {
     if v.fract() == 0.0 && v.abs() < 1e15 {
         format!("{}", v as i64)
     } else {
-        let s = format!("{v:.4}");
+        let s = format!("{v:.6}");
         s.trim_end_matches('0').trim_end_matches('.').to_owned()
     }
 }

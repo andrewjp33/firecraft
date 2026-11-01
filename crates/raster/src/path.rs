@@ -33,6 +33,12 @@ fn dist(a: Pt, b: Pt) -> f64 {
 
 /// Fill closed polygons with the even-odd rule. `aa` gives 4x4 supersampled edges.
 pub fn fill_polygons(img: &mut RgbaImage, polys: &[Vec<Pt>], color: Rgba, aa: bool) {
+    fill_polygons_with(img, polys, aa, &|_, _| color);
+}
+
+/// Like [`fill_polygons`], with a per-pixel colour (`shade(x, y)` at the pixel centre), used for
+/// gradient fills.
+pub fn fill_polygons_with(img: &mut RgbaImage, polys: &[Vec<Pt>], aa: bool, shade: &dyn Fn(f64, f64) -> Rgba) {
     let pts = polys.iter().flatten();
     let (mut minx, mut miny, mut maxx, mut maxy) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for &(x, y) in pts {
@@ -90,7 +96,7 @@ pub fn fill_polygons(img: &mut RgbaImage, polys: &[Vec<Pt>], color: Rgba, aa: bo
             let x = x0 + i as i64;
             if let Some(d) = img.get(x, py) {
                 let opacity = (c * 255 / full) as u8;
-                img.set(x, py, d.over(color, opacity));
+                img.set(x, py, d.over(shade(x as f64 + 0.5, py as f64 + 0.5), opacity));
             }
         }
     }

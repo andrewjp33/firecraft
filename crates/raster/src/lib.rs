@@ -1,6 +1,7 @@
 //! Pixel buffers, selection masks and the bitmap selection tools.
 
 pub mod blend;
+pub mod gradient;
 pub mod image;
 pub mod mask;
 pub mod nine;

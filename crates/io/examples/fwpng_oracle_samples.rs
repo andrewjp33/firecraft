@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             closed: true,
             points: vec![BezierPoint::corner(200.0, 30.0), BezierPoint::corner(280.0, 30.0), BezierPoint::corner(240.0, 110.0)],
         }],
-        fill: Some(Fill { color: Rgba::new(0, 102, 153, 255), category: "fc_Solid".into(), anti_alias: true }),
+        fill: Some(Fill { color: Rgba::new(0, 102, 153, 255), category: "fc_Solid".into(), anti_alias: true, gradient: None }),
         stroke: None,
     })));
     cell.push(Element::new(ElementKind::Path(Path {

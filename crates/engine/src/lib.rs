@@ -328,7 +328,7 @@ impl DocState {
         };
         let path = Path {
             contours: vec![Contour { points, closed: true }],
-            fill: opts.fill.map(|color| Fill { color, category: "fc_Solid".into(), anti_alias: true }),
+            fill: opts.fill.map(|color| Fill { color, category: "fc_Solid".into(), anti_alias: true, gradient: None }),
             stroke: opts.stroke.map(|color| Stroke {
                 color,
                 category: "bc_Pencil".into(),

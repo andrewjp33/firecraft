@@ -3,9 +3,11 @@
 use std::collections::HashMap;
 
 use firecraft_doc::{
+    MaskMode,
     Bitmap, BezierPoint, Contour, Document, Element, ElementKind, Fill, Frame, Layer, Path, Stroke, Text,
 };
 use firecraft_fwpng::{FwPng, Node, Tile};
+use firecraft_raster::gradient::{Gradient, GradientKind};
 use firecraft_raster::{Rgba, RgbaImage};
 
 use crate::{Error, Result};
@@ -92,9 +94,7 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
         "IMG" => ElementKind::Bitmap(read_bitmap(n, ctx)?),
         "PTH" => ElementKind::Path(read_path(n, ctx)),
         "TXT" => ElementKind::Text(read_text(n, ctx)),
-        "GRP" if depth < MAX_GROUP_DEPTH => {
-            ElementKind::Group(n.child("ELM").map(|e| read_elements(e, ctx, depth + 1)).unwrap_or_default())
-        }
+        "GRP" if depth < MAX_GROUP_DEPTH => read_group(n, ctx, depth),
         other => ElementKind::Other {
             kind: match other {
                 "URL" => "Web Object".into(),
@@ -106,6 +106,8 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
     };
     let mut el = Element::new(kind);
     el.raw = Some(n.clone());
+    // Hidden objects (eye off in the Layers panel).
+    el.visible = n.bool_of("VIS").unwrap_or(true);
     if let Some(b) = n.int_of("BLD") {
         el.blend = firecraft_raster::BlendMode::from_fw_code(b);
     }
@@ -113,6 +115,50 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
         el.opacity = o.clamp(0, 100) as u8;
     }
     Some(el)
+}
+
+/// Groups: `GRTi` 0 = plain group, 1 = "mask to image" (mask in `MRMv`, an `IMGv` mask cache
+/// first in `ELMv`), 2 = "mask to path" (the mask path is the top object in `ELMv`).
+/// `MNAb{1}` = grayscale mask, `0` = alpha channel (inferred; see docs/behavior/masks.md).
+fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
+    let elm = n.child("ELM");
+    let mut kids: Vec<&Node> = elm.map(|e| e.children.iter().collect()).unwrap_or_default();
+    let grayscale = n.bool_of("MNA").unwrap_or(true);
+    match n.int_of("GRT").unwrap_or(0) {
+        1 => {
+            let Some(mask) = n.child("MRM").and_then(|m| m.children.first()).and_then(|m| read_element(m, ctx, depth + 1)) else {
+                return plain_group(n, ctx, depth);
+            };
+            // The cache is an IMGv on top whose bounds match the mask's.
+            let mut cache = None;
+            if let (Some(first), Some(mb)) = (kids.first(), mask.bounds()) {
+                if first.is("IMG") {
+                    if let Some(b) = read_bitmap(first, ctx) {
+                        let close = |a: f64, b: f64| (a - b).abs() <= 1.5;
+                        if close(b.x as f64, mb.0) && close(b.y as f64, mb.1) && close(b.image.width() as f64, mb.2) && close(b.image.height() as f64, mb.3) {
+                            let mut e = Element::new(ElementKind::Bitmap(b));
+                            e.raw = Some((*first).clone());
+                            cache = Some(Box::new(e));
+                            kids.remove(0);
+                        }
+                    }
+                }
+            }
+            let content = kids.iter().rev().filter_map(|c| read_element(c, ctx, depth + 1)).collect();
+            let mode = if grayscale { MaskMode::Grayscale } else { MaskMode::Alpha };
+            ElementKind::Masked { content, mask: Box::new(mask), mode, cache }
+        }
+        2 if kids.len() >= 2 => {
+            let Some(mask) = read_element(kids.remove(0), ctx, depth + 1) else { return plain_group(n, ctx, depth) };
+            let content = kids.iter().rev().filter_map(|c| read_element(c, ctx, depth + 1)).collect();
+            ElementKind::Masked { content, mask: Box::new(mask), mode: MaskMode::PathOutline, cache: None }
+        }
+        _ => plain_group(n, ctx, depth),
+    }
+}
+
+fn plain_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
+    ElementKind::Group(n.child("ELM").map(|e| read_elements(e, ctx, depth + 1)).unwrap_or_default())
 }
 
 /// Assemble an `IMGv` (or `MSKv`-shaped) element's tiles into an image.
@@ -164,10 +210,12 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
     let attrs = n.child("PAT");
     let fill = attrs.and_then(|a| {
         let preset = a.child("FPL")?;
+        let category = preset.str_of("CAT").unwrap_or("fc_Solid").to_owned();
         Some(Fill {
             color: argb(a.u32_of("FCL").unwrap_or(0xFF00_0000)),
-            category: preset.str_of("CAT").unwrap_or("fc_Solid").to_owned(),
             anti_alias: preset.int_of("FET").unwrap_or(1) != 0,
+            gradient: read_gradient(&category, preset, n, ctx),
+            category,
         })
     });
     let stroke = attrs.and_then(|a| {
@@ -181,6 +229,28 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
         })
     });
     Path { contours, fill, stroke }
+}
+
+/// Gradient stops (`FGLv`: colour ramp `FG0`/`FGV`, opacity ramp `FG1`) and handles
+/// (`PSXf`.. on the path, document coordinates).
+fn read_gradient(category: &str, preset: &Node, path: &Node, ctx: &Ctx) -> Option<Gradient> {
+    let kind = GradientKind::from_category(category)?;
+    let fgl = preset.child("FGL")?;
+    let stops = |n: &Node| -> Vec<(f32, Rgba)> {
+        let mut v: Vec<(f32, Rgba)> = n
+            .children_tagged("FGI")
+            .map(|i| (i.float_of("FGP").unwrap_or(0.0).clamp(0.0, 1.0) as f32, argb(i.u32_of("FGC").unwrap_or(0xFF00_0000))))
+            .collect();
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v
+    };
+    let fgy = fgl.child("FGY");
+    let colors = fgy.and_then(|y| y.child("FG0")).or_else(|| fgl.child("FGV")).map(stops).unwrap_or_default();
+    // The opacity ramp keeps opacity in each stop's alpha byte.
+    let opacity = fgy.and_then(|y| y.child("FG1")).map(|n| stops(n).into_iter().map(|(p, c)| (p, c.a)).collect()).unwrap_or_default();
+    let (ox, oy) = ctx.origin;
+    let pt = |x: &str, y: &str| (path.float_of(x).unwrap_or(0.0) - ox, path.float_of(y).unwrap_or(0.0) - oy);
+    Some(Gradient { kind, colors, opacity, start: pt("PSX", "PSY"), end: pt("PEX", "PEY"), side: pt("PFX", "PFY") })
 }
 
 fn read_text(n: &Node, ctx: &Ctx) -> Text {
