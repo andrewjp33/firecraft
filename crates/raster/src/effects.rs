@@ -95,9 +95,11 @@ impl Effect {
                 inner: num("ShadowType", 0.0) == 1.0,
                 knock_out: truthy("ShadowKnockOut") || p.get("ShowObject").is_some_and(|v| v == "false") && name.contains("Knock"),
             },
+            // Measured: the glow's width is GlowWidth (0 = no glow), colour OuterBevelColor,
+            // softness MaskSoftness, gap GlowStartDistance, opacity BevelContrast.
             BEVEL_GLOW if num("BevelType", 0.0) == 4.0 => Effect::Glow {
                 color: color("OuterBevelColor", Rgba::BLACK),
-                width: num("BevelWidth", 4.0),
+                width: num("GlowWidth", 0.0),
                 opacity: num("BevelContrast", 100.0) / 100.0,
                 softness: num("MaskSoftness", 0.0),
                 offset: num("GlowStartDistance", 0.0),
@@ -192,7 +194,7 @@ impl Effect {
                     alpha.iter_mut().for_each(|v| *v = 255.0 - *v);
                 }
                 let shifted = shift_plane(&alpha, img.width(), img.height(), dx, dy, if *inner { 255.0 } else { 0.0 });
-                let soft = blur_plane(&shifted, img.width(), img.height(), *softness * 0.5);
+                let soft = blur_plane(&shifted, img.width(), img.height(), *softness * SOFTNESS_SIGMA);
                 if *inner {
                     paint_inside(img, &soft, *color);
                 } else {
@@ -200,13 +202,19 @@ impl Effect {
                 }
             }
             Effect::Glow { color, width, opacity, softness, offset, inner } => {
-                let mut alpha = alpha_plane(img);
-                let (w, h) = (img.width(), img.height());
-                if *inner {
-                    alpha.iter_mut().for_each(|v| *v = 255.0 - *v);
+                if *width <= 0.0 {
+                    return;
                 }
-                let grown = dilate(&alpha, w, h, (offset + width).max(0.0));
-                let mut soft = blur_plane(&grown, w, h, *softness * 0.5);
+                let (w, h) = (img.width(), img.height());
+                // Measured: a hard band of pixels whose Euclidean distance d to the object
+                // (outside it, or to the outside for Inner Glow) satisfies offset < d <= offset + width.
+                let inside: Vec<bool> = img.pixels().iter().map(|p| (p.a >= 128) != *inner).collect();
+                let dist = distance_to(&inside, w, h);
+                let band: Vec<f32> = dist
+                    .iter()
+                    .map(|&d| if d > *offset && d <= offset + width { 255.0 } else { 0.0 })
+                    .collect();
+                let mut soft = blur_plane(&band, w, h, *softness * SOFTNESS_SIGMA);
                 soft.iter_mut().for_each(|v| *v *= opacity.clamp(0.0, 1.0));
                 let c = Rgba { a: 255, ..*color };
                 if *inner {
@@ -228,6 +236,80 @@ impl Effect {
             _ => 0.0,
         };
         m.clamp(0.0, 500.0).ceil() as u32 + 2
+    }
+}
+
+/// Measured in Fireworks MX for Drop Shadow and Glow softness: a Gaussian with this sigma per
+/// unit of softness (fit RMS 0.006 on a softness-8 shadow edge).
+const SOFTNESS_SIGMA: f32 = 0.475;
+
+/// Euclidean distance from each pixel to the nearest `true` pixel (0 on them). Exact squared
+/// distance transform (Felzenszwalb & Huttenlocher), separable, O(pixels).
+fn distance_to(set: &[bool], w: u32, h: u32) -> Vec<f32> {
+    const INF: f32 = 1e20;
+    let (w, h) = (w as usize, h as usize);
+    let mut d: Vec<f32> = set.iter().map(|&s| if s { 0.0 } else { INF }).collect();
+    let mut f = vec![0f32; w.max(h)];
+    let mut out = vec![0f32; w.max(h)];
+    for x in 0..w {
+        for y in 0..h {
+            f[y] = d.get(y * w + x).copied().unwrap_or(INF);
+        }
+        edt_1d(&f[..h], &mut out[..h]);
+        for y in 0..h {
+            if let Some(v) = d.get_mut(y * w + x) {
+                *v = out[y];
+            }
+        }
+    }
+    for y in 0..h {
+        f[..w].copy_from_slice(d.get(y * w..y * w + w).unwrap_or(&[]));
+        edt_1d(&f[..w], &mut out[..w]);
+        if let Some(row) = d.get_mut(y * w..y * w + w) {
+            row.copy_from_slice(&out[..w]);
+        }
+    }
+    d.iter().map(|v| v.sqrt()).collect()
+}
+
+fn edt_1d(f: &[f32], d: &mut [f32]) {
+    let n = f.len();
+    if n == 0 {
+        return;
+    }
+    let mut v = vec![0usize; n];
+    let mut z = vec![0f32; n + 1];
+    let mut k = 0usize;
+    z[0] = f32::NEG_INFINITY;
+    z[1] = f32::INFINITY;
+    for q in 1..n {
+        loop {
+            let p = v[k];
+            let s = ((f[q] + (q * q) as f32) - (f[p] + (p * p) as f32)) / (2.0 * q as f32 - 2.0 * p as f32);
+            if s <= z[k] && k > 0 {
+                k -= 1;
+                continue;
+            }
+            if s <= z[k] {
+                // k == 0: replace the only parabola.
+                v[0] = q;
+                z[1] = f32::INFINITY;
+                break;
+            }
+            k += 1;
+            v[k] = q;
+            z[k] = s;
+            z[k + 1] = f32::INFINITY;
+            break;
+        }
+    }
+    k = 0;
+    for (q, dq) in d.iter_mut().enumerate().take(n) {
+        while z[k + 1] < q as f32 {
+            k += 1;
+        }
+        let p = v[k];
+        *dq = (q as f32 - p as f32).powi(2) + f[p];
     }
 }
 
@@ -349,35 +431,6 @@ fn box_pass(v: &mut [f32], w: i64, h: i64, r: i64, horizontal: bool) {
             sum += at(o, i + r + 1) - at(o, i - r);
         }
     }
-}
-
-/// Grow the opaque area by `r` pixels (max filter, square then rounded by a light blur).
-fn dilate(a: &[f32], w: u32, h: u32, r: f32) -> Vec<f32> {
-    let r = r.round() as i64;
-    if r <= 0 {
-        return a.to_vec();
-    }
-    let (wi, hi) = (w as i64, h as i64);
-    let get = |v: &[f32], x: i64, y: i64| if x < 0 || y < 0 || x >= wi || y >= hi { 0.0 } else { v.get((y * wi + x) as usize).copied().unwrap_or(0.0) };
-    let mut tmp = vec![0.0; a.len()];
-    for y in 0..hi {
-        for x in 0..wi {
-            let m = (-r..=r).map(|k| get(a, x + k, y)).fold(0.0, f32::max);
-            if let Some(t) = tmp.get_mut((y * wi + x) as usize) {
-                *t = m;
-            }
-        }
-    }
-    let mut out = vec![0.0; a.len()];
-    for y in 0..hi {
-        for x in 0..wi {
-            let m = (-r..=r).map(|k| get(&tmp, x, y + k)).fold(0.0, f32::max);
-            if let Some(o) = out.get_mut((y * wi + x) as usize) {
-                *o = m;
-            }
-        }
-    }
-    out
 }
 
 /// Composite a coloured plane underneath the object's pixels.
@@ -523,6 +576,19 @@ mod tests {
         let mut g = img.clone();
         Effect::Glow { color: Rgba::WHITE, width: 4.0, opacity: 1.0, softness: 0.0, offset: 0.0, inner: false }.apply(&mut g);
         assert!(g.get(12, 20).is_some_and(|p| p.a == 255 && p.r == 255 && p.g == 255));
+        assert!(g.get(10, 20).is_some_and(|p| p.a == 0), "width 4 stops at distance 4");
+        // Measured corner rounding: diagonal distance 4*sqrt2 = 5.66 is outside a width-4 glow.
+        assert!(g.get(11, 11).is_some_and(|p| p.a == 0));
+    }
+
+    #[test]
+    fn distance_transform_is_euclidean() {
+        let mut set = vec![false; 25];
+        set[12] = true; // centre of 5x5
+        let d = distance_to(&set, 5, 5);
+        assert_eq!(d[12], 0.0);
+        assert!((d[0] - 8f32.sqrt()).abs() < 1e-4);
+        assert!((d[14] - 2.0).abs() < 1e-4);
     }
 
     #[test]

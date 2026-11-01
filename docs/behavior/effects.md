@@ -8,9 +8,9 @@ the object's raw node, so saving never loses an effect.
 | Effect | Status |
 |---|---|
 | Gaussian Blur | **measured**: `gaussian_blur_radius` is in pixels; Gaussian with sigma = 0.715 x radius (fit RMS 0.27 levels) |
-| Drop Shadow | angle/distance convention measured (315 deg = down-right); softness scale approximate |
+| Drop Shadow | **measured**: offset = round(distance x (cos a, -sin a)), hard edges at softness 0; softness = Gaussian with sigma = 0.475 x `ShadowBlur` (fit RMS 0.006) |
 | Hue/Saturation, Brightness/Contrast, Levels, Auto Levels, Curves, Invert, Convert to Alpha, Color Fill | implemented from parameters; not yet measured |
-| Glow / Inner Glow | implemented; the parameter that holds the glow colour is not confirmed (a scripted glow with `OuterBevelColor` rendered nothing; files suggest a light glow) |
+| Glow / Inner Glow | **measured**: `BevelType` 4; band of pixels at Euclidean distance (offset, offset + width] from the object, unanti-aliased; width = `GlowWidth` (0 = no glow), colour `OuterBevelColor`, gap `GlowStartDistance`, opacity `BevelContrast`, softness sigma = 0.475 x `MaskSoftness` |
 | Motion Blur, Radial Blur | approximations |
 | Inner/Outer Bevel, Emboss (`BevelType` 0-3) | not rendered yet |
 | Eye Candy plug-ins (Bevel Boss, Motion Trail, Edges) | kept in the file, not rendered (third-party Photoshop plug-ins) |
