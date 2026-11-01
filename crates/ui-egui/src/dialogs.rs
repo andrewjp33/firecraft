@@ -221,39 +221,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
         }
     }
     if app.dialogs.prefs {
-        let mut close = false;
-        let prefs = &mut app.prefs;
-        let o = &mut app.session.options;
-        dialog("Preferences").show(ctx, |ui| {
-            ui.strong("Workspace");
-            ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
-            ui.separator();
-            ui.strong("Editing");
-            ui.horizontal(|ui| {
-                ui.label("Undo Steps:");
-                ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
-            });
-            ui.separator();
-            ui.strong("Color math");
-            ui.horizontal(|ui| {
-                ui.label("New documents:");
-                color_math_combo(ui, "prefs_color_math", &mut prefs.color_math);
-            });
-            ui.weak("Fireworks MX: bit-exact Fireworks formulas (byte-rounded hue, saturation and lightness).\nHigh precision: the same formulas in double precision. Saved in the PNG; Fireworks MX ignores it.");
-            ui.separator();
-            let mut classic = o.aa_style == firecraft_raster::AntiAliasStyle::Classic;
-            if ui
-                .checkbox(&mut classic, "Classic (Fireworks MX) anti-alias for selection tools")
-                .on_hover_text("Fireworks MX ties anti-alias strength to Tolerance; FireCraft's default computes real edge coverage.")
-                .changed()
-            {
-                o.aa_style = if classic { firecraft_raster::AntiAliasStyle::Classic } else { firecraft_raster::AntiAliasStyle::Smooth };
-            }
-            close = ui.button("OK").clicked();
-        });
-        if close {
-            app.dialogs.prefs = false;
-        }
+        preferences(app, ctx);
     }
     if app.dialogs.about {
         let mut close = false;
@@ -280,4 +248,41 @@ pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raste
         }
     });
     changed
+}
+
+/// Edit > Preferences.
+fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let mut close = false;
+    let prefs = &mut app.prefs;
+    let o = &mut app.session.options;
+    dialog("Preferences").show(ctx, |ui| {
+        ui.strong("Workspace");
+        ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
+        ui.separator();
+        ui.strong("Editing");
+        ui.horizontal(|ui| {
+            ui.label("Undo Steps:");
+            ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
+        });
+        ui.separator();
+        ui.strong("Color math");
+        ui.horizontal(|ui| {
+            ui.label("New documents:");
+            color_math_combo(ui, "prefs_color_math", &mut prefs.color_math);
+        });
+        ui.weak("Fireworks MX: bit-exact Fireworks formulas (byte-rounded hue, saturation and lightness).\nHigh precision: the same formulas in double precision. Saved in the PNG; Fireworks MX ignores it.");
+        ui.separator();
+        let mut classic = o.aa_style == firecraft_raster::AntiAliasStyle::Classic;
+        if ui
+            .checkbox(&mut classic, "Classic (Fireworks MX) anti-alias for selection tools")
+            .on_hover_text("Fireworks MX ties anti-alias strength to Tolerance; FireCraft's default computes real edge coverage.")
+            .changed()
+        {
+            o.aa_style = if classic { firecraft_raster::AntiAliasStyle::Classic } else { firecraft_raster::AntiAliasStyle::Smooth };
+        }
+        close = ui.button("OK").clicked();
+    });
+    if close {
+        app.dialogs.prefs = false;
+    }
 }
