@@ -196,8 +196,10 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
     let w = n.int_of("WPX")?.clamp(0, 65_535) as u32;
     let h = n.int_of("HPX")?.clamp(0, 65_535) as u32;
     let tsz = n.int_of("TSZ").unwrap_or(IMAGE_TILE as i64).clamp(1, 4096) as u32;
-    let x = (n.float_of("XLC").unwrap_or(0.0) + n.float_of("XOF").unwrap_or(0.0) - ctx.origin.0).round() as i64;
-    let y = (n.float_of("YLC").unwrap_or(0.0) + n.float_of("YOF").unwrap_or(0.0) - ctx.origin.1).round() as i64;
+    // The bitmap's top-left is XLCf/YLCf (measured on circles_hi.png); XOFf/YOFf are kept as
+    // read (their role is not yet known).
+    let x = (n.float_of("XLC").unwrap_or(0.0) - ctx.origin.0).round() as i64;
+    let y = (n.float_of("YLC").unwrap_or(0.0) - ctx.origin.1).round() as i64;
     let mut image = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     let cols = w.div_ceil(tsz).max(1);
     let ids: Vec<u32> = n.child("TIL").map(|t| t.children.iter().filter_map(Node::as_u32).collect()).unwrap_or_default();

@@ -231,8 +231,13 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
 fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut n = raw.cloned().unwrap_or_else(|| Node::vector("IMG", vec![]));
     let (iw, ih) = (b.image.width(), b.image.height());
-    put(&mut n, Node::float("XOF", 0.0));
-    put(&mut n, Node::float("YOF", 0.0));
+    // XOFf/YOFf: role unknown, keep the original values (0 for new bitmaps).
+    if n.child("XOF").is_none() {
+        put(&mut n, Node::float("XOF", 0.0));
+    }
+    if n.child("YOF").is_none() {
+        put(&mut n, Node::float("YOF", 0.0));
+    }
     put(&mut n, Node::float("XLC", b.x as f64 + w.origin.0));
     put(&mut n, Node::float("YLC", b.y as f64 + w.origin.1));
     put(&mut n, Node::int("WPX", iw as i64));
