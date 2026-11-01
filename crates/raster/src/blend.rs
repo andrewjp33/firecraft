@@ -1,0 +1,256 @@
+//! Fireworks blend modes, measured against Fireworks MX (see docs/behavior/blend-modes.md).
+//!
+//! Colour modes work in HSV (not Photoshop's luminosity model): Hue/Saturation/Color keep the
+//! base colour's HSV value; Luminosity sets the HSV value to the blend colour's luma. Tint and the
+//! luma weights come from Fireworks.exe itself (blend function table at 0x56d9c4).
+
+use crate::image::Rgba;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum BlendMode {
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+    Darken,
+    Lighten,
+    Difference,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+    Invert,
+    Tint,
+    Erase,
+}
+
+impl BlendMode {
+    pub const ALL: [BlendMode; 13] = [
+        BlendMode::Normal,
+        BlendMode::Multiply,
+        BlendMode::Screen,
+        BlendMode::Darken,
+        BlendMode::Lighten,
+        BlendMode::Difference,
+        BlendMode::Hue,
+        BlendMode::Saturation,
+        BlendMode::Color,
+        BlendMode::Luminosity,
+        BlendMode::Invert,
+        BlendMode::Tint,
+        BlendMode::Erase,
+    ];
+
+    /// The `BLDi` value Fireworks stores (Normal is stored as an absent tag).
+    pub fn fw_code(self) -> i64 {
+        match self {
+            BlendMode::Normal => 0,
+            BlendMode::Multiply => 2,
+            BlendMode::Difference => 3,
+            BlendMode::Screen => 5,
+            BlendMode::Darken => 9,
+            BlendMode::Lighten => 10,
+            BlendMode::Hue => 11,
+            BlendMode::Saturation => 12,
+            BlendMode::Color => 13,
+            BlendMode::Luminosity => 14,
+            BlendMode::Invert => 17,
+            BlendMode::Erase => 25,
+            BlendMode::Tint => 29,
+        }
+    }
+
+    /// From a `BLDi` value; unknown values fall back to Normal.
+    pub fn from_fw_code(v: i64) -> Self {
+        Self::ALL.into_iter().find(|m| m.fw_code() == v).unwrap_or_default()
+    }
+
+    /// Name as shown in the Property inspector.
+    pub fn label(self) -> &'static str {
+        match self {
+            BlendMode::Normal => "Normal",
+            BlendMode::Multiply => "Multiply",
+            BlendMode::Screen => "Screen",
+            BlendMode::Darken => "Darken",
+            BlendMode::Lighten => "Lighten",
+            BlendMode::Difference => "Difference",
+            BlendMode::Hue => "Hue",
+            BlendMode::Saturation => "Saturation",
+            BlendMode::Color => "Color",
+            BlendMode::Luminosity => "Luminosity",
+            BlendMode::Invert => "Invert",
+            BlendMode::Tint => "Tint",
+            BlendMode::Erase => "Erase",
+        }
+    }
+
+    /// Composite `top` (straight alpha) onto `base` with extra `opacity` (0..=255).
+    pub fn composite(self, base: Rgba, top: Rgba, opacity: u8) -> Rgba {
+        let sa = top.a as f32 * opacity as f32 / (255.0 * 255.0);
+        if sa <= 0.0 {
+            return base;
+        }
+        if self == BlendMode::Normal {
+            return base.over(top, opacity);
+        }
+        if self == BlendMode::Erase {
+            let a = (base.a as f32 * (1.0 - sa)).round() as u8;
+            return if a == 0 { Rgba::TRANSPARENT } else { Rgba { a, ..base } };
+        }
+        let ba = base.a as f32 / 255.0;
+        let cb = [base.r as f32, base.g as f32, base.b as f32];
+        let cs = [top.r as f32, top.g as f32, top.b as f32];
+        let mixed = self.mix(cb, cs);
+        // W3C compositing: where the base is transparent the source shows unblended.
+        let out_a = sa + ba * (1.0 - sa);
+        if out_a <= 0.0 {
+            return Rgba::TRANSPARENT;
+        }
+        let ch = |i: usize| {
+            let src = (1.0 - ba) * cs[i] + ba * mixed[i];
+            ((src * sa + cb[i] * ba * (1.0 - sa)) / out_a).round().clamp(0.0, 255.0) as u8
+        };
+        Rgba::new(ch(0), ch(1), ch(2), (out_a * 255.0).round() as u8)
+    }
+
+    /// The blend function B(base, blend) on opaque colours (0..=255 per channel).
+    fn mix(self, b: [f32; 3], s: [f32; 3]) -> [f32; 3] {
+        let per = |f: fn(f32, f32) -> f32| [f(b[0], s[0]), f(b[1], s[1]), f(b[2], s[2])];
+        match self {
+            BlendMode::Normal | BlendMode::Erase => s,
+            BlendMode::Multiply => per(|b, s| b * s / 255.0),
+            BlendMode::Screen => per(|b, s| 255.0 - (255.0 - b) * (255.0 - s) / 255.0),
+            BlendMode::Darken => per(f32::min),
+            BlendMode::Lighten => per(f32::max),
+            BlendMode::Difference => per(|b, s| (b - s).abs()),
+            BlendMode::Invert => per(|b, _| 255.0 - b),
+            BlendMode::Hue => {
+                let (_, bs, bv) = to_hsv(b);
+                let (sh, _, _) = to_hsv(s);
+                // A grey base has no hue to replace: unchanged (measured).
+                if bs == 0.0 { b } else { from_hsv(sh, bs, bv) }
+            }
+            BlendMode::Saturation => {
+                let (bh, bs, bv) = to_hsv(b);
+                let (_, ss, _) = to_hsv(s);
+                if bs == 0.0 { b } else { from_hsv(bh, ss, bv) }
+            }
+            BlendMode::Color => {
+                let (_, _, bv) = to_hsv(b);
+                let (sh, ss, _) = to_hsv(s);
+                from_hsv(sh, ss, bv)
+            }
+            BlendMode::Luminosity => {
+                let (bh, bs, _) = to_hsv(b);
+                from_hsv(bh, bs, luma(s) as f32)
+            }
+            BlendMode::Tint => {
+                // Fireworks MX (blend function at 0x56d6b0): move the base towards the blend colour
+                // by how dark the base is, in integer arithmetic with /255 rounding.
+                let k = 255 - luma(b);
+                let ch = |b: f32, s: f32| -> f32 {
+                    let v = (s as i32 - b as i32) * k + b as i32 * 255 + 0x80;
+                    (((v >> 8) + v) >> 8) as f32
+                };
+                [ch(b[0], s[0]), ch(b[1], s[1]), ch(b[2], s[2])]
+            }
+        }
+    }
+}
+
+/// Fireworks' luma: Rec. 709 weights 0.2125/0.7154/0.0721 scaled by 512 (109/366/37), computed
+/// once at startup in Fireworks MX and shared by the blend functions.
+fn luma(c: [f32; 3]) -> i32 {
+    (c[0] as i32 * 109 + c[1] as i32 * 366 + c[2] as i32 * 37) >> 9
+}
+
+/// RGB (0..=255) -> (hue 0..6, saturation 0..1, value 0..=255).
+fn to_hsv(c: [f32; 3]) -> (f32, f32, f32) {
+    let max = c[0].max(c[1]).max(c[2]);
+    let min = c[0].min(c[1]).min(c[2]);
+    let d = max - min;
+    if max <= 0.0 || d <= 0.0 {
+        return (0.0, 0.0, max);
+    }
+    let h = if max == c[0] {
+        ((c[1] - c[2]) / d).rem_euclid(6.0)
+    } else if max == c[1] {
+        (c[2] - c[0]) / d + 2.0
+    } else {
+        (c[0] - c[1]) / d + 4.0
+    };
+    (h, d / max, max)
+}
+
+fn from_hsv(h: f32, s: f32, v: f32) -> [f32; 3] {
+    let c = v * s;
+    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = match h as i32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    [r + m, g + m, b + m]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn op(r: u8, g: u8, b: u8) -> Rgba {
+        Rgba::new(r, g, b, 255)
+    }
+
+    // Values measured in Fireworks MX (docs/behavior/blend-modes.md).
+    #[test]
+    fn matches_fireworks_measurements() {
+        let cases = [
+            (BlendMode::Multiply, op(128, 128, 128), op(100, 200, 150), op(50, 100, 75)),
+            (BlendMode::Screen, op(200, 40, 40), op(255, 0, 0), op(255, 40, 40)),
+            (BlendMode::Difference, op(128, 128, 128), op(100, 200, 150), op(28, 72, 22)),
+            (BlendMode::Color, op(128, 128, 128), op(100, 200, 150), op(64, 128, 96)),
+            (BlendMode::Saturation, op(40, 180, 60), op(255, 0, 0), op(0, 180, 26)),
+            (BlendMode::Saturation, op(128, 128, 128), op(255, 0, 0), op(128, 128, 128)),
+            (BlendMode::Luminosity, op(200, 40, 40), op(255, 0, 0), op(54, 10, 10)),
+            (BlendMode::Luminosity, op(128, 128, 128), op(240, 120, 20), op(138, 138, 138)),
+            (BlendMode::Invert, op(200, 40, 40), op(1, 2, 3), op(55, 215, 215)),
+        ];
+        for (mode, base, top, want) in cases {
+            let got = mode.composite(base, top, 255);
+            let close = |a: u8, b: u8| a.abs_diff(b) <= 1;
+            assert!(close(got.r, want.r) && close(got.g, want.g) && close(got.b, want.b), "{mode:?}: {got:?} vs {want:?}");
+        }
+        // Hue: within the measured rounding of Fireworks' integer HSV.
+        let got = BlendMode::Hue.composite(op(40, 180, 60), op(255, 0, 0), 255);
+        assert!(got.r.abs_diff(178) <= 3 && got.g.abs_diff(39) <= 3, "{got:?}");
+        assert_eq!(BlendMode::Erase.composite(op(1, 2, 3), op(9, 9, 9), 255), Rgba::TRANSPARENT);
+        // Tint: exact (formula from Fireworks.exe, values measured in Fireworks MX).
+        for (base, top, want) in [
+            (op(200, 40, 40), op(255, 0, 0), op(239, 12, 12)),
+            (op(40, 180, 60), op(255, 0, 0), op(136, 100, 33)),
+            (op(250, 250, 250), op(255, 0, 0), op(250, 245, 245)),
+            (op(220, 200, 40), op(60, 60, 60), op(180, 165, 45)),
+        ] {
+            assert_eq!(BlendMode::Tint.composite(base, top, 255), want);
+        }
+    }
+
+    #[test]
+    fn codes_round_trip() {
+        for m in BlendMode::ALL {
+            assert_eq!(BlendMode::from_fw_code(m.fw_code()), m);
+        }
+        assert_eq!(BlendMode::from_fw_code(13), BlendMode::Color);
+        assert_eq!(BlendMode::from_fw_code(999), BlendMode::Normal);
+    }
+
+    #[test]
+    fn transparent_base_shows_source() {
+        let got = BlendMode::Multiply.composite(Rgba::TRANSPARENT, op(10, 20, 30), 255);
+        assert_eq!(got, op(10, 20, 30));
+    }
+}

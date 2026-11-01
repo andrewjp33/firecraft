@@ -154,6 +154,24 @@ impl RgbaImage {
     }
 
     /// Composite `src` onto this image at offset (`dx`, `dy`).
+    /// Composite `src` at (`dx`, `dy`) with a blend mode.
+    pub fn draw_blend(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8, mode: crate::blend::BlendMode) {
+        if mode == crate::blend::BlendMode::Normal {
+            return self.draw(src, dx, dy, opacity);
+        }
+        for y in 0..src.height as i64 {
+            for x in 0..src.width as i64 {
+                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else { continue };
+                if s.a == 0 {
+                    continue;
+                }
+                if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
+                    *d = mode.composite(*d, s, opacity);
+                }
+            }
+        }
+    }
+
     pub fn draw(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8) {
         for y in 0..src.height as i64 {
             for x in 0..src.width as i64 {

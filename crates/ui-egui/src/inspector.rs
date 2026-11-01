@@ -235,10 +235,18 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     d.set_opacity(opacity);
                 }
             }
-            ComboBox::from_id_salt("blend").width(90.0).selected_text("Normal").show_ui(ui, |ui| {
-                let _ = ui.selectable_label(true, "Normal");
-                ui.add_enabled(false, egui::Button::new("Multiply (soon)"));
+            let current = first.as_ref().map(|e| e.blend).unwrap_or_default();
+            let mut chosen = None;
+            ComboBox::from_id_salt("blend").width(90.0).selected_text(current.label()).show_ui(ui, |ui| {
+                for m in firecraft_raster::BlendMode::ALL {
+                    if ui.selectable_label(m == current, m.label()).clicked() && m != current {
+                        chosen = Some(m);
+                    }
+                }
             });
+            if let (Some(m), Some(d)) = (chosen, app.session.active_doc_mut()) {
+                d.set_blend(m);
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Effects:");

@@ -106,6 +106,9 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
     };
     let mut el = Element::new(kind);
     el.raw = Some(n.clone());
+    if let Some(b) = n.int_of("BLD") {
+        el.blend = firecraft_raster::BlendMode::from_fw_code(b);
+    }
     if let Some(o) = n.int_of("OPA") {
         el.opacity = o.clamp(0, 100) as u8;
     }

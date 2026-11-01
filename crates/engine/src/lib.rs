@@ -449,6 +449,18 @@ impl DocState {
         });
     }
 
+    /// Set the blend mode of the selected objects.
+    pub fn set_blend(&mut self, mode: firecraft_raster::BlendMode) {
+        let refs = self.selection.clone();
+        self.edit("Blend Mode", |s| {
+            for r in refs {
+                if let Some(e) = s.element_mut(r) {
+                    e.blend = mode;
+                }
+            }
+        });
+    }
+
     /// Modify > Canvas > Canvas Color.
     pub fn set_canvas(&mut self, canvas: Option<Rgba>) {
         self.edit("Canvas Color", |s| s.doc.canvas = canvas);

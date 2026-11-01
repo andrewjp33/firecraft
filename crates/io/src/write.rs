@@ -182,6 +182,20 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         },
         ElementKind::Group(_) => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
     };
+    // Blend mode: Normal is written as an absent tag (as Fireworks does).
+    if el.blend != firecraft_raster::BlendMode::Normal {
+        let bld = Node::int("BLD", el.blend.fw_code());
+        match n.children.iter().position(|c| c.is("BLD")) {
+            Some(i) => n.children[i] = bld,
+            // Fireworks writes BLDi just before the effect list.
+            None => match n.children.iter().position(|c| c.is("EFL")) {
+                Some(i) => n.children.insert(i, bld),
+                None => n.children.push(bld),
+            },
+        }
+    } else {
+        n.children.retain(|c| !c.is("BLD"));
+    }
     if el.opacity != 100 || n.child("OPA").is_some() {
         put(&mut n, Node::int("OPA", el.opacity as i64));
     }

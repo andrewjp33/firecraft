@@ -3,7 +3,7 @@
 use firecraft_fwpng::Node;
 use firecraft_raster::nine::{resample, AxisMap};
 use firecraft_raster::path::{fill_polygons, flatten_cubic, stamp_stroke, Pt};
-use firecraft_raster::{Rgba, RgbaImage};
+use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
 /// A bitmap object. Pixels are in canvas coordinates starting at (`x`, `y`).
 #[derive(Clone, Debug, PartialEq)]
@@ -113,8 +113,7 @@ pub struct Element {
     pub visible: bool,
     /// 0..=100, as in the Property inspector.
     pub opacity: u8,
-    /// Blend mode name as Fireworks shows it ("Normal", "Multiply", ...).
-    pub blend: String,
+    pub blend: BlendMode,
     pub kind: ElementKind,
     /// Original Fireworks node (effects, textures, gradients...), re-emitted on save.
     pub raw: Option<Node>,
@@ -122,7 +121,7 @@ pub struct Element {
 
 impl Element {
     pub fn new(kind: ElementKind) -> Self {
-        Self { name: None, visible: true, opacity: 100, blend: "Normal".into(), kind, raw: None }
+        Self { name: None, visible: true, opacity: 100, blend: BlendMode::Normal, kind, raw: None }
     }
 
     /// The label the Layers panel shows.
@@ -221,21 +220,27 @@ impl Element {
         }
     }
 
-    /// Composite this element onto `out` (whose top-left is canvas (`ox`, `oy`)).
-    pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64) {
-        if !self.visible || self.opacity == 0 {
-            return;
-        }
-        let opacity = (self.opacity.min(100) as u32 * 255 / 100) as u8;
+    /// The element's own pixels before opacity, blend mode and effects, as an image and its
+    /// position in `out` coordinates (`out`'s top-left is canvas (`ox`, `oy`), size `w` x `h`).
+    pub fn rasterize(&self, ox: i64, oy: i64, w: u32, h: u32) -> Option<(RgbaImage, i64, i64)> {
         match &self.kind {
-            ElementKind::Bitmap(b) => out.draw(&b.image, b.x - ox, b.y - oy, opacity),
+            ElementKind::Bitmap(b) => Some((b.image.clone(), b.x - ox, b.y - oy)),
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
-                out.draw(&b.image, b.x - ox, b.y - oy, opacity)
+                Some((b.image.clone(), b.x - ox, b.y - oy))
             }
             ElementKind::Path(p) => {
-                // Draw into a layer so element opacity applies to fill+stroke together.
-                let mut layer = RgbaImage::new(out.width(), out.height(), Rgba::TRANSPARENT);
-                let (fx, fy) = (-(ox as f64), -(oy as f64));
+                // Render only the path's bounds (plus stroke), clipped to the output.
+                let (bx, by, bw, bh) = self.bounds()?;
+                let pad = p.stroke.as_ref().map(|s| s.diameter / 2.0 + 2.0).unwrap_or(2.0);
+                let x0 = ((bx - pad).floor() as i64 - ox).max(0);
+                let y0 = ((by - pad).floor() as i64 - oy).max(0);
+                let x1 = ((bx + bw + pad).ceil() as i64 - ox).min(w as i64);
+                let y1 = ((by + bh + pad).ceil() as i64 - oy).min(h as i64);
+                if x1 <= x0 || y1 <= y0 {
+                    return None;
+                }
+                let mut layer = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32, Rgba::TRANSPARENT);
+                let (fx, fy) = (-((ox + x0) as f64), -((oy + y0) as f64));
                 if let Some(f) = &p.fill {
                     let polys: Vec<Vec<Pt>> = p.contours.iter().map(|c| c.flatten(fx, fy)).collect();
                     fill_polygons(&mut layer, &polys, f.color, f.anti_alias);
@@ -251,10 +256,32 @@ impl Element {
                         stamp_stroke(&mut layer, &line, s.color, s.diameter, s.softness);
                     }
                 }
-                out.draw(&layer, 0, 0, opacity);
+                Some((layer, x0, y0))
             }
-            ElementKind::Group(children) => children.iter().for_each(|c| c.render_onto(out, ox, oy)),
-            _ => {}
+            ElementKind::Group(children) => {
+                let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+                children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy));
+                Some((layer, 0, 0))
+            }
+            _ => None,
+        }
+    }
+
+    /// Composite this element onto `out` (whose top-left is canvas (`ox`, `oy`)).
+    pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64) {
+        if !self.visible || self.opacity == 0 {
+            return;
+        }
+        let opacity = (self.opacity.min(100) as u32 * 255 / 100) as u8;
+        // A plain group passes its children's blending through to what lies beneath it.
+        if let ElementKind::Group(children) = &self.kind {
+            if opacity == 255 && self.blend == BlendMode::Normal {
+                children.iter().for_each(|c| c.render_onto(out, ox, oy));
+                return;
+            }
+        }
+        if let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height()) {
+            out.draw_blend(&img, x, y, opacity, self.blend);
         }
     }
 }
