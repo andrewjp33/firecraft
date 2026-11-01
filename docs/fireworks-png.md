@@ -52,6 +52,9 @@ PTHv  PATv { BCLi stroke ARGB, FCLi fill ARGB, BPLv brush preset, FPLv fill pres
       PCLv (cached flattened stroke polyline with pressure)
 TXTv  text attributes (FONs, PTSf, BOLb...), TFSv runs, cached IMGv
 GRPv  GRTi, ELMv
+MSLv  (root) MSTv* symbol definitions: UNMs name, MSNi id, MOXf/MOYf, FRCi frames, own LYLv
+ALSv  symbol instance: MSNi (symbol id), MTXv (M00 M01 M10 M11 M20 M21: symbol space ->
+      document space, row-vector convention), ANNi/ANXf/ANYf/ASCf (not yet decoded)
 ```
 
 Bezier control points (`XPC/YPC` predecessor, `XSC/YSC` successor) are **absolute** coordinates and

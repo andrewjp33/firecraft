@@ -4,10 +4,11 @@ use std::collections::HashMap;
 
 use firecraft_doc::{
     MaskMode,
-    Bitmap, BezierPoint, Contour, Document, Element, ElementKind, Fill, Frame, Layer, Path, Stroke, Text,
+    Bitmap, BezierPoint, Contour, Document, Element, ElementKind, Fill, Frame, Layer, Path, Stroke, Symbol, Text,
 };
 use firecraft_fwpng::{FwPng, Node, Tile};
 use firecraft_raster::gradient::{Gradient, GradientKind};
+use firecraft_raster::transform::Affine;
 use firecraft_raster::{Rgba, RgbaImage};
 
 use crate::{Error, Result};
@@ -24,12 +25,26 @@ struct Ctx<'a> {
     tiles: &'a HashMap<u32, Tile>,
     /// Canvas origin in document space (root `XLCf`/`YLCf`).
     origin: (f64, f64),
+    /// Symbol id -> (name, content bounds in symbol space), for instances.
+    symbols: HashMap<u32, (String, Option<(f64, f64, f64, f64)>)>,
 }
 
 pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
     let root = fw.tree()?.ok_or_else(|| Error::Unsupported("no document tree".into()))?;
     let tiles = fw.tiles()?;
-    let ctx = Ctx { tiles: &tiles, origin: (root.float_of("XLC").unwrap_or(0.0), root.float_of("YLC").unwrap_or(0.0)) };
+    // Symbol definitions (`MSLv` > `MSTv`) first: instances need their names and bounds. Symbols
+    // have their own coordinate space (no canvas origin).
+    let sym_ctx = Ctx { tiles: &tiles, origin: (0.0, 0.0), symbols: HashMap::new() };
+    let symbols: Vec<Symbol> = root
+        .child("MSL")
+        .map(|msl| msl.children_tagged("MST").filter_map(|m| read_symbol(m, &sym_ctx)).collect())
+        .unwrap_or_default();
+    let symbol_info = symbols.iter().map(|s| (s.id, (s.name.clone(), symbol_bounds(s)))).collect();
+    let ctx = Ctx {
+        tiles: &tiles,
+        origin: (root.float_of("XLC").unwrap_or(0.0), root.float_of("YLC").unwrap_or(0.0)),
+        symbols: symbol_info,
+    };
 
     let width = root.float_of("WID").unwrap_or(1.0).round().clamp(1.0, 65_535.0) as u32;
     let height = root.float_of("HIT").unwrap_or(1.0).round().clamp(1.0, 65_535.0) as u32;
@@ -51,6 +66,7 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
         .and_then(|lyl| lyl.children_tagged("LAY").position(|l| l.bool_of("MCL") == Some(true)))
         .or_else(|| doc.layers.iter().position(|l| !l.web))
         .unwrap_or(0);
+    doc.symbols = std::sync::Arc::new(symbols);
     doc.raw_secondary = fw.secondary_tree()?;
     doc.raw_tiles = std::sync::Arc::new(tiles.clone());
     doc.raw = Some(root);
@@ -95,6 +111,7 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
         "PTH" => ElementKind::Path(read_path(n, ctx)),
         "TXT" => ElementKind::Text(read_text(n, ctx)),
         "GRP" if depth < MAX_GROUP_DEPTH => read_group(n, ctx, depth),
+        "ALS" => read_instance(n, ctx),
         other => ElementKind::Other {
             kind: match other {
                 "URL" => "Web Object".into(),
@@ -116,6 +133,43 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
         el.opacity = o.clamp(0, 100) as u8;
     }
     Some(el)
+}
+
+/// `MSTv`: name `UNMs`, id `MSNi`, frame count `FRCi`, its own `LYLv`.
+fn read_symbol(m: &Node, ctx: &Ctx) -> Option<Symbol> {
+    let id = m.u32_of("MSN")?;
+    let layers = m.child("LYL").map(|l| l.children_tagged("LAY").map(|l| read_layer(l, ctx)).collect()).unwrap_or_default();
+    Some(Symbol {
+        id,
+        name: m.str_of("UNM").unwrap_or("Symbol").to_owned(),
+        layers,
+        frames: m.int_of("FRC").unwrap_or(1).clamp(1, 10_000) as usize,
+    })
+}
+
+/// Union of the symbol's frame-1 content bounds.
+fn symbol_bounds(s: &Symbol) -> Option<(f64, f64, f64, f64)> {
+    let bs: Vec<_> = s.layers.iter().filter(|l| !l.web).flat_map(|l| l.elements(0)).filter_map(|e| e.bounds()).collect();
+    if bs.is_empty() {
+        return None;
+    }
+    let x0 = bs.iter().map(|b| b.0).fold(f64::MAX, f64::min);
+    let y0 = bs.iter().map(|b| b.1).fold(f64::MAX, f64::min);
+    let x1 = bs.iter().map(|b| b.0 + b.2).fold(f64::MIN, f64::max);
+    let y1 = bs.iter().map(|b| b.1 + b.3).fold(f64::MIN, f64::max);
+    Some((x0, y0, x1 - x0, y1 - y0))
+}
+
+/// `ALSv`: symbol id `MSNi` and placement `MTXv` (symbol space -> document space; FireCraft keeps
+/// the matrix in canvas space, i.e. minus the canvas origin).
+fn read_instance(n: &Node, ctx: &Ctx) -> ElementKind {
+    let symbol = n.u32_of("MSN").unwrap_or(0);
+    let m = n.child("MTX");
+    let g = |t: &str, d: f64| m.and_then(|m| m.float_of(t)).unwrap_or(d);
+    let matrix = Affine { a: g("M00", 1.0), b: g("M01", 0.0), c: g("M10", 0.0), d: g("M11", 1.0), e: g("M20", 0.0) - ctx.origin.0, f: g("M21", 0.0) - ctx.origin.1 };
+    let (name, sb) = ctx.symbols.get(&symbol).cloned().unwrap_or_else(|| ("Symbol".into(), None));
+    let bounds = sb.map(|b| matrix.map_rect(b.0, b.1, b.2, b.3));
+    ElementKind::Instance { symbol, name, matrix, bounds }
 }
 
 /// Live Effects: `EFLv` holds one `EPSv` per effect, each a list of `DCEv` key/value pairs.

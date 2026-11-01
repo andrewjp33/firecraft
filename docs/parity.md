@@ -29,8 +29,8 @@ across the set (objects inside layers):
 Progress (match %): blend modes took tubes2 12 -> 56; gradient fills took cone to 100;
 masks and hidden objects took cone3 0.5 -> 99, comicBorder 62 -> 99.7, 769_edit2 51 -> 100,
 hd 37 -> 90, tablet 30 -> 90; live effects (measured Gaussian blur) took circles_hi 0.8 -> 30,
-tubes2 56 -> 76, SOLAR 68 -> 76. Remaining gaps: bevels and glows, symbols, text, decorative
-gradients, animation frames.
+tubes2 56 -> 76, SOLAR 68 -> 76. Symbols took box 43 -> 99.8, tubes 23 -> 77.5, mechscene2 42 -> 65, bolWNWide 0 -> 34.
+Remaining gaps: bevels, text, decorative gradients, Eye Candy plug-ins.
 
 Fixed thanks to this set: objects within a layer are stored **top first** (`ELMv`), the reverse of
 drawing order.

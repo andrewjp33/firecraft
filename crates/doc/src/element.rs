@@ -5,7 +5,10 @@ use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{resample, AxisMap};
 use firecraft_raster::path::{fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke, Pt};
+use firecraft_raster::transform::{transform_image, Affine};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
+
+use crate::{RenderCtx, MAX_SYMBOL_DEPTH};
 
 /// A bitmap object. Pixels are in canvas coordinates starting at (`x`, `y`).
 #[derive(Clone, Debug, PartialEq)]
@@ -121,7 +124,10 @@ pub enum ElementKind {
     /// An object (or objects) with an element mask. `cache` is Fireworks' pre-rendered mask
     /// bitmap, kept so it is written back as read.
     Masked { content: Vec<Element>, mask: Box<Element>, mode: MaskMode, cache: Option<Box<Element>> },
-    /// Slices, hotspots, symbol instances and anything not yet modelled.
+    /// An instance of a symbol from the document's library, placed by `matrix` (symbol space ->
+    /// canvas). `bounds` is the placed symbol's bounding box, computed when the file is read.
+    Instance { symbol: u32, name: String, matrix: Affine, bounds: Option<(f64, f64, f64, f64)> },
+    /// Slices, hotspots and anything not yet modelled.
     Other { kind: String, cached: Option<Bitmap> },
 }
 
@@ -159,6 +165,7 @@ impl Element {
                 [one] => format!("{} (masked)", one.label()),
                 _ => "Masked Group".into(),
             },
+            ElementKind::Instance { name, .. } => name.clone(),
             ElementKind::Other { kind, .. } => kind.clone(),
         }
     }
@@ -183,6 +190,7 @@ impl Element {
             }
             // Only what the mask reveals can show: its bounds bound the result.
             ElementKind::Masked { mask, .. } => mask.bounds(),
+            ElementKind::Instance { bounds, .. } => *bounds,
             ElementKind::Group(children) => {
                 let bs: Vec<_> = children.iter().filter_map(Element::bounds).collect();
                 let x0 = bs.iter().map(|b| b.0).fold(f64::MAX, f64::min);
@@ -223,8 +231,80 @@ impl Element {
                     c.translate(dx, dy);
                 }
             }
+            ElementKind::Instance { matrix, bounds, .. } => {
+                matrix.e += dx;
+                matrix.f += dy;
+                if let Some(b) = bounds {
+                    b.0 += dx;
+                    b.1 += dy;
+                }
+            }
             _ => {}
         }
+    }
+
+    /// Apply an affine transform to the element's geometry: path anchors and handles, gradient
+    /// handles and stroke widths are transformed; bitmaps are resampled.
+    pub fn transform(&mut self, m: &Affine) {
+        let map_bitmap = |b: &mut Bitmap| {
+            if let Some((img, x, y)) = transform_image(&b.image, b.x, b.y, m) {
+                *b = Bitmap { x, y, image: img };
+            }
+        };
+        match &mut self.kind {
+            ElementKind::Bitmap(b) => map_bitmap(b),
+            ElementKind::Path(p) => {
+                for pt in p.contours.iter_mut().flat_map(|c| c.points.iter_mut()) {
+                    let (ax, ay) = m.apply(pt.x, pt.y);
+                    let pr = m.apply(pt.x + pt.pred.0, pt.y + pt.pred.1);
+                    let su = m.apply(pt.x + pt.succ.0, pt.y + pt.succ.1);
+                    *pt = BezierPoint { x: ax, y: ay, pred: (pr.0 - ax, pr.1 - ay), succ: (su.0 - ax, su.1 - ay) };
+                }
+                if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
+                    for h in [&mut g.start, &mut g.end, &mut g.side] {
+                        *h = m.apply(h.0, h.1);
+                    }
+                }
+                if let Some(s) = &mut p.stroke {
+                    s.diameter = (s.diameter * m.scale()).max(0.1);
+                }
+            }
+            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => map_bitmap(b),
+            ElementKind::Group(children) => children.iter_mut().for_each(|c| c.transform(m)),
+            ElementKind::Masked { content, mask, cache, .. } => {
+                content.iter_mut().for_each(|c| c.transform(m));
+                mask.transform(m);
+                if let Some(c) = cache {
+                    c.transform(m);
+                }
+            }
+            ElementKind::Instance { matrix, bounds, .. } => {
+                *matrix = m.then(matrix);
+                if let Some(b) = bounds {
+                    *b = m.map_rect(b.0, b.1, b.2, b.3);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The objects an instance shows in the current frame, placed on the canvas.
+    fn instance_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
+        let ElementKind::Instance { symbol, matrix, .. } = &self.kind else { return None };
+        if ctx.depth >= MAX_SYMBOL_DEPTH {
+            return None;
+        }
+        let sym = ctx.symbols.iter().find(|s| s.id == *symbol)?;
+        let frame = ctx.frame % sym.frames.max(1);
+        let mut out = Vec::new();
+        for layer in sym.layers.iter().filter(|l| l.visible && !l.web) {
+            for el in layer.elements(frame) {
+                let mut e = el.clone();
+                e.transform(matrix);
+                out.push(e);
+            }
+        }
+        Some(out)
     }
 
     /// Apply a 9-slice mapping (see `firecraft_raster::nine`) to the element's geometry. Bitmaps
@@ -270,7 +350,7 @@ impl Element {
 
     /// The element's own pixels before opacity, blend mode and effects, as an image and its
     /// position in `out` coordinates (`out`'s top-left is canvas (`ox`, `oy`), size `w` x `h`).
-    pub fn rasterize(&self, ox: i64, oy: i64, w: u32, h: u32) -> Option<(RgbaImage, i64, i64)> {
+    pub fn rasterize(&self, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> Option<(RgbaImage, i64, i64)> {
         match &self.kind {
             ElementKind::Bitmap(b) => Some((b.image.clone(), b.x - ox, b.y - oy)),
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
@@ -312,13 +392,20 @@ impl Element {
             }
             ElementKind::Group(children) => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy));
+                children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
+                Some((layer, 0, 0))
+            }
+            ElementKind::Instance { .. } => {
+                let children = self.instance_elements(ctx)?;
+                let inner = ctx.deeper();
+                let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+                children.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, &inner));
                 Some((layer, 0, 0))
             }
             ElementKind::Masked { content, mask, mode, .. } => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                content.iter().for_each(|c| c.render_onto(&mut layer, ox, oy));
-                let coverage = mask_coverage(mask, *mode, ox, oy, w, h);
+                content.iter().for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
+                let coverage = mask_coverage(mask, *mode, ox, oy, w, h, ctx);
                 for (p, &m) in layer.pixels_mut().iter_mut().zip(coverage.pixels()) {
                     p.a = (p.a as u32 * m.a as u32 / 255) as u8;
                 }
@@ -329,19 +416,28 @@ impl Element {
     }
 
     /// Composite this element onto `out` (whose top-left is canvas (`ox`, `oy`)).
-    pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64) {
+    pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64, ctx: &RenderCtx) {
         if !self.visible || self.opacity == 0 {
             return;
         }
         let opacity = (self.opacity.min(100) as u32 * 255 / 100) as u8;
         // A plain group passes its children's blending through to what lies beneath it.
+        let plain = opacity == 255 && self.blend == BlendMode::Normal && self.effects.is_empty();
         if let ElementKind::Group(children) = &self.kind {
-            if opacity == 255 && self.blend == BlendMode::Normal && self.effects.is_empty() {
-                children.iter().for_each(|c| c.render_onto(out, ox, oy));
+            if plain {
+                children.iter().for_each(|c| c.render_onto(out, ox, oy, ctx));
                 return;
             }
         }
-        let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height()) else { return };
+        // A plain instance passes through the same way.
+        if plain && matches!(self.kind, ElementKind::Instance { .. }) {
+            let inner = ctx.deeper();
+            for c in self.instance_elements(ctx).unwrap_or_default() {
+                c.render_onto(out, ox, oy, &inner);
+            }
+            return;
+        }
+        let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else { return };
         if self.effects.is_empty() {
             out.draw_blend(&img, x, y, opacity, self.blend);
             return;
@@ -364,7 +460,7 @@ impl Element {
 }
 
 /// Per-pixel mask strength (in the alpha channel) of `mask` over the output area.
-fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u32) -> RgbaImage {
+fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> RgbaImage {
     let mut m = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     match mode {
         MaskMode::PathOutline => {
@@ -377,12 +473,12 @@ fn mask_coverage(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u3
                 p.fill = Some(Fill { color: Rgba::WHITE, category: "fc_Solid".into(), anti_alias: true, gradient: None });
                 p.stroke = None;
             }
-            shape.render_onto(&mut m, ox, oy);
+            shape.render_onto(&mut m, ox, oy, ctx);
         }
         MaskMode::Grayscale | MaskMode::Alpha => {
             let mut shown = mask.clone();
             shown.visible = true;
-            shown.render_onto(&mut m, ox, oy);
+            shown.render_onto(&mut m, ox, oy, ctx);
             if mode == MaskMode::Grayscale {
                 for p in m.pixels_mut() {
                     // Fireworks' luma (Rec. 709 weights x 512), times the mask's own alpha.

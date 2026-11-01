@@ -179,6 +179,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         Some(ElementKind::Text(_)) => ("Text".into(), Some(Tool::Text)),
         Some(ElementKind::Group(_)) => ("Group".into(), Some(Tool::Pointer)),
         Some(ElementKind::Masked { .. }) => ("Masked Group".into(), Some(Tool::Pointer)),
+        Some(ElementKind::Instance { name, .. }) => (format!("Symbol: {name}"), Some(Tool::Pointer)),
         Some(ElementKind::Other { kind, .. }) => (kind.clone(), Some(Tool::Slice)),
         None => ("".into(), None),
     };

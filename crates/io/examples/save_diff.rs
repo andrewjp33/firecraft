@@ -10,6 +10,7 @@ fn walk(els: &[Element], depth: usize, out: &mut Vec<String>) {
             ElementKind::Text(_) => "Text",
             ElementKind::Group(_) => "Group",
             ElementKind::Masked { .. } => "Masked",
+            ElementKind::Instance { .. } => "Instance",
             ElementKind::Other { .. } => "Other",
         };
         let fill = match &e.kind {

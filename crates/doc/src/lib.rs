@@ -20,6 +20,35 @@ use firecraft_raster::{Rgba, RgbaImage};
 /// Canvas colour: Fireworks offers white, transparent or a custom colour.
 pub type CanvasColor = Option<Rgba>;
 
+/// A symbol definition (Modify > Symbol): a small document of its own that instances show.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Symbol {
+    pub id: u32,
+    pub name: String,
+    pub layers: Vec<Layer>,
+    /// Animated symbols have several frames; an instance shows frame (document frame mod count).
+    pub frames: usize,
+}
+
+/// Symbols may contain instances of other symbols; deeper nesting is ignored (cycle guard).
+pub const MAX_SYMBOL_DEPTH: u32 = 16;
+
+/// What rendering needs besides the element itself.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderCtx<'a> {
+    pub symbols: &'a [Symbol],
+    pub frame: usize,
+    pub depth: u32,
+}
+
+impl RenderCtx<'_> {
+    pub const EMPTY: RenderCtx<'static> = RenderCtx { symbols: &[], frame: 0, depth: 0 };
+
+    pub fn deeper(&self) -> Self {
+        Self { depth: self.depth + 1, ..*self }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
     pub name: String,
@@ -106,6 +135,8 @@ pub struct Document {
     /// Pixel tiles of the original file, by id. Raw nodes kept above (presets, textures, text
     /// caches, `mkBS`) reference them, so they are written back with the document.
     pub raw_tiles: std::sync::Arc<std::collections::HashMap<u32, firecraft_fwpng::Tile>>,
+    /// The symbol library (shared: undo snapshots don't copy it).
+    pub symbols: std::sync::Arc<Vec<Symbol>>,
     /// Absolute path or display name; `None` for "Untitled".
     pub path: Option<String>,
 }
@@ -126,6 +157,7 @@ impl Document {
             raw: None,
             raw_secondary: None,
             raw_tiles: Default::default(),
+            symbols: Default::default(),
             path: None,
         }
     }
@@ -151,9 +183,10 @@ impl Document {
     /// Flatten the given frame to an image (canvas colour underneath).
     pub fn render(&self, frame: usize) -> RgbaImage {
         let mut out = RgbaImage::new(self.width, self.height, self.canvas.unwrap_or(Rgba::TRANSPARENT));
+        let ctx = RenderCtx { symbols: &self.symbols, frame, depth: 0 };
         for layer in self.layers.iter().filter(|l| l.visible) {
             for el in layer.elements(frame) {
-                el.render_onto(&mut out, 0, 0);
+                el.render_onto(&mut out, 0, 0, &ctx);
             }
         }
         out
