@@ -325,6 +325,17 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::Text => egui::CursorIcon::Text,
             _ => egui::CursorIcon::Default,
         });
+        // Selection tools: FireCraft's own cursors (Fireworks style: black Pointer, white
+        // Subselection arrow, Select Behind).
+        let own = match tool {
+            Tool::Pointer => Some(crate::cursors::Cur::Pointer),
+            Tool::Subselect => Some(crate::cursors::Cur::Subselect),
+            Tool::SelectBehind => Some(crate::cursors::Cur::SelectBehind),
+            _ => None,
+        };
+        if let Some(cur) = own {
+            crate::cursors::set(&ctx, cur, app.prefs.cursor_style);
+        }
     }
 
     // The 9-slice tool handles its own input and overlay.
@@ -334,7 +345,15 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     }
     // So do Scale, Skew and Distort.
     if matches!(tool, Tool::Scale | Tool::Skew | Tool::Distort) {
-        crate::transform_tool::canvas(&mut app.transform, d, tool, &p, resp, origin, z);
+        crate::transform_tool::canvas(
+            &mut app.transform,
+            d,
+            tool,
+            &p,
+            resp,
+            (origin, z),
+            app.prefs.cursor_style,
+        );
         return;
     }
 

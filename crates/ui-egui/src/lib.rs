@@ -17,6 +17,7 @@
 //! All edits go through `firecraft-engine`; this crate only draws state and maps input.
 
 mod canvas;
+pub mod cursors;
 mod dialogs;
 mod icons;
 mod inspector;
@@ -69,6 +70,8 @@ pub struct Prefs {
     pub aa_style: firecraft_raster::AntiAliasStyle,
     /// File > New's last settings: width, height, resolution, canvas (None = transparent).
     pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
+    /// Tool cursors: FireCraft's own (Fireworks style) or the system's.
+    pub cursor_style: cursors::CursorStyle,
 }
 
 impl Prefs {
@@ -86,7 +89,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -98,6 +101,7 @@ impl Prefs {
             self.new_doc
                 .3
                 .map_or_else(|| "transparent".to_owned(), |c| c.to_hex()),
+            self.cursor_style.key(),
         )
     }
 
@@ -129,6 +133,7 @@ impl Prefs {
                         p.new_doc = d;
                     }
                 }
+                "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -172,6 +177,7 @@ impl Default for Prefs {
             color_math: firecraft_raster::ColorMath::Precise,
             aa_style: firecraft_raster::AntiAliasStyle::Smooth,
             new_doc: (660, 440, 72.0, Some(firecraft_raster::Rgba::WHITE)),
+            cursor_style: cursors::CursorStyle::Fireworks,
         }
     }
 }

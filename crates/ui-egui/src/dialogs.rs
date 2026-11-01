@@ -288,6 +288,18 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     dialog("Preferences").show(ctx, |ui| {
         ui.strong("Workspace");
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
+        ui.horizontal(|ui| {
+            ui.label("Tool cursors:");
+            egui::ComboBox::from_id_salt("prefs_cursor_style")
+                .selected_text(prefs.cursor_style.label())
+                .show_ui(ui, |ui| {
+                    for t in crate::cursors::CursorStyle::ALL {
+                        ui.selectable_value(&mut prefs.cursor_style, t, t.label());
+                    }
+                });
+        })
+        .response
+        .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
         ui.separator();
         ui.strong("Editing");
         ui.horizontal(|ui| {
