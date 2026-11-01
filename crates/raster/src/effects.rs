@@ -30,6 +30,8 @@ pub enum Effect {
     Glow { color: Rgba, width: f32, opacity: f32, softness: f32, offset: f32, inner: bool },
     /// Curves: control points per channel ([rgb, r, g, b]), each (input, output) 0..255.
     Curves { channels: [Vec<(f32, f32)>; 4] },
+    /// Inner/Outer Bevel, Raised/Inset Emboss.
+    Bevel(crate::bevel::Bevel),
 }
 
 const HUE_SAT: &str = "{3439b08d-1922-11d3-9bde00e02910d580}";
@@ -105,6 +107,7 @@ impl Effect {
                 offset: num("GlowStartDistance", 0.0),
                 inner: false,
             },
+            BEVEL_GLOW => Effect::Bevel(crate::bevel::Bevel::parse(p)?),
             INNER_GLOW => Effect::Glow {
                 color: color("OuterBevelColor", Rgba::BLACK),
                 width: num("GlowWidth", 4.0),
@@ -229,6 +232,7 @@ impl Effect {
                     paint_under(img, &soft, *color, *knock_out);
                 }
             }
+            Effect::Bevel(b) => b.apply(img),
             Effect::Glow { color, width, opacity, softness, offset, inner } => {
                 if *width <= 0.0 {
                     return;
@@ -262,6 +266,7 @@ impl Effect {
             Effect::MotionBlur { distance, .. } => *distance,
             Effect::Shadow { distance, softness, .. } => distance + softness * 2.0,
             Effect::Glow { width, softness, offset, .. } => width + offset + softness,
+            Effect::Bevel(b) => b.margin(),
             _ => 0.0,
         };
         m.clamp(0.0, 500.0).ceil() as u32 + 2
@@ -439,6 +444,11 @@ fn shift_plane(a: &[f32], w: u32, h: u32, dx: i64, dy: i64, fill: f32) -> Vec<f3
 
 /// Gaussian blur of a single plane with standard deviation `sigma`, as three box passes (box
 /// radius r gives sigma ~ r + 0.5).
+/// Gaussian-like blur of a single plane (three box passes per axis), for other effect modules.
+pub(crate) fn blur_plane_pub(a: &[f32], w: u32, h: u32, sigma: f32) -> Vec<f32> {
+    blur_plane(a, w, h, sigma)
+}
+
 fn blur_plane(a: &[f32], w: u32, h: u32, sigma: f32) -> Vec<f32> {
     let mut v = a.to_vec();
     if sigma < 0.5 || w == 0 || h == 0 {
@@ -601,7 +611,7 @@ mod tests {
         assert_eq!(gaussian_sigma(100.0), gaussian_sigma(70.0));
         assert_eq!(gaussian_sigma(201.0), None);
         let e = Effect::parse(&params(&[("EffectMoaID", BEVEL_GLOW), ("BevelType", "0")]), &HashMap::new());
-        assert_eq!(e, None, "inner bevel not rendered yet");
+        assert!(matches!(e, Some(Effect::Bevel(_))));
         assert!(Effect::parse(&params(&[("name", "Invert")]), &HashMap::new()).is_some());
     }
 

@@ -13,7 +13,7 @@ the object's raw node, so saving never loses an effect.
 | Brightness/Contrast, Levels, Auto Levels, Curves, Invert, Convert to Alpha, Color Fill | implemented from parameters; not yet measured |
 | Glow / Inner Glow | **measured**: `BevelType` 4; band of pixels at Euclidean distance (offset, offset + width] from the object, unanti-aliased; width = `GlowWidth` (0 = no glow), colour `OuterBevelColor`, gap `GlowStartDistance`, opacity `BevelContrast`, softness sigma = 0.475 x `MaskSoftness` |
 | Motion Blur, Radial Blur | approximations |
-| Inner/Outer Bevel, Emboss (`BevelType` 0-3) | not rendered yet |
+| Inner/Outer Bevel, Raised/Inset Emboss (`BevelType` 0-3) | **read from the binary + measured**, see bevel.md: within 2-8 levels without softness; mitred corners with softness still differ |
 | Eye Candy plug-ins (Bevel Boss, Motion Trail, Edges) | kept in the file, not rendered (third-party Photoshop plug-ins) |
 
 Effects see the whole object, including parts outside the canvas or the visible area (a blur
