@@ -41,13 +41,13 @@ const SECTIONS: &[(&str, &[Tool])] = &[
 ];
 
 /// Tools that share a slot with a flyout alternative (shown when the slot's tool is active).
-fn slot_alternative(t: Tool) -> Option<Tool> {
+fn slot_alternatives(t: Tool) -> &'static [Tool] {
     match t {
-        Tool::Pointer => Some(Tool::SelectBehind),
-        Tool::Marquee => Some(Tool::OvalMarquee),
-        Tool::Scale => Some(Tool::NineSlice),
-        Tool::Rectangle => Some(Tool::Ellipse),
-        _ => None,
+        Tool::Pointer => &[Tool::SelectBehind],
+        Tool::Marquee => &[Tool::OvalMarquee],
+        Tool::Scale => &[Tool::Skew, Tool::Distort, Tool::NineSlice],
+        Tool::Rectangle => &[Tool::Ellipse],
+        _ => &[],
     }
 }
 
@@ -67,10 +67,19 @@ fn section_title(ui: &mut egui::Ui, title: &str) {
 
 fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
     // A slot shows its flyout alternative when that one is the active tool.
-    let shown = match slot_alternative(slot) {
-        Some(alt) if app.session.tool == alt => alt,
-        _ => slot,
+    let alts = slot_alternatives(slot);
+    let shown = if alts.contains(&app.session.tool) {
+        app.session.tool
+    } else {
+        slot
     };
+    // Right-click cycles the slot: the tool after the shown one.
+    let group: Vec<Tool> = std::iter::once(slot).chain(alts.iter().copied()).collect();
+    let next = group
+        .iter()
+        .position(|t| *t == shown)
+        .and_then(|i| group.get((i + 1) % group.len()))
+        .copied();
     let (r, resp) = ui.allocate_exact_size(vec2(26.0, 23.0), Sense::click());
     let active = app.session.tool == shown;
     if active {
@@ -90,7 +99,7 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
         );
     }
     icons::paint(ui.painter(), r, shown, shown.implemented());
-    if slot_alternative(slot).is_some() {
+    if !alts.is_empty() {
         // Flyout marker.
         let c = r.right_bottom() - vec2(3.0, 3.0);
         ui.painter().add(egui::Shape::convex_polygon(
@@ -106,19 +115,16 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
     if !shown.implemented() {
         tip += " (not yet implemented)";
     }
-    if let Some(alt) = slot_alternative(slot) {
-        tip += &format!(
-            "\nRight-click: {}",
-            if shown == slot { alt.label() } else { slot.label() }
-        );
+    if let (false, Some(n)) = (alts.is_empty(), next) {
+        tip += &format!("\nRight-click: {}", n.label());
     }
     let resp = resp.on_hover_text(tip);
     if resp.clicked() {
         app.session.tool = shown;
     }
-    if resp.secondary_clicked() {
-        if let Some(alt) = slot_alternative(slot) {
-            app.session.tool = if shown == slot { alt } else { slot };
+    if resp.secondary_clicked() && !alts.is_empty() {
+        if let Some(n) = next {
+            app.session.tool = n;
         }
     }
 }

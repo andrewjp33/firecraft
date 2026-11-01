@@ -25,6 +25,7 @@ mod nine;
 mod panels;
 mod theme;
 mod tools_panel;
+mod transform_tool;
 
 use std::collections::HashMap;
 
@@ -163,6 +164,7 @@ pub struct FireCraftApp {
     pi_open: bool,
     styled: bool,
     nine: Option<nine::NineEdit>,
+    transform: Option<transform_tool::TransformEdit>,
     /// The user confirmed quitting with unsaved documents.
     quit_confirmed: bool,
     /// Showing the "save changes before quitting?" prompt.
@@ -181,6 +183,7 @@ impl FireCraftApp {
             pi_open: true,
             styled: false,
             nine: None,
+            transform: None,
             quit_confirmed: false,
             quit_prompt: false,
         }

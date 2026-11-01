@@ -3,6 +3,10 @@
 //!
 //! Usage: parity_report <out-dir> <file.png>...
 //! Writes <out-dir>/<name>.cmp.png (Fireworks | FireCraft | difference) for each file.
+//!
+//! Frame references: a plain exported PNG named `<doc>_frame<N>.png` next to `<doc>.png` is
+//! compared with FireCraft's render of frame N of `<doc>.png` (export single frames from
+//! Fireworks as PNG32 to test animations).
 use firecraft_raster::{Rgba, RgbaImage};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,7 +35,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let open_ms = t.elapsed().as_millis();
         let fw = firecraft_io::decode_png(&bytes)?;
-        let ours = doc.render(0);
+        // A frame export: render that frame of the source document instead.
+        let frame_ref = (doc.raw.is_none()).then(|| frame_source(&path)).flatten();
+        let (doc, frame) = match frame_ref.clone() {
+            Some((src, f)) => match std::fs::read(&src).ok().and_then(|b| firecraft_io::open(&b, Some(src.clone())).ok()) {
+                Some(d) => (d, f),
+                None => (doc, 0),
+            },
+            None => (doc, 0),
+        };
+        let ours = doc.render(frame);
         let (w, h) = (fw.width().min(ours.width()), fw.height().min(ours.height()));
         let (mut ok, mut sum) = (0u64, 0u64);
         let mut diff = RgbaImage::new(w, h, Rgba::BLACK);
@@ -61,9 +74,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let save_ok = firecraft_io::save_fireworks_png(&doc)
             .ok()
             .and_then(|b| firecraft_io::open(&b, None).ok())
-            .map(|d2| d2.render(0) == ours)
+            .map(|d2| d2.render(frame) == ours)
             .unwrap_or(false);
         let mut notes = String::new();
+        // A plain PNG (an export, no Fireworks layer data) opens as one bitmap of its own
+        // image: comparing it with itself proves nothing.
+        if frame_ref.is_some() {
+            notes += &format!("frame {} of its document; ", frame + 1);
+        } else if doc.raw.is_none() {
+            notes += "PLAIN PNG (no Fireworks data; not a parity test); ";
+        }
         if (fw.width(), fw.height()) != (ours.width(), ours.height()) {
             notes += &format!(
                 "size fw {}x{} vs ours {}x{}; ",
@@ -122,3 +142,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+/// `dir/<doc>_frame<N>.png` -> (`dir/<doc>.png`, N - 1) when that document exists.
+fn frame_source(path: &str) -> Option<(String, usize)> {
+    let p = std::path::Path::new(path);
+    let stem = p.file_stem()?.to_str()?;
+    let (doc, n) = stem.rsplit_once("_frame")?;
+    let n: usize = n.parse().ok().filter(|&n| n >= 1)?;
+    let src = p.with_file_name(format!("{doc}.png"));
+    src.exists().then(|| (src.to_string_lossy().into_owned(), n - 1))
+}
+

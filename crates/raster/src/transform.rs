@@ -46,6 +46,57 @@ impl Affine {
         }
     }
 
+    /// The transform taking the rectangle (`x`, `y`, `w`, `h`) onto the quadrilateral
+    /// `quad` = [top-left, top-right, bottom-right, bottom-left] (a perspective transform in
+    /// general; affine when the quad is a parallelogram). `None` for degenerate input.
+    pub fn rect_to_quad(rect: (f64, f64, f64, f64), quad: [(f64, f64); 4]) -> Option<Affine> {
+        let (x, y, w, h) = rect;
+        if w.abs() < 1e-9 || h.abs() < 1e-9 {
+            return None;
+        }
+        // Unit square -> quad (Heckbert's square-to-quad).
+        let [(x0, y0), (x1, y1), (x2, y2), (x3, y3)] = quad;
+        let (sx, sy) = (x0 - x1 + x2 - x3, y0 - y1 + y2 - y3);
+        let unit = if sx.abs() < 1e-9 && sy.abs() < 1e-9 {
+            Affine {
+                a: x1 - x0,
+                b: y1 - y0,
+                c: x3 - x0,
+                d: y3 - y0,
+                e: x0,
+                f: y0,
+                ..Self::IDENTITY
+            }
+        } else {
+            let (dx1, dx2, dy1, dy2) = (x1 - x2, x3 - x2, y1 - y2, y3 - y2);
+            let den = dx1 * dy2 - dx2 * dy1;
+            if den.abs() < 1e-12 {
+                return None;
+            }
+            let g = (sx * dy2 - dx2 * sy) / den;
+            let hh = (dx1 * sy - sx * dy1) / den;
+            Affine {
+                a: x1 - x0 + g * x1,
+                b: y1 - y0 + g * y1,
+                g,
+                c: x3 - x0 + hh * x3,
+                d: y3 - y0 + hh * y3,
+                h: hh,
+                e: x0,
+                f: y0,
+                i: 1.0,
+            }
+        };
+        let to_unit = Affine {
+            a: 1.0 / w,
+            d: 1.0 / h,
+            e: -x / w,
+            f: -y / h,
+            ..Self::IDENTITY
+        };
+        Some(unit.then(&to_unit))
+    }
+
     /// Row-major 3x3 (row-vector convention).
     fn rows(&self) -> [[f64; 3]; 3] {
         [
@@ -248,6 +299,27 @@ mod tests {
         let (tx, ty) = t.apply(40.0, -25.0);
         assert!((tx - x - 5.0).abs() < 1e-9 && (ty - y + 3.0).abs() < 1e-9);
         assert!(!m.is_affine() && Affine::IDENTITY.is_affine());
+    }
+
+    #[test]
+    fn rect_to_quad_hits_the_corners() {
+        let rect = (10.0, 20.0, 100.0, 50.0);
+        let quad = [(5.0, 25.0), (120.0, 10.0), (100.0, 90.0), (30.0, 60.0)];
+        let m = Affine::rect_to_quad(rect, quad).unwrap();
+        for ((x, y), (qx, qy)) in [(10.0, 20.0), (110.0, 20.0), (110.0, 70.0), (10.0, 70.0)]
+            .into_iter()
+            .zip(quad)
+        {
+            let (px, py) = m.apply(x, y);
+            assert!(
+                (px - qx).abs() < 1e-9 && (py - qy).abs() < 1e-9,
+                "{px},{py} vs {qx},{qy}"
+            );
+        }
+        // A parallelogram stays affine.
+        let skew =
+            Affine::rect_to_quad(rect, [(10.0, 20.0), (110.0, 20.0), (130.0, 70.0), (30.0, 70.0)]).unwrap();
+        assert!(skew.is_affine());
     }
 
     #[test]

@@ -332,6 +332,11 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         crate::nine::canvas(&mut app.nine, d, view, &p, resp, origin, z);
         return;
     }
+    // So do Scale, Skew and Distort.
+    if matches!(tool, Tool::Scale | Tool::Skew | Tool::Distort) {
+        crate::transform_tool::canvas(&mut app.transform, d, tool, &p, resp, origin, z);
+        return;
+    }
 
     // ---- Input -------------------------------------------------------------------------
     let mods = ctx.input(|i| i.modifiers);

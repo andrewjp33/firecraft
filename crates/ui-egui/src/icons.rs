@@ -50,6 +50,21 @@ pub fn paint(p: &Painter, r: Rect, tool: Tool, enabled: bool) {
                 p.add(Shape::closed_line(pts, s));
             }
         }
+        Tool::Skew => {
+            // A slanted box.
+            let q = [at(0.3, 0.15), at(0.95, 0.15), at(0.7, 0.85), at(0.05, 0.85)];
+            p.add(Shape::closed_line(q.to_vec(), s));
+            p.line_segment([at(0.45, 0.02), at(0.8, 0.02)], s);
+        }
+        Tool::Distort => {
+            // An irregular quadrilateral with corner dots.
+            let q = [at(0.1, 0.2), at(0.85, 0.05), at(0.95, 0.9), at(0.25, 0.75)];
+            let fill = s.color;
+            p.add(Shape::closed_line(q.to_vec(), s));
+            for c in q {
+                p.rect_filled(Rect::from_center_size(c, egui::vec2(3.0, 3.0)), 0.0, fill);
+            }
+        }
         Tool::Scale => {
             p.rect_stroke(
                 Rect::from_min_max(at(0.1, 0.35), at(0.65, 0.9)),

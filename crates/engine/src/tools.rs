@@ -13,6 +13,8 @@ pub enum Tool {
     SelectBehind,
     Subselect,
     Scale,
+    Skew,
+    Distort,
     /// Fireworks CS5's 9-slice Scaling tool (shares the Scale tool's slot).
     NineSlice,
     Crop,
@@ -52,6 +54,8 @@ impl Tool {
             Tool::SelectBehind => "Select Behind tool",
             Tool::Subselect => "Subselection tool",
             Tool::Scale => "Scale tool",
+            Tool::Skew => "Skew tool",
+            Tool::Distort => "Distort tool",
             Tool::NineSlice => "9-slice Scaling tool",
             Tool::Crop => "Crop tool",
             Tool::Marquee => "Marquee tool",
@@ -84,7 +88,7 @@ impl Tool {
         Some(match self {
             Tool::Pointer | Tool::SelectBehind => 'V',
             Tool::Subselect => 'A',
-            Tool::Scale | Tool::NineSlice => 'Q',
+            Tool::Scale | Tool::Skew | Tool::Distort | Tool::NineSlice => 'Q',
             Tool::Crop => 'C',
             Tool::Marquee | Tool::OvalMarquee => 'M',
             Tool::Lasso => 'L',
@@ -115,6 +119,9 @@ impl Tool {
             self,
             Tool::Pointer
                 | Tool::SelectBehind
+                | Tool::Scale
+                | Tool::Skew
+                | Tool::Distort
                 | Tool::NineSlice
                 | Tool::Marquee
                 | Tool::OvalMarquee

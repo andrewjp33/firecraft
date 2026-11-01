@@ -421,6 +421,38 @@ impl DocState {
         });
     }
 
+    /// Scale/Skew/Distort/rotate: replace the selected objects with `originals` (copies taken
+    /// when the transform began) transformed by `m`, so repeated adjustments resample once.
+    pub fn transform_from(
+        &mut self,
+        originals: &[(ElementRef, Element)],
+        m: &firecraft_raster::transform::Affine,
+        label: &str,
+    ) {
+        if originals.is_empty() {
+            return;
+        }
+        let items = originals.to_vec();
+        let m = *m;
+        self.edit(label, |s| {
+            for (r, orig) in items {
+                if let Some(e) = s.element_mut(r) {
+                    let mut t = orig;
+                    t.transform(&m);
+                    *e = t;
+                }
+            }
+        });
+    }
+
+    /// Copies of the selected objects (for [`transform_from`](Self::transform_from)).
+    pub fn selected_elements(&self) -> Vec<(ElementRef, Element)> {
+        self.selection
+            .iter()
+            .filter_map(|r| Some((*r, self.element(*r)?.clone())))
+            .collect()
+    }
+
     /// Add a rectangle or ellipse path from a drag rectangle, using the tool's fill and stroke.
     pub fn add_shape(&mut self, rect: (f64, f64, f64, f64), ellipse: bool, opts: &ToolOptions) {
         let (x0, y0, x1, y1) = (
