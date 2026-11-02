@@ -2,7 +2,8 @@
 """Minimal XTest input driver for the oracle harness (no xdotool needed).
 
 Usage: xin.py click X Y | rclick X Y | move X Y | down | up | key KEYSYM | kdown KEYSYM | kup KEYSYM
-       | combo Control_L+q | focus | dclick X Y | type TEXT | sleep SECONDS ...
+       | combo Control_L+q | focus | dclick X Y | type TEXT | resize W H | sleep SECONDS ...
+(resize: the top-level window under the pointer, e.g. to simulate the main window growing)
 (focus: give keyboard focus to the top-level window under the pointer; without a window
 manager, winit apps otherwise never see key events)
 """
@@ -49,6 +50,14 @@ def focus():
                       *[ctypes.byref(v) for v in i], ctypes.byref(m))
     if c.value:
         x11.XSetInputFocus(ctypes.c_void_p(d), ctypes.c_ulong(c.value), 1, 0); flush(); time.sleep(0.3)
+def resize(w, h):
+    root = x11.XDefaultRootWindow(ctypes.c_void_p(d))
+    r, c = ctypes.c_ulong(), ctypes.c_ulong()
+    i = [ctypes.c_int() for _ in range(4)]; m = ctypes.c_uint()
+    x11.XQueryPointer(ctypes.c_void_p(d), ctypes.c_ulong(root), ctypes.byref(r), ctypes.byref(c),
+                      *[ctypes.byref(v) for v in i], ctypes.byref(m))
+    if c.value:
+        x11.XResizeWindow(ctypes.c_void_p(d), ctypes.c_ulong(c.value), w, h); flush(); time.sleep(0.5)
 def combo(names):
     kcs=[x11.XKeysymToKeycode(ctypes.c_void_p(d), x11.XStringToKeysym(n.encode())) for n in names]
     for k in kcs: xt.XTestFakeKeyEvent(ctypes.c_void_p(d), k, 1, 0); flush(); time.sleep(0.05)
@@ -68,6 +77,7 @@ while a:
     elif c == "up": button(False)
     elif c == "key": key(a.pop(0))
     elif c == "focus": focus()
+    elif c == "resize": resize(int(a.pop(0)), int(a.pop(0)))
     elif c == "dclick": dclick(int(a.pop(0)), int(a.pop(0)))
     elif c == "type": type_text(a.pop(0))
     elif c == "sleep": time.sleep(float(a.pop(0)))

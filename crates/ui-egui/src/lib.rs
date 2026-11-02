@@ -216,6 +216,9 @@ struct View {
     win_gen: u32,
     /// The window's size when last shown normally (restored to after minimise/maximise).
     normal_size: Option<Vec2>,
+    /// Not moved, resized, maximised or arranged by the user yet: the window keeps its default
+    /// fit as the workspace changes size (e.g. when the main window maximises at startup).
+    auto_fit: bool,
     /// Animation playback (status bar play button).
     playing: bool,
     last_tick: f64,

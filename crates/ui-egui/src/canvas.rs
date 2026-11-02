@@ -244,6 +244,7 @@ pub fn arrange(app: &mut FireCraftApp, how: Arrangement) {
             }
         };
         view.win = WinState::Normal;
+        view.auto_fit = false;
         view.win_pos = Some(pos);
         view.win_size = Some(size);
         view.win_gen = view.win_gen.wrapping_add(1);
@@ -252,6 +253,7 @@ pub fn arrange(app: &mut FireCraftApp, how: Arrangement) {
 
 fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let area = ui.max_rect();
+    let area_changed = (app.workspace.size() - area.size()).length() > 0.5;
     app.workspace = area;
     let ctx = ui.ctx().clone();
     let mut close: Option<usize> = None;
@@ -273,9 +275,23 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let active = i == app.session.active;
         let view = app.views.entry(id).or_default();
         let offset = 24.0 * (i % 8) as f32;
+        if view.win_pos.is_none() {
+            view.auto_fit = true;
+        }
         let pos = *view
             .win_pos
             .get_or_insert(area.min + vec2(12.0 + offset, 12.0 + offset));
+        let fit = vec2(
+            (w + 40.0).clamp(260.0, area.width() - 40.0),
+            (h + 110.0).clamp(200.0, area.height() - 40.0),
+        );
+        // Untouched windows follow the workspace's size (the first frames can be smaller than
+        // the final, maximised main window).
+        let refit = view.auto_fit && area_changed && view.win == WinState::Normal;
+        if refit {
+            view.win_size = Some(fit);
+            view.win_gen = view.win_gen.wrapping_add(1);
+        }
         let state = view.win;
         let (gen_, set_size) = (view.win_gen, view.win_size);
         let mut win = egui::Window::new(&title)
@@ -300,10 +316,7 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             WinState::Normal => win
                 .current_pos(pos)
                 .resizable(true)
-                .default_size(set_size.unwrap_or(vec2(
-                    (w + 40.0).clamp(260.0, area.width() - 40.0),
-                    (h + 110.0).clamp(200.0, area.height() - 40.0),
-                ))),
+                .default_size(set_size.unwrap_or(fit)),
         };
         let shown = win.show(&ctx, |ui| {
             let action = title_bar(ui, &title, active, state);
@@ -320,12 +333,22 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
         let view = app.views.entry(id).or_default();
         if state == WinState::Normal {
+            // A size change we didn't make is the user resizing: stop following the workspace.
+            if !refit
+                && !area_changed
+                && view
+                    .normal_size
+                    .is_some_and(|s| (s - r.rect.size()).length() > 1.0)
+            {
+                view.auto_fit = false;
+            }
             view.normal_size = Some(r.rect.size());
         }
         match shown.inner.unwrap_or(TitleAction::None) {
             TitleAction::None => {}
             TitleAction::Drag(delta) => {
                 app.session.active = i;
+                view.auto_fit = false;
                 // Keep some of the title bar reachable.
                 let size = r.rect.size();
                 let p = pos + delta;
@@ -335,6 +358,7 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             TitleAction::Set(s) => {
                 view.win = s;
+                view.auto_fit = false;
                 // egui keeps a window's size; a fresh identity brings it back at its normal
                 // size (not the maximised or minimised one), placed within the workspace.
                 view.win_gen = view.win_gen.wrapping_add(1);
