@@ -342,9 +342,10 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             // A size change we didn't make is the user resizing: stop following the workspace.
             if !refit
                 && !area_changed
-                && view
-                    .normal_size
-                    .is_some_and(|s| (s - r.rect.size()).length() > 1.0)
+                // Only a resize the user is doing (a button held): windows can settle by a
+                // few pixels on their own in the first frames.
+                && ctx.input(|i| i.pointer.any_down())
+                && view.normal_size.is_some_and(|s| (s - r.rect.size()).length() > 1.0)
             {
                 view.auto_fit = false;
             }
@@ -397,7 +398,12 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
     };
     let mut preview = app.views.get(&id).is_some_and(|v| v.preview);
     // Drags on the window's empty parts (bars, margins) don't move it: only the title bar does.
-    let _ = ui.interact(ui.max_rect(), egui::Id::unique(("doc_body", id)), Sense::drag());
+    // (Below the title bar, which is laid out before this.)
+    let _ = ui.interact(
+        ui.available_rect_before_wrap(),
+        egui::Id::unique(("doc_body", id)),
+        Sense::drag(),
+    );
     egui::Panel::top(egui::Id::unique(("doc_tabs", id)))
         .frame(egui::Frame::new())
         .show(ui, |ui| {
