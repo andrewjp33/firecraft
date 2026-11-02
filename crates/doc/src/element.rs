@@ -338,51 +338,64 @@ impl Element {
     }
 
     /// The objects an instance shows in the current frame, placed on the canvas.
+    /// A 9-slice symbol's instance: the slices at the instance's stretch along the symbol's own
+    /// width and height (the mean length of opposite sides over the symbol's size; for an affine
+    /// transform, its transformed axes' lengths), and the rest of the transform (rotation, skew,
+    /// flip, perspective) to apply after. So the slices survive every transform (Fireworks CS
+    /// asks to drop them instead).
+    fn nine_split(&self, ctx: &RenderCtx) -> Option<(AxisMap, AxisMap, Affine)> {
+        let ElementKind::Instance { symbol, matrix, .. } = &self.kind else {
+            return None;
+        };
+        let sym = ctx.symbols.iter().find(|s| s.id == *symbol)?;
+        let (gl, gr, gt, gb) = sym.nine?;
+        let (x, y, w, h) = sym.content_bounds()?;
+        if w <= 0.0 || h <= 0.0 {
+            return None;
+        }
+        let (x1, y1) = (x + w, y + h);
+        let q = [
+            matrix.apply(x, y),
+            matrix.apply(x1, y),
+            matrix.apply(x1, y1),
+            matrix.apply(x, y1),
+        ];
+        let len = |a: (f64, f64), b: (f64, f64)| ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+        let sx = (len(q[0], q[1]) + len(q[3], q[2])) / 2.0 / w;
+        let sy = (len(q[0], q[3]) + len(q[1], q[2])) / 2.0 / h;
+        if !(sx > 1e-9 && sy > 1e-9 && sx.is_finite() && sy.is_finite()) {
+            return None;
+        }
+        let mx = AxisMap::new(x, x1, gl.clamp(x, x1), gr.clamp(x, x1), x * sx, x1 * sx);
+        let my = AxisMap::new(y, y1, gt.clamp(y, y1), gb.clamp(y, y1), y * sy, y1 * sy);
+        let unstretch = Affine {
+            a: 1.0 / sx,
+            d: 1.0 / sy,
+            ..Affine::IDENTITY
+        };
+        Some((mx, my, matrix.then(&unstretch)))
+    }
+
     fn instance_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
         let ElementKind::Instance { matrix, .. } = &self.kind else {
             return None;
         };
         let mut out = self.symbol_elements(ctx)?;
-        // A 9-slice symbol: its objects go through the slices at the instance's scale along the
-        // symbol's own axes (corners keep their size, edges stretch one way, the middle both),
-        // then the rest of the instance's transform (rotation, skew, flip, position) applies.
-        // Perspective instances scale plainly.
-        if let ElementKind::Instance { symbol, .. } = &self.kind
-            && let Some(sym) = ctx.symbols.iter().find(|s| s.id == *symbol)
-            && let (Some((gl, gr, gt, gb)), Some((x, y, w, h))) = (sym.nine, sym.content_bounds())
-            && matrix.is_affine()
-        {
-            // The lengths of the symbol's x and y axes under the instance's transform.
-            let (sx, sy) = (
-                (matrix.a * matrix.a + matrix.b * matrix.b).sqrt(),
-                (matrix.c * matrix.c + matrix.d * matrix.d).sqrt(),
-            );
-            if sx > 1e-9 && sy > 1e-9 {
-                let (x1, y1) = (x + w, y + h);
-                let mx = AxisMap::new(x, x1, gl.clamp(x, x1), gr.clamp(x, x1), x * sx, x1 * sx);
-                let my = AxisMap::new(y, y1, gt.clamp(y, y1), gb.clamp(y, y1), y * sy, y1 * sy);
-                // What's left of the transform once the scale is taken out.
-                let rest = Affine {
-                    a: matrix.a / sx,
-                    b: matrix.b / sx,
-                    c: matrix.c / sy,
-                    d: matrix.d / sy,
-                    ..*matrix
-                };
-                let plain = (rest.a - 1.0).abs() < 1e-9
-                    && rest.b.abs() < 1e-9
-                    && rest.c.abs() < 1e-9
-                    && (rest.d - 1.0).abs() < 1e-9;
-                out.iter_mut().for_each(|e| {
-                    e.map_nine(&mx, &my);
-                    if plain {
-                        e.translate(rest.e, rest.f);
-                    } else {
-                        e.transform(&rest);
-                    }
-                });
-                return Some(out);
-            }
+        if let Some((mx, my, rest)) = self.nine_split(ctx) {
+            let plain = rest.is_affine()
+                && (rest.a - 1.0).abs() < 1e-9
+                && rest.b.abs() < 1e-9
+                && rest.c.abs() < 1e-9
+                && (rest.d - 1.0).abs() < 1e-9;
+            out.iter_mut().for_each(|e| {
+                e.map_nine(&mx, &my);
+                if plain {
+                    e.translate(rest.e / rest.i, rest.f / rest.i);
+                } else {
+                    e.transform(&rest);
+                }
+            });
+            return Some(out);
         }
         out.iter_mut().for_each(|e| e.transform(matrix));
         Some(out)
@@ -559,8 +572,15 @@ impl Element {
             }
             ElementKind::Instance { matrix, .. } if !matrix.is_affine() => {
                 // Perspective: render the symbol flat, then warp its pixels (exact for fills and
-                // effects, unlike mapping the geometry).
-                let children = self.symbol_elements(ctx)?;
+                // effects, unlike mapping the geometry). A 9-slice symbol is rendered sliced at the
+                // instance's stretch, then warped by the rest of the transform.
+                let mut children = self.symbol_elements(ctx)?;
+                let nine = self.nine_split(ctx);
+                if let Some((mx, my, _)) = &nine {
+                    children.iter_mut().for_each(|c| c.map_nine(mx, my));
+                }
+                let matrix = nine.map_or(*matrix, |(_, _, rest)| rest);
+                let matrix = &matrix;
                 let inner = ctx.deeper();
                 let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
                 for c in &children {
