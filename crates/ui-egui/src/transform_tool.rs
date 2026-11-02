@@ -398,8 +398,8 @@ pub fn canvas(
     p: &egui::Painter,
     resp: &egui::Response,
     (origin, z): (Pos2, f32),
-    cursors: crate::cursors::CursorStyle,
-    live: bool,
+    // Preferences: tool cursors, and live preview ("Show objects while moving them").
+    (cursors, live): (crate::cursors::CursorStyle, bool),
 ) {
     let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
