@@ -656,8 +656,18 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         .unwrap_or(false);
     if !unchanged {
         n.children.retain(|c| !c.is("PCL"));
-    }
-    if !unchanged {
+        // A Fireworks shape primitive (PRIv: rectangle as a base box and a matrix) is rebuilt
+        // from its record, not from the points: carry the edit into the record when it is an
+        // affine transform of the original points, otherwise make it a plain path.
+        if n.child("PRI").is_some() {
+            match raw
+                .and_then(|r| r.child("PBL"))
+                .and_then(|old| fit_affine(&anchors(old), &anchors(&pbl)))
+            {
+                Some(m) => transform_primitive(&mut n, &m),
+                None => n.children.retain(|c| !c.is("PRI")),
+            }
+        }
         put(&mut n, pbl);
     }
     let mut gradient_handles = None;
@@ -707,6 +717,98 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         }
     }
     n
+}
+
+/// A path list's anchor points (absolute).
+fn anchors(pbl: &Node) -> Vec<(f64, f64)> {
+    pbl.children_tagged("PBP")
+        .flat_map(|c| c.children_tagged("PBT").collect::<Vec<_>>())
+        .map(|p| (p.float_of("XLC").unwrap_or(0.0), p.float_of("YLC").unwrap_or(0.0)))
+        .collect()
+}
+
+/// The affine transform `(a, b, c, d, e, f)` (x' = a x + c y + e, y' = b x + d y + f) taking
+/// every point of `from` to the same point of `to`, if there is one.
+fn fit_affine(from: &[(f64, f64)], to: &[(f64, f64)]) -> Option<[f64; 6]> {
+    if from.len() != to.len() || from.len() < 3 {
+        return None;
+    }
+    // The three points spanning the largest triangle.
+    let area = |i: usize, j: usize, k: usize| {
+        let (p, q, r) = (from[i], from[j], from[k]);
+        ((q.0 - p.0) * (r.1 - p.1) - (r.0 - p.0) * (q.1 - p.1)).abs()
+    };
+    let n = from.len().min(64);
+    let mut best = (0.0, 0, 1, 2);
+    for i in 0..n {
+        for j in i + 1..n {
+            for k in j + 1..n {
+                let v = area(i, j, k);
+                if v > best.0 {
+                    best = (v, i, j, k);
+                }
+            }
+        }
+    }
+    let (v, i, j, k) = best;
+    if v < 1e-6 {
+        return None;
+    }
+    // Solve [x y 1] * [a b; c d; e f] = [x' y'] for the three points.
+    let (p, q, r) = (from[i], from[j], from[k]);
+    let det = p.0 * (q.1 - r.1) - p.1 * (q.0 - r.0) + (q.0 * r.1 - r.0 * q.1);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let solve = |u: f64, w: f64, z: f64| {
+        let x = (u * (q.1 - r.1) - p.1 * (w - z) + (w * r.1 - z * q.1)) / det;
+        let y = (p.0 * (w - z) - u * (q.0 - r.0) + (q.0 * z - r.0 * w)) / det;
+        let t = (p.0 * (q.1 * z - r.1 * w) - p.1 * (q.0 * z - r.0 * w) + u * (q.0 * r.1 - r.0 * q.1)) / det;
+        (x, y, t)
+    };
+    let (a, c, e) = solve(to[i].0, to[j].0, to[k].0);
+    let (b, d, f) = solve(to[i].1, to[j].1, to[k].1);
+    let m = [a, b, c, d, e, f];
+    let ok = from.iter().zip(to).all(|(&(x, y), &(tx, ty))| {
+        (a * x + c * y + e - tx).abs() < 0.01 && (b * x + d * y + f - ty).abs() < 0.01
+    });
+    ok.then_some(m)
+}
+
+/// Apply affine `m` to a path's shape primitive (PRIv): its matrix (row vectors, M20/M21
+/// translation, as Fireworks stores it) and its points (transform origin TOX/TOY, fill
+/// handles PSX..PFY, also kept on the path).
+fn transform_primitive(n: &mut Node, m: &[f64; 6]) {
+    let [a, b, c, d, e, f] = *m;
+    let pt = |x: f64, y: f64| (a * x + c * y + e, b * x + d * y + f);
+    let move_points = |node: &mut Node| {
+        for (tx, ty) in [("TOX", "TOY"), ("PSX", "PSY"), ("PEX", "PEY"), ("PFX", "PFY")] {
+            if let (Some(x), Some(y)) = (node.float_of(tx), node.float_of(ty)) {
+                let (x, y) = pt(x, y);
+                put(node, Node::float(tx, x));
+                put(node, Node::float(ty, y));
+            }
+        }
+    };
+    if let Some(pri) = n.child_mut("PRI") {
+        move_points(pri);
+        if let Some(mtx) = pri.child_mut("MTX") {
+            let g = |t: &str, def: f64| mtx.float_of(t).unwrap_or(def);
+            let old = [
+                [g("M00", 1.0), g("M01", 0.0), g("M02", 0.0)],
+                [g("M10", 0.0), g("M11", 1.0), g("M12", 0.0)],
+                [g("M20", 0.0), g("M21", 0.0), g("M22", 1.0)],
+            ];
+            let by = [[a, b, 0.0], [c, d, 0.0], [e, f, 1.0]];
+            for (r, row) in old.iter().enumerate() {
+                for k in 0..3 {
+                    let v: f64 = (0..3).map(|t| row[t] * by[t][k]).sum();
+                    put(mtx, Node::float(&format!("M{r}{k}"), v));
+                }
+            }
+        }
+    }
+    move_points(n);
 }
 
 fn same_geometry(old: &Node, new: &Node) -> bool {
@@ -874,5 +976,49 @@ fn write_effect_list(n: &mut Node, list: &[firecraft_doc::EffectEntry]) {
                 n.children.push(efl);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod primitive_tests {
+    use super::*;
+
+    #[test]
+    fn affine_fit_and_primitive_matrix() {
+        let from = [(61.0, 56.0), (252.0, 56.0), (252.0, 186.0), (61.0, 186.0)];
+        let moved: Vec<_> = from.iter().map(|&(x, y)| (x + 316.0, y + 119.0)).collect();
+        let m = fit_affine(&from, &moved).expect("a translation");
+        assert!(
+            m.iter()
+                .zip([1.0, 0.0, 0.0, 1.0, 316.0, 119.0])
+                .all(|(a, b)| (a - b).abs() < 1e-9)
+        );
+        // One corner dragged: no affine transform does that.
+        let mut bent = moved.clone();
+        bent[2].0 += 40.0;
+        assert!(fit_affine(&from, &bent).is_none());
+        // The primitive's matrix (translation 144,268) and transform origin follow the move.
+        let mut n = Node::vector(
+            "PTH",
+            vec![
+                Node::float("TOX", 144.0),
+                Node::float("TOY", 268.0),
+                Node::vector(
+                    "PRI",
+                    vec![Node::vector(
+                        "MTX",
+                        vec![Node::float("M20", 144.0), Node::float("M21", 268.0)],
+                    )],
+                ),
+            ],
+        );
+        transform_primitive(&mut n, &m);
+        let mtx = n.child("PRI").and_then(|p| p.child("MTX")).expect("matrix");
+        assert_eq!(
+            (mtx.float_of("M20"), mtx.float_of("M21")),
+            (Some(460.0), Some(387.0))
+        );
+        assert_eq!((mtx.float_of("M00"), mtx.float_of("M11")), (Some(1.0), Some(1.0)));
+        assert_eq!((n.float_of("TOX"), n.float_of("TOY")), (Some(460.0), Some(387.0)));
     }
 }

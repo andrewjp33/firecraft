@@ -80,6 +80,18 @@ are omitted when they coincide with the anchor.
 * Not required: preset lists, `prVW`, `mkBS`, `sBIT`, `tEXt`, `PCLv`, textures, gradient handles,
   `BZLv`/`NSDf` on points, `RQNi`.
 
+## Shape primitives (PRIv)
+
+A rectangle drawn with Fireworks' Rectangle tool is a *RectanglePrimitive*: its `PTHv` has a
+`PRIv { PCFb, PSXf..PFYf, MTXv (row vectors: M20/M21 translation), RCTv { RDSf roundness,
+LFTf, TOPf, RITf, BOTf base box }, RDMb }`, and `TOXf`/`TOYf` on the path. Fireworks MX and CS
+rebuild the shape from `RCTv` and `MTXv`, not from the path points (verified with
+tools/fwmx-oracle: a file with moved points but the old `PRIv` opens with the shape at its old
+place). When FireCraft saves a path whose points changed, it fits the affine transform taking
+the original points to the new ones and applies it to `MTXv` and the primitive's points (it
+stays a primitive, verified for a move and a rotate+scale); if no affine transform fits (a
+point dragged), it drops `PRIv` and Fireworks opens a plain path.
+
 ## Fireworks CS files
 
 A Fireworks CS5 tree holds two documents: `MKBv` (the classic one, which Fireworks MX reads;
