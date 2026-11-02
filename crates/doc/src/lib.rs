@@ -27,14 +27,57 @@ use firecraft_raster::{ColorMath, Rgba, RgbaImage};
 /// Canvas colour: Fireworks offers white, transparent or a custom colour.
 pub type CanvasColor = Option<Rgba>;
 
+/// What a symbol is for (Fireworks MX's Symbol Properties: `MSYi`, absent for Graphic).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SymbolKind {
+    #[default]
+    Graphic,
+    /// `MSYi` 1: four frames (Up, Over, Down, Over While Down).
+    Button,
+    /// `MSYi` 2.
+    Animation,
+}
+
+impl SymbolKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            SymbolKind::Graphic => "Graphic",
+            SymbolKind::Button => "Button",
+            SymbolKind::Animation => "Animation",
+        }
+    }
+}
+
 /// A symbol definition (Modify > Symbol): a small document of its own that instances show.
+/// Its content is in symbol space, centred on the origin when Fireworks creates it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Symbol {
     pub id: u32,
     pub name: String,
+    pub kind: SymbolKind,
     pub layers: Vec<Layer>,
     /// Animated symbols have several frames; an instance shows frame (document frame mod count).
     pub frames: usize,
+    /// Original Fireworks node (`MSTv`), for properties FireCraft does not model yet.
+    pub raw: Option<Node>,
+}
+
+impl Symbol {
+    /// The symbol's content bounds in frame 1, in symbol space (what an instance's cached
+    /// bounds are mapped from).
+    pub fn content_bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        let bs: Vec<(f64, f64, f64, f64)> = self
+            .layers
+            .iter()
+            .filter(|l| !l.web)
+            .flat_map(|l| l.elements(0).iter().filter_map(Element::bounds))
+            .collect();
+        let x0 = bs.iter().map(|b| b.0).fold(f64::MAX, f64::min);
+        let y0 = bs.iter().map(|b| b.1).fold(f64::MAX, f64::min);
+        let x1 = bs.iter().map(|b| b.0 + b.2).fold(f64::MIN, f64::max);
+        let y1 = bs.iter().map(|b| b.1 + b.3).fold(f64::MIN, f64::max);
+        (!bs.is_empty()).then(|| (x0, y0, x1 - x0, y1 - y0))
+    }
 }
 
 /// Symbols may contain instances of other symbols; deeper nesting is ignored (cycle guard).

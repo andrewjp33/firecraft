@@ -267,7 +267,7 @@ impl DocState {
     }
 
     /// Remove `refs` (stacking order) from the document, returning them in the same order.
-    fn take(&mut self, refs: &[ElementRef]) -> Vec<Element> {
+    pub(crate) fn take(&mut self, refs: &[ElementRef]) -> Vec<Element> {
         let f = self.frame();
         let mut out = Vec::with_capacity(refs.len());
         for r in refs.iter().rev() {

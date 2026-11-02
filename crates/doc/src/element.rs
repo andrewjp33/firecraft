@@ -386,7 +386,12 @@ impl Element {
             return None;
         }
         let sym = ctx.symbols.iter().find(|s| s.id == *symbol)?;
-        let frame = ctx.frame % sym.frames.max(1);
+        // Buttons show their Up state; animations play along with the document's frames.
+        let frame = if sym.kind == crate::SymbolKind::Button {
+            0
+        } else {
+            ctx.frame % sym.frames.max(1)
+        };
         let mut out = Vec::new();
         for layer in sym.layers.iter().filter(|l| l.visible_in(frame) && !l.web) {
             out.extend(layer.elements(frame).iter().cloned());

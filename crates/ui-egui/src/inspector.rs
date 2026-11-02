@@ -231,6 +231,31 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     {
         d.move_selection(dx, dy, "Move");
     }
+    // A symbol instance: edit its symbol, or turn it back into objects.
+    if count == 1
+        && let Some(ElementKind::Instance { symbol, .. }) = first.as_ref().map(|e| &e.kind)
+    {
+        let id = *symbol;
+        ui.vertical(|ui| {
+            if ui
+                .button("Edit Symbol...")
+                .on_hover_text("Open the symbol in the Symbol Editor (or double-click the instance)")
+                .clicked()
+            {
+                let i = app.session.active;
+                app.session.edit_symbol(i, id);
+            }
+            if ui
+                .button("Break Apart")
+                .on_hover_text("Replace the instance with the symbol's objects")
+                .clicked()
+                && let Some(d) = app.session.active_doc_mut()
+            {
+                d.break_apart();
+            }
+        });
+        ui.separator();
+    }
     // Fill/stroke of a single path.
     if let Some(ElementKind::Path(p)) = first.as_ref().map(|e| &e.kind) {
         ui.vertical(|ui| {

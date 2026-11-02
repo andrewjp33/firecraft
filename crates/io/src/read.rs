@@ -206,8 +206,14 @@ fn read_symbol(m: &Node, ctx: &Ctx) -> Option<Symbol> {
     Some(Symbol {
         id,
         name: m.str_of("UNM").unwrap_or("Symbol").to_owned(),
+        kind: match m.int_of("MSY") {
+            Some(1) => firecraft_doc::SymbolKind::Button,
+            Some(2) => firecraft_doc::SymbolKind::Animation,
+            _ => firecraft_doc::SymbolKind::Graphic,
+        },
         layers,
         frames: m.int_of("FRC").unwrap_or(1).clamp(1, 10_000) as usize,
+        raw: Some(m.clone()),
     })
 }
 

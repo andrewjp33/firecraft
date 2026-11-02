@@ -22,6 +22,7 @@ mod dialogs;
 pub mod effects_ui;
 mod icons;
 mod inspector;
+mod library;
 mod menus;
 mod nine;
 mod panels;
@@ -351,6 +352,13 @@ impl FireCraftApp {
         // Tool options the preferences remember.
         self.prefs.aa_style = self.session.options.aa_style;
         let ctx = ui.ctx().clone();
+        // Symbol Editors write their changes back to their symbols (instances update live).
+        self.session.sync_symbols();
+        if let Some((doc, id)) =
+            ctx.data_mut(|m| m.remove_temp::<(usize, u32)>(egui::Id::unique("edit_symbol")))
+        {
+            self.session.edit_symbol(doc, id);
+        }
         if !self.styled {
             theme::apply(&ctx);
             self.styled = true;

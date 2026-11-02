@@ -55,8 +55,8 @@ pub fn dock(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             group(ui, Group::Frames, "Frames and History", true, |ui| {
                 frames_history(app, ui)
             });
-            group(ui, Group::Assets, "Assets", false, |ui| {
-                ui.weak("Styles, URL and Library panels are on the roadmap.");
+            group(ui, Group::Assets, "Assets (Library)", false, |ui| {
+                crate::library::panel(app, ui)
             });
             group(ui, Group::Answers, "Answers", false, |ui| {
                 ui.weak("FireCraft documentation: docs/ in the source tree.");

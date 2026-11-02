@@ -492,6 +492,25 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             zoom_at(d, view, rect, Some(pos), 0.5);
         }
     }
+    // Double-clicking an instance opens its symbol in the Symbol Editor (handled by the app,
+    // which owns the document list).
+    if resp.double_clicked()
+        && matches!(tool, Tool::Pointer | Tool::SelectBehind)
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let (x, y) = to_doc(pos);
+        if let Some(id) = d.hit_test(x, y).and_then(|r| d.instance_symbol(r)) {
+            ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
+        }
+    }
+    // A symbol dragged from the Library: place an instance where it's dropped.
+    if let Some(drag) = resp.dnd_release_payload::<crate::library::SymbolDrag>()
+        && drag.doc == d.id
+        && let Some(pos) = ctx.pointer_interact_pos()
+    {
+        let (x, y) = to_doc(pos);
+        d.insert_instance(drag.symbol, x, y);
+    }
     if resp.clicked()
         && let Some(pos) = resp.interact_pointer_pos()
     {

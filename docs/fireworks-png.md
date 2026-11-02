@@ -55,9 +55,14 @@ TXTv  text attributes (FONs, PTSf, BOLb...), TFSv runs, cached IMGv
 GRPv  GRTi, ELMv
 (any) OBNs object name (Layers panel), after the object's own data, before BLDi/EFLv/OPAi;
       VISb (first child) hidden; BLDi blend mode; OPAi opacity in tenths of a percent
-MSLv  (root) MSTv* symbol definitions: UNMs name, MSNi id, MOXf/MOYf, FRCi frames, own LYLv
-ALSv  symbol instance: MSNi (symbol id), MTXv (M00 M01 M10 M11 M20 M21: symbol space ->
-      document space, row-vector convention), ANNi/ANXf/ANYf/ASCf (not yet decoded)
+MSLv  (root) MSTv* symbol definitions: UNMs name, MSNi id, MSYi type (absent Graphic, 1 Button
+      with FRCi 4 states, 2 Animation), MOXf/MOYf, LUTs, own LYLv (Layer 1 + Web Layer), GRDv,
+      GDSv, FRCi frames, OSBi, OSAi, BGCi, ATSb 1, IDSb, DVLb, IODb; LFNs/LMNi when linked to a
+      library file. Convert to Symbol centres the content on the symbol origin (a 50x40
+      rectangle at (10,10) becomes -25..25 x -20..20; the instance matrix translates by (35,30))
+ALSv  symbol instance: MSNi (symbol id), ALNi (buttons), MTXv (M00 M01 M10 M11 M20 M21: symbol
+      space -> document space, row-vector convention), XFMi 0, ANNi (= the symbol's frame
+      count for new instances), ANXf 0, ANYf 0, ASCf 100 (not yet decoded further)
 ```
 
 Bezier control points (`XPC/YPC` predecessor, `XSC/YSC` successor) are **absolute** coordinates and

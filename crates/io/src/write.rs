@@ -5,7 +5,7 @@
 //! presets, export settings) as Fireworks wrote it. New documents get the minimal tree shape
 //! observed in Fireworks MX output (see docs/fireworks-png.md).
 
-use firecraft_doc::{Bitmap, Contour, Document, Element, ElementKind, Layer, MaskMode, Path};
+use firecraft_doc::{Bitmap, Contour, Document, Element, ElementKind, Layer, MaskMode, Path, SymbolKind};
 use firecraft_fwpng::{Node, Tile};
 use firecraft_raster::{ColorMath, Rgba};
 
@@ -21,6 +21,8 @@ struct Writer {
     origin: (f64, f64),
     /// Next per-object id (`RNDi`); Fireworks refuses paths without one.
     next_rnd: i64,
+    /// Frame count of each symbol (new instances record it, `ANNi`).
+    symbol_frames: std::collections::HashMap<u32, usize>,
 }
 
 impl Writer {
@@ -52,6 +54,7 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
         next_id: start,
         origin,
         next_rnd: 0x0060_0000,
+        symbol_frames: doc.symbols.iter().map(|s| (s.id, s.frames)).collect(),
     };
 
     put(&mut root, Node::int("FRC", doc.frames.len().max(1) as i64));
@@ -68,8 +71,14 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     if doc.color_math == ColorMath::Precise {
         root.children.push(Node::int("FCM", 1));
     }
-    let layers = doc.layers.iter().map(|l| write_layer(l, doc, &mut w)).collect();
+    let frames = doc.frames.len().max(1);
+    let layers = doc
+        .layers
+        .iter()
+        .map(|l| write_layer(l, frames, &mut w))
+        .collect();
     put(&mut root, Node::vector("LYL", layers));
+    write_symbols(&mut root, doc, &mut w);
     // Frame delays/export flags back into EXPv > FNLv (kept as read otherwise).
     if let Some(fnl) = root.child_mut("EXP").and_then(|e| e.child_mut("FNL")) {
         let fnms: Vec<&mut Node> = fnl.children.iter_mut().filter(|c| c.is("FNM")).collect();
@@ -88,10 +97,10 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     referenced.dedup();
     let generated: std::collections::HashSet<u32> = w.tiles.iter().map(|t| t.id).collect();
     for id in referenced {
-        if !generated.contains(&id) {
-            if let Some(t) = doc.raw_tiles.get(&id) {
-                w.tiles.push(t.clone());
-            }
+        if !generated.contains(&id)
+            && let Some(t) = doc.raw_tiles.get(&id)
+        {
+            w.tiles.push(t.clone());
         }
     }
     (root, w.tiles)
@@ -146,7 +155,90 @@ pub(crate) fn new_root() -> Node {
     )
 }
 
-fn write_layer(layer: &Layer, doc: &Document, w: &mut Writer) -> Node {
+/// `MSLv`: the symbol definitions (`MSTv`), in symbol space (no canvas origin). A symbol read
+/// from a file keeps its original node for what FireCraft doesn't model; a new one gets
+/// Fireworks MX's defaults (as Convert to Symbol writes them).
+fn write_symbols(root: &mut Node, doc: &Document, w: &mut Writer) {
+    if doc.symbols.is_empty() {
+        root.children.retain(|c| !c.is("MSL"));
+        return;
+    }
+    let saved = w.origin;
+    w.origin = (0.0, 0.0);
+    let defaults = new_root();
+    let symbols = doc
+        .symbols
+        .iter()
+        .map(|s| {
+            let mut n = s.raw.clone().unwrap_or_else(|| {
+                let mut kids = vec![
+                    Node::string("UNM", ""),
+                    Node::int("MSN", 0),
+                    Node::float("MOX", 0.0),
+                    Node::float("MOY", 0.0),
+                    Node::vector("LYL", vec![]),
+                ];
+                kids.extend(
+                    defaults
+                        .children
+                        .iter()
+                        .filter(|c| c.is("GRD") || c.is("GDS"))
+                        .cloned(),
+                );
+                kids.extend([
+                    Node::int("FRC", 1),
+                    Node::int("OSB", 0),
+                    Node::int("OSA", 0),
+                    Node::int("BGC", 0x00ff_ffff),
+                    Node::bool("ATS", true),
+                    Node::bool("IDS", false),
+                    Node::bool("DVL", false),
+                    Node::bool("IOD", false),
+                ]);
+                Node::vector("MST", kids)
+            });
+            put(&mut n, Node::string("UNM", &s.name));
+            put(&mut n, Node::int("MSN", i64::from(s.id)));
+            let kind = match s.kind {
+                SymbolKind::Graphic => None,
+                SymbolKind::Button => Some(1),
+                SymbolKind::Animation => Some(2),
+            };
+            match kind {
+                // MSYi follows MSNi.
+                Some(k) => match n.children.iter().position(|c| c.is("MSY")) {
+                    Some(i) => n.children[i] = Node::int("MSY", k),
+                    None => {
+                        let at = n.children.iter().position(|c| c.is("MSN")).map_or(0, |i| i + 1);
+                        n.children.insert(at, Node::int("MSY", k));
+                    }
+                },
+                None => n.children.retain(|c| !c.is("MSY")),
+            }
+            let frames = s.frames.max(1);
+            let layers = s.layers.iter().map(|l| write_layer(l, frames, w)).collect();
+            put(&mut n, Node::vector("LYL", layers));
+            put(&mut n, Node::int("FRC", frames as i64));
+            n
+        })
+        .collect();
+    w.origin = saved;
+    let msl = Node::vector("MSL", symbols);
+    match root.children.iter().position(|c| c.is("MSL")) {
+        Some(i) => root.children[i] = msl,
+        // Fireworks writes MSLv after the preset lists, before PATv/EXPv/LYLv.
+        None => {
+            let at = root
+                .children
+                .iter()
+                .position(|c| c.is("PAT") || c.is("EXP") || c.is("MNF") || c.is("LYL"))
+                .unwrap_or(root.children.len());
+            root.children.insert(at, msl);
+        }
+    }
+}
+
+fn write_layer(layer: &Layer, frames: usize, w: &mut Writer) -> Node {
     let mut n = layer.raw.clone().unwrap_or_else(|| {
         Node::vector(
             "LAY",
@@ -170,7 +262,7 @@ fn write_layer(layer: &Layer, doc: &Document, w: &mut Writer) -> Node {
     }
     put(&mut n, Node::bool("MCL", !layer.shared));
     put(&mut n, Node::bool("DIS", layer.disclosed));
-    let cell_count = if layer.shared { 1 } else { doc.frames.len().max(1) };
+    let cell_count = if layer.shared { 1 } else { frames };
     let cells = (0..cell_count)
         .map(|f| {
             // Top first on disk (see read_elements).
@@ -187,7 +279,6 @@ fn write_layer(layer: &Layer, doc: &Document, w: &mut Writer) -> Node {
         })
         .collect();
     put(&mut n, Node::vector("CLL", cells));
-    let frames = doc.frames.len().max(1);
     put(
         &mut n,
         Node::vector(
@@ -284,11 +375,22 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])])
         }
         ElementKind::Instance { symbol, matrix, .. } => {
-            let mut n = el
-                .raw
-                .clone()
-                .filter(|r| r.is("ALS"))
-                .unwrap_or_else(|| Node::vector("ALS", vec![Node::int("MSN", *symbol as i64)]));
+            let mut n = el.raw.clone().filter(|r| r.is("ALS")).unwrap_or_else(|| {
+                // A new instance, with Fireworks MX's defaults (MTXv goes after MSNi).
+                let frames = w.symbol_frames.get(symbol).copied().unwrap_or(1);
+                Node::vector(
+                    "ALS",
+                    vec![
+                        Node::int("MSN", *symbol as i64),
+                        Node::vector("MTX", vec![]),
+                        Node::int("XFM", 0),
+                        Node::int("ANN", frames as i64),
+                        Node::float("ANX", 0.0),
+                        Node::float("ANY", 0.0),
+                        Node::float("ASC", 100.0),
+                    ],
+                )
+            });
             let (ox, oy) = w.origin;
             let m = firecraft_raster::transform::Affine::translate(ox, oy).then(matrix);
             let mtx = Node::vector(

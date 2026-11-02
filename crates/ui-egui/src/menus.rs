@@ -200,7 +200,30 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 todo(ui, "Rotate 180°", "");
             });
             todo(ui, "Animation", "");
-            todo(ui, "Symbol", "");
+            ui.menu_button("Symbol", |ui| {
+                if item(ui, "Convert to Symbol...", "F8", has_objects) {
+                    app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic));
+                }
+                let instance = app
+                    .session
+                    .active_doc()
+                    .and_then(|d| d.selection.first().and_then(|r| d.instance_symbol(*r)));
+                if item(ui, "Edit Symbol", "", instance.is_some()) {
+                    let i = app.session.active;
+                    if let Some(id) = instance {
+                        app.session.edit_symbol(i, id);
+                    }
+                }
+                todo(ui, "Tween Instances...", "");
+                if item(
+                    ui,
+                    "Break Apart",
+                    "",
+                    app.session.active_doc().is_some_and(|d| d.can_break_apart()),
+                ) {
+                    with_doc(app, |d| d.break_apart());
+                }
+            });
             todo(ui, "Pop-up Menu", "");
             ui.separator();
             todo(ui, "Mask", "");
@@ -370,6 +393,17 @@ pub fn open(app: &mut FireCraftApp) {
 }
 
 pub fn save(app: &mut FireCraftApp, save_as: bool) {
+    // A Symbol Editor saves the document the symbol belongs to.
+    if let Some(link) = app.session.active_doc().and_then(|d| d.symbol_link)
+        && let Some(p) = app.session.docs.iter().position(|d| d.id == link.parent)
+    {
+        app.session.sync_symbols();
+        let editor = app.session.active;
+        app.session.active = p;
+        save(app, save_as);
+        app.session.active = editor.min(app.session.docs.len().saturating_sub(1));
+        return;
+    }
     let Some(d) = app.session.active_doc() else { return };
     let bytes = match firecraft_io::save_fireworks_png(&d.doc) {
         Ok(b) => b,
@@ -530,6 +564,10 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     if pressed(cmd, Key::Num0) {
         fit(app);
+    }
+    if pressed(Modifiers::NONE, Key::F8) && app.session.active_doc().is_some_and(|d| !d.selection.is_empty())
+    {
+        app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic));
     }
     if pressed(Modifiers::NONE, Key::F4) {
         toggle_panels(app);

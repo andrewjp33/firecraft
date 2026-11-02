@@ -5,10 +5,12 @@
 
 mod history;
 mod objects;
+mod symbols;
 mod tools;
 
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
+pub use symbols::SymbolLink;
 pub use tools::{Tool, ToolOptions};
 
 use firecraft_doc::{
@@ -47,6 +49,8 @@ pub struct DocState {
     pub pixels: Option<PixelSelection>,
     pub zoom: f32,
     pub dirty: bool,
+    /// This document is a symbol open in the Symbol Editor.
+    pub symbol_link: Option<SymbolLink>,
     /// `dirty` when the live edit in progress began (restored if it's cancelled).
     live_dirty: bool,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
@@ -64,6 +68,7 @@ impl DocState {
             pixels: None,
             zoom: 1.0,
             dirty: false,
+            symbol_link: None,
             live_dirty: false,
             revision: 0,
         }
@@ -90,6 +95,11 @@ impl DocState {
     pub fn edit(&mut self, label: &str, f: impl FnOnce(&mut DocState)) {
         self.history.push(label, &self.doc);
         f(self);
+        self.touch();
+    }
+
+    /// Record that the document changed outside an undoable edit (the canvas redraws).
+    pub fn mark_changed(&mut self) {
         self.touch();
     }
 

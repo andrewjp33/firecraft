@@ -30,6 +30,8 @@ pub struct Dialogs {
     pub feather: Option<u32>,
     /// Modify > Transform > Numeric Transform.
     pub numeric: Option<Numeric>,
+    /// Modify > Symbol > Convert to Symbol: name and type being chosen.
+    pub convert_symbol: Option<(String, firecraft_doc::SymbolKind)>,
 }
 
 /// Numeric Transform: scale by percentages, resize to pixel sizes, or rotate by degrees,
@@ -66,6 +68,46 @@ impl Dialogs {
                 size: (w, h),
             });
         }
+    }
+}
+
+/// Modify > Symbol > Convert to Symbol (Fireworks MX's Symbol Properties dialog).
+fn convert_symbol(app: &mut FireCraftApp, ctx: &egui::Context) {
+    use firecraft_doc::SymbolKind;
+    let Some((mut name, mut kind)) = app.dialogs.convert_symbol.clone() else {
+        return;
+    };
+    let (mut ok, mut cancel) = (false, false);
+    dialog("Symbol Properties").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Name:");
+            let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(180.0));
+            if !r.has_focus() && !r.lost_focus() && ui.memory(|m| m.focused().is_none()) {
+                r.request_focus();
+            }
+            ok |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Type:");
+            for k in [SymbolKind::Graphic, SymbolKind::Animation, SymbolKind::Button] {
+                ui.radio_value(&mut kind, k, k.label());
+            }
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            ok |= ui.button("OK").clicked();
+            cancel = ui.button("Cancel").clicked();
+        });
+    });
+    cancel |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    app.dialogs.convert_symbol = Some((name.clone(), kind));
+    if ok {
+        app.dialogs.convert_symbol = None;
+        if let Some(d) = app.session.active_doc_mut() {
+            d.convert_to_symbol(&name, kind);
+        }
+    } else if cancel {
+        app.dialogs.convert_symbol = None;
     }
 }
 
@@ -169,6 +211,7 @@ impl Default for Dialogs {
             about: false,
             feather: None,
             numeric: None,
+            convert_symbol: None,
         }
     }
 }
@@ -377,6 +420,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
         preferences(app, ctx);
     }
     numeric_transform(app, ctx);
+    convert_symbol(app, ctx);
     if app.dialogs.about {
         let mut close = false;
         dialog("About FireCraft").show(ctx, |ui| {

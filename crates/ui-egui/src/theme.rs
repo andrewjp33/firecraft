@@ -68,6 +68,8 @@ pub fn workspace_frame() -> Frame {
 /// A panel-group title bar like Fireworks' ("> Layers") that toggles `open`.
 pub fn group_header(ui: &mut egui::Ui, title: &str, open: &mut bool) {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::click());
+    // Named for accessibility (screen readers, and UI tests that click by name).
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), title));
     let p = ui.painter();
     p.rect_filled(rect, 0.0, HEADER);
     // Gripper dots on the left, as in Fireworks.
