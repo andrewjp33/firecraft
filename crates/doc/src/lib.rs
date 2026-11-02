@@ -58,6 +58,10 @@ pub struct Symbol {
     pub layers: Vec<Layer>,
     /// Animated symbols have several frames; an instance shows frame (document frame mod count).
     pub frames: usize,
+    /// 9-slice scaling guides (Fireworks CS, `NGSv`): left x, right x, top y, bottom y in
+    /// symbol space. Scaled instances keep the corners' size, stretch the edges one way and the
+    /// middle both ways.
+    pub nine: Option<(f64, f64, f64, f64)>,
     /// Original Fireworks node (`MSTv`), for properties FireCraft does not model yet.
     pub raw: Option<Node>,
 }

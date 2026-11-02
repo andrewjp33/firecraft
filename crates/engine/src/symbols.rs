@@ -138,6 +138,7 @@ impl DocState {
                 kind,
                 layers: vec![layer, web],
                 frames,
+                nine: None,
                 raw: None,
             };
             Arc::make_mut(&mut s.doc.symbols).push(sym);

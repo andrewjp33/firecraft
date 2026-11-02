@@ -14,6 +14,18 @@ Measured with Fireworks MX (`dom.convertToSymbol` on test shapes, then the saved
 * **Break Apart** replaces an instance with the symbol's objects as the instance shows them; the
   symbol stays in the Library.
 
+## 9-slice symbols (Fireworks CS)
+
+A symbol's `NGSv` holds its 9-slice guides: `NGLb` (locked), `NGKi` (colour) and four `NGCf`,
+top y, bottom y, left x, right x in symbol space (`9slicesymbol*.png`: -44, 50, -166, 161 for
+content -236..235 x -149..148), plus `NGMv`/`NGVv`. An instance that is only scaled (and
+moved) maps the symbol's objects through the slices: corners keep their size, the edge strips
+stretch one way, the middle both ways, each object (bitmap, text image, path) by its position.
+Rotated, skewed or flipped instances scale plainly. FireCraft keeps `NGSv` as read when saving.
+With the bitmap flattened, Fireworks CS renders the instances the same way (parity 72.8%; the
+rest is resampling); with the original unflattened bitmap it leaves the text unscaled and
+moves it, which FireCraft doesn't reproduce.
+
 ## Where FireCraft differs from Fireworks MX
 
 * The Symbol Editor (a document window, as in MX) updates the document and its instances live,
@@ -21,3 +33,6 @@ Measured with Fireworks MX (`dom.convertToSymbol` on test shapes, then the saved
 * It has a **Done** button (from Fireworks CS) that closes it and returns to the document.
 * **Save** in the Symbol Editor saves the document the symbol belongs to (MX doesn't save from
   the Symbol Editor; with live updates, saving the document is the useful meaning).
+* The Pointer picks a symbol instance where its content is (its distorted shape), not
+  anywhere inside its dotted bounding rectangle as Fireworks does. Kept deliberately; noted in
+  case it matters later (e.g. clicking a heavily distorted instance near its corners).

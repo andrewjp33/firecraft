@@ -213,6 +213,25 @@ fn read_symbol(m: &Node, ctx: &Ctx) -> Option<Symbol> {
         },
         layers,
         frames: m.int_of("FRC").unwrap_or(1).clamp(1, 10_000) as usize,
+        // NGSv: four NGCf guides, top y, bottom y, left x, right x (read from Fireworks CS
+        // files; FireCraft keeps the node as read when saving).
+        nine: m.child("NGS").and_then(|n| {
+            let v: Vec<f64> = n
+                .children
+                .iter()
+                .filter(|c| c.is("NGC"))
+                .filter_map(|c| c.text.trim().parse().ok())
+                .collect();
+            match v.as_slice() {
+                [top, bottom, left, right] => Some((
+                    left.min(*right),
+                    left.max(*right),
+                    top.min(*bottom),
+                    top.max(*bottom),
+                )),
+                _ => None,
+            }
+        }),
         raw: Some(m.clone()),
     })
 }
