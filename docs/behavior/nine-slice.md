@@ -14,5 +14,5 @@ the tool now, because its output is plain objects and keeps files Fireworks MX c
 * Paths: anchors and control handles are mapped as absolute points, so curves inside the fixed
   margins keep their exact shape. Bitmaps are resampled bilinearly, with sampling clamped to each
   output pixel's source slice so seams stay crisp.
-* Planned: persistent 9-slice symbols (needs symbols first), saved as `NGSv` on the symbol, which MX
-  ignores and CS understands.
+* Persistent 9-slice symbols (Fireworks CS's guides on a symbol, `NGSv`) are supported too: see
+  [symbols.md](symbols.md#9-slice-symbols-fireworks-cs).

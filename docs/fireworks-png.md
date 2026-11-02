@@ -145,8 +145,12 @@ So FireCraft saves in tiers:
    `NGSv{NGLb,NGKi,NGCf x4 (top, bottom, left, right),NGMv,NGVv}`). The file opens in MX and CS;
    editing and re-saving in MX loses only the extras.
 2. **Fireworks CS6 (planned, opt-in on Save As/Export).** For documents whose features need CS6 to
-   understand them (pages, persistent 9-slice symbols as CS edits them). FirePixel's reader/writer
-   (Apache-2.0) is the reference for that structure.
+   understand them (pages, CS states). FirePixel's reader/writer (Apache-2.0) is the reference for
+   that structure.
+
+Fireworks CS5 opens FireCraft's MX-format files, including CS features stored the CS way
+(9-slice symbol guides, per-object locks), and FireCraft opens CS5's files (it reads `MKBv`; see
+"Fireworks CS files" above). Checked by hand in CS5.
 
 ## FireCraft extensions
 
@@ -156,4 +160,5 @@ nodes, and drops them if it re-saves the file.
 | Node | Meaning |
 |---|---|
 | `FCMi` | Colour math: `1` = high precision (double-precision blend modes and Hue/Saturation). Absent = Fireworks-exact. |
+| `FNGv` (in `MSTv`) | 9-slice guides of a symbol that has a skewed or perspective instance, in place of `NGSv` (same `NGCf` values), because such an instance hangs Fireworks CS5. CS and MX ignore it; FireCraft reads either. |
 

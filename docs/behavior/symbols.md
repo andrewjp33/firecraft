@@ -18,9 +18,9 @@ Measured with Fireworks MX (`dom.convertToSymbol` on test shapes, then the saved
 
 A symbol's `NGSv` holds its 9-slice guides: `NGLb` (locked), `NGKi` (colour) and four `NGCf`,
 top y, bottom y, left x, right x in symbol space (`9slicesymbol*.png`: -44, 50, -166, 161 for
-content -236..235 x -149..148), plus `NGMv`/`NGVv`. An instance that is only scaled (and
-moved) maps the symbol's objects through the slices: corners keep their size, the edge strips
-stretch one way, the middle both ways, each object (bitmap, text image, path) by its position.
+content -236..235 x -149..148), plus `NGMv`/`NGVv`. An instance maps the symbol's objects
+through the slices: corners keep their size, the edge strips stretch one way, the middle both
+ways, each object (bitmap, text image, path) by its position.
 The slices use the instance's stretch along the symbol's own width and height (the mean
 length of opposite sides of its transformed box over the symbol's size); the rest of the
 transform (rotation, skew, flip, perspective) applies on top, so a 9-slice instance keeps its
@@ -49,6 +49,8 @@ moves it, which FireCraft doesn't reproduce.
 * 9-slice symbols keep their slices when skewed, distorted or put in perspective. Fireworks CS
   asks whether to remove the 9-slice scaling for those transforms (and for the 9-slice tool);
   FireCraft doesn't need to.
-* In Fireworks CS a skewed or perspective 9-slice instance hangs CS5 on opening; FireCraft
-  keeps such a symbol's guides in its own `FNGv` node, so CS5 shows it unsliced (MX
-  regardless shows symbols unsliced).
+* Fireworks CS5 hangs opening a file with a skewed or perspective 9-slice instance (CS never
+  makes one). For a symbol with such an instance FireCraft writes the guides in its own `FNGv`
+  node instead of `NGSv`: CS5 then opens the file with 9-slice unchecked for that symbol
+  (confirmed in CS5), and FireCraft reads the guides back. If CS5 re-saves the file the guides
+  are lost; enabling 9-slice again in FireCraft puts them at the thirds.

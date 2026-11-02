@@ -3,50 +3,61 @@
 Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it matches Fireworks MX
 (measured with the oracle where possible) and is covered by tests.
 
-## Done (v0.1 foundation)
+## Done
 
-- Fireworks PNG container, lossless tree, tiles; open/save verified in Fireworks MX
-- Workspace: menus, Tools, Property inspector, Layers, Frames/History, windows or tabs
-- Pointer, Marquee/Oval Marquee, Magic Wand (Classic + Smooth anti-alias), Line, Rectangle,
-  Ellipse, Eyedropper, Hand, Zoom; Clear, Bitmap via Cut/Copy, undo/redo
-- 9-slice Scaling tool (CS5 behaviour, MX-compatible output)
+- Fireworks PNG container, lossless tree, tiles; open/save verified in Fireworks MX; plain
+  MX-format saves that Fireworks CS5 also opens (checked by hand)
+- Workspace: menus, Tools panel with flyouts, Property inspector, Layers, Frames/History, Library;
+  document windows (move, resize, minimise/maximise, Cascade/Tile) or tabs
+- Rendering: blend modes, gradients (all 11 MX types), masks, symbol instances (perspective),
+  animation frames and playback, Live Effects and the bundled Eye Candy / Splat LE filters
+  ([parity.md](parity.md))
+- Tools: Pointer, Select Behind, Subselection (path points; members inside groups), Scale /
+  Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
+  Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
+  Eyedropper, Hand, Zoom
+- Objects: clipboard (shared with Fireworks), Duplicate/Clone, Group/Ungroup, Arrange, Align,
+  Rotate/Flip, Numeric Transform, names, per-object show/hide and lock, Layers panel reordering,
+  Superselect/Subselect, live dragging
+- Live Effects editor in the Property inspector
+- Symbols: Convert to Symbol, Library, Symbol Editor, Break Apart, 9-slice symbols (`NGSv`)
+- Clean-room oracle tooling and UI test helpers (`tools/fwmx-oracle`)
 
 ## Next
 
-Rendering parity on real files is tracked in [parity.md](parity.md); its feature table ranks
-items 5 and 6 (live effects, gradient fills) and blend modes highly.
+Rendering parity on real files is tracked in [parity.md](parity.md).
 
-
-1. **Clipboard** (Cut/Copy/Paste objects and pixels), Duplicate/Clone, Group/Ungroup, Arrange
-2. **Pen and Subselection** tools; editing bezier points (done: see
-   `docs/behavior/paths.md`; rectangle primitives with roundness); Scale/Crop tools; Transform
-3. **Brush, Pencil, Eraser, Paint Bucket** (Fireworks' brush presets: `BPLv` fields)
-4. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
-5. **Live Effects** in the Property inspector (drop shadow, bevels, glow, blur; `EFLv` parameters
-   are already preserved) and blend modes
-6. **Fills**: gradients, patterns, textures (`FPLv`/`GLDv`/`TXFv`)
+1. **Paths, stage 2**: Modify > Combine Path (Join, Split, Union, Intersect, Punch, Crop), Alter
+   Path (Simplify, Expand Stroke, Inset Path), Freeform and Reshape Area, Knife, Redraw Path,
+   Polygon/Star tool
+2. **Group members, the rest**: Group, Ungroup, Break Apart and Convert to Symbol for members
+   selected with the Subselection tool (they do nothing yet); Layers panel rows for members
+3. **Crop tool**; Lasso and Polygon Lasso
+4. **Brush, Pencil, Eraser, Paint Bucket**, Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp
+   (Fireworks' brush presets: `BPLv` fields); stroke rendering parity with Fireworks' brush
+   stamping (1-px strokes render heavier today)
+5. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
+6. **Fills and strokes in the Property inspector**: gradient editing, patterns, textures, edge
+   and stroke settings (`FPLv`/`GLDv`/`TXFv`/`BPLv`)
 7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
-8. **Frames**: animation, onion skinning, animated GIF export
+8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
+   Instances; button symbol states
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
-10. Symbols/instances, Library, Styles, URL panels; then persistent 9-slice symbols (`NGSv`)
-    and an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
+10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu (Adjust Color, Blur, Sharpen)
 12. JavaScript API compatibility for `.jsf` commands (Commands menu)
 13. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
-14. Stroke rendering parity with Fireworks' brush stamping (1-px strokes render heavier today)
 
 ## Lowest priority
 
 - Infinite Symbol Editor canvas (as in later Fireworks): render only the visible region. For
   now the editor's canvas has room all around the symbol (at least its own size), recomputed
   each time the symbol is opened.
-
 - Paste position from FireCraft into Fireworks MX: Fireworks ignores the position stored in the
   "PNG" clipboard data (its own included) and keeps it only from its private "Fireworks Internal
   Clipboard Format 3.0" (served through OLE). Decoding that format (dump it Windows-side, then
-  REA) would let FireCraft write it too. See docs/behavior/clipboard.md.
+  REA) would let FireCraft write it too. See [behavior/clipboard.md](behavior/clipboard.md).
 - Edit > Paste into a new document (File > New sized from the clipboard, as Fireworks does).
-
 - "Send to Photoshop / Illustrator / Flash / Dreamweaver", Launch and Edit, FrontPage roundtrip:
   menu entries may exist but integrations are out of scope.

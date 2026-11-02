@@ -11,6 +11,9 @@ FireCraft reimplements behaviour, not code. Sources, in order of preference:
    behaviour in prose; decompiled code is never copied or transliterated into FireCraft.
 4. **File formats** are learned from files the original writes and verified by having it open
    files FireCraft writes (interoperability).
+5. **Later versions** (Fireworks CS3-CS6 features such as 9-slice symbols and per-object locks):
+   learned from files they write, a Fireworks CS5 executable inspected statically (it isn't run
+   here), and files checked by hand in Fireworks CS5 on Windows.
 
 No Macromedia/Adobe artwork, icons, presets or sample files are committed. Screenshots of the
 original for local reference go in `reference/` (git-ignored).
@@ -36,3 +39,15 @@ Notes learned the hard way:
 * Wine's built-in `comctl32` breaks Fireworks MX's panel docking (blank panel groups). Install the
   native one in the prefix: `winetricks -q comctl32`. GPU settings don't matter: Fireworks MX draws
   with GDI only.
+
+## Testing FireCraft's UI
+
+`tools/fwmx-oracle/ui_session.sh OUTDIR FILE 'COMMANDS'` starts FireCraft on a virtual display
+with its accessibility tree available, runs the commands, and saves a screenshot. In the
+commands, `$UIMAP click NAME` clicks a widget by its accessible name (the AccessKit tree read
+over AT-SPI: menus, tools, Layers rows, buttons), `$UIMAP list FILTER` lists them, and `$XIN`
+(xin.py) sends keys, clicks and drags (`key a`, `combo Control_L+z`, `move X Y down move X Y
+up`). Clicking widgets by name avoids missed clicks from coordinates guessed off screenshots.
+
+Copy/paste with Fireworks under Wine needs Wine's `explorer` running (as in a desktop session)
+so Wine bridges its clipboard to X11; `xclip.py` reads and writes the X11 clipboard.

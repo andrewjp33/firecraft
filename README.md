@@ -10,25 +10,43 @@ and Linux (macOS should work too) and in the browser via WebAssembly.
 > Fireworks is a trademark of Adobe. Behaviour is learned from documentation and by measuring the
 > original program (see [docs/clean-room.md](docs/clean-room.md)).
 
-## Status: early foundation (v0.1)
+## Status (November 2026)
 
-Working today:
+FireCraft opens, edits and saves real Fireworks documents. Working today:
 
-- **Fireworks PNG** read and write, verified against real Fireworks MX: new documents and re-saved
-  Fireworks files open in Fireworks MX with their layers, bitmaps and vector paths
-  ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet (effects,
-  textures, symbols, slices, text, presets) is carried through a save untouched.
-- Fireworks MX-style workspace: menus, sectioned Tools panel, Property inspector, Layers,
-  Frames/History, document windows with Original/Preview tabs, or **documents in tabs**
-  (Window > Documents in Tabs, or Edit > Preferences).
-- Tools: Pointer (select, move, nudge), Marquee and Oval Marquee (hard/anti-alias/feather,
-  add/subtract/intersect), **Magic Wand**, Line, Rectangle, Ellipse, Eyedropper, Hand, Zoom, and
-  the **9-slice Scaling tool** from Fireworks CS5 (output stays MX compatible;
-  [docs/behavior/nine-slice.md](docs/behavior/nine-slice.md)).
-- Edit > Clear, Edit > Insert > Bitmap via Cut/Copy, Select All/Deselect/Inverse/Feather,
-  Canvas Size/Colour, layers (new, delete, show/hide, lock), undo/redo (100 steps by default, up to
-  999 in Preferences) with a History panel that moves back and forward,
-  PNG export, drag-and-drop open.
+- **Fireworks PNG** read and write, verified against real Fireworks MX (and Fireworks CS5 by
+  hand): re-saved Fireworks files and new documents open in Fireworks MX with their layers,
+  frames, bitmaps, paths, groups, masks, symbols and effects
+  ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet (text
+  editing, slices, presets) is carried through a save untouched.
+- **Rendering** of Fireworks documents: blend modes, all 11 MX gradient types, masks, symbol
+  instances (with perspective), animation frames, and the Live Effects (Gaussian/Motion/Radial
+  Blur, Drop Shadow, Glow, Inner Glow, Bevels and Embosses, Hue/Saturation, Levels, Curves and
+  more, plus built-in versions of the bundled Eye Candy 4000 LE / Splat LE filters). Scores
+  against Fireworks' own renders are tracked in [docs/parity.md](docs/parity.md).
+- **Workspace** in the style of Fireworks MX: menus, sectioned Tools panel with press-and-hold
+  flyouts, Property inspector, Layers, Frames/History, Library; document windows (move,
+  resize from any edge, minimise/maximise, Cascade/Tile) or **documents in tabs**.
+- **Tools**: Pointer and Select Behind, **Subselection** (points of paths, members inside
+  groups), Scale, Skew, Distort and rotate (live preview), the **9-slice Scaling tool** from
+  Fireworks CS5, Marquee and Oval Marquee, **Magic Wand**, Line, **Pen**, Rectangle (Fireworks
+  rectangle primitives with roundness), Ellipse, Eyedropper, Hand, Zoom
+  ([docs/behavior/paths.md](docs/behavior/paths.md)).
+- **Objects**: Cut/Copy/Paste, including **between FireCraft and Fireworks** (Windows, and
+  Linux through Wine), Duplicate/Clone, Group/Ungroup, Arrange, Align, Rotate/Flip, Numeric
+  Transform, names, per-object show/hide and **lock** (from Fireworks CS); Layers panel
+  reordering by drag; Select > Superselect/Subselect
+  ([docs/behavior/objects.md](docs/behavior/objects.md)).
+- **Live Effects editor** in the Property inspector, with live preview, OK/Cancel and fine
+  sliders ([docs/behavior/effects.md](docs/behavior/effects.md)).
+- **Symbols**: Convert to Symbol, Library panel, Symbol Editor (live updates, Done button),
+  Break Apart, and **9-slice symbols** from Fireworks CS that keep their slices under any
+  transform ([docs/behavior/symbols.md](docs/behavior/symbols.md)).
+- Edit > Insert > Bitmap via Cut/Copy, Select All/Deselect/Inverse/Feather, Canvas Size/Colour,
+  layers (new, delete, show/hide, lock), undo/redo (100 steps by default, up to 999 in
+  Preferences) with a History panel, animation playback, PNG export, drag-and-drop open.
+- Preferences: live dragging ("Show objects while moving them", off for slower PCs), tool
+  cursor style, Fireworks-exact or high-precision colour math, and more.
 
 ### The Magic Wand anti-alias fix
 
@@ -109,11 +127,13 @@ crates/
   doc        L1  document model: canvas, layers, frames, bitmap/path/text/group elements
   io         L2  Document <-> Fireworks PNG, flat PNG import/export
   engine     L3  session, tools, selection, commands, undo history
+  sysclip    --  system clipboard ("PNG" format shared with Fireworks): X11 and Win32
   ui-egui    L4  the Fireworks-style workspace (egui); only talks to engine
 apps/
   firecraft       desktop app (eframe)
   firecraft-web   browser app (eframe + trunk)
-tools/fwmx-oracle  scripts that measure the original Fireworks MX under Wine
+tools/fwmx-oracle  scripts that measure the original Fireworks MX under Wine, and UI test
+                   helpers that drive FireCraft (ui_session.sh, uimap.py, xin.py)
 ```
 
 ## License

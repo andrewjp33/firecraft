@@ -23,8 +23,13 @@
 * Drag a handle to bend the curve: a smooth point keeps its other handle in line (each keeps its
   length); Alt moves just the one handle.
 * Alt+drag a point to pull curve handles out of it.
-* Click a path's body to select it (its points show); drag to move the object. Drag on empty
-  canvas to select the points inside the box; a click there deselects.
+* Click an object to select it **inside groups**: the innermost member under the pointer (a
+  group's members, a masked group's content), as Fireworks' Subselection tool does; a path's
+  points show. Drag the body to move it. Members can be transformed, given effects, reordered,
+  duplicated and deleted within their group (see [objects.md](objects.md)); Select >
+  Superselect (Ctrl+Right) goes back to the group.
+* Drag on empty canvas to select the points inside the box; a click there deselects.
+* Selected objects that aren't paths show their bounds.
 
 ## Rectangle primitives
 
@@ -38,6 +43,6 @@ keep them rectangles.
 
 * Editing a rectangle's points (Subselection, Pen) silently makes it a plain path; Fireworks
   asks first.
-* The Subselection tool doesn't yet reach objects inside groups (Fireworks uses it to select
-  group members).
+* Group, Ungroup, Break Apart and Convert to Symbol don't act on group members yet.
+* Undo turns an edited rectangle back into a rectangle primitive.
 * Pen and Subselection work in the active document window only (like the transform tools).
