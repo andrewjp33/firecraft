@@ -80,7 +80,7 @@ make build        # Linux debug build only
 make run FILE=x.png
 make windows      # Windows .exe only (needs: sudo apt install mingw-w64)
 make test         # all tests
-make parity       # compare renders with Fireworks for ../ref_fw_images (REF_DIR=...)
+make parity       # compare renders with Fireworks for ../ref_fw_images; results in ../parity_runs
 make clean        # remove FireCraft's own build outputs; compiled dependencies stay (fast rebuild)
 make distclean    # remove everything (the next build compiles all dependencies again)
 make size         # disk used by target/ and dist/

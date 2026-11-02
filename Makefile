@@ -19,7 +19,10 @@ WASM_TARGET := wasm32-unknown-unknown
 OWN_PACKAGES := firecraft firecraft-web firecraft-ui-egui firecraft-engine firecraft-io firecraft-doc firecraft-raster firecraft-fwpng
 # Fireworks documents to compare against (make parity).
 REF_DIR ?= ../ref_fw_images
-PARITY_OUT ?= target/parity
+# Each `make parity` run gets its own folder here (date, time, commit), with index.html pages.
+PARITY_RUNS ?= ../parity_runs
+# How many of the newest runs keep their comparison images (older runs keep their tables).
+PARITY_KEEP ?= 10
 DIST := dist
 
 .PHONY: all help build release run windows windows-release web web-serve test lint check parity clean distclean size
@@ -90,9 +93,14 @@ check: test lint
 	$(CARGO) check -p firecraft-web --target $(WASM_TARGET)
 
 parity:
-	@mkdir -p $(PARITY_OUT)
-	$(CARGO) run --release -p firecraft-io --example parity_report -- $(PARITY_OUT) $(REF_DIR)/*.png
-	@echo "Side-by-side comparisons: $(PARITY_OUT)/*.cmp.png"
+	@mkdir -p $(PARITY_RUNS)
+	@commit=$$(git rev-parse --short HEAD 2>/dev/null || echo nogit); \
+	if [ -n "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then commit="$$commit+changes"; fi; \
+	run=$$(date +%Y-%m-%d_%H%M)_$$commit; \
+	prev=$$(ls -d $(PARITY_RUNS)/*/ 2>/dev/null | grep -v "/$$run/" | sort | tail -1); \
+	PARITY_LABEL="$$(date '+%Y-%m-%d %H:%M'), commit $$commit" PARITY_PREV="$$prev" PARITY_KEEP=$(PARITY_KEEP) \
+	$(CARGO) run -q --release -p firecraft-io --example parity_report -- $(PARITY_RUNS)/$$run $(REF_DIR)/*.png; \
+	echo "All runs: $$(cd $(PARITY_RUNS) && pwd)/index.html"
 
 # Only FireCraft's packages, for every target that has been built; third-party crates stay
 # compiled, so the next build takes about a minute instead of a full rebuild.

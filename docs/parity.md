@@ -5,8 +5,17 @@ scored against Fireworks on any real file without running Fireworks:
 
 ```sh
 cargo run --release -p firecraft-io --example parity_report -- OUT_DIR files/*.png
-make parity            # the same over ../ref_fw_images (REF_DIR=...), into target/parity
+make parity            # the same over ../ref_fw_images (REF_DIR=...)
 ```
+
+`make parity` keeps every run in its own folder, `../parity_runs/<date>_<time>_<commit>/`
+(`+changes` when there were uncommitted edits), next to the reference images. Open
+`../parity_runs/index.html` to see all runs with their average match and the change from the
+previous run; each run's `index.html` lists every file with its match, its change since the
+previous run (green better, red worse), round-trip status and the comparison image (click to
+enlarge, click a column title to sort). Each run folder also has `report.txt` (the printed
+table) and `results.tsv`. The newest 10 runs keep their images (`PARITY_KEEP=N` to change);
+older runs keep their tables. `PARITY_RUNS=dir` puts the runs elsewhere.
 
 For each file it checks the lossless container round trip, opens and renders the document,
 compares with Fireworks' render (match% = pixels within 8 levels, composited over white), checks
