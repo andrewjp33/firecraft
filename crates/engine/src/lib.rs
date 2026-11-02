@@ -445,6 +445,48 @@ impl DocState {
         });
     }
 
+    /// The first selected object's Live Effects (what the Property inspector lists).
+    pub fn selected_effects(&self) -> Option<Vec<firecraft_doc::EffectEntry>> {
+        self.element(*self.selection.first()?).map(|e| e.effects.clone())
+    }
+
+    /// Replace the selected objects' effect lists (one undo step), as Fireworks' Property
+    /// inspector does for every selected object.
+    pub fn set_effects(&mut self, list: Vec<firecraft_doc::EffectEntry>, label: &str) {
+        if self.selection.is_empty() {
+            return;
+        }
+        let refs = self.selection.clone();
+        self.edit(label, |s| {
+            for r in refs {
+                if let Some(e) = s.element_mut(r) {
+                    e.effects = list.clone();
+                }
+            }
+        });
+    }
+
+    /// Start a live edit (an effect's settings popup): records one undo step now; later
+    /// [`set_effects_live`](Self::set_effects_live) calls change the document without more.
+    pub fn begin_live_edit(&mut self, label: &str) {
+        self.history.push(label, &self.doc);
+    }
+
+    /// End a live edit that changed nothing: remove its undo step.
+    pub fn discard_live_edit(&mut self) {
+        self.history.discard_last();
+    }
+
+    pub fn set_effects_live(&mut self, list: Vec<firecraft_doc::EffectEntry>) {
+        let refs = self.selection.clone();
+        for r in refs {
+            if let Some(e) = self.element_mut(r) {
+                e.effects = list.clone();
+            }
+        }
+        self.touch();
+    }
+
     /// Copies of the selected objects (for [`transform_from`](Self::transform_from)).
     pub fn selected_elements(&self) -> Vec<(ElementRef, Element)> {
         self.selection

@@ -88,6 +88,7 @@ const COLOR_FILL: &str = "{dd54adc0-a279-11d3-b92a000502f3fdbe}";
 const DROP_SHADOW: &str = "{a7944db8-6ce2-11d1-8c76000502701850}";
 const BEVEL_GLOW: &str = "{7fe61102-6ce2-11d1-8c76000502701850}";
 const INNER_GLOW: &str = "{2ba87123-8220-11d3-baad0000861f4d01}";
+const INNER_SHADOW: &str = "{5600f702-774c-11d3-baad0000861f4d01}";
 
 impl Effect {
     /// From an effect's parameters (`EffectMoaID` plus the other keys), if FireCraft renders it.
@@ -185,6 +186,14 @@ impl Effect {
             crate::plugins::MARBLE => {
                 Effect::Marble(crate::plugins::Marble::parse(&crate::plugins::Params(p)))
             }
+            INNER_SHADOW => Effect::Shadow {
+                color: color("ShadowColor", Rgba::new(0, 0, 0, 165)),
+                distance: num("ShadowDistance", 7.0),
+                angle: num("ShadowAngle", 315.0),
+                softness: num("ShadowBlur", 4.0),
+                inner: true,
+                knock_out: false,
+            },
             INNER_GLOW => Effect::Glow {
                 color: color("OuterBevelColor", Rgba::BLACK),
                 width: num("GlowWidth", 4.0),

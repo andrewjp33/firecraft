@@ -13,6 +13,8 @@
 
 pub mod element;
 
+pub mod effects;
+pub use effects::{EffectEntry, EffectParam};
 pub use element::{BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, Stroke, Text};
 use firecraft_fwpng::Node;
 use firecraft_raster::{ColorMath, Rgba, RgbaImage};

@@ -1,7 +1,7 @@
 //! The Property inspector: one context-sensitive panel for the active tool, the selection or
 //! the document (Fireworks MX's signature panel).
 
-use egui::{Color32, ComboBox, DragValue, Rect, Sense, Slider, vec2};
+use egui::{ComboBox, DragValue, Rect, Sense, Slider, vec2};
 use firecraft_doc::ElementKind;
 use firecraft_engine::Tool;
 use firecraft_raster::{AntiAliasStyle, Edge};
@@ -282,33 +282,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 d.set_blend(m);
             }
         });
-        ui.horizontal(|ui| {
-            ui.label("Effects:");
-            ui.add_enabled(false, egui::Button::new("+").small())
-                .on_disabled_hover_text("Live Effects are on the roadmap");
-        });
-        let has_effects = first
-            .as_ref()
-            .and_then(|e| e.raw.as_ref())
-            .and_then(|r| r.child("EFL"))
-            .is_some_and(|e| e.child("EPS").is_some_and(|p| !p.children.is_empty()));
-        let (r, _) = ui.allocate_exact_size(vec2(160.0, 40.0), Sense::hover());
-        ui.painter().rect_filled(r, 0.0, Color32::WHITE);
-        ui.painter().rect_stroke(
-            r,
-            0.0,
-            egui::Stroke::new(1.0, theme::BORDER),
-            egui::StrokeKind::Inside,
-        );
-        if has_effects {
-            ui.painter().text(
-                r.left_top() + vec2(4.0, 4.0),
-                egui::Align2::LEFT_TOP,
-                "(effects preserved)",
-                egui::FontId::proportional(10.0),
-                Color32::GRAY,
-            );
-        }
+        crate::effects_ui::panel(app, ui);
     });
 }
 

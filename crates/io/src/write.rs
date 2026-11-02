@@ -315,6 +315,7 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
     } else if n.child("VIS").is_none() {
         n.children.insert(0, Node::bool("VIS", false));
     }
+    write_effect_list(&mut n, &el.effects);
     // Blend mode: Normal is written as an absent tag (as Fireworks does).
     if el.blend != firecraft_raster::BlendMode::Normal {
         let bld = Node::int("BLD", el.blend.fw_code());
@@ -621,5 +622,37 @@ mod tests {
         let doc = crate::open(&png, Some("x.png".into())).unwrap();
         assert_eq!(doc.render(0).get(2, 1), Some(Rgba::new(1, 2, 3, 4)));
         assert_eq!(doc.title(), "x.png");
+    }
+}
+
+/// Live Effects: `EFLv` rebuilt from the object's list (parameters as stored, so an unchanged
+/// list comes out identical). New lists go where Fireworks puts them: after `PATv` (paths),
+/// before `ELMv` (groups), else last.
+fn write_effect_list(n: &mut Node, list: &[firecraft_doc::EffectEntry]) {
+    let at = n.children.iter().position(|c| c.is("EFL"));
+    match (list.is_empty(), at) {
+        (true, Some(i)) => {
+            // Keep an empty list as read; drop one whose effects were all removed.
+            if n.children.get(i).is_some_and(|c| c.child("EPS").is_some()) {
+                n.children.remove(i);
+            }
+        }
+        (true, None) => {}
+        (false, Some(i)) => {
+            if let Some(slot) = n.children.get_mut(i) {
+                let prev = slot.clone();
+                *slot = firecraft_doc::effects::write_list(list, Some(&prev));
+            }
+        }
+        (false, None) => {
+            let efl = firecraft_doc::effects::write_list(list, None);
+            if let Some(i) = n.children.iter().position(|c| c.is("PAT")) {
+                n.children.insert(i + 1, efl);
+            } else if let Some(i) = n.children.iter().position(|c| c.is("ELM")) {
+                n.children.insert(i, efl);
+            } else {
+                n.children.push(efl);
+            }
+        }
     }
 }

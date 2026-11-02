@@ -43,6 +43,11 @@ impl History {
         self.undo.drain(..excess);
     }
 
+    /// Drop the most recent undo step without applying it (an edit that changed nothing).
+    pub fn discard_last(&mut self) {
+        self.undo.pop();
+    }
+
     pub fn undo(&mut self, current: &Document) -> Option<Document> {
         let (label, doc) = self.undo.pop()?;
         self.redo.push((label, current.clone()));

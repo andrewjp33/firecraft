@@ -159,8 +159,8 @@ pub struct Element {
     /// Percent, 0..=100 (Fireworks stores tenths of a percent in `OPAi`).
     pub opacity: f32,
     pub blend: BlendMode,
-    /// Live Effects FireCraft renders, in order (the full list stays in `raw`).
-    pub effects: Vec<Effect>,
+    /// Live Effects, in order (as stored; see `effects::EffectEntry`).
+    pub effects: Vec<crate::effects::EffectEntry>,
     pub kind: ElementKind,
     /// Original Fireworks node (effects, textures, gradients...), re-emitted on save.
     pub raw: Option<Node>,
@@ -592,7 +592,8 @@ impl Element {
         }
         let opacity = (self.opacity.clamp(0.0, 100.0) * 2.55).round() as u8;
         // A plain group passes its children's blending through to what lies beneath it.
-        let plain = opacity == 255 && self.blend == BlendMode::Normal && self.effects.is_empty();
+        let active: Vec<&Effect> = self.effects.iter().filter_map(|e| e.active()).collect();
+        let plain = opacity == 255 && self.blend == BlendMode::Normal && active.is_empty();
         if let ElementKind::Group(children) = &self.kind {
             if plain {
                 children.iter().for_each(|c| c.render_onto(out, ox, oy, ctx));
@@ -607,7 +608,7 @@ impl Element {
             }
             return;
         }
-        if self.effects.is_empty() {
+        if active.is_empty() {
             let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else {
                 return;
             };
@@ -617,7 +618,7 @@ impl Element {
         // Effects can draw outside the object (shadows, glows, blurs) and are affected by the
         // object's pixels beyond the output's edge (a blur near the canvas edge): rasterize the
         // output area grown by the effect margin, and give the object that margin of padding.
-        let m = self.effects.iter().map(Effect::margin).max().unwrap_or(0) as i64;
+        let m = active.iter().map(|e| e.margin()).max().unwrap_or(0) as i64;
         let (ew, eh) = (out.width() as i64 + 2 * m, out.height() as i64 + 2 * m);
         if ew * eh > 1 << 28 {
             return;
@@ -633,7 +634,7 @@ impl Element {
         }
         let mut buf = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
         buf.draw(&img, x - bx, y - by, 255);
-        for e in &self.effects {
+        for e in &active {
             e.apply_with(&mut buf, ctx.math);
         }
         out.draw_blend_with(&buf, bx - m, by - m, opacity, self.blend, ctx.math);

@@ -19,6 +19,7 @@
 mod canvas;
 pub mod cursors;
 mod dialogs;
+pub mod effects_ui;
 mod icons;
 mod inspector;
 mod menus;
@@ -209,6 +210,7 @@ pub struct FireCraftApp {
     styled: bool,
     nine: Option<nine::NineEdit>,
     transform: Option<transform_tool::TransformEdit>,
+    effects_ui: effects_ui::EffectsUi,
     /// The user confirmed quitting with unsaved documents.
     quit_confirmed: bool,
     /// Showing the "save changes before quitting?" prompt.
@@ -228,6 +230,7 @@ impl FireCraftApp {
             styled: false,
             nine: None,
             transform: None,
+            effects_ui: effects_ui::EffectsUi::default(),
             quit_confirmed: false,
             quit_prompt: false,
         }
@@ -357,6 +360,7 @@ impl FireCraftApp {
             .frame(theme::workspace_frame())
             .show(ui, |ui| canvas::workspace(self, ui));
         dialogs::show(self, &ctx);
+        effects_ui::editor(self, &ctx);
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {
                 Color32::from_rgb(180, 0, 0)

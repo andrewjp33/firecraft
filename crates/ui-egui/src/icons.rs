@@ -237,6 +237,7 @@ pub fn paint(p: &Painter, r: Rect, tool: Tool, enabled: bool) {
 /// Small UI glyphs, painted (the suite's font set carries no symbol/emoji faces).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Glyph {
+    TriangleUp,
     TriangleDown,
     TriangleRight,
     Eye,
@@ -262,6 +263,13 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
     let s = Stroke::new(1.2, c);
     let at = |fx: f32, fy: f32| pos2(r.left() + fx * r.width(), r.top() + fy * r.height());
     match g {
+        Glyph::TriangleUp => {
+            p.add(Shape::convex_polygon(
+                vec![at(0.2, 0.7), at(0.8, 0.7), at(0.5, 0.25)],
+                c,
+                Stroke::NONE,
+            ));
+        }
         Glyph::TriangleDown => {
             p.add(Shape::convex_polygon(
                 vec![at(0.2, 0.3), at(0.8, 0.3), at(0.5, 0.75)],

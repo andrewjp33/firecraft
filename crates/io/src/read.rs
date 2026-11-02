@@ -178,7 +178,10 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
     };
     let mut el = Element::new(kind);
     el.raw = Some(n.clone());
-    el.effects = n.child("EFL").map(read_effects).unwrap_or_default();
+    el.effects = n
+        .child("EFL")
+        .map(firecraft_doc::effects::read_list)
+        .unwrap_or_default();
     // Hidden objects (eye off in the Layers panel).
     el.visible = n.bool_of("VIS").unwrap_or(true);
     if let Some(b) = n.int_of("BLD") {
@@ -255,44 +258,6 @@ fn read_instance(n: &Node, ctx: &Ctx) -> ElementKind {
         matrix,
         bounds,
     }
-}
-
-/// Live Effects: `EFLv` holds one `EPSv` per effect, each a list of `DCEv` key/value pairs.
-/// Effects that are switched off (`EffectIsVisible` false) or not rendered yet are skipped here
-/// (they stay in the object's raw node, so saving keeps them).
-fn read_effects(efl: &Node) -> Vec<firecraft_raster::effects::Effect> {
-    efl.children_tagged("EPS")
-        .filter_map(|eps| {
-            let mut params = std::collections::HashMap::new();
-            let mut vectors = std::collections::HashMap::new();
-            for dce in eps.children_tagged("DCE") {
-                let Some(key) = dce.str_of("DCK") else { continue };
-                if let Some(v) = dce.str_of("DCV") {
-                    params.insert(key.to_owned(), v.to_owned());
-                } else if let Some(list) = dce
-                    .children
-                    .iter()
-                    .find(|c| c.kind == firecraft_fwpng::Kind::Vector)
-                {
-                    let pts = list
-                        .children
-                        .iter()
-                        .map(|p| {
-                            (
-                                p.float_of("XLC").unwrap_or(0.0) as f32,
-                                p.float_of("YLC").unwrap_or(0.0) as f32,
-                            )
-                        })
-                        .collect();
-                    vectors.insert(key.to_owned(), pts);
-                }
-            }
-            if params.get("EffectIsVisible").is_some_and(|v| v == "false") {
-                return None;
-            }
-            firecraft_raster::effects::Effect::parse(&params, &vectors)
-        })
-        .collect()
 }
 
 /// Groups: `GRTi` 0 = plain group, 1 = "mask to image" (mask in `MRMv`, an `IMGv` mask cache
