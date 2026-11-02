@@ -37,6 +37,8 @@ pub struct TransformEdit {
     drag: Option<Drag>,
     /// Live preview of the drag in progress.
     preview: Option<Preview>,
+    /// The box is a symbol instance's own outline (drawn dotted, as Fireworks does).
+    instance: bool,
 }
 
 /// How a transform is previewed while dragging.
@@ -83,16 +85,36 @@ fn sync<'a>(edit: &'a mut Option<TransformEdit>, d: &DocState) -> Option<&'a mut
         .as_ref()
         .is_none_or(|e| e.doc != d.id || e.refs != d.selection || e.revision != d.revision);
     if stale {
+        // A single symbol instance: the box is its own outline (rotated, skewed or distorted as
+        // the instance is), and edits rebuild its matrix from its symbol's content rectangle,
+        // so switching tools keeps perspective and nothing accumulates (as in Fireworks).
+        let instance = match d.selection.as_slice() {
+            [r] => d.instance_quad(*r).and_then(|(q, content)| {
+                let mut e = d.element(*r)?.clone();
+                if let firecraft_doc::ElementKind::Instance { matrix, bounds, .. } = &mut e.kind {
+                    *matrix = Affine::IDENTITY;
+                    *bounds = Some(content);
+                }
+                Some((q, content, vec![(*r, e)]))
+            }),
+            _ => None,
+        };
+        let is_instance = instance.is_some();
+        let (quad, rect, originals) = match instance {
+            Some((q, content, originals)) => (q, content, originals),
+            None => (corners(rect), rect, d.selected_elements()),
+        };
         *edit = Some(TransformEdit {
             doc: d.id,
             refs: d.selection.clone(),
             revision: d.revision,
-            originals: d.selected_elements(),
+            originals,
             rect,
-            quad: corners(rect),
+            quad,
             pivot_uv: (0.5, 0.5),
             drag: None,
             preview: None,
+            instance: is_instance,
         });
     }
     edit.as_mut()
@@ -211,16 +233,15 @@ fn dragged(tool: Tool, drag: &Drag, p: Pt, shift: bool, alt: bool) -> [Pt; 4] {
 
 /// Scale in the box's own frame (it stays a parallelogram while scaling and rotating).
 fn scale_box(q: &[Pt; 4], handle: Handle, k: usize, p: Pt, shift: bool, alt: bool) -> [Pt; 4] {
-    let (o, u, v) = (q[0], sub(q[1], q[0]), sub(q[3], q[0]));
-    let det = u.0 * v.1 - u.1 * v.0;
-    if det.abs() < 1e-9 {
+    // Work in the box's own coordinates (0..1 across it) through its perspective mapping, so a
+    // distorted box scales within its perspective instead of snapping to a parallelogram.
+    let Some(h) = Affine::rect_to_quad((0.0, 0.0, 1.0, 1.0), *q) else {
         return *q;
-    }
-    // Pointer in box coordinates (0..1 across the box).
-    let r = sub(p, o);
-    let (s, t) = ((r.0 * v.1 - r.1 * v.0) / det, (u.0 * r.1 - u.1 * r.0) / det);
+    };
+    let Some(inv) = h.invert() else { return *q };
+    let (s, t) = inv.apply(p.0, p.1);
     let unit = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
-    let at = |a: f64, b: f64| add(o, add(scale(u, a), scale(v, b)));
+    let at = |a: f64, b: f64| h.apply(a, b);
     if let Handle::Corner(_) = handle {
         let c = unit[k];
         // The fixed point: the opposite corner, or the centre with Alt.
@@ -508,10 +529,22 @@ pub fn canvas(
 
     // Overlay: the box, its handles and centre.
     let pts: Vec<Pos2> = edit.quad.iter().map(|&c| to_screen(c)).collect();
-    p.add(egui::Shape::closed_line(
-        pts.clone(),
-        Stroke::new(1.0, theme::HANDLE_BLUE),
-    ));
+    if edit.instance {
+        // A symbol instance: its outline, dotted.
+        let mut ring = pts.clone();
+        ring.extend(pts.first().copied());
+        p.extend(egui::Shape::dashed_line(
+            &ring,
+            Stroke::new(1.0, theme::HANDLE_BLUE),
+            3.0,
+            3.0,
+        ));
+    } else {
+        p.add(egui::Shape::closed_line(
+            pts.clone(),
+            Stroke::new(1.0, theme::HANDLE_BLUE),
+        ));
+    }
     let handle = |c: Pos2| {
         let r = Rect::from_center_size(c, vec2(7.0, 7.0));
         p.rect_filled(r, 0.0, Color32::WHITE);
@@ -641,6 +674,7 @@ mod tests {
             pivot_uv: (0.5, 0.5),
             drag: None,
             preview: None,
+            instance: false,
         };
         let to_screen = |p: Pt| pos2(p.0 as f32, p.1 as f32);
         // 3 px from the top-right corner: snaps there.
@@ -651,5 +685,29 @@ mod tests {
         // Far from every snap point: free.
         let mid = pivot_at(&edit, (30.0, 20.0), &to_screen, false).unwrap();
         assert!((mid.0 - 0.3).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod perspective_tests {
+    use super::*;
+
+    #[test]
+    fn scaling_a_distorted_box_keeps_its_perspective() {
+        // A perspective (non-parallelogram) box.
+        let q: [Pt; 4] = [(10.0, 10.0), (110.0, 20.0), (100.0, 90.0), (0.0, 120.0)];
+        // Grabbing a corner where it is changes nothing (the parallelogram math snapped it).
+        let same = scale_box(&q, Handle::Corner(2), 2, q[2], false, false);
+        for (a, b) in same.iter().zip(&q) {
+            assert!((a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6, "{same:?}");
+        }
+        // Dragging it keeps the opposite corner and moves its neighbours along their sides.
+        let moved = scale_box(&q, Handle::Corner(2), 2, (120.0, 110.0), false, false);
+        assert!((moved[0].0 - q[0].0).abs() < 1e-6 && (moved[0].1 - q[0].1).abs() < 1e-6);
+        let h = Affine::rect_to_quad((0.0, 0.0, 1.0, 1.0), q).expect("map");
+        let inv = h.invert().expect("inverse");
+        // Top-right stays on the top side (t = 0), bottom-left on the left side (s = 0).
+        assert!(inv.apply(moved[1].0, moved[1].1).1.abs() < 1e-6);
+        assert!(inv.apply(moved[3].0, moved[3].1).0.abs() < 1e-6);
     }
 }

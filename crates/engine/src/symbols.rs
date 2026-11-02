@@ -165,6 +165,28 @@ impl DocState {
         Some(id)
     }
 
+    /// An instance's outline: its symbol's content rectangle under the instance's matrix (a
+    /// distorted instance has a distorted outline), corners clockwise from top-left. Also the
+    /// symbol-space rectangle it comes from.
+    pub fn instance_quad(&self, r: ElementRef) -> Option<([(f64, f64); 4], (f64, f64, f64, f64))> {
+        let ElementKind::Instance { symbol, matrix, .. } = &self.element(r)?.kind else {
+            return None;
+        };
+        let (x, y, w, h) = self
+            .doc
+            .symbols
+            .iter()
+            .find(|s| s.id == *symbol)?
+            .content_bounds()?;
+        let q = [
+            matrix.apply(x, y),
+            matrix.apply(x + w, y),
+            matrix.apply(x + w, y + h),
+            matrix.apply(x, y + h),
+        ];
+        Some((q, (x, y, w, h)))
+    }
+
     /// Whether Break Apart has something to do.
     pub fn can_break_apart(&self) -> bool {
         self.selection.iter().any(|r| self.instance_symbol(*r).is_some())
