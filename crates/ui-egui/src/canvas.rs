@@ -723,6 +723,63 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             p.line_segment([c - vec2(9.0, 0.0), c + vec2(9.0, 0.0)], s);
             p.line_segment([c - vec2(0.0, 9.0), c + vec2(0.0, 9.0)], s);
         }
+        // 9-slice guides (dashed, draggable), as in Fireworks CS.
+        if let Some((gl, gr, gt, gb)) = d.symbol_nine {
+            let (ox, oy) = link.offset;
+            let area = canvas_rect.intersect(rect);
+            let guide = Stroke::new(1.0, Color32::from_rgb(0, 0, 255));
+            let mut moved = None;
+            for (k, v) in [gl, gr, gt, gb].into_iter().enumerate() {
+                let vertical = k < 2;
+                let s = if vertical {
+                    to_screen(ox + v, 0.0).x
+                } else {
+                    to_screen(0.0, oy + v).y
+                };
+                let (line, zone, cursor) = if vertical {
+                    (
+                        [pos2(s, area.top()), pos2(s, area.bottom())],
+                        Rect::from_min_max(pos2(s - 3.0, area.top()), pos2(s + 3.0, area.bottom())),
+                        egui::CursorIcon::ResizeHorizontal,
+                    )
+                } else {
+                    (
+                        [pos2(area.left(), s), pos2(area.right(), s)],
+                        Rect::from_min_max(pos2(area.left(), s - 3.0), pos2(area.right(), s + 3.0)),
+                        egui::CursorIcon::ResizeVertical,
+                    )
+                };
+                p.extend(Shape::dashed_line(&line, guide, 5.0, 4.0));
+                let g = ui.interact(zone, egui::Id::unique(("nine_guide", d.id, k)), Sense::drag());
+                if g.hovered() || g.dragged() {
+                    ctx.set_cursor_icon(cursor);
+                }
+                if g.dragged()
+                    && let Some(pos) = ctx.pointer_interact_pos()
+                {
+                    let (x, y) = to_doc(pos);
+                    moved = Some((
+                        k,
+                        if vertical {
+                            (x - ox).round()
+                        } else {
+                            (y - oy).round()
+                        },
+                    ));
+                }
+            }
+            if let Some((k, v)) = moved {
+                let mut g = [gl, gr, gt, gb];
+                if let Some(slot) = g.get_mut(k) {
+                    *slot = v;
+                }
+                // Keep each pair in order.
+                let (l, r) = (g[0].min(g[1]), g[0].max(g[1]));
+                let (t, b) = (g[2].min(g[3]), g[2].max(g[3]));
+                d.symbol_nine = Some((l, r, t, b));
+                d.mark_changed();
+            }
+        }
     }
 
     // Each tool shows its own cursor over the canvas.

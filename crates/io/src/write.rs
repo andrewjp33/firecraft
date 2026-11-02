@@ -215,6 +215,44 @@ fn write_symbols(root: &mut Node, doc: &Document, w: &mut Writer) {
                 },
                 None => n.children.retain(|c| !c.is("MSY")),
             }
+            // 9-slice guides (Fireworks CS's NGSv, after GDSv). Fireworks MX ignores the node
+            // (the file opens, the symbol scales plainly); CS reads it.
+            match s.nine {
+                Some((left, right, top, bottom)) => {
+                    let mut ngs = n.child("NGS").cloned().unwrap_or_else(|| {
+                        Node::vector(
+                            "NGS",
+                            vec![
+                                Node::bool("NGL", false),
+                                Node::int("NGK", 0xff00_00ff_u32 as i64),
+                                Node::vector("NGM", vec![]),
+                                Node::vector("NGV", vec![]),
+                            ],
+                        )
+                    });
+                    ngs.children.retain(|c| !c.is("NGC"));
+                    let at = ngs
+                        .children
+                        .iter()
+                        .position(|c| c.is("NGM"))
+                        .unwrap_or(ngs.children.len());
+                    for (k, v) in [top, bottom, left, right].into_iter().enumerate() {
+                        ngs.children.insert(at + k, Node::float("NGC", v));
+                    }
+                    match n.children.iter().position(|c| c.is("NGS")) {
+                        Some(i) => n.children[i] = ngs,
+                        None => {
+                            let at = n
+                                .children
+                                .iter()
+                                .position(|c| c.is("GDS"))
+                                .map_or(n.children.len(), |i| i + 1);
+                            n.children.insert(at, ngs);
+                        }
+                    }
+                }
+                None => n.children.retain(|c| !c.is("NGS")),
+            }
             let frames = s.frames.max(1);
             let layers = s.layers.iter().map(|l| write_layer(l, frames, w)).collect();
             put(&mut n, Node::vector("LYL", layers));

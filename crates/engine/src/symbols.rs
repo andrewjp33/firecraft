@@ -29,6 +29,16 @@ pub struct SymbolLink {
 /// added on each side, so there's space to work in all around it).
 const EDITOR_MARGIN: f64 = 500.0;
 
+/// 9-slice guides at a rectangle's thirds: (left, right, top, bottom).
+pub fn thirds(x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
+    (
+        (x + w / 3.0).round(),
+        (x + 2.0 * w / 3.0).round(),
+        (y + h / 3.0).round(),
+        (y + 2.0 * h / 3.0).round(),
+    )
+}
+
 /// A fresh, unused symbol id (Fireworks uses arbitrary 32-bit ids).
 fn new_symbol_id(doc: &Document) -> u32 {
     let mut seed = std::time::SystemTime::now()
@@ -109,6 +119,12 @@ impl DocState {
     /// Modify > Symbol > Convert to Symbol (F8): the selected objects become a symbol and are
     /// replaced by an instance of it (where the topmost of them was). Returns the symbol's id.
     pub fn convert_to_symbol(&mut self, name: &str, kind: SymbolKind) -> Option<u32> {
+        self.convert_to_symbol_with(name, kind, false)
+    }
+
+    /// Convert to Symbol, optionally with 9-slice scaling guides (Fireworks CS; placed at the
+    /// content's thirds, as Fireworks does).
+    pub fn convert_to_symbol_with(&mut self, name: &str, kind: SymbolKind, nine: bool) -> Option<u32> {
         let refs = self.stacking_selection();
         let top = *refs.last()?;
         if self.pixels.is_some() {
@@ -138,7 +154,7 @@ impl DocState {
                 kind,
                 layers: vec![layer, web],
                 frames,
-                nine: None,
+                nine: nine.then(|| thirds(x - cx, y - cy, w, h)),
                 raw: None,
             };
             Arc::make_mut(&mut s.doc.symbols).push(sym);
@@ -275,6 +291,22 @@ impl DocState {
         self.add_element(el, "Insert Instance");
     }
 
+    /// Library: turn a symbol's 9-slice scaling guides on (at its content's thirds) or off.
+    pub fn set_symbol_nine(&mut self, id: u32, on: bool) {
+        let Some(sym) = self.doc.symbols.iter().find(|s| s.id == id) else {
+            return;
+        };
+        if sym.nine.is_some() == on {
+            return;
+        }
+        let guides = sym.content_bounds().map(|(x, y, w, h)| thirds(x, y, w, h));
+        self.edit(if on { "Enable 9-slice" } else { "Disable 9-slice" }, |s| {
+            if let Some(sym) = Arc::make_mut(&mut s.doc.symbols).iter_mut().find(|x| x.id == id) {
+                sym.nine = if on { guides } else { None };
+            }
+        });
+    }
+
     /// Library: rename a symbol (its instances show the new name).
     pub fn rename_symbol(&mut self, id: u32, name: &str) {
         let name = name.trim();
@@ -380,6 +412,18 @@ impl DocState {
     /// Write the Symbol Editor's content back into symbol `id` (live, without an undo step in
     /// this document: the editing is undone in the Symbol Editor).
     pub fn set_symbol_content(&mut self, id: u32, editor: &Document, offset: (f64, f64)) {
+        self.set_symbol_content_with(id, editor, offset, None);
+    }
+
+    /// [`set_symbol_content`](Self::set_symbol_content), also setting the 9-slice guides when
+    /// given (`Some(None)` turns them off).
+    pub fn set_symbol_content_with(
+        &mut self,
+        id: u32,
+        editor: &Document,
+        offset: (f64, f64),
+        editor_nine: Option<Option<(f64, f64, f64, f64)>>,
+    ) {
         let Some(sym) = Arc::make_mut(&mut self.doc.symbols)
             .iter_mut()
             .find(|s| s.id == id)
@@ -399,6 +443,10 @@ impl DocState {
             })
             .collect();
         sym.frames = editor.frames.len().max(1);
+        // Guides moved in the editor (symbol space).
+        if let Some(g) = editor_nine {
+            sym.nine = g;
+        }
         // Tiles the edited objects refer to (pasted textures...).
         for (k, t) in editor.raw_tiles.iter() {
             if !self.doc.raw_tiles.contains_key(k) {
@@ -433,6 +481,12 @@ impl Session {
             .iter()
             .find(|s| s.id == id)
             .and_then(Symbol::content_bounds);
+        let nine = parent
+            .doc
+            .symbols
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(|s| s.nine);
         self.push(editor);
         if let Some(d) = self.docs.last_mut() {
             d.symbol_link = Some(SymbolLink {
@@ -441,6 +495,7 @@ impl Session {
                 offset,
                 synced: d.revision,
             });
+            d.symbol_nine = nine;
             // Open on the content (and the symbol's origin), not the whole canvas.
             d.view_focus = Some(match content {
                 Some((x, y, w, h)) => {
@@ -490,9 +545,9 @@ impl Session {
             if editor.revision == link.synced {
                 continue;
             }
-            let (content, revision) = (editor.doc.clone(), editor.revision);
+            let (content, revision, guides) = (editor.doc.clone(), editor.revision, editor.symbol_nine);
             if let Some(parent) = self.docs.get_mut(p) {
-                parent.set_symbol_content(link.symbol, &content, link.offset);
+                parent.set_symbol_content_with(link.symbol, &content, link.offset, Some(guides));
             }
             if let Some(editor) = self.docs.get_mut(i) {
                 editor.symbol_link = Some(SymbolLink {

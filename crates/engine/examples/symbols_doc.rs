@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let r = |index| ElementRef { layer: 0, index };
     d.selection = vec![r(0), r(1)];
     let g = d
-        .convert_to_symbol("fc_graphic", SymbolKind::Graphic)
+        .convert_to_symbol_with("fc_graphic", SymbolKind::Graphic, true)
         .ok_or("convert")?;
     d.selection = vec![r(0)];
     d.convert_to_symbol("fc_anim", SymbolKind::Animation)

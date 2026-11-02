@@ -46,6 +46,13 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         .iter()
         .map(|s| (s.id, s.name.clone(), s.kind))
         .collect();
+    let nines: Vec<u32> = d
+        .doc
+        .symbols
+        .iter()
+        .filter(|s| s.nine.is_some())
+        .map(|s| s.id)
+        .collect();
     if st.selected.is_some_and(|id| !symbols.iter().any(|s| s.0 == id)) {
         st.selected = None;
     }
@@ -154,6 +161,17 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut insert = false;
     let mut duplicate = false;
     let mut delete = false;
+    let mut nine: Option<bool> = None;
+    if let Some(id) = sel {
+        let mut on = nines.contains(&id);
+        if ui
+            .checkbox(&mut on, "9-slice scaling guides")
+            .on_hover_text("Scaled instances keep their corners' size (Fireworks CS); move the guides in the Symbol Editor. Fireworks MX ignores them.")
+            .changed()
+        {
+            nine = Some(on);
+        }
+    }
     ui.horizontal(|ui| {
         insert = icons::glyph_button(ui, Glyph::Plus, 16.0, sel.is_some())
             .on_hover_text("Place an instance in the middle of the canvas")
@@ -189,6 +207,9 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
         if delete {
             d.delete_symbol(id);
+        }
+        if let Some(on) = nine {
+            d.set_symbol_nine(id, on);
         }
     }
     if let Some(id) = edit {

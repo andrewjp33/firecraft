@@ -202,7 +202,8 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Animation", "");
             ui.menu_button("Symbol", |ui| {
                 if item(ui, "Convert to Symbol...", "F8", has_objects) {
-                    app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic));
+                    app.dialogs.convert_symbol =
+                        Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic, false));
                 }
                 let instance = app
                     .session
@@ -578,7 +579,7 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     if pressed(Modifiers::NONE, Key::F8) && app.session.active_doc().is_some_and(|d| !d.selection.is_empty())
     {
-        app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic));
+        app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic, false));
     }
     if pressed(Modifiers::NONE, Key::F4) {
         toggle_panels(app);

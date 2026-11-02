@@ -54,6 +54,9 @@ pub struct DocState {
     /// The region to show when the document first appears (x, y, w, h): the Symbol Editor
     /// shows the symbol's content, not its whole canvas.
     pub view_focus: Option<(f64, f64, f64, f64)>,
+    /// Symbol Editor: the symbol's 9-slice guides (left, right, top, bottom; symbol space),
+    /// edited here and written back with the content.
+    pub symbol_nine: Option<(f64, f64, f64, f64)>,
     /// `dirty` when the live edit in progress began (restored if it's cancelled).
     live_dirty: bool,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
@@ -74,6 +77,7 @@ impl DocState {
             dirty: false,
             symbol_link: None,
             view_focus: None,
+            symbol_nine: None,
             live_dirty: false,
             revision: 0,
         }

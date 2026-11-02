@@ -119,3 +119,58 @@ mod tests {
         assert_eq!((flat.width(), flat.height()), (5, 4));
     }
 }
+
+#[cfg(test)]
+mod nine_tests {
+    use firecraft_doc::{Bitmap, Document, Element, ElementKind, Layer, Symbol, SymbolKind};
+    use firecraft_raster::{Rgba, RgbaImage};
+
+    #[test]
+    fn nine_slice_guides_round_trip_as_fireworks_cs_writes_them() {
+        let mut doc = Document::new(200, 100, 72.0, Some(Rgba::WHITE));
+        let mut layer = Layer::new("Layer 1");
+        layer.cells = vec![vec![Element::new(ElementKind::Bitmap(Bitmap {
+            x: -30,
+            y: -20,
+            image: RgbaImage::new(60, 40, Rgba::new(1, 2, 3, 255)),
+        }))]];
+        let sym = Symbol {
+            id: 0x1234,
+            name: "nine".into(),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer, Layer::web_layer()],
+            frames: 1,
+            nine: Some((-10.0, 10.0, -7.0, 7.0)),
+            raw: None,
+        };
+        doc.symbols = std::sync::Arc::new(vec![sym]);
+        let bytes = crate::save_fireworks_png(&doc).expect("saved");
+        let back = crate::open(&bytes, None).expect("opened");
+        assert_eq!(
+            back.symbols.first().and_then(|s| s.nine),
+            Some((-10.0, 10.0, -7.0, 7.0))
+        );
+        // NGSv right after GDSv, with NGCf top, bottom, left, right.
+        let (tree, _) = crate::fireworks_tree(&back);
+        let mst = tree
+            .child("MSL")
+            .and_then(|m| m.child("MST"))
+            .expect("symbol node");
+        let tags: Vec<String> = mst
+            .children
+            .iter()
+            .map(|c| String::from_utf8_lossy(&c.tag).into_owned())
+            .collect();
+        let gds = tags.iter().position(|t| t == "GDS").expect("GDS");
+        assert_eq!(tags.get(gds + 1).map(String::as_str), Some("NGS"));
+        let ngc: Vec<f64> = mst
+            .child("NGS")
+            .expect("NGS")
+            .children
+            .iter()
+            .filter(|c| c.is("NGC"))
+            .filter_map(|c| c.text.parse().ok())
+            .collect();
+        assert_eq!(ngc, [-7.0, 7.0, -10.0, 10.0]);
+    }
+}

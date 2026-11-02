@@ -31,7 +31,8 @@ pub struct Dialogs {
     /// Modify > Transform > Numeric Transform.
     pub numeric: Option<Numeric>,
     /// Modify > Symbol > Convert to Symbol: name and type being chosen.
-    pub convert_symbol: Option<(String, firecraft_doc::SymbolKind)>,
+    /// (name, type, 9-slice scaling guides).
+    pub convert_symbol: Option<(String, firecraft_doc::SymbolKind, bool)>,
 }
 
 /// Numeric Transform: scale by percentages, resize to pixel sizes, or rotate by degrees,
@@ -74,7 +75,7 @@ impl Dialogs {
 /// Modify > Symbol > Convert to Symbol (Fireworks MX's Symbol Properties dialog).
 fn convert_symbol(app: &mut FireCraftApp, ctx: &egui::Context) {
     use firecraft_doc::SymbolKind;
-    let Some((mut name, mut kind)) = app.dialogs.convert_symbol.clone() else {
+    let Some((mut name, mut kind, mut nine)) = app.dialogs.convert_symbol.clone() else {
         return;
     };
     let (mut ok, mut cancel) = (false, false);
@@ -93,6 +94,9 @@ fn convert_symbol(app: &mut FireCraftApp, ctx: &egui::Context) {
                 ui.radio_value(&mut kind, k, k.label());
             }
         });
+        ui.checkbox(&mut nine, "Enable 9-slice scaling guides").on_hover_text(
+            "Scaled instances keep their corners' size (Fireworks CS). Fireworks MX opens the file and scales the symbol plainly.",
+        );
         ui.separator();
         ui.horizontal(|ui| {
             ok |= ui.button("OK").clicked();
@@ -100,11 +104,11 @@ fn convert_symbol(app: &mut FireCraftApp, ctx: &egui::Context) {
         });
     });
     cancel |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    app.dialogs.convert_symbol = Some((name.clone(), kind));
+    app.dialogs.convert_symbol = Some((name.clone(), kind, nine));
     if ok {
         app.dialogs.convert_symbol = None;
         if let Some(d) = app.session.active_doc_mut() {
-            d.convert_to_symbol(&name, kind);
+            d.convert_to_symbol_with(&name, kind, nine);
         }
     } else if cancel {
         app.dialogs.convert_symbol = None;
