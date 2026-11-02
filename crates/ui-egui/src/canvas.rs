@@ -977,6 +977,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     3.0,
                     3.0,
                 ));
+                // With the Pointer, that outline is all an instance shows (Fireworks).
+                continue;
             }
             if let Some((x, y, w, h)) = d.element(*r).and_then(|e| e.bounds()) {
                 let br = Rect::from_min_max(to_screen(x, y), to_screen(x + w, y + h)).translate(drag_offset);
