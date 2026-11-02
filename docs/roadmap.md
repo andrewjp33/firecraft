@@ -37,5 +37,11 @@ items 5 and 6 (live effects, gradient fills) and blend modes highly.
 
 ## Lowest priority
 
+- Paste position from FireCraft into Fireworks MX: Fireworks ignores the position stored in the
+  "PNG" clipboard data (its own included) and keeps it only from its private "Fireworks Internal
+  Clipboard Format 3.0" (served through OLE). Decoding that format (dump it Windows-side, then
+  REA) would let FireCraft write it too. See docs/behavior/clipboard.md.
+- Edit > Paste into a new document (File > New sized from the clipboard, as Fireworks does).
+
 - "Send to Photoshop / Illustrator / Flash / Dreamweaver", Launch and Edit, FrontPage roundtrip:
   menu entries may exist but integrations are out of scope.

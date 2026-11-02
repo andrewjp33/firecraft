@@ -14,7 +14,10 @@ Measured with `tools/fwmx-oracle/xclip.py` (X11 side) and a Windows-side lister 
 
 Fireworks MX **pastes the `PNG` format back as editable objects** when it's the only format: its
 own clipboard PNG and a FireCraft-written document (18 objects with live effects) both pasted as
-paths with their effects.
+paths with their effects. It **ignores the stored position** (`XLCf`/`YLCf`) of that format, its
+own included: pasted into a 500x400 document, a rectangle copied from (10, 10) lands at (80, 20)
+either way. Pasting Fireworks to Fireworks keeps positions because the private format comes
+first; decoding it is on the roadmap (lowest priority).
 
 ## How FireCraft uses it
 
