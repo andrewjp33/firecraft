@@ -90,7 +90,9 @@ tools/fwmx-oracle: a file with moved points but the old `PRIv` opens with the sh
 place). When FireCraft saves a path whose points changed, it fits the affine transform taking
 the original points to the new ones and applies it to `MTXv` and the primitive's points (it
 stays a primitive, verified for a move and a rotate+scale); if no affine transform fits (a
-point dragged), it drops `PRIv` and Fireworks opens a plain path.
+point dragged), it drops `PRIv` and Fireworks opens a plain path. A record already out of step
+with the points (files saved before FireCraft handled this) is repaired on save by fitting the
+transform from the record's own rectangle corners.
 
 ## Fireworks CS files
 

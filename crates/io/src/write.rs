@@ -654,20 +654,13 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         .and_then(|r| r.child("PBL"))
         .map(|old| same_geometry(old, &pbl))
         .unwrap_or(false);
+    // A Fireworks shape primitive (PRIv: rectangle as a base box and a matrix) is rebuilt from
+    // its record, not from the points: keep the record in step with the points.
+    if n.child("PRI").is_some() {
+        sync_primitive(&mut n, raw.and_then(|r| r.child("PBL")), &pbl, unchanged);
+    }
     if !unchanged {
         n.children.retain(|c| !c.is("PCL"));
-        // A Fireworks shape primitive (PRIv: rectangle as a base box and a matrix) is rebuilt
-        // from its record, not from the points: carry the edit into the record when it is an
-        // affine transform of the original points, otherwise make it a plain path.
-        if n.child("PRI").is_some() {
-            match raw
-                .and_then(|r| r.child("PBL"))
-                .and_then(|old| fit_affine(&anchors(old), &anchors(&pbl)))
-            {
-                Some(m) => transform_primitive(&mut n, &m),
-                None => n.children.retain(|c| !c.is("PRI")),
-            }
-        }
         put(&mut n, pbl);
     }
     let mut gradient_handles = None;
@@ -717,6 +710,81 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         }
     }
     n
+}
+
+/// Bring a path's shape primitive (PRIv) in step with its points `pbl`: when the record
+/// matched the points as read (`old`), apply the affine transform from those to the new points;
+/// when it didn't (a file saved by an earlier FireCraft that moved the points only), fit the
+/// transform from the record's own rectangle corners. If no affine transform fits, drop the
+/// record (Fireworks then opens a plain path).
+fn sync_primitive(n: &mut Node, old: Option<&Node>, pbl: &Node, unchanged: bool) {
+    let now = anchors(pbl);
+    let corners = n.child("PRI").and_then(primitive_corners);
+    let bbox = |pts: &[(f64, f64)]| {
+        pts.iter()
+            .fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |b, &(x, y)| {
+                (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y))
+            })
+    };
+    let agree = |pts: &[(f64, f64)]| {
+        corners.as_ref().is_some_and(|c| {
+            let (a, b) = (bbox(pts), bbox(c));
+            [(a.0, b.0), (a.1, b.1), (a.2, b.2), (a.3, b.3)]
+                .iter()
+                .all(|(u, v)| (u - v).abs() < 0.5)
+        })
+    };
+    let old = old.map(anchors).unwrap_or_default();
+    let fit = if agree(&now) && (unchanged || agree(&old)) && old.len() == now.len() {
+        if unchanged {
+            return;
+        }
+        fit_affine(&old, &now)
+    } else if agree(&old) {
+        fit_affine(&old, &now)
+    } else {
+        // Out of step already (or no matching original): fit from the record's rectangle
+        // corners, in any starting corner and direction.
+        corners.and_then(|c| {
+            (0..4)
+                .flat_map(|k| [false, true].map(move |rev| (k, rev)))
+                .find_map(|(k, rev)| {
+                    let mut c: Vec<_> = (0..4).map(|i| c[(k + i) % 4]).collect();
+                    if rev {
+                        c[1..].reverse();
+                    }
+                    fit_affine(&c, &now)
+                })
+        })
+    };
+    match fit {
+        Some(m) => transform_primitive(n, &m),
+        None => n.children.retain(|c| !c.is("PRI")),
+    }
+}
+
+/// The corners of a primitive's base rectangle (RCTv) through its matrix (MTXv), clockwise
+/// from top left, as Fireworks orders a rectangle's points.
+fn primitive_corners(pri: &Node) -> Option<Vec<(f64, f64)>> {
+    let r = pri.child("RCT")?;
+    let (l, t, rt, b) = (
+        r.float_of("LFT")?,
+        r.float_of("TOP")?,
+        r.float_of("RIT")?,
+        r.float_of("BOT")?,
+    );
+    let m = pri.child("MTX");
+    let g = |tag: &str, def: f64| m.and_then(|m| m.float_of(tag)).unwrap_or(def);
+    let (m00, m01, m02) = (g("M00", 1.0), g("M01", 0.0), g("M02", 0.0));
+    let (m10, m11, m12) = (g("M10", 0.0), g("M11", 1.0), g("M12", 0.0));
+    let (m20, m21, m22) = (g("M20", 0.0), g("M21", 0.0), g("M22", 1.0));
+    [(l, t), (rt, t), (rt, b), (l, b)]
+        .iter()
+        .map(|&(x, y)| {
+            let w = x * m02 + y * m12 + m22;
+            (w.abs() > 1e-12).then(|| ((x * m00 + y * m10 + m20) / w, (x * m01 + y * m11 + m21) / w))
+        })
+        .collect()
 }
 
 /// A path list's anchor points (absolute).
@@ -982,6 +1050,47 @@ fn write_effect_list(n: &mut Node, list: &[firecraft_doc::EffectEntry]) {
 #[cfg(test)]
 mod primitive_tests {
     use super::*;
+
+    #[test]
+    fn out_of_step_primitive_is_repaired() {
+        // Points already moved by (316, 119), record still at the old place (an earlier save).
+        let pt = |x: f64, y: f64| Node::vector("PBT", vec![Node::float("XLC", x), Node::float("YLC", y)]);
+        let pbl = Node::vector(
+            "PBL",
+            vec![Node::vector(
+                "PBP",
+                vec![
+                    pt(377.0, 175.0),
+                    pt(568.0, 175.0),
+                    pt(568.0, 305.0),
+                    pt(377.0, 305.0),
+                ],
+            )],
+        );
+        let rct = Node::vector(
+            "RCT",
+            vec![
+                Node::float("LFT", 61.0),
+                Node::float("TOP", 56.0),
+                Node::float("RIT", 252.0),
+                Node::float("BOT", 186.0),
+            ],
+        );
+        let mut n = Node::vector(
+            "PTH",
+            vec![Node::vector("PRI", vec![Node::vector("MTX", vec![]), rct])],
+        );
+        sync_primitive(&mut n, Some(&pbl), &pbl, true);
+        let mtx = n.child("PRI").and_then(|p| p.child("MTX")).expect("matrix");
+        assert_eq!(
+            (mtx.float_of("M20"), mtx.float_of("M21")),
+            (Some(316.0), Some(119.0))
+        );
+        // In step now: saving again changes nothing.
+        let before = n.clone();
+        sync_primitive(&mut n, Some(&pbl), &pbl, true);
+        assert_eq!(n, before);
+    }
 
     #[test]
     fn affine_fit_and_primitive_matrix() {
