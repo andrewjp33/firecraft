@@ -18,6 +18,7 @@ firecraft-doc = { path = "crates/doc" }
 firecraft-io = { path = "crates/io" }
 firecraft-engine = { path = "crates/engine" }
 firecraft-ui-egui = { path = "crates/ui-egui" }
+firecraft-sysclip = { path = "crates/sysclip" }
 
 # Craft suite shared libraries, pinned to the same revision PhotoCraft uses.
 craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "c5a1cbfb5f9049f9270955caffb5bee5997aebf7" }

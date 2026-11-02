@@ -65,6 +65,10 @@ impl eframe::App for App {
         );
     }
 
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        FireCraftApp::text_clipboard_keys(ctx, raw_input);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.inner.ui(ui);
         // Close the splash once a frame has actually reached the screen (the second frame).
@@ -91,6 +95,9 @@ fn native_options(renderer: eframe::Renderer) -> eframe::NativeOptions {
             .with_title("FireCraft")
             .with_inner_size([1280.0, 860.0]),
         renderer,
+        // FireCraft handles Ctrl+X/C/V: objects go to the system clipboard in Fireworks MX's
+        // format (text fields still get their keys, see `raw_input_hook`).
+        clipboard_shortcuts: false,
         ..Default::default()
     };
     if renderer == eframe::Renderer::Wgpu && std::env::var_os("WGPU_BACKEND").is_none() {
@@ -107,6 +114,7 @@ fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> 
         native_options(renderer),
         Box::new(move |cc| {
             let mut app = FireCraftApp::new(Box::new(Desktop));
+            app.set_clipboard_keys(true);
             if let Some(text) = cc
                 .storage
                 .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))

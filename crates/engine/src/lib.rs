@@ -4,9 +4,11 @@
 //! The UI is a thin shell over this crate: it renders state and turns input into calls here.
 
 mod history;
+mod objects;
 mod tools;
 
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
+pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
 pub use tools::{Tool, ToolOptions};
 
 use firecraft_doc::{
@@ -17,8 +19,9 @@ use firecraft_raster::nine::{self, Insets};
 use firecraft_raster::wand::magic_wand;
 use firecraft_raster::{Mask, Rgba, RgbaImage};
 
-/// An element address: layer index, frame cell, element index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// An element address: layer index, element index (in the current frame). Ordered by stacking
+/// (bottom first).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ElementRef {
     pub layer: usize,
     pub index: usize,
@@ -328,8 +331,14 @@ impl DocState {
 
     /// Edit > Clear / Delete key: remove selected pixels, else delete selected objects.
     pub fn delete(&mut self) {
+        self.delete_as("Delete");
+    }
+
+    /// [`delete`](Self::delete) recorded as `label` ("Delete", "Cut").
+    pub(crate) fn delete_as(&mut self, label: &str) {
         if let Some(sel) = self.pixels.clone() {
-            self.edit("Delete Pixels", |s| {
+            let pixel_label = if label == "Delete" { "Delete Pixels" } else { label };
+            self.edit(pixel_label, |s| {
                 if let Some(Element {
                     kind: ElementKind::Bitmap(b),
                     ..
@@ -345,7 +354,7 @@ impl DocState {
         }
         let mut refs = self.selection.clone();
         refs.sort_by(|a, b| (b.layer, b.index).cmp(&(a.layer, a.index)));
-        self.edit("Delete", |s| {
+        self.edit(label, |s| {
             let f = s.frame();
             for r in refs {
                 if let Some(cell) = s.doc.layers.get_mut(r.layer).and_then(|l| l.elements_mut(f)) {

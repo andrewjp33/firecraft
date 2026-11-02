@@ -5,7 +5,7 @@
 //! intentionally out of scope (see docs/roadmap.md).
 
 use egui::{Button, Key, KeyboardShortcut, Modifiers};
-use firecraft_engine::Tool;
+use firecraft_engine::{Align, Arrange, Tool, Turn};
 
 use crate::FireCraftApp;
 
@@ -39,6 +39,10 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         .and_then(|d| d.history.next_redo().map(|l| format!("Redo {l}")))
         .unwrap_or_else(|| "Can't Redo".into());
     let has_pixels = app.session.active_doc().is_some_and(|d| d.pixels.is_some());
+    let has_objects = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
+    let several = app.session.active_doc().is_some_and(|d| d.selection.len() >= 2);
+    let can_ungroup = app.session.active_doc().is_some_and(|d| d.can_ungroup());
+    let can_paste = has_doc && (app.clipboard.is_some() || firecraft_sysclip::available());
     let has_sel = app
         .session
         .active_doc()
@@ -110,15 +114,25 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Libraries", "");
             todo(ui, "Find and Replace...", "Ctrl+F");
             ui.separator();
-            todo(ui, "Cut", "Ctrl+X");
-            todo(ui, "Copy", "Ctrl+C");
-            todo(ui, "Paste", "Ctrl+V");
+            if item(ui, "Cut", "Ctrl+X", has_sel) {
+                copy(app, ui.ctx(), true);
+            }
+            if item(ui, "Copy", "Ctrl+C", has_sel) {
+                copy(app, ui.ctx(), false);
+            }
+            if item(ui, "Paste", "Ctrl+V", can_paste) {
+                paste(app);
+            }
             if item(ui, "Clear", "Backspace", has_sel) {
                 with_doc(app, |d| d.delete());
             }
             ui.separator();
-            todo(ui, "Duplicate", "Ctrl+Alt+D");
-            todo(ui, "Clone", "Ctrl+Shift+D");
+            if item(ui, "Duplicate", "Ctrl+Alt+D", has_objects) {
+                with_doc(app, |d| d.duplicate(true));
+            }
+            if item(ui, "Clone", "Ctrl+Shift+D", has_objects) {
+                with_doc(app, |d| d.duplicate(false));
+            }
             ui.separator();
             todo(ui, "Crop Selected Bitmap", "");
             todo(ui, "Crop Document", "");
@@ -196,15 +210,59 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Merge Down", "Ctrl+E");
             todo(ui, "Flatten Layers", "");
             ui.separator();
-            todo(ui, "Transform", "");
-            todo(ui, "Arrange", "");
-            todo(ui, "Align", "");
+            ui.menu_button("Transform", |ui| {
+                for (label, key, tool) in [
+                    ("Free Transform", "Ctrl+T", Tool::Scale),
+                    ("Scale", "", Tool::Scale),
+                    ("Skew", "", Tool::Skew),
+                    ("Distort", "", Tool::Distort),
+                ] {
+                    if item(ui, label, key, has_objects) {
+                        app.session.tool = tool;
+                    }
+                }
+                ui.separator();
+                if item(ui, "Numeric Transform...", "Ctrl+Shift+T", has_objects) {
+                    app.dialogs.open_numeric(app.session.active_doc());
+                }
+                ui.separator();
+                for (label, key, how) in TURNS {
+                    if item(ui, label, key, has_objects) {
+                        with_doc(app, |d| d.turn(how));
+                    }
+                }
+            });
+            ui.menu_button("Arrange", |ui| {
+                for (label, key, how) in ARRANGE {
+                    if item(ui, label, key, has_objects) {
+                        with_doc(app, |d| d.arrange(how));
+                    }
+                }
+            });
+            ui.menu_button("Align", |ui| {
+                for (label, key, how) in ALIGN {
+                    let enabled = match how {
+                        Align::DistributeWidths | Align::DistributeHeights => {
+                            app.session.active_doc().is_some_and(|d| d.selection.len() >= 3)
+                        }
+                        _ => has_objects,
+                    };
+                    if item(ui, label, key, enabled) {
+                        with_doc(app, |d| d.align(how));
+                    }
+                }
+            });
             ui.separator();
             todo(ui, "Combine Paths", "");
             todo(ui, "Alter Path", "");
             ui.separator();
-            todo(ui, "Group", "Ctrl+G");
-            todo(ui, "Ungroup", "Ctrl+Shift+G");
+            if item(ui, "Group", "Ctrl+G", has_objects) {
+                with_doc(app, |d| d.group());
+            }
+            if item(ui, "Ungroup", "Ctrl+Shift+G", can_ungroup) {
+                with_doc(app, |d| d.ungroup());
+            }
+            let _ = several;
         });
         ui.menu_button("Text", |ui| {
             for l in [
@@ -358,8 +416,71 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() {
         return;
     }
+    clipboard_events(app, ctx);
     let cmd = Modifiers::COMMAND;
     let pressed = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
+    // Native: Ctrl+X/C/V arrive as keys (see FireCraftApp::set_clipboard_keys).
+    if app.clipboard_keys && app.session.active_doc().is_some() {
+        if pressed(cmd, Key::X) {
+            copy(app, ctx, true);
+        }
+        if pressed(cmd, Key::C) {
+            copy(app, ctx, false);
+        }
+        if pressed(cmd, Key::V) {
+            paste(app);
+        }
+    }
+    // Object commands first: a shortcut without Shift/Alt also matches with them (Ctrl+D
+    // would take Ctrl+Shift+D).
+    let alt = cmd | Modifiers::ALT;
+    let shift = cmd | Modifiers::SHIFT;
+    if pressed(alt, Key::D) {
+        with_doc(app, |d| d.duplicate(true));
+    }
+    if pressed(shift, Key::D) {
+        with_doc(app, |d| d.duplicate(false));
+    }
+    if pressed(shift, Key::G) {
+        with_doc(app, |d| d.ungroup());
+    } else if pressed(cmd, Key::G) {
+        with_doc(app, |d| d.group());
+    }
+    if pressed(shift, Key::T) {
+        app.dialogs.open_numeric(app.session.active_doc());
+    } else if pressed(cmd, Key::T) && app.session.active_doc().is_some_and(|d| !d.selection.is_empty()) {
+        app.session.tool = Tool::Scale;
+    }
+    for (_, _, how, key) in ARRANGE_KEYS {
+        let m = if matches!(how, Arrange::BringToFront | Arrange::SendToBack) {
+            shift
+        } else {
+            cmd
+        };
+        if pressed(m, key) {
+            with_doc(app, |d| d.arrange(how));
+        }
+    }
+    for (how, key) in [
+        (Align::Left, Key::Num1),
+        (Align::CenterVertical, Key::Num2),
+        (Align::Right, Key::Num3),
+        (Align::Top, Key::Num4),
+        (Align::CenterHorizontal, Key::Num5),
+        (Align::Bottom, Key::Num6),
+        (Align::DistributeWidths, Key::Num7),
+        (Align::DistributeHeights, Key::Num9),
+    ] {
+        if pressed(alt, key) {
+            with_doc(app, |d| d.align(how));
+        }
+    }
+    if pressed(shift, Key::Num9) {
+        with_doc(app, |d| d.turn(Turn::Rotate90Cw));
+    }
+    if pressed(shift, Key::Num7) {
+        with_doc(app, |d| d.turn(Turn::Rotate90Ccw));
+    }
     if pressed(cmd | Modifiers::SHIFT, Key::S) {
         save(app, true);
     } else if pressed(cmd, Key::S) {
@@ -452,6 +573,167 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
             if let Some(t) = tools.get(next) {
                 app.session.tool = *t;
             }
+        }
+    }
+}
+
+const TURNS: [(&str, &str, Turn); 5] = [
+    ("Rotate 180°", "", Turn::Rotate180),
+    ("Rotate 90° CW", "Ctrl+Shift+9", Turn::Rotate90Cw),
+    ("Rotate 90° CCW", "Ctrl+Shift+7", Turn::Rotate90Ccw),
+    ("Flip Horizontal", "", Turn::FlipHorizontal),
+    ("Flip Vertical", "", Turn::FlipVertical),
+];
+
+const ARRANGE_KEYS: [(&str, &str, Arrange, Key); 4] = [
+    (
+        "Bring to Front",
+        "Ctrl+Shift+Up",
+        Arrange::BringToFront,
+        Key::ArrowUp,
+    ),
+    ("Bring Forward", "Ctrl+Up", Arrange::BringForward, Key::ArrowUp),
+    (
+        "Send Backward",
+        "Ctrl+Down",
+        Arrange::SendBackward,
+        Key::ArrowDown,
+    ),
+    (
+        "Send to Back",
+        "Ctrl+Shift+Down",
+        Arrange::SendToBack,
+        Key::ArrowDown,
+    ),
+];
+
+const ARRANGE: [(&str, &str, Arrange); 4] = [
+    (ARRANGE_KEYS[0].0, ARRANGE_KEYS[0].1, ARRANGE_KEYS[0].2),
+    (ARRANGE_KEYS[1].0, ARRANGE_KEYS[1].1, ARRANGE_KEYS[1].2),
+    (ARRANGE_KEYS[2].0, ARRANGE_KEYS[2].1, ARRANGE_KEYS[2].2),
+    (ARRANGE_KEYS[3].0, ARRANGE_KEYS[3].1, ARRANGE_KEYS[3].2),
+];
+
+const ALIGN: [(&str, &str, Align); 8] = [
+    ("Left", "Ctrl+Alt+1", Align::Left),
+    ("Center Vertical", "Ctrl+Alt+2", Align::CenterVertical),
+    ("Right", "Ctrl+Alt+3", Align::Right),
+    ("Top", "Ctrl+Alt+4", Align::Top),
+    ("Center Horizontal", "Ctrl+Alt+5", Align::CenterHorizontal),
+    ("Bottom", "Ctrl+Alt+6", Align::Bottom),
+    ("Distribute Widths", "Ctrl+Alt+7", Align::DistributeWidths),
+    ("Distribute Heights", "Ctrl+Alt+9", Align::DistributeHeights),
+];
+
+/// What Copy puts on the system clipboard: a note that FireCraft holds the copied objects.
+/// Pasting that text back (Ctrl+V) pastes the objects; text always round-trips through the
+/// system clipboard (X11, Wayland, Windows, browsers), unlike images.
+fn clipboard_note(n: usize) -> String {
+    let what = if n == 1 {
+        "1 object".to_owned()
+    } else {
+        format!("{n} objects")
+    };
+    format!("FireCraft: {what} (paste in FireCraft)")
+}
+
+/// Edit > Cut / Copy. The objects also go to the system clipboard as a Fireworks PNG (the
+/// "PNG" format Fireworks MX copies and pastes; other applications see a picture).
+fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
+    let Some(d) = app.session.active_doc_mut() else {
+        return;
+    };
+    let clip = if cut { d.cut() } else { d.copy() };
+    let Some(clip) = clip else { return };
+    let bounds = clip
+        .elements
+        .iter()
+        .filter_map(firecraft_doc::Element::bounds)
+        .reduce(|a, b| {
+            let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+            (
+                x0,
+                y0,
+                (a.0 + a.2).max(b.0 + b.2) - x0,
+                (a.1 + a.3).max(b.1 + b.3) - y0,
+            )
+        });
+    let shared = bounds
+        .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, b).ok())
+        .is_some_and(firecraft_sysclip::set_png);
+    let note = clipboard_note(clip.elements.len());
+    // Without a system clipboard for objects (the browser), a note comes back as a paste.
+    if !shared && !app.clipboard_keys {
+        ctx.copy_text(note.clone());
+    }
+    app.clipboard = Some((clip, note));
+}
+
+/// Edit > Paste: objects or a picture on the system clipboard (from Fireworks MX, another
+/// FireCraft, any application), else FireCraft's own last copy.
+fn paste(app: &mut FireCraftApp) {
+    if firecraft_sysclip::available()
+        && !firecraft_sysclip::owns()
+        && let Some(png) = firecraft_sysclip::get_png()
+    {
+        match firecraft_io::read_clipboard_png(&png) {
+            Ok((elements, symbols)) => {
+                with_doc(app, |d| {
+                    d.paste(&firecraft_engine::Clipboard { elements, symbols })
+                });
+            }
+            Err(e) => app.status = Some((format!("Can't paste the clipboard's image: {e}"), true)),
+        }
+        return;
+    }
+    if let (Some((clip, _)), Some(d)) = (&app.clipboard, app.session.docs.get_mut(app.session.active)) {
+        d.paste(clip);
+    }
+}
+
+/// Ctrl+X / Ctrl+C / Ctrl+V (egui turns them into clipboard events). An image from another
+/// application pastes as a new bitmap object in the middle of the canvas.
+fn clipboard_events(app: &mut FireCraftApp, ctx: &egui::Context) {
+    if app.session.active_doc().is_none() {
+        return;
+    }
+    let events = ctx.input(|i| i.events.clone());
+    for e in events {
+        match e {
+            egui::Event::Copy => copy(app, ctx, false),
+            egui::Event::Cut => copy(app, ctx, true),
+            egui::Event::Paste(text) => {
+                if app.clipboard.as_ref().is_some_and(|(_, note)| *note == text) {
+                    paste(app);
+                } else {
+                    app.status = Some((
+                        "Pasting text isn't supported yet (FireCraft has no text tool yet).".into(),
+                        false,
+                    ));
+                }
+            }
+            egui::Event::PasteImage(img) => {
+                let rgba: Vec<u8> = img
+                    .pixels
+                    .iter()
+                    .flat_map(|c| c.to_srgba_unmultiplied())
+                    .collect();
+                let (w, h) = (img.size[0] as u32, img.size[1] as u32);
+                let Some(image) = firecraft_raster::RgbaImage::from_rgba_bytes(w, h, &rgba) else {
+                    continue;
+                };
+                with_doc(app, |d| {
+                    let (x, y) = (
+                        (d.doc.width as i64 - w as i64) / 2,
+                        (d.doc.height as i64 - h as i64) / 2,
+                    );
+                    let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
+                        firecraft_doc::Bitmap { x, y, image },
+                    ));
+                    d.add_element(el, "Paste");
+                });
+            }
+            _ => {}
         }
     }
 }

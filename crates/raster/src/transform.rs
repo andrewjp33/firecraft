@@ -207,8 +207,14 @@ impl Affine {
 pub fn transform_image(img: &RgbaImage, x: i64, y: i64, m: &Affine) -> Option<(RgbaImage, i64, i64)> {
     let inv = m.invert()?;
     let (bx, by, bw, bh) = m.map_rect(x as f64, y as f64, img.width() as f64, img.height() as f64);
-    let (x0, y0) = (bx.floor() as i64, by.floor() as i64);
-    let (w, h) = ((bx + bw).ceil() as i64 - x0, (by + bh).ceil() as i64 - y0);
+    // A tolerance keeps float noise (an exact 90 degree turn landing on 9.999999) from adding
+    // an empty row or column.
+    const EPS: f64 = 1e-6;
+    let (x0, y0) = ((bx + EPS).floor() as i64, (by + EPS).floor() as i64);
+    let (w, h) = (
+        (bx + bw - EPS).ceil() as i64 - x0,
+        (by + bh - EPS).ceil() as i64 - y0,
+    );
     if w <= 0 || h <= 0 || w * h > 1 << 28 {
         return None;
     }

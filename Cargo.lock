@@ -1142,6 +1142,14 @@ name = "firecraft-raster"
 version = "0.1.0"
 
 [[package]]
+name = "firecraft-sysclip"
+version = "0.1.0"
+dependencies = [
+ "clipboard-win",
+ "x11rb",
+]
+
+[[package]]
 name = "firecraft-ui-egui"
 version = "0.1.0"
 dependencies = [
@@ -1150,6 +1158,7 @@ dependencies = [
  "firecraft-engine",
  "firecraft-io",
  "firecraft-raster",
+ "firecraft-sysclip",
  "log",
 ]
 

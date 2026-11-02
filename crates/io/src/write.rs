@@ -108,7 +108,7 @@ fn collect_tile_refs(n: &Node, out: &mut Vec<u32>, depth: usize) {
     }
 }
 
-fn new_root() -> Node {
+pub(crate) fn new_root() -> Node {
     Node::vector(
         "MKB",
         vec![
@@ -314,6 +314,24 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         n.children.retain(|c| !c.is("VIS"));
     } else if n.child("VIS").is_none() {
         n.children.insert(0, Node::bool("VIS", false));
+    }
+    // Object name `OBNs`: after the object's own data, before blending, effects and opacity.
+    match &el.name {
+        Some(name) => {
+            let obn = Node::string("OBN", name);
+            match n.children.iter().position(|c| c.is("OBN")) {
+                Some(i) => n.children[i] = obn,
+                None => match n
+                    .children
+                    .iter()
+                    .position(|c| c.is("BLD") || c.is("EFL") || c.is("OPA"))
+                {
+                    Some(i) => n.children.insert(i, obn),
+                    None => n.children.push(obn),
+                },
+            }
+        }
+        None => n.children.retain(|c| !c.is("OBN")),
     }
     write_effect_list(&mut n, &el.effects);
     // Blend mode: Normal is written as an absent tag (as Fireworks does).

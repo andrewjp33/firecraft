@@ -53,6 +53,8 @@ PTHv  PATv { BCLi stroke ARGB, FCLi fill ARGB, BPLv brush preset, FPLv fill pres
       PCLv (cached flattened stroke polyline with pressure)
 TXTv  text attributes (FONs, PTSf, BOLb...), TFSv runs, cached IMGv
 GRPv  GRTi, ELMv
+(any) OBNs object name (Layers panel), after the object's own data, before BLDi/EFLv/OPAi;
+      VISb (first child) hidden; BLDi blend mode; OPAi opacity in tenths of a percent
 MSLv  (root) MSTv* symbol definitions: UNMs name, MSNi id, MOXf/MOYf, FRCi frames, own LYLv
 ALSv  symbol instance: MSNi (symbol id), MTXv (M00 M01 M10 M11 M20 M21: symbol space ->
       document space, row-vector convention), ANNi/ANXf/ANYf/ASCf (not yet decoded)
@@ -70,6 +72,15 @@ are omitted when they coincide with the anchor.
   stroke or no fill. Without them the file fails to open (error `0x8004142B`).
 * Not required: preset lists, `prVW`, `mkBS`, `sBIT`, `tEXt`, `PCLv`, textures, gradient handles,
   `BZLv`/`NSDf` on points, `RQNi`.
+
+## Clipboard
+
+Fireworks MX copies objects as a clipboard format named **"PNG"** holding a complete Fireworks
+PNG cropped to the copied objects, with the root `XLCf`/`YLCf` set to their original top-left
+(also "Fireworks Internal Clipboard Format 3.0", CF_DIB/CF_DIBV5 and OLE wrappers). It pastes
+"PNG" back as editable objects, including FireCraft-written ones. Under Wine the format is the
+X11 target `image/png` (with Wine's `explorer` running, as in a desktop session); see
+`docs/behavior/clipboard.md`.
 
 Fireworks MX renders FireCraft-written documents identically except 1-px anti-aliased strokes,
 which it draws thinner (stroke rendering parity is on the roadmap).

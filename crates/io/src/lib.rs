@@ -5,10 +5,12 @@
 //!   viewer shows, with the editable document in Fireworks' private chunks.
 //! * [`export_png`] writes a flat PNG.
 
+mod clip;
 mod flat;
 mod read;
 mod write;
 
+pub use clip::{clipboard_png, read_clipboard_png};
 pub use flat::{decode_png, encode_png};
 pub use read::document_from_fireworks;
 pub use write::fireworks_tree;

@@ -182,6 +182,8 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
         .child("EFL")
         .map(firecraft_doc::effects::read_list)
         .unwrap_or_default();
+    // Object name (Layers panel / Property inspector), `OBNs`.
+    el.name = n.str_of("OBN").filter(|s| !s.is_empty()).map(str::to_owned);
     // Hidden objects (eye off in the Layers panel).
     el.visible = n.bool_of("VIS").unwrap_or(true);
     if let Some(b) = n.int_of("BLD") {

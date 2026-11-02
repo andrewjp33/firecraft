@@ -224,6 +224,12 @@ pub struct FireCraftApp {
     nine: Option<nine::NineEdit>,
     transform: Option<transform_tool::TransformEdit>,
     effects_ui: effects_ui::EffectsUi,
+    /// Edit > Copy/Cut: the objects, and the note put on the system clipboard (pasting the
+    /// note back pastes them).
+    clipboard: Option<(firecraft_engine::Clipboard, String)>,
+    /// The app handles Ctrl+X/C/V itself (native: egui's clipboard shortcuts are off, so
+    /// copied objects can go to the system clipboard in Fireworks' format).
+    clipboard_keys: bool,
     /// The user confirmed quitting with unsaved documents.
     quit_confirmed: bool,
     /// Showing the "save changes before quitting?" prompt.
@@ -244,6 +250,8 @@ impl FireCraftApp {
             nine: None,
             transform: None,
             effects_ui: effects_ui::EffectsUi::default(),
+            clipboard: None,
+            clipboard_keys: false,
             quit_confirmed: false,
             quit_prompt: false,
         }
@@ -298,6 +306,41 @@ impl FireCraftApp {
 
     /// Draw one frame. Call from `eframe::App::ui`.
     /// Apply loaded preferences (also the tool options they remember).
+    /// The native app turned egui's clipboard shortcuts off and passes Ctrl+X/C/V through as
+    /// keys: they copy and paste objects (with Fireworks MX, through the system clipboard).
+    pub fn set_clipboard_keys(&mut self, on: bool) {
+        self.clipboard_keys = on;
+    }
+
+    /// Native apps: make Ctrl+X/C/V cut, copy and paste text again while a text field has
+    /// focus (egui's own clipboard shortcuts are off). Call from `eframe::App::raw_input_hook`.
+    pub fn text_clipboard_keys(ctx: &egui::Context, input: &mut egui::RawInput) {
+        if !ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        for e in &mut input.events {
+            if let egui::Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } = e
+                && modifiers.command
+                && !modifiers.alt
+            {
+                let replacement = match key {
+                    egui::Key::C => Some(egui::Event::Copy),
+                    egui::Key::X => Some(egui::Event::Cut),
+                    egui::Key::V => firecraft_sysclip::get_text().map(egui::Event::Paste),
+                    _ => None,
+                };
+                if let Some(r) = replacement {
+                    *e = r;
+                }
+            }
+        }
+    }
+
     pub fn set_prefs(&mut self, prefs: Prefs) {
         self.session.options.aa_style = prefs.aa_style;
         self.dialogs.set_new_doc(prefs.new_doc);

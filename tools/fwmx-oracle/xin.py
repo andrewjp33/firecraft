@@ -2,7 +2,7 @@
 """Minimal XTest input driver for the oracle harness (no xdotool needed).
 
 Usage: xin.py click X Y | rclick X Y | move X Y | down | up | key KEYSYM | kdown KEYSYM | kup KEYSYM
-       | combo Control_L+q | focus | sleep SECONDS ...
+       | combo Control_L+q | focus | dclick X Y | type TEXT | sleep SECONDS ...
 (focus: give keyboard focus to the top-level window under the pointer; without a window
 manager, winit apps otherwise never see key events)
 """
@@ -22,6 +22,16 @@ def click(x, y):
     move(x, y)
     xt.XTestFakeButtonEvent(ctypes.c_void_p(d), 1, 1, 0); flush(); time.sleep(0.08)
     xt.XTestFakeButtonEvent(ctypes.c_void_p(d), 1, 0, 0); flush(); time.sleep(0.3)
+def dclick(x, y):
+    move(x, y)
+    for _ in range(2):
+        xt.XTestFakeButtonEvent(ctypes.c_void_p(d), 1, 1, 0); flush(); time.sleep(0.03)
+        xt.XTestFakeButtonEvent(ctypes.c_void_p(d), 1, 0, 0); flush(); time.sleep(0.05)
+    time.sleep(0.3)
+def type_text(text):
+    for ch in text:
+        name = {" ": "space", "_": "underscore"}.get(ch, ch)
+        key(name)
 def button(down):
     xt.XTestFakeButtonEvent(ctypes.c_void_p(d), 1, 1 if down else 0, 0); flush(); time.sleep(0.15)
 def keyev(name, down):
@@ -58,5 +68,7 @@ while a:
     elif c == "up": button(False)
     elif c == "key": key(a.pop(0))
     elif c == "focus": focus()
+    elif c == "dclick": dclick(int(a.pop(0)), int(a.pop(0)))
+    elif c == "type": type_text(a.pop(0))
     elif c == "sleep": time.sleep(float(a.pop(0)))
 

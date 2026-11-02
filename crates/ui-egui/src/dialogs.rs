@@ -28,6 +28,129 @@ pub struct Dialogs {
     pub prefs: bool,
     pub about: bool,
     pub feather: Option<u32>,
+    /// Modify > Transform > Numeric Transform.
+    pub numeric: Option<Numeric>,
+}
+
+/// Numeric Transform: scale by percentages, resize to pixel sizes, or rotate by degrees,
+/// about the selection's centre.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Numeric {
+    pub mode: NumericMode,
+    /// Percent (Scale) or pixels (Resize).
+    pub w: f64,
+    pub h: f64,
+    pub degrees: f64,
+    pub constrain: bool,
+    /// The selection's size when the dialog opened.
+    pub size: (f64, f64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NumericMode {
+    Scale,
+    Resize,
+    Rotate,
+}
+
+impl Dialogs {
+    /// Open Numeric Transform for the selection (nothing selected: nothing to do).
+    pub fn open_numeric(&mut self, d: Option<&firecraft_engine::DocState>) {
+        if let Some((_, _, w, h)) = d.and_then(|d| d.selection_bounds()) {
+            self.numeric = Some(Numeric {
+                mode: NumericMode::Scale,
+                w: 100.0,
+                h: 100.0,
+                degrees: 0.0,
+                constrain: true,
+                size: (w, h),
+            });
+        }
+    }
+}
+
+/// Modify > Transform > Numeric Transform.
+fn numeric_transform(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(mut n) = app.dialogs.numeric else { return };
+    let (mut ok, mut cancel) = (false, false);
+    dialog("Numeric Transform").show(ctx, |ui| {
+        egui::ComboBox::from_id_salt("numeric_mode")
+            .selected_text(match n.mode {
+                NumericMode::Scale => "Scale",
+                NumericMode::Resize => "Resize",
+                NumericMode::Rotate => "Rotate",
+            })
+            .show_ui(ui, |ui| {
+                let before = n.mode;
+                ui.selectable_value(&mut n.mode, NumericMode::Scale, "Scale");
+                ui.selectable_value(&mut n.mode, NumericMode::Resize, "Resize");
+                ui.selectable_value(&mut n.mode, NumericMode::Rotate, "Rotate");
+                if n.mode != before {
+                    (n.w, n.h) = match n.mode {
+                        NumericMode::Resize => (n.size.0.round(), n.size.1.round()),
+                        _ => (100.0, 100.0),
+                    };
+                }
+            });
+        if n.mode == NumericMode::Rotate {
+            ui.horizontal(|ui| {
+                ui.label("Angle:");
+                ui.add(
+                    DragValue::new(&mut n.degrees)
+                        .range(-360.0..=360.0)
+                        .speed(0.5)
+                        .suffix("°"),
+                );
+            });
+        } else {
+            let unit = if n.mode == NumericMode::Scale { "%" } else { " px" };
+            let (w0, h0) = (n.w, n.h);
+            egui::Grid::new("numeric_size").show(ui, |ui| {
+                ui.label("Width:");
+                ui.add(DragValue::new(&mut n.w).range(0.1..=100_000.0).suffix(unit));
+                ui.end_row();
+                ui.label("Height:");
+                ui.add(DragValue::new(&mut n.h).range(0.1..=100_000.0).suffix(unit));
+                ui.end_row();
+            });
+            ui.checkbox(&mut n.constrain, "Constrain Proportions");
+            // Constrained: the other side follows the one just changed.
+            if n.constrain {
+                let ratio = if n.mode == NumericMode::Scale {
+                    1.0
+                } else {
+                    n.size.1 / n.size.0.max(1e-9)
+                };
+                if n.w != w0 {
+                    n.h = (n.w * ratio * 100.0).round() / 100.0;
+                } else if n.h != h0 {
+                    n.w = (n.h / ratio.max(1e-9) * 100.0).round() / 100.0;
+                }
+            }
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            ok = ui.button("OK").clicked();
+            cancel = ui.button("Cancel").clicked();
+        });
+    });
+    ok |= ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    cancel |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    app.dialogs.numeric = Some(n);
+    if ok {
+        app.dialogs.numeric = None;
+        if let Some(d) = app.session.active_doc_mut() {
+            match n.mode {
+                NumericMode::Scale => d.numeric_transform(n.w / 100.0, n.h / 100.0, 0.0),
+                NumericMode::Resize => {
+                    d.numeric_transform(n.w / n.size.0.max(1e-9), n.h / n.size.1.max(1e-9), 0.0)
+                }
+                NumericMode::Rotate => d.numeric_transform(1.0, 1.0, n.degrees),
+            }
+        }
+    } else if cancel {
+        app.dialogs.numeric = None;
+    }
 }
 
 impl Default for Dialogs {
@@ -45,6 +168,7 @@ impl Default for Dialogs {
             prefs: false,
             about: false,
             feather: None,
+            numeric: None,
         }
     }
 }
@@ -252,6 +376,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
     if app.dialogs.prefs {
         preferences(app, ctx);
     }
+    numeric_transform(app, ctx);
     if app.dialogs.about {
         let mut close = false;
         dialog("About FireCraft").show(ctx, |ui| {
