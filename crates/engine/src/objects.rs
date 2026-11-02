@@ -13,12 +13,14 @@ use firecraft_raster::{Rgba, RgbaImage};
 use crate::{DocState, ElementRef};
 
 /// Copied objects, with the symbols their instances use (so they render when pasted into
-/// another document).
+/// another document) and the tiles their original Fireworks data refers to (textures, cached
+/// images: Fireworks drops objects whose tiles are missing).
 #[derive(Clone, Debug, Default)]
 pub struct Clipboard {
     /// Bottom first.
     pub elements: Vec<Element>,
     pub symbols: Vec<Symbol>,
+    pub tiles: Vec<firecraft_fwpng::Tile>,
 }
 
 /// Modify > Arrange.
@@ -102,7 +104,27 @@ impl DocState {
             return None;
         }
         let symbols = used_symbols(&elements, &self.doc);
-        Some(Clipboard { elements, symbols })
+        let mut ids = Vec::new();
+        elements
+            .iter()
+            .for_each(|e| firecraft_doc::tile_refs(e, &mut ids));
+        for sym in &symbols {
+            sym.layers
+                .iter()
+                .flat_map(|l| l.cells.iter().flatten())
+                .for_each(|e| firecraft_doc::tile_refs(e, &mut ids));
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        let tiles = ids
+            .iter()
+            .filter_map(|id| self.doc.raw_tiles.get(id).cloned())
+            .collect();
+        Some(Clipboard {
+            elements,
+            symbols,
+            tiles,
+        })
     }
 
     /// Edit > Cut: copy, then delete what was copied.
@@ -152,7 +174,48 @@ impl DocState {
                 }
             }
         }
+        // Tiles: keep identical ones, renumber those whose ids this document uses otherwise.
+        let mut next_tile = self
+            .doc
+            .raw_tiles
+            .keys()
+            .chain(clip.tiles.iter().map(|t| &t.id))
+            .copied()
+            .max()
+            .unwrap_or(0x0100_0000)
+            .saturating_add(0x10)
+            & !0xF;
+        let mut tile_map = std::collections::HashMap::new();
+        for t in &mut clip.tiles {
+            if self
+                .doc
+                .raw_tiles
+                .get(&t.id)
+                .is_some_and(|mine| mine.data != t.data)
+            {
+                tile_map.insert(t.id, next_tile);
+                t.id = next_tile;
+                next_tile += 0x10;
+            }
+        }
+        if !tile_map.is_empty() {
+            clip.elements
+                .iter_mut()
+                .for_each(|e| firecraft_doc::remap_tiles(e, &tile_map));
+            for sym in &mut clip.symbols {
+                sym.layers
+                    .iter_mut()
+                    .flat_map(|l| l.cells.iter_mut().flatten())
+                    .for_each(|e| firecraft_doc::remap_tiles(e, &tile_map));
+            }
+        }
         self.edit("Paste", |s| {
+            if !clip.tiles.is_empty() {
+                let tiles = std::sync::Arc::make_mut(&mut s.doc.raw_tiles);
+                for t in &clip.tiles {
+                    tiles.entry(t.id).or_insert_with(|| t.clone());
+                }
+            }
             for sym in &clip.symbols {
                 if !s.doc.symbols.iter().any(|x| x.id == sym.id) {
                     std::sync::Arc::make_mut(&mut s.doc.symbols).push(sym.clone());

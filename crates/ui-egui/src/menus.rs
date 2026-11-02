@@ -659,7 +659,7 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
             )
         });
     let shared = bounds
-        .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, b).ok())
+        .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b).ok())
         .is_some_and(firecraft_sysclip::set_png);
     let note = clipboard_note(clip.elements.len());
     // Without a system clipboard for objects (the browser), a note comes back as a paste.
@@ -677,9 +677,13 @@ fn paste(app: &mut FireCraftApp) {
         && let Some(png) = firecraft_sysclip::get_png()
     {
         match firecraft_io::read_clipboard_png(&png) {
-            Ok((elements, symbols)) => {
+            Ok((elements, symbols, tiles)) => {
                 with_doc(app, |d| {
-                    d.paste(&firecraft_engine::Clipboard { elements, symbols })
+                    d.paste(&firecraft_engine::Clipboard {
+                        elements,
+                        symbols,
+                        tiles,
+                    })
                 });
             }
             Err(e) => app.status = Some((format!("Can't paste the clipboard's image: {e}"), true)),

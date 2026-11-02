@@ -761,3 +761,70 @@ fn mask_coverage(
     }
     m
 }
+
+/// Tile ids (`TIDi`) the element's original Fireworks data refers to (textures, cached text
+/// images...), including its children's.
+pub fn tile_refs(e: &Element, out: &mut Vec<u32>) {
+    fn walk(n: &Node, out: &mut Vec<u32>, depth: usize) {
+        if n.is("TID") {
+            out.extend(n.as_u32());
+        }
+        if depth < firecraft_fwpng::tree::MAX_DEPTH {
+            n.children.iter().for_each(|c| walk(c, out, depth + 1));
+        }
+    }
+    if let Some(r) = &e.raw {
+        walk(r, out, 0);
+    }
+    for_children(e, &mut |c| tile_refs(c, out));
+}
+
+/// Renumber tile references in the element's original Fireworks data (and its children's).
+pub fn remap_tiles(e: &mut Element, map: &std::collections::HashMap<u32, u32>) {
+    fn walk(n: &mut Node, map: &std::collections::HashMap<u32, u32>, depth: usize) {
+        if n.is("TID")
+            && let Some(to) = n.as_u32().and_then(|id| map.get(&id))
+        {
+            *n = Node::int("TID", i64::from(*to));
+        }
+        if depth < firecraft_fwpng::tree::MAX_DEPTH {
+            n.children.iter_mut().for_each(|c| walk(c, map, depth + 1));
+        }
+    }
+    if let Some(r) = &mut e.raw {
+        walk(r, map, 0);
+    }
+    for_children_mut(e, &mut |c| remap_tiles(c, map));
+}
+
+fn for_children(e: &Element, f: &mut dyn FnMut(&Element)) {
+    match &e.kind {
+        ElementKind::Group(children) => children.iter().for_each(f),
+        ElementKind::Masked {
+            content, mask, cache, ..
+        } => {
+            content.iter().for_each(&mut *f);
+            f(mask);
+            if let Some(c) = cache {
+                f(c);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn for_children_mut(e: &mut Element, f: &mut dyn FnMut(&mut Element)) {
+    match &mut e.kind {
+        ElementKind::Group(children) => children.iter_mut().for_each(f),
+        ElementKind::Masked {
+            content, mask, cache, ..
+        } => {
+            content.iter_mut().for_each(&mut *f);
+            f(mask);
+            if let Some(c) = cache {
+                f(c);
+            }
+        }
+        _ => {}
+    }
+}

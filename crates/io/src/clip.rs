@@ -7,7 +7,7 @@
 //! effects survive both ways). Other applications see an ordinary PNG of the objects.
 
 use firecraft_doc::{Document, Element, Layer, Symbol};
-use firecraft_fwpng::Node;
+use firecraft_fwpng::{Node, Tile};
 
 use crate::{Error, Result};
 
@@ -16,13 +16,16 @@ use crate::{Error, Result};
 pub fn clipboard_png(
     elements: &[Element],
     symbols: &[Symbol],
+    tiles: &[Tile],
     bounds: (f64, f64, f64, f64),
 ) -> Result<Vec<u8>> {
     let (x, y, w, h) = bounds;
-    let (ox, oy) = (x.floor(), y.floor());
+    // Whole pixels; the tolerance keeps float noise (9.9999999) from adding a pixel.
+    const EPS: f64 = 1e-6;
+    let (ox, oy) = ((x + EPS).floor(), (y + EPS).floor());
     let (cw, ch) = (
-        ((x + w).ceil() - ox).max(1.0) as u32,
-        ((y + h).ceil() - oy).max(1.0) as u32,
+        ((x + w - EPS).ceil() - ox).max(1.0) as u32,
+        ((y + h - EPS).ceil() - oy).max(1.0) as u32,
     );
     let mut doc = Document::new(cw, ch, 72.0, None);
     let mut root = crate::write::new_root();
@@ -30,6 +33,8 @@ pub fn clipboard_png(
     put(&mut root, Node::float("YLC", oy));
     doc.raw = Some(root);
     doc.symbols = std::sync::Arc::new(symbols.to_vec());
+    // The writer keeps the ones the objects refer to.
+    doc.raw_tiles = std::sync::Arc::new(tiles.iter().map(|t| (t.id, t.clone())).collect());
     let mut layer = Layer::new("Layer 1");
     layer.cells = vec![
         elements
@@ -49,7 +54,7 @@ pub fn clipboard_png(
 /// The objects in a clipboard PNG from Fireworks (or FireCraft), in canvas coordinates of the
 /// document they were copied from (bottom first), with the symbols they use. A plain PNG
 /// (from another application) is one bitmap at (0, 0).
-pub fn read_clipboard_png(bytes: &[u8]) -> Result<(Vec<Element>, Vec<Symbol>)> {
+pub fn read_clipboard_png(bytes: &[u8]) -> Result<(Vec<Element>, Vec<Symbol>, Vec<Tile>)> {
     let fw = firecraft_fwpng::FwPng::read(bytes)?;
     if !fw.is_fireworks() {
         let img = crate::decode_png(bytes)?;
@@ -58,7 +63,7 @@ pub fn read_clipboard_png(bytes: &[u8]) -> Result<(Vec<Element>, Vec<Symbol>)> {
             y: 0,
             image: img,
         }));
-        return Ok((vec![el], Vec::new()));
+        return Ok((vec![el], Vec::new(), Vec::new()));
     }
     let root = fw
         .tree()?
@@ -76,7 +81,11 @@ pub fn read_clipboard_png(bytes: &[u8]) -> Result<(Vec<Element>, Vec<Symbol>)> {
             out.push(e);
         }
     }
-    Ok((out, doc.symbols.to_vec()))
+    Ok((
+        out,
+        doc.symbols.to_vec(),
+        doc.raw_tiles.values().cloned().collect(),
+    ))
 }
 
 fn put(n: &mut Node, child: Node) {
@@ -100,8 +109,8 @@ mod tests {
             image: RgbaImage::new(5, 4, Rgba::new(1, 2, 3, 255)),
         }));
         e.name = Some("piece".into());
-        let png = clipboard_png(std::slice::from_ref(&e), &[], (37.0, 12.0, 5.0, 4.0)).expect("written");
-        let (back, _) = read_clipboard_png(&png).expect("read");
+        let png = clipboard_png(std::slice::from_ref(&e), &[], &[], (37.0, 12.0, 5.0, 4.0)).expect("written");
+        let (back, _, _) = read_clipboard_png(&png).expect("read");
         assert_eq!(back.len(), 1);
         assert_eq!(back[0].name.as_deref(), Some("piece"));
         assert_eq!(back[0].bounds(), Some((37.0, 12.0, 5.0, 4.0)));

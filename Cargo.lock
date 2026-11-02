@@ -1114,6 +1114,7 @@ name = "firecraft-engine"
 version = "0.1.0"
 dependencies = [
  "firecraft-doc",
+ "firecraft-fwpng",
  "firecraft-io",
  "firecraft-raster",
 ]
