@@ -39,11 +39,13 @@ pub struct Editing {
 /// How a setting is edited and stored.
 #[derive(Clone, Copy, Debug)]
 enum Kind {
-    /// Plain number text ("10", "4.5").
+    /// Plain number text ("10", "4.5"); `log`: logarithmic slider (wide ranges of sizes, used
+    /// mostly at the low end).
     Number {
         min: f64,
         max: f64,
         decimals: usize,
+        log: bool,
     },
     Bool,
     /// `#rrggbb`.
@@ -72,8 +74,36 @@ const fn num(key: &'static str, label: &'static str, min: f64, max: f64, decimal
     Field {
         key,
         label,
-        kind: Kind::Number { min, max, decimals },
+        kind: Kind::Number {
+            min,
+            max,
+            decimals,
+            log: false,
+        },
     }
+}
+
+/// A number with a logarithmic slider (radii, seeds: wide ranges used mostly at the low end).
+const fn num_log(key: &'static str, label: &'static str, min: f64, max: f64, decimals: usize) -> Field {
+    Field {
+        key,
+        label,
+        kind: Kind::Number {
+            min,
+            max,
+            decimals,
+            log: true,
+        },
+    }
+}
+
+/// Effect settings sliders: a long track, logarithmic for wide size ranges so the low end
+/// (where most effects are used) gets most of the travel.
+fn fx_slider(v: &mut f64, min: f64, max: f64, log: bool) -> egui::Slider<'_> {
+    egui::Slider::new(v, min..=max)
+        .logarithmic(log)
+        // Below this a logarithmic slider jumps to 0 (ranges that start at 0).
+        .smallest_positive(if min > 0.0 { min } else { 0.5 })
 }
 
 const fn field(key: &'static str, label: &'static str, kind: Kind) -> Field {
@@ -296,7 +326,7 @@ const DEFS: &[EffectDef] = &[
         name: "Gaussian Blur...",
         moa: "{d04ef8c0-71b3-11d1-8c8200a024cdc039}",
         defaults: &[("gaussian_blur_radius", "1")],
-        fields: &[num("gaussian_blur_radius", "Radius", 0.1, 250.0, 1)],
+        fields: &[num_log("gaussian_blur_radius", "Radius", 0.1, 250.0, 1)],
         filter: true,
         plugin_category: None,
     },
@@ -437,7 +467,7 @@ const DEFS: &[EffectDef] = &[
             num("VEcv", "Vein coverage", 0.0, 100.0, 0),
             num("VEth", "Vein thickness", 0.0, 100.0, 0),
             num("VEro", "Vein roughness", 0.0, 100.0, 0),
-            num("RndS", "Random seed", 1.0, 99999.0, 0),
+            num_log("RndS", "Random seed", 1.0, 99999.0, 0),
         ],
         filter: true,
         plugin_category: Some(EC),
@@ -499,7 +529,7 @@ const DEFS: &[EffectDef] = &[
             num("Drct", "Direction", 0.0, 360.0, 0),
             field("Clr ", "Color", Kind::PluginColor),
             field("Fl  ", "Transparent fill", Kind::Bool),
-            num("RndS", "Random seed", 1.0, 99999.0, 0),
+            num_log("RndS", "Random seed", 1.0, 99999.0, 0),
         ],
         filter: true,
         plugin_category: Some("Alien Skin Splat LE"),
@@ -575,10 +605,15 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
     ui.label(f.label);
     let mut out: Option<String> = None;
     match f.kind {
-        Kind::Number { min, max, decimals } => {
+        Kind::Number {
+            min,
+            max,
+            decimals,
+            log,
+        } => {
             let mut v: f64 = raw.trim().parse().unwrap_or(min.max(0.0).min(max));
             let r = ui.add(
-                egui::Slider::new(&mut v, min..=max)
+                fx_slider(&mut v, min, max, log)
                     .max_decimals(decimals)
                     .min_decimals(0),
             );
@@ -634,7 +669,7 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
         Kind::PluginPixels { min, max } => {
             let mut v = plugin.pixels(f.key, min as f32) as f64;
             if ui
-                .add(egui::Slider::new(&mut v, min..=max).max_decimals(2).suffix(" px"))
+                .add(fx_slider(&mut v, min, max, true).max_decimals(2).suffix(" px"))
                 .changed()
             {
                 out = Some(format!("{} 0", hex(&format!("{v:.2} pixels"))));
@@ -893,6 +928,8 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
         .resizable(false)
         .default_pos(ctx.content_rect().left_bottom() + vec2(320.0, -330.0))
         .show(ctx, |ui| {
+            // Long sliders for fine control (240 px: a 0-100 setting moves ~0.4 per pixel).
+            ui.spacing_mut().slider_width = 240.0;
             egui::Grid::new("fx_fields")
                 .num_columns(2)
                 .spacing(vec2(8.0, 4.0))
