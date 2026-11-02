@@ -51,6 +51,9 @@ pub struct DocState {
     pub dirty: bool,
     /// This document is a symbol open in the Symbol Editor.
     pub symbol_link: Option<SymbolLink>,
+    /// The region to show when the document first appears (x, y, w, h): the Symbol Editor
+    /// shows the symbol's content, not its whole canvas.
+    pub view_focus: Option<(f64, f64, f64, f64)>,
     /// `dirty` when the live edit in progress began (restored if it's cancelled).
     live_dirty: bool,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
@@ -70,6 +73,7 @@ impl DocState {
             zoom: -1.0,
             dirty: false,
             symbol_link: None,
+            view_focus: None,
             live_dirty: false,
             revision: 0,
         }

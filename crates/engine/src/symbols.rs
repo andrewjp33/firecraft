@@ -25,8 +25,9 @@ pub struct SymbolLink {
     pub synced: u64,
 }
 
-/// Room around a symbol's content in its editor.
-const EDITOR_MARGIN: f64 = 40.0;
+/// Least room around a symbol's content in its editor (at least the content's own size is
+/// added on each side, so there's space to work in all around it).
+const EDITOR_MARGIN: f64 = 500.0;
 
 /// A fresh, unused symbol id (Fireworks uses arbitrary 32-bit ids).
 fn new_symbol_id(doc: &Document) -> u32 {
@@ -307,10 +308,11 @@ impl DocState {
     pub fn symbol_document(&self, id: u32) -> Option<(Document, (f64, f64))> {
         let sym = self.doc.symbols.iter().find(|s| s.id == id)?;
         let (bx, by, bw, bh) = sym.content_bounds().unwrap_or((-50.0, -50.0, 100.0, 100.0));
-        let offset = ((EDITOR_MARGIN - bx).round(), (EDITOR_MARGIN - by).round());
+        let margin = EDITOR_MARGIN.max(bw.max(bh));
+        let offset = ((margin - bx).round(), (margin - by).round());
         let (w, h) = (
-            (bw + 2.0 * EDITOR_MARGIN).ceil().max(100.0) as u32,
-            (bh + 2.0 * EDITOR_MARGIN).ceil().max(100.0) as u32,
+            (bw + 2.0 * margin).ceil() as u32,
+            (bh + 2.0 * margin).ceil() as u32,
         );
         let mut doc = Document::new(w, h, self.doc.resolution, None);
         doc.layers = sym
@@ -392,6 +394,12 @@ impl Session {
         let Some((editor, offset)) = parent.symbol_document(id) else {
             return;
         };
+        let content = parent
+            .doc
+            .symbols
+            .iter()
+            .find(|s| s.id == id)
+            .and_then(Symbol::content_bounds);
         self.push(editor);
         if let Some(d) = self.docs.last_mut() {
             d.symbol_link = Some(SymbolLink {
@@ -399,6 +407,15 @@ impl Session {
                 symbol: id,
                 offset,
                 synced: d.revision,
+            });
+            // Open on the content (and the symbol's origin), not the whole canvas.
+            d.view_focus = Some(match content {
+                Some((x, y, w, h)) => {
+                    let (x0, y0) = (x.min(0.0), y.min(0.0));
+                    let (x1, y1) = ((x + w).max(0.0), (y + h).max(0.0));
+                    (x0 + offset.0, y0 + offset.1, x1 - x0, y1 - y0)
+                }
+                None => (offset.0 - 100.0, offset.1 - 100.0, 200.0, 200.0),
             });
         }
     }

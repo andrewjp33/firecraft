@@ -615,18 +615,21 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         // View > Fit All.
         d.zoom = fit.clamp(1.0 / 16.0, 64.0);
         view.auto_zoom = None;
-    } else if d.zoom < 0.0 {
+    } else if d.zoom < 0.0 || view.auto_zoom.is_some_and(|z| d.zoom == z) {
         // A newly opened document: scaled to fit its window, at most 100%, and kept fitting
-        // while the window settles, until the user zooms.
-        d.zoom = fit.clamp(1.0 / 16.0, 1.0);
-        view.auto_zoom = Some(d.zoom);
-    } else if let Some(z) = view.auto_zoom {
-        if d.zoom == z {
-            d.zoom = fit.clamp(1.0 / 16.0, 1.0);
-            view.auto_zoom = Some(d.zoom);
-        } else {
-            view.auto_zoom = None;
+        // while the window settles, until the user zooms. A Symbol Editor fits (and centres
+        // on) the symbol's content rather than its large canvas.
+        match d.view_focus {
+            Some((fx, fy, fw, fh)) => {
+                let f = (rect.width() / fw.max(1.0) as f32).min(rect.height() / fh.max(1.0) as f32) * 0.9;
+                d.zoom = f.clamp(1.0 / 16.0, 1.0);
+                center_on(d, view, (fx + fw / 2.0, fy + fh / 2.0));
+            }
+            None => d.zoom = fit.clamp(1.0 / 16.0, 1.0),
         }
+        view.auto_zoom = Some(d.zoom);
+    } else if view.auto_zoom.is_some() {
+        view.auto_zoom = None;
     }
     // Wheel: scroll pans, Ctrl+wheel zooms around the pointer.
     if resp.hovered() {
@@ -712,6 +715,15 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         Stroke::new(1.0, Color32::from_gray(60)),
         StrokeKind::Outside,
     );
+    // Symbol Editor: the symbol's origin (registration point), as Fireworks marks it.
+    if let Some(link) = d.symbol_link {
+        let c = to_screen(link.offset.0, link.offset.1);
+        for (col, w) in [(Color32::WHITE, 3.0), (Color32::from_rgb(0, 90, 200), 1.0)] {
+            let s = Stroke::new(w, col);
+            p.line_segment([c - vec2(9.0, 0.0), c + vec2(9.0, 0.0)], s);
+            p.line_segment([c - vec2(0.0, 9.0), c + vec2(0.0, 9.0)], s);
+        }
+    }
 
     // Each tool shows its own cursor over the canvas.
     if resp.hovered() || resp.dragged() {
@@ -750,6 +762,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
     }
 
+    // Tools with editing state of their own (one for the app) work in the active document
+    // only; other windows just show their document (Fireworks shows handles in one window).
+    let active = index == app.session.active;
+    if !active && matches!(tool, Tool::NineSlice | Tool::Scale | Tool::Skew | Tool::Distort) {
+        return;
+    }
     // The 9-slice tool handles its own input and overlay.
     if tool == Tool::NineSlice {
         crate::nine::canvas(&mut app.nine, d, view, &p, resp, origin, z);
