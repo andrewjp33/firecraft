@@ -10,6 +10,7 @@ pub mod image;
 pub mod mask;
 pub mod nine;
 pub mod path;
+pub mod plugins;
 pub mod transform;
 pub mod wand;
 

@@ -4,8 +4,8 @@
 //! Effects are identified in files by `EffectMoaID` and carry string parameters; [`Effect::parse`]
 //! maps the ones FireCraft renders. Formulas are first implementations checked against Fireworks'
 //! own renders with `parity_report`; exactness work per effect is tracked in
-//! docs/behavior/effects.md. Third-party plug-ins (Eye Candy: Bevel Boss, Motion Trail, Edges)
-//! are kept in the file but not rendered.
+//! docs/behavior/effects.md. The bundled plug-ins (Eye Candy 4000 LE, Splat LE) have built-in
+//! versions in `plugins`.
 
 use std::collections::HashMap;
 
@@ -69,6 +69,11 @@ pub enum Effect {
     },
     /// Inner/Outer Bevel, Raised/Inset Emboss.
     Bevel(crate::bevel::Bevel),
+    /// Bundled plug-ins (Eye Candy 4000 LE, Splat LE), built in.
+    BevelBoss(crate::plugins::BevelBoss),
+    MotionTrail(crate::plugins::MotionTrail),
+    Edges(crate::plugins::Edges),
+    Marble(crate::plugins::Marble),
 }
 
 const HUE_SAT: &str = "{3439b08d-1922-11d3-9bde00e02910d580}";
@@ -170,6 +175,16 @@ impl Effect {
                 inner: false,
             },
             BEVEL_GLOW => Effect::Bevel(crate::bevel::Bevel::parse(p)?),
+            crate::plugins::BEVEL_BOSS => {
+                Effect::BevelBoss(crate::plugins::BevelBoss::parse(&crate::plugins::Params(p)))
+            }
+            crate::plugins::MOTION_TRAIL => {
+                Effect::MotionTrail(crate::plugins::MotionTrail::parse(&crate::plugins::Params(p)))
+            }
+            crate::plugins::EDGES => Effect::Edges(crate::plugins::Edges::parse(&crate::plugins::Params(p))),
+            crate::plugins::MARBLE => {
+                Effect::Marble(crate::plugins::Marble::parse(&crate::plugins::Params(p)))
+            }
             INNER_GLOW => Effect::Glow {
                 color: color("OuterBevelColor", Rgba::BLACK),
                 width: num("GlowWidth", 4.0),
@@ -351,6 +366,10 @@ impl Effect {
                 }
             }
             Effect::Bevel(b) => b.apply(img),
+            Effect::BevelBoss(b) => b.apply(img),
+            Effect::MotionTrail(m) => m.apply(img),
+            Effect::Edges(e) => e.apply(img),
+            Effect::Marble(m) => m.apply(img),
             Effect::Glow {
                 color,
                 width,
@@ -405,6 +424,9 @@ impl Effect {
                 ..
             } => width + offset + softness,
             Effect::Bevel(b) => b.margin(),
+            Effect::BevelBoss(b) => b.margin(),
+            Effect::MotionTrail(m) => m.margin(),
+            Effect::Edges(_) | Effect::Marble(_) => 0.0,
             _ => 0.0,
         };
         m.clamp(0.0, 500.0).ceil() as u32 + 2
@@ -417,6 +439,11 @@ const SOFTNESS_SIGMA: f32 = 0.475;
 
 /// Euclidean distance from each pixel to the nearest `true` pixel (0 on them). Exact squared
 /// distance transform (Felzenszwalb & Huttenlocher), separable, O(pixels).
+/// Euclidean distance to the nearest set pixel (for other effect modules).
+pub(crate) fn distance_to_pub(set: &[bool], w: u32, h: u32) -> Vec<f32> {
+    distance_to(set, w, h)
+}
+
 fn distance_to(set: &[bool], w: u32, h: u32) -> Vec<f32> {
     const INF: f32 = 1e20;
     let (w, h) = (w as usize, h as usize);

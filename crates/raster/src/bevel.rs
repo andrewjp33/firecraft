@@ -470,7 +470,7 @@ pub fn fw_angle(dx: i32, dy: i32) -> i32 {
 
 /// For every pixel, the offset (dx, dy) to the nearest seed pixel (exact Euclidean, Felzenszwalb
 /// with argmin tracking). With `edge_is_seed`, the area outside the image counts as seeds.
-fn nearest_seed(seeds: &[bool], w: usize, h: usize, edge_is_seed: bool) -> Vec<(i32, i32)> {
+pub(crate) fn nearest_seed(seeds: &[bool], w: usize, h: usize, edge_is_seed: bool) -> Vec<(i32, i32)> {
     const INF: i64 = 1 << 40;
     // Column pass: nearest seed row in each column.
     let mut col_row = vec![-1i64; w * h];
@@ -535,7 +535,7 @@ fn nearest_seed(seeds: &[bool], w: usize, h: usize, edge_is_seed: bool) -> Vec<(
 }
 
 /// Separable Gaussian blur of a plane (exact kernel, radius 3 sigma; zero outside).
-fn gaussian_plane(src: &[f64], w: usize, h: usize, sigma: f64) -> Vec<f64> {
+pub(crate) fn gaussian_plane(src: &[f64], w: usize, h: usize, sigma: f64) -> Vec<f64> {
     let r = (sigma * 3.0).ceil().max(1.0) as i64;
     let kernel: Vec<f64> = (-r..=r)
         .map(|i| (-((i * i) as f64) / (2.0 * sigma * sigma)).exp())
