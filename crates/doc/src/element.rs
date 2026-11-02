@@ -378,7 +378,7 @@ impl Element {
     }
 
     /// The objects an instance's symbol shows in the current frame, in symbol space.
-    fn symbol_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
+    pub(crate) fn symbol_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
         let ElementKind::Instance { symbol, .. } = &self.kind else {
             return None;
         };
@@ -586,58 +586,134 @@ impl Element {
     }
 
     /// Composite this element onto `out` (whose top-left is canvas (`ox`, `oy`)).
-    pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64, ctx: &RenderCtx) {
-        if !self.visible || self.opacity <= 0.0 {
-            return;
+    /// Whether drawing passes straight through to the children (a group or symbol instance
+    /// with no effects, full opacity and Normal blending): each child blends with what lies
+    /// beneath on its own.
+    pub fn is_pass_through(&self) -> bool {
+        let plain = self.opacity >= 100.0
+            && self.blend == BlendMode::Normal
+            && self.effects.iter().all(|e| e.active().is_none());
+        plain
+            && match &self.kind {
+                ElementKind::Group(_) => true,
+                ElementKind::Instance { matrix, .. } => matrix.is_affine(),
+                _ => false,
+            }
+    }
+
+    /// The children a pass-through element draws (see [`is_pass_through`](Self::is_pass_through)).
+    pub fn pass_through_children(&self, ctx: &RenderCtx) -> Vec<Element> {
+        match &self.kind {
+            ElementKind::Group(children) => children.clone(),
+            ElementKind::Instance { .. } => self.instance_elements(ctx).unwrap_or_default(),
+            _ => Vec::new(),
         }
-        let opacity = (self.opacity.clamp(0.0, 100.0) * 2.55).round() as u8;
-        // A plain group passes its children's blending through to what lies beneath it.
+    }
+
+    /// The opacity byte used when blending.
+    pub fn opacity_byte(&self) -> u8 {
+        (self.opacity.clamp(0.0, 100.0) * 2.55).round() as u8
+    }
+
+    /// The object's own pixels after its effects, before opacity and blending, as an image and
+    /// its position relative to the output area's top-left (canvas (`ox`, `oy`), `w` x `h`).
+    pub fn pixels(&self, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> Option<(RgbaImage, i64, i64)> {
         let active: Vec<&Effect> = self.effects.iter().filter_map(|e| e.active()).collect();
-        let plain = opacity == 255 && self.blend == BlendMode::Normal && active.is_empty();
-        if let ElementKind::Group(children) = &self.kind {
-            if plain {
-                children.iter().for_each(|c| c.render_onto(out, ox, oy, ctx));
-                return;
-            }
-        }
-        // A plain instance passes through the same way.
-        if plain && matches!(&self.kind, ElementKind::Instance { matrix, .. } if matrix.is_affine()) {
-            let inner = ctx.deeper();
-            for c in self.instance_elements(ctx).unwrap_or_default() {
-                c.render_onto(out, ox, oy, &inner);
-            }
-            return;
-        }
         if active.is_empty() {
-            let Some((img, x, y)) = self.rasterize(ox, oy, out.width(), out.height(), ctx) else {
-                return;
-            };
-            out.draw_blend_with(&img, x, y, opacity, self.blend, ctx.math);
-            return;
+            return self.rasterize(ox, oy, w, h, ctx);
         }
         // Effects can draw outside the object (shadows, glows, blurs) and are affected by the
         // object's pixels beyond the output's edge (a blur near the canvas edge): rasterize the
         // output area grown by the effect margin, and give the object that margin of padding.
         let m = active.iter().map(|e| e.margin()).max().unwrap_or(0) as i64;
-        let (ew, eh) = (out.width() as i64 + 2 * m, out.height() as i64 + 2 * m);
+        let (ew, eh) = (w as i64 + 2 * m, h as i64 + 2 * m);
         if ew * eh > 1 << 28 {
-            return;
+            return None;
         }
-        let Some((img, x, y)) = self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx) else {
-            return;
-        };
+        let (img, x, y) = self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx)?;
         let (bx, by) = ((x - m).max(0), (y - m).max(0));
         let bw = ((x + img.width() as i64 + m).min(ew) - bx).max(0) as u32;
         let bh = ((y + img.height() as i64 + m).min(eh) - by).max(0) as u32;
         if bw == 0 || bh == 0 {
-            return;
+            return None;
         }
         let mut buf = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
         buf.draw(&img, x - bx, y - by, 255);
         for e in &active {
             e.apply_with(&mut buf, ctx.math);
         }
-        out.draw_blend_with(&buf, bx - m, by - m, opacity, self.blend, ctx.math);
+        Some((buf, bx - m, by - m))
+    }
+
+    /// How far the object's effects reach beyond it.
+    pub fn effect_margin(&self) -> i64 {
+        self.effects
+            .iter()
+            .filter_map(|e| e.active())
+            .map(|e| e.margin())
+            .max()
+            .unwrap_or(0) as i64
+    }
+
+    /// The area to render the whole object in: its bounds grown by its stroke and effects,
+    /// as (x, y, w, h) in canvas pixels. `None` when unknown or huge (then only the visible
+    /// part is rendered).
+    pub fn full_region(&self, ctx: &RenderCtx) -> Option<(i64, i64, u32, u32)> {
+        const MAX_PIXELS: i64 = 40_000_000;
+        let (bx, by, bw, bh) = self.deep_bounds(ctx)?;
+        if !(bx.is_finite() && by.is_finite() && bw.is_finite() && bh.is_finite()) {
+            return None;
+        }
+        let stroke = self.max_stroke().ceil() as i64;
+        let m = self.effect_margin() + stroke + 2;
+        let (x, y) = (bx.floor() as i64 - m, by.floor() as i64 - m);
+        let (w, h) = ((bx + bw).ceil() as i64 + m - x, (by + bh).ceil() as i64 + m - y);
+        (w > 0 && h > 0 && w * h <= MAX_PIXELS).then_some((x, y, w as u32, h as u32))
+    }
+
+    /// Half the widest stroke in the object (strokes reach beyond the geometry's bounds).
+    fn max_stroke(&self) -> f64 {
+        match &self.kind {
+            ElementKind::Path(p) => p
+                .stroke
+                .as_ref()
+                .map_or(0.0, |s| s.diameter / 2.0 + s.softness as f64 + 1.0),
+            ElementKind::Group(children) => children.iter().map(Element::max_stroke).fold(0.0, f64::max),
+            ElementKind::Masked { content, mask, .. } => content
+                .iter()
+                .map(Element::max_stroke)
+                .fold(mask.max_stroke(), f64::max),
+            _ => 0.0,
+        }
+    }
+
+    /// Composite this element onto `out` (whose top-left is canvas (`ox`, `oy`)).
+    pub fn render_onto(&self, out: &mut RgbaImage, ox: i64, oy: i64, ctx: &RenderCtx) {
+        if !self.visible || self.opacity <= 0.0 {
+            return;
+        }
+        if self.is_pass_through() {
+            let inner = if matches!(self.kind, ElementKind::Instance { .. }) {
+                ctx.deeper()
+            } else {
+                *ctx
+            };
+            for c in self.pass_through_children(ctx) {
+                c.render_onto(out, ox, oy, &inner);
+            }
+            return;
+        }
+        // Render the whole object (as Fireworks does: effects see all of it, not just the part
+        // on the canvas), falling back to the visible part for huge or unbounded objects.
+        let rendered = match self.full_region(ctx) {
+            Some((rx, ry, rw, rh)) => self
+                .pixels(rx, ry, rw, rh, ctx)
+                .map(|(img, x, y)| (img, rx + x - ox, ry + y - oy)),
+            None => self.pixels(ox, oy, out.width(), out.height(), ctx),
+        };
+        if let Some((img, x, y)) = rendered {
+            out.draw_blend_with(&img, x, y, self.opacity_byte(), self.blend, ctx.math);
+        }
     }
 }
 

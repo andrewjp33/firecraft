@@ -389,35 +389,34 @@ pub fn canvas(
     let mods = resp.ctx.input(|i| i.modifiers);
 
     // Clicking selects objects, as with the Pointer.
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let (x, y) = to_doc(pos);
-            let keep = transform.as_ref().is_some_and(|e| inside(&e.quad, (x, y)));
-            if !keep {
-                match d.hit_test(x, y) {
-                    Some(hit) => d.selection = vec![hit],
-                    None => d.deselect(),
-                }
-                d.pixels = None;
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let (x, y) = to_doc(pos);
+        let keep = transform.as_ref().is_some_and(|e| inside(&e.quad, (x, y)));
+        if !keep {
+            match d.hit_test(x, y) {
+                Some(hit) => d.selection = vec![hit],
+                None => d.deselect(),
             }
+            d.pixels = None;
         }
     }
     let Some(edit) = sync(transform, d) else { return };
 
-    if resp.drag_started() {
-        if let Some(q) = resp
+    if resp.drag_started()
+        && let Some(q) = resp
             .ctx
             .input(|i| i.pointer.press_origin())
             .or(resp.interact_pointer_pos())
-        {
-            let handle = pick(edit, q, &to_screen, &to_doc, mods.shift);
-            edit.drag = Some(Drag {
-                handle,
-                start_quad: edit.quad,
-                pivot: pivot_of(edit),
-                start: to_doc(q),
-            });
-        }
+    {
+        let handle = pick(edit, q, &to_screen, &to_doc, mods.shift);
+        edit.drag = Some(Drag {
+            handle,
+            start_quad: edit.quad,
+            pivot: pivot_of(edit),
+            start: to_doc(q),
+        });
     }
     if let (Some(drag), Some(q)) = (edit.drag, resp.interact_pointer_pos()) {
         if drag.handle == Handle::Pivot {
@@ -441,22 +440,22 @@ pub fn canvas(
             paint_rotate_cursor(p, hover);
         }
     }
-    if resp.drag_stopped() {
-        if let Some(drag) = edit.drag.take() {
-            let label = match (drag.handle, tool) {
-                (Handle::Move, _) => "Move",
-                (Handle::Rotate, _) => "Rotate",
-                (_, Tool::Skew) => "Skew",
-                (_, Tool::Distort) => "Distort",
-                _ => "Scale",
-            };
-            if edit.quad != drag.start_quad {
-                if let Some(m) = Affine::rect_to_quad(edit.rect, edit.quad) {
-                    let originals = edit.originals.clone();
-                    d.transform_from(&originals, &m, label);
-                    edit.revision = d.revision;
-                }
-            }
+    if resp.drag_stopped()
+        && let Some(drag) = edit.drag.take()
+    {
+        let label = match (drag.handle, tool) {
+            (Handle::Move, _) => "Move",
+            (Handle::Rotate, _) => "Rotate",
+            (_, Tool::Skew) => "Skew",
+            (_, Tool::Distort) => "Distort",
+            _ => "Scale",
+        };
+        if edit.quad != drag.start_quad
+            && let Some(m) = Affine::rect_to_quad(edit.rect, edit.quad)
+        {
+            let originals = edit.originals.clone();
+            d.transform_from(&originals, &m, label);
+            edit.revision = d.revision;
         }
     }
 

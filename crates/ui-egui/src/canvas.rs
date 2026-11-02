@@ -103,13 +103,12 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             .collapsible(true)
             .resizable(true)
             .show(&ctx, |ui| document_view(app, ui, i));
-        if let Some(r) = resp {
-            if r.response.clicked()
+        if let Some(r) = resp
+            && (r.response.clicked()
                 || r.response.dragged()
-                || r.response.contains_pointer() && ctx.input(|inp| inp.pointer.any_pressed())
-            {
-                app.session.active = i;
-            }
+                || r.response.contains_pointer() && ctx.input(|inp| inp.pointer.any_pressed()))
+        {
+            app.session.active = i;
         }
         if !open {
             close = Some(i);
@@ -264,22 +263,48 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let key = (d.revision << 16) ^ d.doc.current_frame as u64;
     let stale = view.texture.as_ref().is_none_or(|(k, _)| *k != key);
     if stale {
-        let img = d.doc.render(d.doc.current_frame);
-        let color = egui::ColorImage::from_rgba_unmultiplied(
-            [img.width() as usize, img.height() as usize],
-            &img.to_rgba_bytes(),
-        );
-        match &mut view.texture {
-            Some((rev, tex)) => {
-                tex.set(color, egui::TextureOptions::NEAREST);
-                *rev = d.revision;
+        let t0 = std::time::Instant::now();
+        let img = d
+            .doc
+            .render_cached(d.doc.current_frame, &mut view.cache.borrow_mut());
+        let t1 = t0.elapsed();
+        let dirty = view.cache.borrow().dirty;
+        let to_color = |img: &firecraft_raster::RgbaImage| {
+            egui::ColorImage::from_rgba_unmultiplied(
+                [img.width() as usize, img.height() as usize],
+                &img.to_rgba_bytes(),
+            )
+        };
+        let options = egui::TextureOptions::NEAREST;
+        match (&mut view.texture, dirty) {
+            // Only part of the picture changed: upload just that part.
+            (Some((stored, _)), firecraft_doc::Dirty::None) => *stored = key,
+            (Some((stored, tex)), firecraft_doc::Dirty::Rect { x, y, w, h }) => {
+                let mut part = firecraft_raster::RgbaImage::new(w, h, firecraft_raster::Rgba::TRANSPARENT);
+                part.copy_from(&img, -(x as i64), -(y as i64));
+                tex.set_partial([x as usize, y as usize], to_color(&part), options);
+                // The cache key (not just the revision), or every frame looks stale.
+                *stored = key;
             }
-            None => {
+            (Some((stored, tex)), firecraft_doc::Dirty::Full) => {
+                tex.set(to_color(&img), options);
+                *stored = key;
+            }
+            (None, _) => {
                 view.texture = Some((
-                    d.revision,
-                    ctx.load_texture(format!("doc-{}", d.id), color, egui::TextureOptions::NEAREST),
+                    key,
+                    ctx.load_texture(format!("doc-{}", d.id), to_color(&img), options),
                 ))
             }
+        }
+        // FIRECRAFT_PROFILE=1: how long each canvas refresh takes.
+        if std::env::var_os("FIRECRAFT_PROFILE").is_some() {
+            let (hits, rendered) = view.cache.borrow().last;
+            eprintln!(
+                "canvas refresh: render {:.1} ms ({hits} cached, {rendered} rendered), texture {:.1} ms, {dirty:?}",
+                t1.as_secs_f64() * 1000.0,
+                (t0.elapsed() - t1).as_secs_f64() * 1000.0
+            );
         }
     }
     // Transparent canvas shows a checkerboard.
@@ -372,27 +397,27 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             .input(|i| i.pointer.press_origin())
             .or(resp.interact_pointer_pos());
         view.drag_secondary = resp.dragged_by(egui::PointerButton::Secondary);
-        if matches!(tool, Tool::Pointer | Tool::SelectBehind) {
-            if let Some(pos) = view.drag_start {
-                let (x, y) = to_doc(pos);
-                // Pressing inside the selection drags it, even under another object (Fireworks);
-                // elsewhere the object under the pointer is picked first.
-                let keep = d.selection_contains(x, y) || tool == Tool::SelectBehind;
-                match if keep { None } else { Some(d.hit_test(x, y)) } {
-                    None => {}
-                    Some(found) => match found {
-                        Some(hit) if !d.selection.contains(&hit) => {
-                            d.selection = if mods.shift {
-                                [d.selection.clone(), vec![hit]].concat()
-                            } else {
-                                vec![hit]
-                            };
-                            d.pixels = None;
-                        }
-                        Some(_) => {}
-                        None => d.deselect(),
-                    },
-                }
+        if matches!(tool, Tool::Pointer | Tool::SelectBehind)
+            && let Some(pos) = view.drag_start
+        {
+            let (x, y) = to_doc(pos);
+            // Pressing inside the selection drags it, even under another object (Fireworks);
+            // elsewhere the object under the pointer is picked first.
+            let keep = d.selection_contains(x, y) || tool == Tool::SelectBehind;
+            match if keep { None } else { Some(d.hit_test(x, y)) } {
+                None => {}
+                Some(found) => match found {
+                    Some(hit) if !d.selection.contains(&hit) => {
+                        d.selection = if mods.shift {
+                            [d.selection.clone(), vec![hit]].concat()
+                        } else {
+                            vec![hit]
+                        };
+                        d.pixels = None;
+                    }
+                    Some(_) => {}
+                    None => d.deselect(),
+                },
             }
         }
     }
@@ -443,46 +468,46 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             zoom_at(d, view, rect, Some(pos), 0.5);
         }
     }
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let (x, y) = to_doc(pos);
-            match tool {
-                Tool::Pointer => match d.hit_test(x, y) {
-                    Some(hit) if mods.shift => {
-                        if let Some(i) = d.selection.iter().position(|r| *r == hit) {
-                            d.selection.remove(i);
-                        } else {
-                            d.selection.push(hit);
-                        }
-                    }
-                    Some(hit) => {
-                        d.selection = vec![hit];
-                        d.pixels = None;
-                    }
-                    None => d.deselect(),
-                },
-                Tool::SelectBehind => d.select_behind(x, y),
-                Tool::MagicWand => d.magic_wand(x, y, &options, combine),
-                Tool::Marquee | Tool::OvalMarquee => {
-                    if combine == Combine::Replace {
-                        d.pixels = None;
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let (x, y) = to_doc(pos);
+        match tool {
+            Tool::Pointer => match d.hit_test(x, y) {
+                Some(hit) if mods.shift => {
+                    if let Some(i) = d.selection.iter().position(|r| *r == hit) {
+                        d.selection.remove(i);
+                    } else {
+                        d.selection.push(hit);
                     }
                 }
-                Tool::Zoom => {
-                    let f = if mods.alt { 0.5 } else { 2.0 };
-                    zoom_at(d, view, rect, Some(pos), f);
+                Some(hit) => {
+                    d.selection = vec![hit];
+                    d.pixels = None;
                 }
-                Tool::Eyedropper => {
-                    if let Some(px) = d
-                        .doc
-                        .render(d.doc.current_frame)
-                        .get(x.floor() as i64, y.floor() as i64)
-                    {
-                        app.session.options.fill = Some(px);
-                    }
+                None => d.deselect(),
+            },
+            Tool::SelectBehind => d.select_behind(x, y),
+            Tool::MagicWand => d.magic_wand(x, y, &options, combine),
+            Tool::Marquee | Tool::OvalMarquee => {
+                if combine == Combine::Replace {
+                    d.pixels = None;
                 }
-                _ => {}
             }
+            Tool::Zoom => {
+                let f = if mods.alt { 0.5 } else { 2.0 };
+                zoom_at(d, view, rect, Some(pos), f);
+            }
+            Tool::Eyedropper => {
+                if let Some(px) = d
+                    .doc
+                    .render(d.doc.current_frame)
+                    .get(x.floor() as i64, y.floor() as i64)
+                {
+                    app.session.options.fill = Some(px);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -503,12 +528,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             }
         }
         // Pixel selection: marching ants along the mask edge.
-        if let Some(sel) = &d.pixels {
-            if let Some(firecraft_doc::ElementKind::Bitmap(b)) = d.element(sel.target).map(|e| &e.kind) {
-                let phase = (ctx.input(|i| i.time) * 8.0) as usize;
-                marching_ants(&p, &sel.mask, b.x as f64, b.y as f64, &to_screen, phase);
-                ctx.request_repaint_after(std::time::Duration::from_millis(120));
-            }
+        if let Some(sel) = &d.pixels
+            && let Some(firecraft_doc::ElementKind::Bitmap(b)) = d.element(sel.target).map(|e| &e.kind)
+        {
+            let phase = (ctx.input(|i| i.time) * 8.0) as usize;
+            marching_ants(&p, &sel.mask, b.x as f64, b.y as f64, &to_screen, phase);
+            ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
         // Rubber band for drag tools.
         if let (true, Some(a), Some(b)) = (dragging, view.drag_start, drag_now) {

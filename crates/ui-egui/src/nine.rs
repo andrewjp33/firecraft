@@ -76,15 +76,15 @@ pub fn canvas(
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
 
     // Clicking selects objects, as with the Pointer.
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            let (x, y) = to_doc(pos);
-            match d.hit_test(x, y) {
-                Some(hit) => d.selection = vec![hit],
-                None => d.deselect(),
-            }
-            d.pixels = None;
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let (x, y) = to_doc(pos);
+        match d.hit_test(x, y) {
+            Some(hit) => d.selection = vec![hit],
+            None => d.deselect(),
         }
+        d.pixels = None;
     }
     let Some((edit, b)) = sync(nine, d) else { return };
     let (x, y, w, h) = b;
@@ -232,10 +232,10 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let (to, insets) = ((b.0, b.1, edit.width, edit.height), edit.insets);
         d.nine_slice_scale(to, insets);
         app.nine = None;
-        if let Some(d) = app.session.active_doc() {
-            if let Some((e, _)) = sync(&mut app.nine, d) {
-                e.insets = insets;
-            }
+        if let Some(d) = app.session.active_doc()
+            && let Some((e, _)) = sync(&mut app.nine, d)
+        {
+            e.insets = insets;
         }
     }
 }

@@ -714,13 +714,12 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             .add_enabled(sel.is_some(), egui::Button::new("-").small())
             .on_hover_text("Delete the selected effect")
             .clicked()
+            && let Some(i) = sel
         {
-            if let Some(i) = sel {
-                let mut l = list.clone();
-                l.remove(i);
-                new_list = Some((l, "Delete Effect"));
-                state.selected = None;
-            }
+            let mut l = list.clone();
+            l.remove(i);
+            new_list = Some((l, "Delete Effect"));
+            state.selected = None;
         }
         let up = sel.is_some_and(|i| i > 0);
         let down = sel.is_some_and(|i| i + 1 < list.len());
@@ -728,25 +727,23 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             .on_hover_text("Move up (applied earlier)")
             .clicked()
             && up
+            && let Some(i) = sel
         {
-            if let Some(i) = sel {
-                let mut l = list.clone();
-                l.swap(i, i - 1);
-                state.selected = Some(i - 1);
-                new_list = Some((l, "Reorder Effects"));
-            }
+            let mut l = list.clone();
+            l.swap(i, i - 1);
+            state.selected = Some(i - 1);
+            new_list = Some((l, "Reorder Effects"));
         }
         if crate::icons::glyph_button(ui, crate::icons::Glyph::TriangleDown, 16.0, down)
             .on_hover_text("Move down (applied later)")
             .clicked()
             && down
+            && let Some(i) = sel
         {
-            if let Some(i) = sel {
-                let mut l = list.clone();
-                l.swap(i, i + 1);
-                state.selected = Some(i + 1);
-                new_list = Some((l, "Reorder Effects"));
-            }
+            let mut l = list.clone();
+            l.swap(i, i + 1);
+            state.selected = Some(i + 1);
+            new_list = Some((l, "Reorder Effects"));
         }
     });
     // The list: checkbox (on/off), name, (i) for settings.

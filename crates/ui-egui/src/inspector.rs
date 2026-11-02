@@ -226,10 +226,10 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             });
         }
     });
-    if let Some((dx, dy)) = move_to {
-        if let Some(d) = app.session.active_doc_mut() {
-            d.move_selection(dx, dy, "Move");
-        }
+    if let Some((dx, dy)) = move_to
+        && let Some(d) = app.session.active_doc_mut()
+    {
+        d.move_selection(dx, dy, "Move");
     }
     // Fill/stroke of a single path.
     if let Some(ElementKind::Path(p)) = first.as_ref().map(|e| &e.kind) {
@@ -261,10 +261,9 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         .suffix("%"),
                 )
                 .changed()
+                && let Some(d) = app.session.active_doc_mut()
             {
-                if let Some(d) = app.session.active_doc_mut() {
-                    d.set_opacity(opacity);
-                }
+                d.set_opacity(opacity);
             }
             let current = first.as_ref().map(|e| e.blend).unwrap_or_default();
             let mut chosen = None;
@@ -312,11 +311,10 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Color math:");
             let mut math = color_math;
-            if crate::dialogs::color_math_combo(ui, "doc_color_math", &mut math) {
-                if let Some(d) = app.session.active_doc_mut() {
+            if crate::dialogs::color_math_combo(ui, "doc_color_math", &mut math)
+                && let Some(d) = app.session.active_doc_mut() {
                     d.set_color_math(math);
                 }
-            }
         })
         .response
         .on_hover_text("FireCraft: Fireworks' formulas in double precision (blend modes, Hue/Saturation). Fireworks MX: bit-exact Fireworks results. Fireworks MX itself always renders with its own math.");

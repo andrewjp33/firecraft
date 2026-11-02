@@ -227,6 +227,44 @@ impl RgbaImage {
     }
 
     /// [`draw_blend`](Self::draw_blend) with a choice of colour-math precision.
+    /// The part of `src` placed at (`dx`, `dy`) that lands on this image: (source x, source
+    /// y, destination x, destination y, width, height).
+    fn clip(&self, src: &RgbaImage, dx: i64, dy: i64) -> Option<(usize, usize, usize, usize, usize, usize)> {
+        let x0 = dx.max(0);
+        let y0 = dy.max(0);
+        let x1 = (dx + src.width as i64).min(self.width as i64);
+        let y1 = (dy + src.height as i64).min(self.height as i64);
+        (x1 > x0 && y1 > y0).then(|| {
+            (
+                (x0 - dx) as usize,
+                (y0 - dy) as usize,
+                x0 as usize,
+                y0 as usize,
+                (x1 - x0) as usize,
+                (y1 - y0) as usize,
+            )
+        })
+    }
+
+    /// Apply `f(destination, source)` to each overlapping pixel pair, row by row.
+    fn blend_rows(&mut self, src: &RgbaImage, dx: i64, dy: i64, mut f: impl FnMut(&mut Rgba, Rgba)) {
+        let Some((sx, sy, tx, ty, w, h)) = self.clip(src, dx, dy) else {
+            return;
+        };
+        let (sw, tw) = (src.width as usize, self.width as usize);
+        let dst = std::sync::Arc::make_mut(&mut self.pixels);
+        for row in 0..h {
+            let s0 = (sy + row) * sw + sx;
+            let t0 = (ty + row) * tw + tx;
+            let (Some(srow), Some(trow)) = (src.pixels.get(s0..s0 + w), dst.get_mut(t0..t0 + w)) else {
+                continue;
+            };
+            for (d, &sp) in trow.iter_mut().zip(srow) {
+                f(d, sp);
+            }
+        }
+    }
+
     pub fn draw_blend_with(
         &mut self,
         src: &RgbaImage,
@@ -239,32 +277,33 @@ impl RgbaImage {
         if mode == crate::blend::BlendMode::Normal {
             return self.draw(src, dx, dy, opacity);
         }
-        for y in 0..src.height as i64 {
-            for x in 0..src.width as i64 {
-                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else {
-                    continue;
-                };
-                if s.a == 0 {
-                    continue;
-                }
-                if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
-                    *d = mode.composite_with(*d, s, opacity, math);
-                }
-            }
+        if opacity == 0 {
+            return;
         }
+        self.blend_rows(src, dx, dy, |d, s| {
+            if s.a != 0 {
+                *d = mode.composite_with(*d, s, opacity, math);
+            }
+        });
+    }
+
+    /// Replace the pixels under `src` (placed at `dx`, `dy`) with it.
+    pub fn copy_from(&mut self, src: &RgbaImage, dx: i64, dy: i64) {
+        self.blend_rows(src, dx, dy, |d, s| *d = s);
     }
 
     pub fn draw(&mut self, src: &RgbaImage, dx: i64, dy: i64, opacity: u8) {
-        for y in 0..src.height as i64 {
-            for x in 0..src.width as i64 {
-                let (Some(s), Some(i)) = (src.get(x, y), self.index(x + dx, y + dy)) else {
-                    continue;
-                };
-                if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
-                    *d = d.over(s, opacity);
-                }
-            }
+        if opacity == 0 {
+            return;
         }
+        self.blend_rows(src, dx, dy, |d, s| {
+            // `over`'s exact results for fully transparent and fully opaque sources.
+            match (s.a, opacity) {
+                (0, _) => {}
+                (255, 255) => *d = s,
+                _ => *d = d.over(s, opacity),
+            }
+        });
     }
 }
 

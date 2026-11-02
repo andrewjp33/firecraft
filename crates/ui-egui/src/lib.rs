@@ -188,6 +188,9 @@ impl Default for Prefs {
 struct View {
     pan: Vec2,
     texture: Option<(u64, TextureHandle)>,
+    /// Each object's rendered pixels, so moving or editing one object doesn't re-render the
+    /// others.
+    cache: std::rc::Rc<std::cell::RefCell<firecraft_doc::RenderCache>>,
     /// Pointer drag in progress: start in canvas coordinates.
     drag_start: Option<Pos2>,
     /// The drag in progress uses the secondary (right) button.

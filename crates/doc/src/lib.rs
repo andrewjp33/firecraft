@@ -13,7 +13,9 @@
 
 pub mod element;
 
+mod cache;
 pub mod effects;
+pub use cache::{Dirty, RenderCache};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, Stroke, Text};
 use firecraft_fwpng::Node;

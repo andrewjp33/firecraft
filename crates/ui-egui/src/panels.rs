@@ -212,15 +212,15 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
         d.revision += 1;
     }
-    if let Some(i) = toggle_lock {
-        if let Some(l) = d.doc.layers.get_mut(i) {
-            l.locked = !l.locked;
-        }
+    if let Some(i) = toggle_lock
+        && let Some(l) = d.doc.layers.get_mut(i)
+    {
+        l.locked = !l.locked;
     }
-    if let Some(i) = toggle_disc {
-        if let Some(l) = d.doc.layers.get_mut(i) {
-            l.disclosed = !l.disclosed;
-        }
+    if let Some(i) = toggle_disc
+        && let Some(l) = d.doc.layers.get_mut(i)
+    {
+        l.disclosed = !l.disclosed;
     }
     if let Some(i) = set_current {
         d.doc.current_layer = i;

@@ -153,10 +153,11 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
     if resp.clicked() && open.is_none() {
         app.session.tool = shown;
     }
-    if resp.secondary_clicked() && !alts.is_empty() {
-        if let Some(n) = next {
-            app.session.tool = n;
-        }
+    if resp.secondary_clicked()
+        && !alts.is_empty()
+        && let Some(n) = next
+    {
+        app.session.tool = n;
     }
 }
 

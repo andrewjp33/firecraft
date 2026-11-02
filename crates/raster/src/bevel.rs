@@ -536,31 +536,44 @@ pub(crate) fn nearest_seed(seeds: &[bool], w: usize, h: usize, edge_is_seed: boo
 
 /// Separable Gaussian blur of a plane (exact kernel, radius 3 sigma; zero outside).
 pub(crate) fn gaussian_plane(src: &[f64], w: usize, h: usize, sigma: f64) -> Vec<f64> {
+    if w == 0 || h == 0 || src.len() < w * h {
+        return src.to_vec();
+    }
     let r = (sigma * 3.0).ceil().max(1.0) as i64;
     let kernel: Vec<f64> = (-r..=r)
         .map(|i| (-((i * i) as f64) / (2.0 * sigma * sigma)).exp())
         .collect();
     let sum: f64 = kernel.iter().sum();
     let kernel: Vec<f64> = kernel.iter().map(|k| k / sum).collect();
-    let pass = |input: &[f64], horizontal: bool| -> Vec<f64> {
-        let mut out = vec![0f64; w * h];
-        for y in 0..h as i64 {
-            for x in 0..w as i64 {
-                let mut acc = 0.0;
-                for (k, kv) in (-r..=r).zip(&kernel) {
-                    let (sx, sy) = if horizontal { (x + k, y) } else { (x, y + k) };
-                    if sx >= 0 && sy >= 0 && sx < w as i64 && sy < h as i64 {
-                        acc += kv * input.get((sy as usize) * w + sx as usize).copied().unwrap_or(0.0);
-                    }
-                }
-                if let Some(o) = out.get_mut((y as usize) * w + x as usize) {
-                    *o = acc;
-                }
+    let r = r as usize;
+    // Same taps in the same order as a direct convolution (in-range taps only), so results
+    // don't depend on this layout; rows are processed whole for speed.
+    let mut tmp = vec![0f64; w * h];
+    for (row_in, row_out) in src.chunks_exact(w).zip(tmp.chunks_exact_mut(w)) {
+        for (x, o) in row_out.iter_mut().enumerate() {
+            let k0 = r.saturating_sub(x);
+            let k1 = (r + w - x).min(2 * r + 1);
+            let mut acc = 0.0;
+            let taps = kernel.get(k0..k1).unwrap_or(&[]);
+            for (kv, v) in taps.iter().zip(row_in.get(x + k0 - r..).unwrap_or(&[])) {
+                acc += kv * v;
+            }
+            *o = acc;
+        }
+    }
+    let mut out = vec![0f64; w * h];
+    for (y, row_out) in out.chunks_exact_mut(w).enumerate() {
+        let k0 = r.saturating_sub(y);
+        let k1 = (r + h - y).min(2 * r + 1);
+        for (k, kv) in kernel.iter().enumerate().take(k1).skip(k0) {
+            let sy = y + k - r;
+            let row_in = tmp.get(sy * w..(sy + 1) * w).unwrap_or(&[]);
+            for (o, v) in row_out.iter_mut().zip(row_in) {
+                *o += kv * v;
             }
         }
-        out
-    };
-    pass(&pass(src, true), false)
+    }
+    out
 }
 
 /// For each x, the x' minimizing (x - x')^2 + f[x'] (Felzenszwalb & Huttenlocher).
@@ -598,6 +611,41 @@ fn lower_envelope(f: &[f64]) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gaussian_plane_matches_direct_convolution() {
+        let (w, h) = (37usize, 23usize);
+        let src: Vec<f64> = (0..w * h).map(|i| ((i * 7919) % 101) as f64 / 7.0).collect();
+        for sigma in [0.6, 2.5, 9.0] {
+            let r = (sigma * 3.0f64).ceil().max(1.0) as i64;
+            let k: Vec<f64> = (-r..=r)
+                .map(|i| (-((i * i) as f64) / (2.0 * sigma * sigma)).exp())
+                .collect();
+            let sum: f64 = k.iter().sum();
+            let k: Vec<f64> = k.iter().map(|v| v / sum).collect();
+            let pass = |input: &[f64], horizontal: bool| -> Vec<f64> {
+                let mut out = vec![0f64; w * h];
+                for y in 0..h as i64 {
+                    for x in 0..w as i64 {
+                        let mut acc = 0.0;
+                        for (o, kv) in (-r..=r).zip(&k) {
+                            let (sx, sy) = if horizontal { (x + o, y) } else { (x, y + o) };
+                            if sx >= 0 && sy >= 0 && sx < w as i64 && sy < h as i64 {
+                                acc += kv * input[sy as usize * w + sx as usize];
+                            }
+                        }
+                        out[y as usize * w + x as usize] = acc;
+                    }
+                }
+                out
+            };
+            assert_eq!(
+                gaussian_plane(&src, w, h, sigma),
+                pass(&pass(&src, true), false),
+                "sigma {sigma}"
+            );
+        }
+    }
 
     #[test]
     fn angle_table_matches_atan2() {

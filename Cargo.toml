@@ -53,6 +53,14 @@ debug = false
 opt-level = 1
 debug = "line-tables-only"
 
+# The pixel work (rendering, effects, compositing) is optimised fully even in debug builds,
+# so the debug app stays responsive.
+[profile.dev.package.firecraft-raster]
+opt-level = 3
+
+[profile.dev.package.firecraft-doc]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
