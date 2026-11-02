@@ -334,6 +334,16 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if ui.checkbox(&mut tabs, "Documents in Tabs").changed() {
                 app.prefs.tabs = tabs;
             }
+            let windows = !app.prefs.tabs && has_doc;
+            for (label, how) in [
+                ("Cascade", crate::canvas::Arrangement::Cascade),
+                ("Tile Horizontal", crate::canvas::Arrangement::TileHorizontal),
+                ("Tile Vertical", crate::canvas::Arrangement::TileVertical),
+            ] {
+                if item(ui, label, "", windows) {
+                    crate::canvas::arrange(app, how);
+                }
+            }
             ui.separator();
             let titles: Vec<String> = app
                 .session
@@ -393,15 +403,11 @@ pub fn open(app: &mut FireCraftApp) {
 }
 
 pub fn save(app: &mut FireCraftApp, save_as: bool) {
-    // A Symbol Editor saves the document the symbol belongs to.
-    if let Some(link) = app.session.active_doc().and_then(|d| d.symbol_link)
-        && let Some(p) = app.session.docs.iter().position(|d| d.id == link.parent)
-    {
+    // In the Symbol Editor the symbol is part of its document: Save just brings the document
+    // up to date (Done returns to it), as in Fireworks.
+    if app.session.active_doc().is_some_and(|d| d.symbol_link.is_some()) {
         app.session.sync_symbols();
-        let editor = app.session.active;
-        app.session.active = p;
-        save(app, save_as);
-        app.session.active = editor.min(app.session.docs.len().saturating_sub(1));
+        app.info("The symbol is updated in its document; click Done to return to it.");
         return;
     }
     let Some(d) = app.session.active_doc() else { return };

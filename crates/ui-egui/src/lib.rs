@@ -207,7 +207,13 @@ struct View {
     /// The drag in progress uses the secondary (right) button.
     drag_secondary: bool,
     preview: bool,
-    open: bool,
+    /// Windows mode: the document window's top-left and state (normal, minimised, maximised).
+    win_pos: Option<egui::Pos2>,
+    win: canvas::WinState,
+    /// A size set by Window > Cascade/Tile, and a counter that gives the window a fresh egui
+    /// identity (egui keeps a window's size otherwise).
+    win_size: Option<Vec2>,
+    win_gen: u32,
     /// Animation playback (status bar play button).
     playing: bool,
     last_tick: f64,
@@ -231,6 +237,8 @@ pub struct FireCraftApp {
     /// The app handles Ctrl+X/C/V itself (native: egui's clipboard shortcuts are off, so
     /// copied objects can go to the system clipboard in Fireworks' format).
     clipboard_keys: bool,
+    /// The document area (windows mode), for Window > Cascade/Tile.
+    workspace: egui::Rect,
     /// The user confirmed quitting with unsaved documents.
     quit_confirmed: bool,
     /// Showing the "save changes before quitting?" prompt.
@@ -253,6 +261,7 @@ impl FireCraftApp {
             effects_ui: effects_ui::EffectsUi::default(),
             clipboard: None,
             clipboard_keys: false,
+            workspace: egui::Rect::NOTHING,
             quit_confirmed: false,
             quit_prompt: false,
         }
@@ -358,6 +367,9 @@ impl FireCraftApp {
             ctx.data_mut(|m| m.remove_temp::<(usize, u32)>(egui::Id::unique("edit_symbol")))
         {
             self.session.edit_symbol(doc, id);
+        }
+        if let Some(editor) = ctx.data_mut(|m| m.remove_temp::<u64>(egui::Id::unique("symbol_done"))) {
+            self.session.finish_symbol_edit(editor);
         }
         if !self.styled {
             theme::apply(&ctx);

@@ -68,11 +68,196 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     });
 }
 
+/// A document window's state (Fireworks MX's MDI windows).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum WinState {
+    #[default]
+    Normal,
+    Minimized,
+    Maximized,
+}
+
+/// What the title bar asked for this frame.
+enum TitleAction {
+    None,
+    Drag(Vec2),
+    Set(WinState),
+    Close,
+}
+
+/// A document window's title bar: title, then minimise, maximise/restore and close. Dragging
+/// it moves the window; double-clicking maximises or restores.
+fn title_bar(ui: &mut egui::Ui, title: &str, active: bool, state: WinState) -> TitleAction {
+    let h = 20.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click_and_drag());
+    let p = ui.painter();
+    let fill = if active {
+        Color32::from_rgb(0xD6, 0xD6, 0xD6)
+    } else {
+        Color32::from_rgb(0xE6, 0xE6, 0xE6)
+    };
+    p.rect_filled(rect, 0.0, fill);
+    let text = if active {
+        Color32::from_gray(40)
+    } else {
+        Color32::from_gray(110)
+    };
+    p.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        title,
+        egui::FontId::proportional(13.0),
+        text,
+    );
+    let mut action = TitleAction::None;
+    // Buttons, right to left: close, maximise/restore, minimise.
+    let size = vec2(16.0, 14.0);
+    let mut x = rect.right() - 4.0 - size.x;
+    let restore = state != WinState::Normal;
+    let buttons: [(&str, u8); 3] = [
+        ("Close", 0),
+        (if restore { "Restore" } else { "Maximize" }, 1),
+        ("Minimize", 2),
+    ];
+    for (tip, kind) in buttons {
+        let r = Rect::from_min_size(pos2(x, rect.center().y - size.y / 2.0), size);
+        x -= size.x + 2.0;
+        let b = ui
+            .interact(r, ui.scope_id().with(("win_btn", kind)), Sense::click())
+            .on_hover_text(tip);
+        b.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tip));
+        if b.hovered() {
+            ui.painter().rect_filled(r, 2.0, Color32::from_gray(190));
+        }
+        let c = r.center();
+        let s = Stroke::new(1.3, text);
+        match kind {
+            0 => {
+                ui.painter()
+                    .line_segment([c + vec2(-4.0, -4.0), c + vec2(4.0, 4.0)], s);
+                ui.painter()
+                    .line_segment([c + vec2(4.0, -4.0), c + vec2(-4.0, 4.0)], s);
+            }
+            1 if restore => {
+                ui.painter().rect_stroke(
+                    Rect::from_center_size(c + vec2(-1.0, 1.0), vec2(7.0, 6.0)),
+                    0.0,
+                    s,
+                    StrokeKind::Middle,
+                );
+                ui.painter()
+                    .line_segment([c + vec2(-1.0, -4.0), c + vec2(5.0, -4.0)], s);
+                ui.painter()
+                    .line_segment([c + vec2(5.0, -4.0), c + vec2(5.0, 1.0)], s);
+            }
+            1 => {
+                ui.painter().rect_stroke(
+                    Rect::from_center_size(c, vec2(9.0, 8.0)),
+                    0.0,
+                    s,
+                    StrokeKind::Middle,
+                );
+            }
+            _ => {
+                ui.painter()
+                    .line_segment([c + vec2(-4.0, 3.0), c + vec2(4.0, 3.0)], s);
+            }
+        }
+        if b.clicked() {
+            action = match kind {
+                0 => TitleAction::Close,
+                1 if restore => TitleAction::Set(WinState::Normal),
+                1 => TitleAction::Set(WinState::Maximized),
+                _ if state == WinState::Minimized => TitleAction::Set(WinState::Normal),
+                _ => TitleAction::Set(WinState::Minimized),
+            };
+        }
+    }
+    if matches!(action, TitleAction::None) {
+        if resp.double_clicked() {
+            action = TitleAction::Set(if state == WinState::Normal {
+                WinState::Maximized
+            } else {
+                WinState::Normal
+            });
+        } else if resp.dragged() && state == WinState::Normal {
+            action = TitleAction::Drag(resp.drag_delta());
+        }
+    }
+    action
+}
+
+/// Window > Cascade / Tile Horizontal / Tile Vertical.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arrangement {
+    Cascade,
+    /// Windows stacked top to bottom (Windows' "tile horizontally").
+    TileHorizontal,
+    /// Windows side by side.
+    TileVertical,
+}
+
+/// Arrange the document windows over the workspace (restoring minimised/maximised ones).
+pub fn arrange(app: &mut FireCraftApp, how: Arrangement) {
+    let area = app.workspace;
+    let ids: Vec<u64> = app.session.docs.iter().map(|d| d.id).collect();
+    let n = ids.len();
+    if n == 0 || !area.is_positive() {
+        return;
+    }
+    // Grids for many windows; one row or column for up to three.
+    let grid = |n: usize| {
+        if n <= 3 {
+            n
+        } else {
+            (n as f32).sqrt().ceil() as usize
+        }
+    };
+    let (cols, rows) = match how {
+        Arrangement::Cascade => (1, 1),
+        Arrangement::TileVertical => (grid(n), n.div_ceil(grid(n))),
+        Arrangement::TileHorizontal => (n.div_ceil(grid(n)), grid(n)),
+    };
+    // The active document goes first (top-left / front).
+    let mut order: Vec<u64> = ids.clone();
+    if let Some(a) = app.session.active_doc().map(|d| d.id) {
+        order.retain(|i| *i != a);
+        order.insert(0, a);
+    }
+    for (k, id) in order.iter().enumerate() {
+        let view = app.views.entry(*id).or_default();
+        let (pos, size) = match how {
+            Arrangement::Cascade => {
+                let step = 24.0 * k as f32;
+                // The active window ends on top: it goes last in the cascade.
+                let step = 24.0 * (n - 1) as f32 - step;
+                let size = vec2((area.width() * 0.65).max(260.0), (area.height() * 0.7).max(200.0));
+                (area.min + vec2(4.0 + step, 4.0 + step), size)
+            }
+            _ => {
+                let (c, r) = (k % cols, k / cols);
+                let cell = vec2(area.width() / cols as f32, area.height() / rows as f32);
+                (
+                    area.min + vec2(cell.x * c as f32, cell.y * r as f32),
+                    cell - vec2(6.0, 6.0),
+                )
+            }
+        };
+        view.win = WinState::Normal;
+        view.win_pos = Some(pos);
+        view.win_size = Some(size);
+        view.win_gen = view.win_gen.wrapping_add(1);
+    }
+}
+
 fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let area = ui.max_rect();
+    app.workspace = area;
     let ctx = ui.ctx().clone();
     let mut close: Option<usize> = None;
     let count = app.session.docs.len();
+    // Minimised windows line up along the bottom of the workspace.
+    let mut slot = 0.0;
     for i in 0..count {
         let Some(d) = app.session.docs.get(i) else {
             continue;
@@ -85,33 +270,71 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if d.dirty { " *" } else { "" }
         );
         let (w, h) = (d.doc.width as f32, d.doc.height as f32);
-        let view = app.views.entry(id).or_insert_with(|| View {
-            open: true,
-            ..View::default()
-        });
-        let mut open = view.open;
+        let active = i == app.session.active;
+        let view = app.views.entry(id).or_default();
         let offset = 24.0 * (i % 8) as f32;
-        let resp = egui::Window::new(title)
-            .id(egui::Id::unique(("docwin", id)))
-            .open(&mut open)
+        let pos = *view
+            .win_pos
+            .get_or_insert(area.min + vec2(12.0 + offset, 12.0 + offset));
+        let state = view.win;
+        let (gen_, set_size) = (view.win_gen, view.win_size);
+        let mut win = egui::Window::new(&title)
+            .id(egui::Id::unique(("docwin", id, gen_)))
+            .title_bar(false)
+            .movable(false)
+            .collapsible(false)
+            // Painted clipped to the workspace, but free to move partly past its edges.
             .constrain_to(area)
-            .default_pos(area.min + vec2(12.0 + offset, 12.0 + offset))
-            .default_size(vec2(
-                (w + 40.0).clamp(260.0, area.width() - 40.0),
-                (h + 110.0).clamp(200.0, area.height() - 40.0),
-            ))
-            .collapsible(true)
-            .resizable(true)
-            .show(&ctx, |ui| document_view(app, ui, i));
-        if let Some(r) = resp
-            && (r.response.clicked()
-                || r.response.dragged()
-                || r.response.contains_pointer() && ctx.input(|inp| inp.pointer.any_pressed()))
+            .constrain(false)
+            .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(2)));
+        win = match state {
+            WinState::Maximized => win.fixed_rect(area.shrink(1.0)).resizable(false),
+            WinState::Minimized => {
+                let r = Rect::from_min_size(
+                    pos2(area.left() + 2.0 + slot, area.bottom() - 28.0),
+                    vec2(220.0, 26.0),
+                );
+                slot += 224.0;
+                win.fixed_rect(r).resizable(false)
+            }
+            WinState::Normal => win
+                .current_pos(pos)
+                .resizable(true)
+                .default_size(set_size.unwrap_or(vec2(
+                    (w + 40.0).clamp(260.0, area.width() - 40.0),
+                    (h + 110.0).clamp(200.0, area.height() - 40.0),
+                ))),
+        };
+        let shown = win.show(&ctx, |ui| {
+            let action = title_bar(ui, &title, active, state);
+            if state != WinState::Minimized {
+                document_view(app, ui, i);
+            }
+            action
+        });
+        let Some(shown) = shown else { continue };
+        let r = &shown.response;
+        if r.clicked() || r.dragged() || (r.contains_pointer() && ctx.input(|inp| inp.pointer.any_pressed()))
         {
             app.session.active = i;
         }
-        if !open {
-            close = Some(i);
+        let view = app.views.entry(id).or_default();
+        match shown.inner.unwrap_or(TitleAction::None) {
+            TitleAction::None => {}
+            TitleAction::Drag(delta) => {
+                app.session.active = i;
+                // Keep some of the title bar reachable.
+                let size = r.rect.size();
+                let p = pos + delta;
+                let x = p.x.clamp(area.left() - size.x + 80.0, area.right() - 80.0);
+                let y = p.y.clamp(area.top(), area.bottom() - 24.0);
+                view.win_pos = Some(pos2(x, y));
+            }
+            TitleAction::Set(s) => {
+                view.win = s;
+                app.session.active = i;
+            }
+            TitleAction::Close => close = Some(i),
         }
     }
     if let Some(i) = close {
@@ -136,6 +359,24 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                     .on_disabled_hover_text("Coming with the Optimize panel");
                 ui.add_enabled(false, egui::Button::new("4-Up"))
                     .on_disabled_hover_text("Coming with the Optimize panel");
+                // Symbol Editor: Done closes it and returns to the document (Fireworks CS).
+                let editing_symbol = app
+                    .session
+                    .docs
+                    .get(index)
+                    .is_some_and(|d| d.symbol_link.is_some());
+                if editing_symbol {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button("Done")
+                            .on_hover_text("Finish editing the symbol and return to the document")
+                            .clicked()
+                        {
+                            ui.ctx()
+                                .data_mut(|m| m.insert_temp(egui::Id::unique("symbol_done"), id));
+                        }
+                    });
+                }
             });
         });
     if let Some(v) = app.views.get_mut(&id) {
@@ -229,10 +470,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let Some(d) = app.session.docs.get_mut(index) else {
         return;
     };
-    let view = app.views.entry(d.id).or_insert_with(|| View {
-        open: true,
-        ..View::default()
-    });
+    let view = app.views.entry(d.id).or_default();
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, Color32::from_gray(0xE0));
 

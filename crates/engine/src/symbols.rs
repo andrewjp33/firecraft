@@ -403,6 +403,19 @@ impl Session {
         }
     }
 
+    /// The Symbol Editor's Done: write it back, close it and return to its document.
+    pub fn finish_symbol_edit(&mut self, editor: u64) {
+        self.sync_symbols();
+        let Some(i) = self.docs.iter().position(|d| d.id == editor) else {
+            return;
+        };
+        let parent = self.docs.get(i).and_then(|d| d.symbol_link).map(|l| l.parent);
+        self.close(i);
+        if let Some(p) = parent.and_then(|p| self.docs.iter().position(|d| d.id == p)) {
+            self.active = p;
+        }
+    }
+
     /// Write changed Symbol Editors back to their symbols (call once per frame). Editors whose
     /// document has closed or whose symbol was deleted are closed.
     pub fn sync_symbols(&mut self) {
