@@ -281,9 +281,11 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let pos = *view
             .win_pos
             .get_or_insert(area.min + vec2(12.0 + offset, 12.0 + offset));
+        // The document plus room for the window's bars, but never past the workspace's
+        // right/bottom edges from where the window starts (frame and scaling included).
         let fit = vec2(
-            (w + 40.0).clamp(260.0, area.width() - 40.0),
-            (h + 110.0).clamp(200.0, area.height() - 40.0),
+            (w + 40.0).min(area.right() - pos.x - 16.0).max(260.0),
+            (h + 110.0).min(area.bottom() - pos.y - 16.0).max(200.0),
         );
         // Untouched windows follow the workspace's size (the first frames can be smaller than
         // the final, maximised main window).
@@ -297,7 +299,9 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let mut win = egui::Window::new(&title)
             .id(egui::Id::unique(("docwin", id, gen_)))
             .title_bar(false)
-            .movable(false)
+            // Movable so all four edges resize (egui needs it for left/top); the content takes
+            // drags first, so the window only moves by its title bar.
+            .movable(true)
             .collapsible(false)
             // Painted clipped to the workspace, but free to move partly past its edges.
             .constrain_to(area)
@@ -333,6 +337,8 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
         let view = app.views.entry(id).or_default();
         if state == WinState::Normal {
+            // Resizing from the left/top edge moves the window: keep where egui put it.
+            view.win_pos = Some(r.rect.min);
             // A size change we didn't make is the user resizing: stop following the workspace.
             if !refit
                 && !area_changed
@@ -390,6 +396,8 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
         return;
     };
     let mut preview = app.views.get(&id).is_some_and(|v| v.preview);
+    // Drags on the window's empty parts (bars, margins) don't move it: only the title bar does.
+    let _ = ui.interact(ui.max_rect(), egui::Id::unique(("doc_body", id)), Sense::drag());
     egui::Panel::top(egui::Id::unique(("doc_tabs", id)))
         .frame(egui::Frame::new())
         .show(ui, |ui| {
