@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         false,
         &opts(Rgba::new(40, 180, 90, 255)),
     );
-    let r = |index| ElementRef { layer: 0, index };
+    let r = |index| ElementRef::new(0, index);
     d.selection = vec![r(2)];
     d.turn(Turn::Rotate90Cw);
     d.turn(Turn::FlipHorizontal);

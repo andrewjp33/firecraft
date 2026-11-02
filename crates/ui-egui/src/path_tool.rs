@@ -7,8 +7,9 @@
 //!
 //! Subselection: shows the points of the selected paths. Click a point to select it (Shift:
 //! add/remove), drag to move the selected points, drag a handle to bend a curve (Alt: just that
-//! handle), Alt+drag a point to pull handles out of it, drag a box to select points; dragging a
-//! path's body moves the object. Delete removes the selected points, arrow keys nudge them.
+//! handle), Alt+drag a point to pull handles out of it, drag a box to select points. Clicking an
+//! object selects it inside groups (the innermost member under the pointer), and dragging its
+//! body moves it. Delete removes the selected points, arrow keys nudge them.
 
 use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
 use firecraft_doc::{BezierPoint, Path};
@@ -208,10 +209,10 @@ pub fn canvas(
         let cur = to_doc(s);
         // The path being edited (a placeholder when there is none: path changes then do
         // nothing).
-        let r = edit.target.or(edit.pen.map(|p| p.0)).unwrap_or(ElementRef {
-            layer: usize::MAX,
-            index: 0,
-        });
+        let r = edit
+            .target
+            .or(edit.pen.map(|p| p.0))
+            .unwrap_or(ElementRef::new(usize::MAX, 0));
         let alt = mods.alt;
         match &mut edit.drag {
             Some(Drag::Points { start, orig, moved }) => {
@@ -582,8 +583,9 @@ fn subselect_press(
         });
         return;
     }
-    // An object: select it (a path shows its points) and drag to move it.
-    if let Some(hit) = d.hit_test(at.0, at.1) {
+    // An object, inside groups down to the innermost member (Fireworks: the Subselection tool
+    // selects group members): select it (a path shows its points) and drag to move it.
+    if let Some(hit) = d.hit_deep(at.0, at.1) {
         if !d.selection.contains(&hit) {
             d.selection = if mods.shift {
                 [d.selection.clone(), vec![hit]].concat()
@@ -619,6 +621,15 @@ fn overlay(
 ) {
     let blue = theme::SELECT_BLUE;
     let line = Stroke::new(1.0, blue);
+    // Selected objects that aren't paths (a bitmap or text member, a group): their bounds.
+    for r in &d.selection {
+        if d.path(*r).is_none()
+            && let Some((x, y, w, h)) = d.element(*r).and_then(|e| e.bounds())
+        {
+            let rect = Rect::from_two_pos(to_screen((x, y)), to_screen((x + w, y + h)));
+            painter.rect_stroke(rect, 0.0, line, egui::StrokeKind::Outside);
+        }
+    }
     for r in shown(d) {
         let Some(p) = d.path(r) else { continue };
         for c in &p.contours {

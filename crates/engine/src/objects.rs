@@ -62,7 +62,7 @@ impl DocState {
     /// The selected objects in stacking order (bottom first).
     pub fn stacking_selection(&self) -> Vec<ElementRef> {
         let mut refs = self.selection.clone();
-        refs.sort_by_key(|r| (r.layer, r.index));
+        refs.sort();
         refs.dedup();
         refs.retain(|r| self.element(*r).is_some());
         refs
@@ -226,7 +226,7 @@ impl DocState {
                 let start = cell.len();
                 cell.extend(clip.elements.iter().cloned());
                 s.selection = (start..cell.len())
-                    .map(|index| ElementRef { layer, index })
+                    .map(|index| ElementRef::new(layer, index))
                     .collect();
             }
             s.doc.current_layer = layer;
@@ -243,12 +243,10 @@ impl DocState {
         }
         let label = if offset { "Duplicate" } else { "Clone" };
         self.edit(label, |s| {
-            let f = s.frame();
             let mut selection = Vec::new();
-            let layers: BTreeSet<usize> = refs.iter().map(|r| r.layer).collect();
-            for li in layers {
-                let mine: Vec<usize> = refs.iter().filter(|r| r.layer == li).map(|r| r.index).collect();
-                let Some(cell) = s.doc.layers.get_mut(li).and_then(|l| l.elements_mut(f)) else {
+            // Per list: a layer's objects, or a group's members (Subselection).
+            for (first, mine) in by_list(&refs) {
+                let Some(cell) = s.list_mut(first) else {
                     continue;
                 };
                 let mut copies: Vec<Element> = mine.iter().filter_map(|&i| cell.get(i).cloned()).collect();
@@ -260,7 +258,7 @@ impl DocState {
                 let at = mine.iter().max().map_or(cell.len(), |&i| i + 1).min(cell.len());
                 let n = copies.len();
                 cell.splice(at..at, copies);
-                selection.extend((at..at + n).map(|index| ElementRef { layer: li, index }));
+                selection.extend((at..at + n).map(|index| first.sibling(index)));
             }
             s.selection = selection;
         });
@@ -286,7 +284,8 @@ impl DocState {
     pub fn group(&mut self) {
         let refs = self.stacking_selection();
         let Some(&top) = refs.last() else { return };
-        if self.pixels.is_some() {
+        // (Not yet for group members selected with the Subselection tool.)
+        if self.pixels.is_some() || self.selection_nested() {
             return;
         }
         self.edit("Group", |s| {
@@ -301,10 +300,7 @@ impl DocState {
             if let Some(cell) = s.doc.layers.get_mut(top.layer).and_then(|l| l.elements_mut(f)) {
                 let at = at.min(cell.len());
                 cell.insert(at, Element::new(ElementKind::Group(children)));
-                s.selection = vec![ElementRef {
-                    layer: top.layer,
-                    index: at,
-                }];
+                s.selection = vec![ElementRef::new(top.layer, at)];
             }
             s.doc.current_layer = top.layer;
         });
@@ -312,9 +308,11 @@ impl DocState {
 
     /// Whether Ungroup has something to do.
     pub fn can_ungroup(&self) -> bool {
-        self.selection
-            .iter()
-            .any(|r| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_))))
+        !self.selection_nested()
+            && self
+                .selection
+                .iter()
+                .any(|r| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_))))
     }
 
     /// Modify > Ungroup: selected groups are replaced by their objects (selected) in place.
@@ -335,23 +333,17 @@ impl DocState {
                 }
                 let old = std::mem::take(cell);
                 for (i, e) in old.into_iter().enumerate() {
-                    let sel = selected.contains(&ElementRef { layer: li, index: i });
+                    let sel = selected.contains(&ElementRef::new(li, i));
                     match e.kind {
                         ElementKind::Group(children) if sel => {
                             for c in children {
-                                selection.push(ElementRef {
-                                    layer: li,
-                                    index: cell.len(),
-                                });
+                                selection.push(ElementRef::new(li, cell.len()));
                                 cell.push(c);
                             }
                         }
                         kind => {
                             if sel {
-                                selection.push(ElementRef {
-                                    layer: li,
-                                    index: cell.len(),
-                                });
+                                selection.push(ElementRef::new(li, cell.len()));
                             }
                             cell.push(Element { kind, ..e });
                         }
@@ -375,17 +367,16 @@ impl DocState {
             Arrange::SendToBack => "Send to Back",
         };
         self.edit(label, |s| {
-            let f = s.frame();
             let mut selection = Vec::new();
-            let layers: BTreeSet<usize> = refs.iter().map(|r| r.layer).collect();
-            for li in layers {
-                let Some(cell) = s.doc.layers.get_mut(li).and_then(|l| l.elements_mut(f)) else {
+            // Per list: a layer's objects, or a group's members (Subselection).
+            for (first, mine) in by_list(&refs) {
+                let Some(cell) = s.list_mut(first) else {
                     continue;
                 };
                 let mut items: Vec<(Element, bool)> = std::mem::take(cell)
                     .into_iter()
                     .enumerate()
-                    .map(|(i, e)| (e, refs.contains(&ElementRef { layer: li, index: i })))
+                    .map(|(i, e)| (e, mine.contains(&i)))
                     .collect();
                 match how {
                     // Stable partitions keep the selected objects' own order.
@@ -410,7 +401,7 @@ impl DocState {
                 }
                 for (i, (e, sel)) in items.into_iter().enumerate() {
                     if sel {
-                        selection.push(ElementRef { layer: li, index: i });
+                        selection.push(first.sibling(i));
                     }
                     cell.push(e);
                 }
@@ -578,7 +569,7 @@ impl DocState {
     /// as it is now (before the move); they keep their stacking order and stay selected.
     pub fn move_selection_to(&mut self, layer: usize, index: usize) {
         let refs = self.stacking_selection();
-        if refs.is_empty() || self.doc.layers.get(layer).is_none_or(|l| l.locked) {
+        if refs.is_empty() || self.selection_nested() || self.doc.layers.get(layer).is_none_or(|l| l.locked) {
             return;
         }
         // Dropping the selection onto itself changes nothing.
@@ -604,7 +595,7 @@ impl DocState {
             if let Some(cell) = s.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) {
                 let at = at.min(cell.len());
                 cell.splice(at..at, moved);
-                s.selection = (at..at + n).map(|index| ElementRef { layer, index }).collect();
+                s.selection = (at..at + n).map(|index| ElementRef::new(layer, index)).collect();
             }
             s.doc.current_layer = layer;
         });
@@ -673,6 +664,24 @@ impl DocState {
             }
         });
     }
+}
+
+/// References grouped by the list they are in (a layer's objects, or one group's members): a
+/// reference of each list and the positions selected in it, in order.
+fn by_list(refs: &[ElementRef]) -> Vec<(ElementRef, Vec<usize>)> {
+    let mut out: Vec<(ElementRef, Vec<usize>)> = Vec::new();
+    for r in refs {
+        let key = |x: &ElementRef| (x.layer, x.parent());
+        match out.iter_mut().find(|(f, _)| key(f) == key(r)) {
+            Some((_, v)) => v.push(r.position()),
+            None => out.push((*r, vec![r.position()])),
+        }
+    }
+    for (_, v) in &mut out {
+        v.sort_unstable();
+        v.dedup();
+    }
+    out
 }
 
 /// Point instances of symbol `from` at `to` instead.
@@ -774,7 +783,65 @@ mod tests {
     }
 
     fn sel(d: &mut DocState, idx: &[usize]) {
-        d.selection = idx.iter().map(|&index| ElementRef { layer: 0, index }).collect();
+        d.selection = idx.iter().map(|&index| ElementRef::new(0, index)).collect();
+    }
+
+    /// e0 alone, then a group of e1, e2, e3 (the group is selected).
+    fn grouped() -> DocState {
+        let mut d = doc(&[1, 2, 3, 4]);
+        sel(&mut d, &[1, 2, 3]);
+        d.group();
+        d
+    }
+
+    fn member_names(d: &DocState) -> Vec<String> {
+        match d.element(ElementRef::new(0, 1)).map(|e| &e.kind) {
+            Some(ElementKind::Group(c)) => c.iter().map(|e| e.label()).collect(),
+            _ => vec![],
+        }
+    }
+
+    #[test]
+    fn subselection_reaches_group_members() {
+        let mut d = grouped();
+        // The pick goes inside the group: e2 is the group's second member (x 20..24).
+        let m = d.hit_deep(21.0, 6.0).expect("a member");
+        assert_eq!(
+            (m.top(), m.position(), m.is_nested()),
+            (ElementRef::new(0, 1), 1, true)
+        );
+        assert_eq!(d.hit_test(21.0, 6.0), Some(ElementRef::new(0, 1)));
+        // Moving the member moves only it; the group stays.
+        d.selection = vec![m];
+        d.move_selection(0.0, 10.0, "Move");
+        assert_eq!(d.element(m).and_then(|e| e.bounds()).map(|b| b.1), Some(15.0));
+        assert_eq!(names(&d), ["e0", "Group"]);
+        // Arrange and Duplicate act within the group.
+        d.arrange(Arrange::BringToFront);
+        assert_eq!(member_names(&d), ["e1", "e3", "e2"]);
+        assert_eq!(d.selection[0].position(), 2);
+        d.duplicate(false);
+        assert_eq!(member_names(&d), ["e1", "e3", "e2", "e2"]);
+        // Superselect: the group; Subselect: its members.
+        d.superselect();
+        assert_eq!(d.selection, [ElementRef::new(0, 1)]);
+        d.subselect();
+        assert_eq!(d.selection.len(), 4);
+        assert!(!d.can_ungroup());
+    }
+
+    #[test]
+    fn deleting_members_keeps_the_group_until_empty() {
+        let mut d = grouped();
+        let g = ElementRef::new(0, 1);
+        d.selection = vec![g.child(0).expect("member")];
+        d.delete();
+        assert_eq!(member_names(&d), ["e2", "e3"]);
+        d.selection = vec![g.child(0).expect("member"), g.child(1).expect("member")];
+        d.delete();
+        assert_eq!(names(&d), ["e0"]);
+        d.undo();
+        assert_eq!(member_names(&d), ["e2", "e3"]);
     }
 
     #[test]
@@ -783,7 +850,7 @@ mod tests {
         sel(&mut d, &[2, 0]);
         d.group();
         assert_eq!(names(&d), ["e1", "Group"]);
-        assert_eq!(d.selection, [ElementRef { layer: 0, index: 1 }]);
+        assert_eq!(d.selection, [ElementRef::new(0, 1)]);
         assert!(d.can_ungroup());
         d.ungroup();
         assert_eq!(names(&d), ["e1", "e0", "e2"]);
@@ -801,7 +868,7 @@ mod tests {
         assert_eq!(names(&d), ["e1", "e0", "e2", "e3"]);
         d.arrange(Arrange::BringToFront);
         assert_eq!(names(&d), ["e1", "e2", "e3", "e0"]);
-        assert_eq!(d.selection, [ElementRef { layer: 0, index: 3 }]);
+        assert_eq!(d.selection, [ElementRef::new(0, 3)]);
         sel(&mut d, &[1, 2]);
         d.arrange(Arrange::SendToBack);
         assert_eq!(names(&d), ["e2", "e3", "e1", "e0"]);
@@ -819,8 +886,7 @@ mod tests {
         d.duplicate(true);
         assert_eq!(names(&d), ["e0", "e0", "e1"]);
         assert_eq!(
-            d.element(ElementRef { layer: 0, index: 1 })
-                .and_then(Element::bounds),
+            d.element(ElementRef::new(0, 1)).and_then(Element::bounds),
             Some((10.0, 15.0, 4.0, 3.0))
         );
         d.duplicate(false);
@@ -831,7 +897,7 @@ mod tests {
         let mut other = doc(&[9]);
         other.paste(&clip);
         assert_eq!(names(&other), ["e0", "e1"]);
-        assert_eq!(other.selection, [ElementRef { layer: 0, index: 1 }]);
+        assert_eq!(other.selection, [ElementRef::new(0, 1)]);
         // Cut removes it and records "Cut".
         let n = names(&d).len();
         assert!(d.cut().is_some());
@@ -848,19 +914,19 @@ mod tests {
         sel(&mut d, &[0, 1, 2]);
         d.align(Align::Top);
         let b: Vec<_> = (0..3)
-            .filter_map(|i| d.element(ElementRef { layer: 0, index: i })?.bounds())
+            .filter_map(|i| d.element(ElementRef::new(0, i))?.bounds())
             .collect();
         assert!(b.iter().all(|b| b.1 == 5.0), "{b:?}");
         d.align(Align::DistributeWidths);
         let xs: Vec<f64> = (0..3)
-            .filter_map(|i| Some(d.element(ElementRef { layer: 0, index: i })?.bounds()?.0))
+            .filter_map(|i| Some(d.element(ElementRef::new(0, i))?.bounds()?.0))
             .collect();
         assert_eq!(xs, [0.0, 20.0, 40.0]);
         // One object aligns with the canvas.
         sel(&mut d, &[1]);
         d.align(Align::Right);
         assert_eq!(
-            d.element(ElementRef { layer: 0, index: 1 })
+            d.element(ElementRef::new(0, 1))
                 .and_then(Element::bounds)
                 .map(|b| b.0),
             Some(96.0)
@@ -885,10 +951,7 @@ mod tests {
             })),
             "Add",
         );
-        let bitmap = |d: &DocState| match &d
-            .element(ElementRef { layer: 0, index: 0 })
-            .map(|e| e.kind.clone())
-        {
+        let bitmap = |d: &DocState| match &d.element(ElementRef::new(0, 0)).map(|e| e.kind.clone()) {
             Some(ElementKind::Bitmap(b)) => b.clone(),
             _ => panic!("not a bitmap"),
         };
@@ -930,7 +993,7 @@ mod tests {
         assert!(d.selection.iter().all(|r| r.layer == 0));
         d.rename_layer(0, "Moved");
         assert_eq!(d.doc.layers[0].name, "Moved");
-        d.rename_object(ElementRef { layer: 0, index: 0 }, "first");
+        d.rename_object(ElementRef::new(0, 0), "first");
         assert_eq!(d.doc.layers[0].elements(0)[0].label(), "first");
     }
 }

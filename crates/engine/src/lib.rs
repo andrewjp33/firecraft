@@ -23,12 +23,137 @@ use firecraft_raster::nine::{self, Insets};
 use firecraft_raster::wand::magic_wand;
 use firecraft_raster::{Mask, Rgba, RgbaImage};
 
-/// An element address: layer index, element index (in the current frame). Ordered by stacking
+/// An element address: layer index, element index (in the current frame), and for an object
+/// inside groups (the Subselection tool) the child indices down to it. Ordered by stacking
 /// (bottom first).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ElementRef {
     pub layer: usize,
     pub index: usize,
+    pub sub: SubPath,
+}
+
+/// How deep a reference reaches into nested groups.
+pub const MAX_SUB_DEPTH: usize = 8;
+
+/// Child indices from a top-level object into groups (a group's children, a masked group's
+/// content), outermost first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SubPath {
+    len: u8,
+    idx: [u16; MAX_SUB_DEPTH],
+}
+
+impl SubPath {
+    pub fn as_slice(&self) -> &[u16] {
+        self.idx.get(..self.len as usize).unwrap_or(&[])
+    }
+}
+
+impl ElementRef {
+    /// A top-level object.
+    pub const fn new(layer: usize, index: usize) -> Self {
+        Self {
+            layer,
+            index,
+            sub: SubPath {
+                len: 0,
+                idx: [0; MAX_SUB_DEPTH],
+            },
+        }
+    }
+
+    /// Whether this is an object inside a group.
+    pub fn is_nested(&self) -> bool {
+        self.sub.len > 0
+    }
+
+    /// Child `i` of this object (a group's member), if not too deep.
+    pub fn child(self, i: usize) -> Option<Self> {
+        let mut r = self;
+        let slot = r.sub.idx.get_mut(r.sub.len as usize)?;
+        *slot = u16::try_from(i).ok()?;
+        r.sub.len += 1;
+        Some(r)
+    }
+
+    /// The group this object is in (`None` for a top-level object).
+    pub fn parent(self) -> Option<Self> {
+        if self.sub.len == 0 {
+            return None;
+        }
+        let mut r = self;
+        r.sub.len -= 1;
+        if let Some(slot) = r.sub.idx.get_mut(r.sub.len as usize) {
+            *slot = 0;
+        }
+        Some(r)
+    }
+
+    /// The top-level object this one is in (itself when top-level).
+    pub fn top(self) -> Self {
+        Self::new(self.layer, self.index)
+    }
+
+    /// Its index in its own list (the layer's objects, or its group's children).
+    pub fn position(&self) -> usize {
+        match self.sub.as_slice().last() {
+            Some(&i) => i as usize,
+            None => self.index,
+        }
+    }
+
+    /// The object at index `i` of the same list.
+    pub fn sibling(self, i: usize) -> Self {
+        match self.parent() {
+            Some(p) => p.child(i).unwrap_or(self),
+            None => Self::new(self.layer, i),
+        }
+    }
+}
+
+/// A group's children (or a masked group's content): the objects the Subselection tool reaches.
+pub fn members(e: &Element) -> Option<&Vec<Element>> {
+    match &e.kind {
+        ElementKind::Group(c) => Some(c),
+        ElementKind::Masked { content, .. } => Some(content),
+        _ => None,
+    }
+}
+
+/// Whether object `el` covers canvas point (`x`, `y`) (within 2 pixels).
+fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> bool {
+    const TOL: i64 = 2;
+    let (px, py) = (x.floor() as i64, y.floor() as i64);
+    let near = el.deep_bounds(ctx).is_some_and(|(bx, by, bw, bh)| {
+        let t = TOL as f64;
+        x >= bx - t && y >= by - t && x < bx + bw.max(1.0) + t && y < by + bh.max(1.0) + t
+    });
+    if !near {
+        return false;
+    }
+    match &el.kind {
+        // Bitmaps: the pixel under the pointer.
+        ElementKind::Bitmap(b) => b.image.get(px - b.x, py - b.y).is_some_and(|p| p.a > 0),
+        // Everything else: render the object alone around the point.
+        _ => {
+            let n = (2 * TOL + 1) as u32;
+            let mut probe = firecraft_raster::RgbaImage::new(n, n, Rgba::TRANSPARENT);
+            let mut solo = el.clone();
+            solo.opacity = 100.0;
+            solo.blend = firecraft_raster::BlendMode::Normal;
+            solo.render_onto(&mut probe, px - TOL, py - TOL, ctx);
+            probe.pixels().iter().any(|p| p.a > 0)
+        }
+    }
+}
+
+fn members_mut(e: &mut Element) -> Option<&mut Vec<Element>> {
+    match &mut e.kind {
+        ElementKind::Group(c) => Some(c),
+        ElementKind::Masked { content, .. } => Some(content),
+        _ => None,
+    }
 }
 
 /// A pixel selection over one bitmap element (Fireworks MX selects pixels of a bitmap object).
@@ -90,16 +215,47 @@ impl DocState {
     }
 
     pub fn element(&self, r: ElementRef) -> Option<&Element> {
-        self.doc.layers.get(r.layer)?.elements(self.frame()).get(r.index)
+        let mut e = self
+            .doc
+            .layers
+            .get(r.layer)?
+            .elements(self.frame())
+            .get(r.index)?;
+        for &i in r.sub.as_slice() {
+            e = members(e)?.get(i as usize)?;
+        }
+        Some(e)
     }
 
     fn element_mut(&mut self, r: ElementRef) -> Option<&mut Element> {
         let f = self.frame();
-        self.doc
+        let mut e = self
+            .doc
             .layers
             .get_mut(r.layer)?
             .elements_mut(f)?
-            .get_mut(r.index)
+            .get_mut(r.index)?;
+        for &i in r.sub.as_slice() {
+            e = members_mut(e)?.get_mut(i as usize)?;
+        }
+        Some(e)
+    }
+
+    /// The list object `r` is in (its layer's objects, or its group's children).
+    pub(crate) fn list_mut(&mut self, r: ElementRef) -> Option<&mut Vec<Element>> {
+        match r.parent() {
+            Some(p) => members_mut(self.element_mut(p)?),
+            None => {
+                let f = self.frame();
+                self.doc.layers.get_mut(r.layer)?.elements_mut(f)
+            }
+        }
+    }
+
+    /// Whether the selection has objects inside groups (commands that restructure layers, such
+    /// as Group or Convert to Symbol, then do nothing).
+    pub fn selection_nested(&self) -> bool {
+        self.selection.iter().any(ElementRef::is_nested)
     }
 
     /// Record an undo step, then apply `f`.
@@ -134,12 +290,8 @@ impl DocState {
     }
 
     fn after_history(&mut self) {
-        self.selection.retain(|r| {
-            self.doc
-                .layers
-                .get(r.layer)
-                .is_some_and(|l| r.index < l.elements(self.doc.current_frame).len())
-        });
+        let sel = std::mem::take(&mut self.selection);
+        self.selection = sel.into_iter().filter(|r| self.element(*r).is_some()).collect();
         self.pixels = None;
         self.touch();
     }
@@ -153,8 +305,6 @@ impl DocState {
     /// their own pixels (within 2 px for thin strokes), not their bounding boxes, as in
     /// Fireworks; hidden objects and locked or hidden layers are skipped.
     pub fn hits_at(&self, x: f64, y: f64) -> Vec<ElementRef> {
-        const TOL: i64 = 2;
-        let (px, py) = (x.floor() as i64, y.floor() as i64);
         let ctx = firecraft_doc::RenderCtx {
             symbols: &self.doc.symbols,
             frame: self.frame(),
@@ -171,33 +321,41 @@ impl DocState {
                 if !el.visible || el.locked {
                     continue;
                 }
-                let near = el.deep_bounds(&ctx).is_some_and(|(bx, by, bw, bh)| {
-                    let t = TOL as f64;
-                    x >= bx - t && y >= by - t && x < bx + bw.max(1.0) + t && y < by + bh.max(1.0) + t
-                });
-                if !near {
-                    continue;
-                }
-                let hit = match &el.kind {
-                    // Bitmaps: the pixel under the pointer.
-                    ElementKind::Bitmap(b) => b.image.get(px - b.x, py - b.y).is_some_and(|p| p.a > 0),
-                    // Everything else: render the object alone around the point.
-                    _ => {
-                        let n = (2 * TOL + 1) as u32;
-                        let mut probe = firecraft_raster::RgbaImage::new(n, n, Rgba::TRANSPARENT);
-                        let mut solo = el.clone();
-                        solo.opacity = 100.0;
-                        solo.blend = firecraft_raster::BlendMode::Normal;
-                        solo.render_onto(&mut probe, px - TOL, py - TOL, &ctx);
-                        probe.pixels().iter().any(|p| p.a > 0)
-                    }
-                };
-                if hit {
-                    out.push(ElementRef { layer: li, index: ei });
+                if element_hit(el, x, y, &ctx) {
+                    out.push(ElementRef::new(li, ei));
                 }
             }
         }
         out
+    }
+
+    /// The Subselection tool's pick: the object under the point, inside groups down to the
+    /// innermost member (the topmost member at each level).
+    pub fn hit_deep(&self, x: f64, y: f64) -> Option<ElementRef> {
+        let ctx = firecraft_doc::RenderCtx {
+            symbols: &self.doc.symbols,
+            frame: self.frame(),
+            depth: 0,
+            math: self.doc.color_math,
+        };
+        let mut r = self.hit_test(x, y)?;
+        'down: loop {
+            let Some(children) = self.element(r).and_then(members) else {
+                break;
+            };
+            for (i, c) in children.iter().enumerate().rev() {
+                if c.visible
+                    && !c.locked
+                    && element_hit(c, x, y, &ctx)
+                    && let Some(next) = r.child(i)
+                {
+                    r = next;
+                    continue 'down;
+                }
+            }
+            break;
+        }
+        Some(r)
     }
 
     /// Select Behind: select the object below the currently selected one at this point (the
@@ -261,7 +419,7 @@ impl DocState {
                     .iter()
                     .enumerate()
                     .filter(|(_, e)| e.visible && !e.locked)
-                    .map(move |(ei, _)| ElementRef { layer: li, index: ei })
+                    .map(move |(ei, _)| ElementRef::new(li, ei))
             })
             .collect();
     }
@@ -295,6 +453,31 @@ impl DocState {
                 s.selection.retain(|x| *x != r);
             }
         });
+    }
+
+    /// Select > Superselect: the groups the selected members are in (Fireworks MX).
+    pub fn superselect(&mut self) {
+        let mut sel: Vec<ElementRef> = self.selection.iter().map(|r| r.parent().unwrap_or(*r)).collect();
+        sel.sort();
+        sel.dedup();
+        self.selection = sel;
+        self.pixels = None;
+    }
+
+    /// Select > Subselect: the members of the selected groups (Fireworks MX); other objects
+    /// stay selected.
+    pub fn subselect(&mut self) {
+        let mut sel = Vec::new();
+        for r in self.selection.clone() {
+            match self.element(r).and_then(members) {
+                Some(children) if !children.is_empty() => {
+                    sel.extend((0..children.len()).filter_map(|i| r.child(i)));
+                }
+                _ => sel.push(r),
+            }
+        }
+        self.selection = sel;
+        self.pixels = None;
     }
 
     /// Select > Select Inverse (pixel selections).
@@ -411,14 +594,23 @@ impl DocState {
         if self.selection.is_empty() {
             return;
         }
+        // Last first, so earlier references stay valid.
         let mut refs = self.selection.clone();
-        refs.sort_by(|a, b| (b.layer, b.index).cmp(&(a.layer, a.index)));
+        refs.sort_by(|a, b| b.cmp(a));
         self.edit(label, |s| {
-            let f = s.frame();
             for r in refs {
-                if let Some(cell) = s.doc.layers.get_mut(r.layer).and_then(|l| l.elements_mut(f)) {
-                    if r.index < cell.len() {
-                        cell.remove(r.index);
+                let mut r = Some(r);
+                while let Some(cur) = r.take() {
+                    let Some(list) = s.list_mut(cur) else { break };
+                    if cur.position() < list.len() {
+                        list.remove(cur.position());
+                    }
+                    // A group left empty goes too (as in Fireworks).
+                    if list.is_empty()
+                        && let Some(p) = cur.parent()
+                        && matches!(s.element(p).map(|e| &e.kind), Some(ElementKind::Group(_)))
+                    {
+                        r = Some(p);
                     }
                 }
             }
@@ -468,10 +660,7 @@ impl DocState {
             {
                 let at = (sel.target.index + 1).min(cell.len());
                 cell.insert(at, new);
-                s.selection = vec![ElementRef {
-                    layer: sel.target.layer,
-                    index: at,
-                }];
+                s.selection = vec![ElementRef::new(sel.target.layer, at)];
             }
             s.pixels = None;
         });
@@ -750,10 +939,7 @@ impl DocState {
             let f = s.frame();
             if let Some(cell) = s.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) {
                 cell.push(el);
-                s.selection = vec![ElementRef {
-                    layer,
-                    index: cell.len() - 1,
-                }];
+                s.selection = vec![ElementRef::new(layer, cell.len() - 1)];
             }
             s.pixels = None;
         });
@@ -1071,7 +1257,7 @@ mod tests {
     fn shapes_and_selection() {
         let mut d = DocState::new(Document::new(200, 200, 72.0, Some(Rgba::WHITE)));
         d.add_shape((10.0, 10.0, 60.0, 40.0), false, &ToolOptions::default());
-        assert_eq!(d.hit_test(30.0, 20.0), Some(ElementRef { layer: 0, index: 0 }));
+        assert_eq!(d.hit_test(30.0, 20.0), Some(ElementRef::new(0, 0)));
         d.move_selection(100.0, 0.0, "Move");
         assert_eq!(d.hit_test(30.0, 20.0), None);
         assert!(d.hit_test(130.0, 20.0).is_some());
@@ -1100,8 +1286,8 @@ mod tests {
         }
         let mut d = DocState::new(doc);
         // Inside the overlay's box but on its transparent part: the square underneath.
-        assert_eq!(d.hit_test(45.0, 45.0), Some(ElementRef { layer: 0, index: 0 }));
-        assert_eq!(d.hit_test(5.0, 5.0), Some(ElementRef { layer: 0, index: 1 }));
+        assert_eq!(d.hit_test(45.0, 45.0), Some(ElementRef::new(0, 0)));
+        assert_eq!(d.hit_test(5.0, 5.0), Some(ElementRef::new(0, 1)));
         assert_eq!(d.hit_test(80.0, 80.0), None);
         // A hidden object is never hit.
         d.doc.layers[0].elements_mut(0).unwrap()[0].visible = false;
@@ -1113,11 +1299,11 @@ mod tests {
         }
         assert_eq!(d.hits_at(45.0, 45.0).len(), 2);
         d.select_behind(45.0, 45.0);
-        assert_eq!(d.selection, vec![ElementRef { layer: 0, index: 1 }]);
+        assert_eq!(d.selection, vec![ElementRef::new(0, 1)]);
         d.select_behind(45.0, 45.0);
-        assert_eq!(d.selection, vec![ElementRef { layer: 0, index: 0 }]);
+        assert_eq!(d.selection, vec![ElementRef::new(0, 0)]);
         d.select_behind(45.0, 45.0);
-        assert_eq!(d.selection, vec![ElementRef { layer: 0, index: 1 }]);
+        assert_eq!(d.selection, vec![ElementRef::new(0, 1)]);
         assert!(d.selection_contains(50.0, 50.0));
     }
 }

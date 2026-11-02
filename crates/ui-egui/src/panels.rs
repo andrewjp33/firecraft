@@ -284,7 +284,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         rows.push((header.response.rect, Row::Layer(li)));
         if layer.disclosed {
             for (ei, el) in layer.elements(frame).iter().enumerate().rev() {
-                let r = ElementRef { layer: li, index: ei };
+                let r = ElementRef::new(li, ei);
                 let selected = d.selection.contains(&r);
                 let editing = st
                     .renaming
@@ -397,7 +397,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     if let Some((li, obj, name)) = rename {
         match obj {
             None => d.rename_layer(li, &name),
-            Some(ei) => d.rename_object(ElementRef { layer: li, index: ei }, &name),
+            Some(ei) => d.rename_object(ElementRef::new(li, ei), &name),
         }
     }
     if let Some(i) = toggle_vis {

@@ -127,7 +127,7 @@ impl DocState {
     pub fn convert_to_symbol_with(&mut self, name: &str, kind: SymbolKind, nine: bool) -> Option<u32> {
         let refs = self.stacking_selection();
         let top = *refs.last()?;
-        if self.pixels.is_some() {
+        if self.pixels.is_some() || self.selection_nested() {
             return None;
         }
         let (x, y, w, h) = self.selection_bounds()?;
@@ -172,10 +172,7 @@ impl DocState {
             if let Some(cell) = s.doc.layers.get_mut(top.layer).and_then(|l| l.elements_mut(f)) {
                 let at = (top.index - below).min(cell.len());
                 cell.insert(at, instance);
-                s.selection = vec![ElementRef {
-                    layer: top.layer,
-                    index: at,
-                }];
+                s.selection = vec![ElementRef::new(top.layer, at)];
             }
             s.doc.current_layer = top.layer;
         });
@@ -216,7 +213,7 @@ impl DocState {
 
     /// Whether Break Apart has something to do.
     pub fn can_break_apart(&self) -> bool {
-        self.selection.iter().any(|r| self.instance_symbol(*r).is_some())
+        !self.selection_nested() && self.selection.iter().any(|r| self.instance_symbol(*r).is_some())
     }
 
     /// Modify > Symbol > Break Apart: selected instances become ordinary objects (the symbol's,
@@ -261,10 +258,7 @@ impl DocState {
                             sel.index = sel.index + n - 1;
                         }
                     }
-                    selection.extend((r.index..r.index + n).map(|index| ElementRef {
-                        layer: r.layer,
-                        index,
-                    }));
+                    selection.extend((r.index..r.index + n).map(|index| ElementRef::new(r.layer, index)));
                 }
             }
             selection.sort();
@@ -594,10 +588,7 @@ mod tests {
     fn convert_and_break_apart_keep_the_picture() {
         let mut d = doc();
         let before = d.doc.render(0);
-        d.selection = vec![
-            ElementRef { layer: 0, index: 0 },
-            ElementRef { layer: 0, index: 1 },
-        ];
+        d.selection = vec![ElementRef::new(0, 0), ElementRef::new(0, 1)];
         let id = d
             .convert_to_symbol("thing", SymbolKind::Graphic)
             .expect("converted");
@@ -629,7 +620,7 @@ mod tests {
         let mut s = Session::default();
         s.push(doc().doc);
         let d = s.active_doc_mut().expect("doc");
-        d.selection = vec![ElementRef { layer: 0, index: 0 }];
+        d.selection = vec![ElementRef::new(0, 0)];
         let id = d
             .convert_to_symbol("box", SymbolKind::Graphic)
             .expect("converted");

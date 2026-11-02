@@ -172,8 +172,12 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if item(ui, "Deselect", "Ctrl+D", has_sel) {
                 with_doc(app, |d| d.deselect());
             }
-            todo(ui, "Superselect", "Ctrl+Right");
-            todo(ui, "Subselect", "Ctrl+Left");
+            if item(ui, "Superselect", "Ctrl+Right", has_sel) {
+                with_doc(app, |d| d.superselect());
+            }
+            if item(ui, "Subselect", "Ctrl+Left", has_sel) {
+                with_doc(app, |d| d.subselect());
+            }
             ui.separator();
             todo(ui, "Select Similar", "");
             if item(ui, "Select Inverse", "Ctrl+Shift+I", has_pixels) {
@@ -571,6 +575,13 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     if pressed(cmd, Key::Minus) {
         zoom(app, 0.5);
     }
+    // Select > Superselect / Subselect (Fireworks MX shortcuts).
+    if pressed(cmd, Key::ArrowRight) {
+        with_doc(app, |d| d.superselect());
+    }
+    if pressed(cmd, Key::ArrowLeft) {
+        with_doc(app, |d| d.subselect());
+    }
     if pressed(cmd, Key::Num1) {
         with_doc(app, |d| d.zoom = 1.0);
     }
@@ -625,8 +636,9 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
         }
     }
     // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks).
-    let letters: [(Key, &[Tool]); 13] = [
+    let letters: [(Key, &[Tool]); 14] = [
         (Key::V, &[Tool::Pointer, Tool::SelectBehind]),
+        (Key::A, &[Tool::Subselect]),
         (Key::Q, &[Tool::Scale, Tool::Skew, Tool::Distort, Tool::NineSlice]),
         (Key::M, &[Tool::Marquee, Tool::OvalMarquee]),
         (Key::W, &[Tool::MagicWand]),
