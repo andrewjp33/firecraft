@@ -965,8 +965,11 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
     }
     // A symbol dragged from the Library: place an instance where it's dropped.
+    // (Into a Symbol Editor too: its document's symbols nest, except the symbol in itself.)
     if let Some(drag) = resp.dnd_release_payload::<crate::library::SymbolDrag>()
-        && drag.doc == d.id
+        && (drag.doc == d.id
+            || d.symbol_link
+                .is_some_and(|l| l.parent == drag.doc && l.symbol != drag.symbol))
         && let Some(pos) = ctx.pointer_interact_pos()
     {
         let (x, y) = to_doc(pos);

@@ -32,7 +32,14 @@ fn kind_glyph(kind: SymbolKind) -> &'static str {
 }
 
 pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
-    let active = app.session.active;
+    // In a Symbol Editor the Library is still the document's (the editor holds a copy of its
+    // symbols only so nested instances render).
+    let active = app
+        .session
+        .active_doc()
+        .and_then(|d| d.symbol_link)
+        .and_then(|l| app.session.docs.iter().position(|d| d.id == l.parent))
+        .unwrap_or(app.session.active);
     let Some(d) = app.session.docs.get(active) else {
         ui.weak("No document");
         return;
