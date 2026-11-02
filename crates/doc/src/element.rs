@@ -343,25 +343,46 @@ impl Element {
             return None;
         };
         let mut out = self.symbol_elements(ctx)?;
-        // A 9-slice symbol scaled (not rotated, skewed or flipped): its objects go through the
-        // slices (corners keep their size, edges stretch one way, the middle both).
+        // A 9-slice symbol: its objects go through the slices at the instance's scale along the
+        // symbol's own axes (corners keep their size, edges stretch one way, the middle both),
+        // then the rest of the instance's transform (rotation, skew, flip, position) applies.
+        // Perspective instances scale plainly.
         if let ElementKind::Instance { symbol, .. } = &self.kind
             && let Some(sym) = ctx.symbols.iter().find(|s| s.id == *symbol)
             && let (Some((gl, gr, gt, gb)), Some((x, y, w, h))) = (sym.nine, sym.content_bounds())
             && matrix.is_affine()
-            && matrix.b.abs() < 1e-9
-            && matrix.c.abs() < 1e-9
-            && matrix.a > 0.0
-            && matrix.d > 0.0
-            && ((matrix.a - 1.0).abs() > 1e-9 || (matrix.d - 1.0).abs() > 1e-9)
         {
-            let (x1, y1) = (x + w, y + h);
-            let (dx0, dy0) = matrix.apply(x, y);
-            let (dx1, dy1) = matrix.apply(x1, y1);
-            let mx = AxisMap::new(x, x1, gl.clamp(x, x1), gr.clamp(x, x1), dx0, dx1);
-            let my = AxisMap::new(y, y1, gt.clamp(y, y1), gb.clamp(y, y1), dy0, dy1);
-            out.iter_mut().for_each(|e| e.map_nine(&mx, &my));
-            return Some(out);
+            // The lengths of the symbol's x and y axes under the instance's transform.
+            let (sx, sy) = (
+                (matrix.a * matrix.a + matrix.b * matrix.b).sqrt(),
+                (matrix.c * matrix.c + matrix.d * matrix.d).sqrt(),
+            );
+            if sx > 1e-9 && sy > 1e-9 {
+                let (x1, y1) = (x + w, y + h);
+                let mx = AxisMap::new(x, x1, gl.clamp(x, x1), gr.clamp(x, x1), x * sx, x1 * sx);
+                let my = AxisMap::new(y, y1, gt.clamp(y, y1), gb.clamp(y, y1), y * sy, y1 * sy);
+                // What's left of the transform once the scale is taken out.
+                let rest = Affine {
+                    a: matrix.a / sx,
+                    b: matrix.b / sx,
+                    c: matrix.c / sy,
+                    d: matrix.d / sy,
+                    ..*matrix
+                };
+                let plain = (rest.a - 1.0).abs() < 1e-9
+                    && rest.b.abs() < 1e-9
+                    && rest.c.abs() < 1e-9
+                    && (rest.d - 1.0).abs() < 1e-9;
+                out.iter_mut().for_each(|e| {
+                    e.map_nine(&mx, &my);
+                    if plain {
+                        e.translate(rest.e, rest.f);
+                    } else {
+                        e.transform(&rest);
+                    }
+                });
+                return Some(out);
+            }
         }
         out.iter_mut().for_each(|e| e.transform(matrix));
         Some(out)

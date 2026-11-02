@@ -21,7 +21,7 @@ top y, bottom y, left x, right x in symbol space (`9slicesymbol*.png`: -44, 50, 
 content -236..235 x -149..148), plus `NGMv`/`NGVv`. An instance that is only scaled (and
 moved) maps the symbol's objects through the slices: corners keep their size, the edge strips
 stretch one way, the middle both ways, each object (bitmap, text image, path) by its position.
-Rotated, skewed or flipped instances scale plainly, as do instances smaller than the corners.
+The slices use the instance's scale along the symbol's own axes; rotation, skew and flip then apply on top, so a rotated instance keeps its 9-slice look. Perspective instances scale plainly, as do instances smaller than the corners.
 
 FireCraft writes `NGSv` the way Fireworks CS does (after `GDSv`; `NGLb` 0, `NGKi` ff0000ff,
 the four `NGCf`, empty `NGMv`/`NGVv`), so 9-slice symbols made or edited in FireCraft keep
