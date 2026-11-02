@@ -339,12 +339,14 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 // size (not the maximised or minimised one), placed within the workspace.
                 view.win_gen = view.win_gen.wrapping_add(1);
                 if s == WinState::Normal {
-                    let size = view.normal_size.unwrap_or(vec2(400.0, 300.0)).min(area.size());
+                    let size = view.normal_size.unwrap_or(vec2(400.0, 300.0));
                     view.win_size = Some(size);
+                    // Back where it was, even partly past the edges (only kept reachable, as
+                    // when dragging).
                     let p = view.win_pos.unwrap_or(area.min);
                     view.win_pos = Some(pos2(
-                        p.x.clamp(area.left(), (area.right() - size.x).max(area.left())),
-                        p.y.clamp(area.top(), (area.bottom() - size.y).max(area.top())),
+                        p.x.clamp(area.left() - size.x + 80.0, area.right() - 80.0),
+                        p.y.clamp(area.top(), area.bottom() - 24.0),
                     ));
                 }
                 app.session.active = i;

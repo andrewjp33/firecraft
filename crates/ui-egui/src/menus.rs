@@ -436,7 +436,6 @@ pub fn save(app: &mut FireCraftApp, save_as: bool) {
                 d.doc.path = Some(path.clone());
                 d.dirty = false;
             }
-            app.info(format!("Saved {path}"));
         }
         Ok(None) => {}
         Err(e) => app.error(format!("Save failed: {e}")),
