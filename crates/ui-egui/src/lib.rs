@@ -207,18 +207,16 @@ struct View {
     /// The drag in progress uses the secondary (right) button.
     drag_secondary: bool,
     preview: bool,
-    /// Windows mode: the document window's top-left and state (normal, minimised, maximised).
-    win_pos: Option<egui::Pos2>,
+    /// Windows mode: the document window's rectangle when shown normally (FireCraft keeps it;
+    /// egui draws the window exactly there), and its state.
+    win_rect: Option<egui::Rect>,
     win: canvas::WinState,
-    /// A size set by Window > Cascade/Tile, and a counter that gives the window a fresh egui
-    /// identity (egui keeps a window's size otherwise).
-    win_size: Option<Vec2>,
-    win_gen: u32,
-    /// The window's size when last shown normally (restored to after minimise/maximise).
-    normal_size: Option<Vec2>,
     /// Not moved, resized, maximised or arranged by the user yet: the window keeps its default
     /// fit as the workspace changes size (e.g. when the main window maximises at startup).
     auto_fit: bool,
+    /// The zoom FireCraft set to fit a newly opened document (while it equals the document's
+    /// zoom, the fit follows the window; the user zooming ends it).
+    auto_zoom: Option<f32>,
     /// Animation playback (status bar play button).
     playing: bool,
     last_tick: f64,

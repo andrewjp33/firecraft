@@ -66,7 +66,8 @@ impl DocState {
             history: History::default(),
             selection: Vec::new(),
             pixels: None,
-            zoom: 1.0,
+            // Negative: fit the window on first show (at most 100%).
+            zoom: -1.0,
             dirty: false,
             symbol_link: None,
             live_dirty: false,

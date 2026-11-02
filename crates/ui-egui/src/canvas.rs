@@ -226,29 +226,131 @@ pub fn arrange(app: &mut FireCraftApp, how: Arrangement) {
     }
     for (k, id) in order.iter().enumerate() {
         let view = app.views.entry(*id).or_default();
-        let (pos, size) = match how {
+        let rect = match how {
             Arrangement::Cascade => {
-                let step = 24.0 * k as f32;
                 // The active window ends on top: it goes last in the cascade.
-                let step = 24.0 * (n - 1) as f32 - step;
+                let step = 24.0 * (n - 1 - k) as f32;
                 let size = vec2((area.width() * 0.65).max(260.0), (area.height() * 0.7).max(200.0));
-                (area.min + vec2(4.0 + step, 4.0 + step), size)
+                Rect::from_min_size(area.min + vec2(4.0 + step, 4.0 + step), size)
             }
             _ => {
                 let (c, r) = (k % cols, k / cols);
                 let cell = vec2(area.width() / cols as f32, area.height() / rows as f32);
-                (
+                Rect::from_min_size(
                     area.min + vec2(cell.x * c as f32, cell.y * r as f32),
-                    cell - vec2(6.0, 6.0),
+                    cell - vec2(4.0, 4.0),
                 )
             }
         };
         view.win = WinState::Normal;
         view.auto_fit = false;
-        view.win_pos = Some(pos);
-        view.win_size = Some(size);
-        view.win_gen = view.win_gen.wrapping_add(1);
+        view.win_rect = Some(rect);
     }
+}
+
+/// Smallest document window.
+const MIN_WINDOW: Vec2 = vec2(260.0, 120.0);
+
+/// Resize grips along a normal window's edges and corners: each a small layer of its own
+/// just above the window (egui finds the layer under the pointer by its rectangle), so they
+/// win over the window's content but stay below windows in front of it. Returns the window's
+/// new rectangle while one is dragged.
+fn resize_grips(
+    ctx: &egui::Context,
+    window: egui::LayerId,
+    rect: Rect,
+    area: Rect,
+    id: egui::Id,
+) -> Option<Rect> {
+    use egui::CursorIcon as C;
+    let (g, c) = (5.0, 12.0);
+    let (l, t, r, b) = (rect.left(), rect.top(), rect.right(), rect.bottom());
+    // (zone, which edges move: left, top, right, bottom, cursor); edges stop short of corners.
+    let zones = [
+        (
+            Rect::from_min_max(pos2(l, t), pos2(l + c, t + c)),
+            [true, true, false, false],
+            C::ResizeNwSe,
+        ),
+        (
+            Rect::from_min_max(pos2(r - c, t), pos2(r, t + c)),
+            [false, true, true, false],
+            C::ResizeNeSw,
+        ),
+        (
+            Rect::from_min_max(pos2(l, b - c), pos2(l + c, b)),
+            [true, false, false, true],
+            C::ResizeNeSw,
+        ),
+        (
+            Rect::from_min_max(pos2(r - c, b - c), pos2(r, b)),
+            [false, false, true, true],
+            C::ResizeNwSe,
+        ),
+        (
+            Rect::from_min_max(pos2(l, t + c), pos2(l + g, b - c)),
+            [true, false, false, false],
+            C::ResizeHorizontal,
+        ),
+        (
+            Rect::from_min_max(pos2(r - g, t + c), pos2(r, b - c)),
+            [false, false, true, false],
+            C::ResizeHorizontal,
+        ),
+        (
+            Rect::from_min_max(pos2(l + c, t), pos2(r - c, t + g)),
+            [false, true, false, false],
+            C::ResizeVertical,
+        ),
+        (
+            Rect::from_min_max(pos2(l + c, b - g), pos2(r - c, b)),
+            [false, false, false, true],
+            C::ResizeVertical,
+        ),
+    ];
+    let mut out = None;
+    for (k, (zone, [ml, mt, mr, mb], cursor)) in zones.into_iter().enumerate() {
+        let grip = egui::Area::new(id.with(("grip", k)))
+            .order(egui::Order::Middle)
+            .fixed_pos(zone.min)
+            .constrain(false)
+            .show(ctx, |ui| {
+                ui.set_clip_rect(area);
+                let (_, resp) = ui.allocate_exact_size(zone.size(), Sense::drag());
+                if resp.hovered() || resp.dragged() {
+                    ui.ctx().set_cursor_icon(cursor);
+                }
+                resp.dragged().then(|| resp.drag_delta())
+            });
+        ctx.set_sublayer(window, grip.response.layer_id);
+        if let (Some(d), None) = (grip.inner, out) {
+            // Between the smallest window and the workspace's size (egui draws a window no
+            // larger than the area it's constrained to).
+            let max = area.size();
+            let mut n = rect;
+            if ml {
+                n.min.x = (n.min.x + d.x).clamp(n.max.x - max.x, n.max.x - MIN_WINDOW.x);
+            }
+            if mr {
+                n.max.x = (n.max.x + d.x).clamp(n.min.x + MIN_WINDOW.x, n.min.x + max.x);
+            }
+            if mt {
+                n.min.y = (n.min.y + d.y).clamp(n.max.y - max.y, n.max.y - MIN_WINDOW.y);
+            }
+            if mb {
+                n.max.y = (n.max.y + d.y).clamp(n.min.y + MIN_WINDOW.y, n.min.y + max.y);
+            }
+            out = Some(n);
+        }
+    }
+    out
+}
+
+/// A window rectangle moved so some of its title bar stays reachable in `area`.
+fn keep_reachable(r: Rect, area: Rect) -> Rect {
+    let x = r.min.x.clamp(area.left() - r.width() + 80.0, area.right() - 80.0);
+    let y = r.min.y.clamp(area.top(), area.bottom() - 24.0);
+    r.translate(pos2(x, y) - r.min)
 }
 
 fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
@@ -260,6 +362,7 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let count = app.session.docs.len();
     // Minimised windows line up along the bottom of the workspace.
     let mut slot = 0.0;
+    let frame = egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(2));
     for i in 0..count {
         let Some(d) = app.session.docs.get(i) else {
             continue;
@@ -274,112 +377,96 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let (w, h) = (d.doc.width as f32, d.doc.height as f32);
         let active = i == app.session.active;
         let view = app.views.entry(id).or_default();
+        // A new window: the document plus its bars, within the workspace from where it
+        // starts. Untouched windows keep fitting as the workspace changes size (the first
+        // frames can be smaller than the final, maximised main window).
         let offset = 24.0 * (i % 8) as f32;
-        if view.win_pos.is_none() {
-            view.auto_fit = true;
-        }
-        let pos = *view
-            .win_pos
-            .get_or_insert(area.min + vec2(12.0 + offset, 12.0 + offset));
-        // The document plus room for the window's bars, but never past the workspace's
-        // right/bottom edges from where the window starts (frame and scaling included).
-        let fit = vec2(
-            (w + 40.0).min(area.right() - pos.x - 16.0).max(260.0),
-            (h + 110.0).min(area.bottom() - pos.y - 16.0).max(200.0),
+        let start = area.min + vec2(12.0 + offset, 12.0 + offset);
+        let fit = Rect::from_min_size(
+            start,
+            vec2(
+                (w + 40.0).min(area.right() - start.x - 12.0).max(MIN_WINDOW.x),
+                (h + 110.0).min(area.bottom() - start.y - 12.0).max(MIN_WINDOW.y),
+            ),
         );
-        // Untouched windows follow the workspace's size (the first frames can be smaller than
-        // the final, maximised main window).
-        let refit = view.auto_fit && area_changed && view.win == WinState::Normal;
-        if refit {
-            view.win_size = Some(fit);
-            view.win_gen = view.win_gen.wrapping_add(1);
+        if view.win_rect.is_none() {
+            view.win_rect = Some(fit);
+            view.auto_fit = true;
+        } else if view.auto_fit && area_changed && view.win == WinState::Normal {
+            view.win_rect = Some(fit);
         }
+        // No larger than the workspace (what egui will draw), e.g. after the main window shrank.
+        let normal = view
+            .win_rect
+            .map_or(fit, |r| Rect::from_min_size(r.min, r.size().min(area.size())));
         let state = view.win;
-        let (gen_, set_size) = (view.win_gen, view.win_size);
-        let mut win = egui::Window::new(&title)
-            .id(egui::Id::unique(("docwin", id, gen_)))
-            .title_bar(false)
-            // Movable so all four edges resize (egui needs it for left/top); the content takes
-            // drags first, so the window only moves by its title bar.
-            .movable(true)
-            .collapsible(false)
-            // Painted clipped to the workspace, but free to move partly past its edges.
-            .constrain_to(area)
-            .constrain(false)
-            .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(2)));
-        win = match state {
-            WinState::Maximized => win.fixed_rect(area.shrink(1.0)).resizable(false),
+        let rect = match state {
+            WinState::Maximized => area.shrink(1.0),
             WinState::Minimized => {
                 let r = Rect::from_min_size(
                     pos2(area.left() + 2.0 + slot, area.bottom() - 28.0),
                     vec2(220.0, 26.0),
                 );
                 slot += 224.0;
-                win.fixed_rect(r).resizable(false)
+                r
             }
-            WinState::Normal => win
-                .current_pos(pos)
-                .resizable(true)
-                .default_size(set_size.unwrap_or(fit)),
+            WinState::Normal => normal,
         };
-        let shown = win.show(&ctx, |ui| {
-            let action = title_bar(ui, &title, active, state);
-            if state != WinState::Minimized {
-                document_view(app, ui, i);
-            }
-            action
-        });
+        // Exactly this rectangle, every frame: FireCraft owns the window's size and place.
+        let shown = egui::Window::new(&title)
+            .id(egui::Id::unique(("docwin", id)))
+            .title_bar(false)
+            .movable(false)
+            .resizable(false)
+            .collapsible(false)
+            // Painted clipped to the workspace, but free to sit partly past its edges.
+            .constrain_to(area)
+            .constrain(false)
+            .frame(frame)
+            .fixed_rect(rect)
+            .show(&ctx, |ui| {
+                let action = title_bar(ui, &title, active, state);
+                if state != WinState::Minimized {
+                    document_view(app, ui, i);
+                }
+                action
+            });
         let Some(shown) = shown else { continue };
+        // Resize grips on their own layer just above this window (below windows in front of
+        // it), so they win over the window's content along the edges.
+        let resized = if state == WinState::Normal {
+            resize_grips(
+                &ctx,
+                shown.response.layer_id,
+                shown.response.rect,
+                area,
+                egui::Id::unique(("docgrip", id)),
+            )
+        } else {
+            None
+        };
         let r = &shown.response;
         if r.clicked() || r.dragged() || (r.contains_pointer() && ctx.input(|inp| inp.pointer.any_pressed()))
         {
             app.session.active = i;
         }
+        let action = shown.inner.unwrap_or(TitleAction::None);
         let view = app.views.entry(id).or_default();
-        if state == WinState::Normal {
-            // Resizing from the left/top edge moves the window: keep where egui put it.
-            view.win_pos = Some(r.rect.min);
-            // A size change we didn't make is the user resizing: stop following the workspace.
-            if !refit
-                && !area_changed
-                // Only a resize the user is doing (a button held): windows can settle by a
-                // few pixels on their own in the first frames.
-                && ctx.input(|i| i.pointer.any_down())
-                && view.normal_size.is_some_and(|s| (s - r.rect.size()).length() > 1.0)
-            {
-                view.auto_fit = false;
-            }
-            view.normal_size = Some(r.rect.size());
+        if let Some(n) = resized {
+            view.win_rect = Some(n);
+            view.auto_fit = false;
+            app.session.active = i;
         }
-        match shown.inner.unwrap_or(TitleAction::None) {
+        match action {
             TitleAction::None => {}
             TitleAction::Drag(delta) => {
                 app.session.active = i;
                 view.auto_fit = false;
-                // Keep some of the title bar reachable.
-                let size = r.rect.size();
-                let p = pos + delta;
-                let x = p.x.clamp(area.left() - size.x + 80.0, area.right() - 80.0);
-                let y = p.y.clamp(area.top(), area.bottom() - 24.0);
-                view.win_pos = Some(pos2(x, y));
+                view.win_rect = Some(keep_reachable(normal.translate(delta), area));
             }
             TitleAction::Set(s) => {
                 view.win = s;
                 view.auto_fit = false;
-                // egui keeps a window's size; a fresh identity brings it back at its normal
-                // size (not the maximised or minimised one), placed within the workspace.
-                view.win_gen = view.win_gen.wrapping_add(1);
-                if s == WinState::Normal {
-                    let size = view.normal_size.unwrap_or(vec2(400.0, 300.0));
-                    view.win_size = Some(size);
-                    // Back where it was, even partly past the edges (only kept reachable, as
-                    // when dragging).
-                    let p = view.win_pos.unwrap_or(area.min);
-                    view.win_pos = Some(pos2(
-                        p.x.clamp(area.left() - size.x + 80.0, area.right() - 80.0),
-                        p.y.clamp(area.top(), area.bottom() - 24.0),
-                    ));
-                }
                 app.session.active = i;
             }
             TitleAction::Close => close = Some(i),
@@ -397,13 +484,6 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
         return;
     };
     let mut preview = app.views.get(&id).is_some_and(|v| v.preview);
-    // Drags on the window's empty parts (bars, margins) don't move it: only the title bar does.
-    // (Below the title bar, which is laid out before this.)
-    let _ = ui.interact(
-        ui.available_rect_before_wrap(),
-        egui::Id::unique(("doc_body", id)),
-        Sense::drag(),
-    );
     egui::Panel::top(egui::Id::unique(("doc_tabs", id)))
         .frame(egui::Frame::new())
         .show(ui, |ui| {
@@ -529,11 +609,24 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, Color32::from_gray(0xE0));
 
-    // Fit All requested (zoom 0) or first show.
-    if d.zoom <= 0.0 {
-        let fit =
-            (rect.width() / d.doc.width.max(1) as f32).min(rect.height() / d.doc.height.max(1) as f32) * 0.95;
+    let fit =
+        (rect.width() / d.doc.width.max(1) as f32).min(rect.height() / d.doc.height.max(1) as f32) * 0.95;
+    if d.zoom == 0.0 {
+        // View > Fit All.
         d.zoom = fit.clamp(1.0 / 16.0, 64.0);
+        view.auto_zoom = None;
+    } else if d.zoom < 0.0 {
+        // A newly opened document: scaled to fit its window, at most 100%, and kept fitting
+        // while the window settles, until the user zooms.
+        d.zoom = fit.clamp(1.0 / 16.0, 1.0);
+        view.auto_zoom = Some(d.zoom);
+    } else if let Some(z) = view.auto_zoom {
+        if d.zoom == z {
+            d.zoom = fit.clamp(1.0 / 16.0, 1.0);
+            view.auto_zoom = Some(d.zoom);
+        } else {
+            view.auto_zoom = None;
+        }
     }
     // Wheel: scroll pans, Ctrl+wheel zooms around the pointer.
     if resp.hovered() {
