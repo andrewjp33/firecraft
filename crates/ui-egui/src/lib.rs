@@ -214,6 +214,8 @@ struct View {
     /// identity (egui keeps a window's size otherwise).
     win_size: Option<Vec2>,
     win_gen: u32,
+    /// The window's size when last shown normally (restored to after minimise/maximise).
+    normal_size: Option<Vec2>,
     /// Animation playback (status bar play button).
     playing: bool,
     last_tick: f64,

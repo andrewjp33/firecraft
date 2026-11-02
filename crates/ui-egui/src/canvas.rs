@@ -319,6 +319,9 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             app.session.active = i;
         }
         let view = app.views.entry(id).or_default();
+        if state == WinState::Normal {
+            view.normal_size = Some(r.rect.size());
+        }
         match shown.inner.unwrap_or(TitleAction::None) {
             TitleAction::None => {}
             TitleAction::Drag(delta) => {
@@ -332,6 +335,18 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             TitleAction::Set(s) => {
                 view.win = s;
+                // egui keeps a window's size; a fresh identity brings it back at its normal
+                // size (not the maximised or minimised one), placed within the workspace.
+                view.win_gen = view.win_gen.wrapping_add(1);
+                if s == WinState::Normal {
+                    let size = view.normal_size.unwrap_or(vec2(400.0, 300.0)).min(area.size());
+                    view.win_size = Some(size);
+                    let p = view.win_pos.unwrap_or(area.min);
+                    view.win_pos = Some(pos2(
+                        p.x.clamp(area.left(), (area.right() - size.x).max(area.left())),
+                        p.y.clamp(area.top(), (area.bottom() - size.y).max(area.top())),
+                    ));
+                }
                 app.session.active = i;
             }
             TitleAction::Close => close = Some(i),

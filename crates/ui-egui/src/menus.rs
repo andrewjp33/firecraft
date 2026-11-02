@@ -403,11 +403,17 @@ pub fn open(app: &mut FireCraftApp) {
 }
 
 pub fn save(app: &mut FireCraftApp, save_as: bool) {
-    // In the Symbol Editor the symbol is part of its document: Save just brings the document
-    // up to date (Done returns to it), as in Fireworks.
-    if app.session.active_doc().is_some_and(|d| d.symbol_link.is_some()) {
+    // In the Symbol Editor, Save saves the document the symbol belongs to (Fireworks doesn't
+    // save from its Symbol Editor; FireCraft updates the document live, so saving it is the
+    // useful meaning here).
+    if let Some(link) = app.session.active_doc().and_then(|d| d.symbol_link)
+        && let Some(p) = app.session.docs.iter().position(|d| d.id == link.parent)
+    {
         app.session.sync_symbols();
-        app.info("The symbol is updated in its document; click Done to return to it.");
+        let editor = app.session.active;
+        app.session.active = p;
+        save(app, save_as);
+        app.session.active = editor.min(app.session.docs.len().saturating_sub(1));
         return;
     }
     let Some(d) = app.session.active_doc() else { return };
