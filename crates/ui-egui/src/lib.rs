@@ -73,6 +73,9 @@ pub struct Prefs {
     pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
     /// Tool cursors: FireCraft's own (Fireworks style) or the system's.
     pub cursor_style: cursors::CursorStyle,
+    /// Show objects moving while they're dragged (off: only their outline moves, and the canvas
+    /// redraws once on release, for slower computers).
+    pub live_drag: bool,
 }
 
 impl Prefs {
@@ -90,7 +93,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -103,6 +106,7 @@ impl Prefs {
                 .3
                 .map_or_else(|| "transparent".to_owned(), |c| c.to_hex()),
             self.cursor_style.key(),
+            self.live_drag,
         )
     }
 
@@ -135,6 +139,7 @@ impl Prefs {
                     }
                 }
                 "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
+                "live_drag" => p.live_drag = flag,
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -179,6 +184,7 @@ impl Default for Prefs {
             aa_style: firecraft_raster::AntiAliasStyle::Smooth,
             new_doc: (660, 440, 72.0, Some(firecraft_raster::Rgba::WHITE)),
             cursor_style: cursors::CursorStyle::Fireworks,
+            live_drag: true,
         }
     }
 }
@@ -193,6 +199,9 @@ struct View {
     cache: std::rc::Rc<std::cell::RefCell<firecraft_doc::RenderCache>>,
     /// Pointer drag in progress: start in canvas coordinates.
     drag_start: Option<Pos2>,
+    /// A live move in progress (Pointer drag with live dragging on): the whole-pixel offset
+    /// applied to the selection so far.
+    live_move: Option<(f64, f64)>,
     /// The drag in progress uses the secondary (right) button.
     drag_secondary: bool,
     preview: bool,
@@ -396,9 +405,12 @@ mod prefs_tests {
             tabs: true,
             undo_steps: 250,
             color_math: firecraft_raster::ColorMath::Precise,
+            live_drag: false,
             ..Prefs::default()
         };
         assert_eq!(Prefs::parse(&p.serialize()), p);
+        // Files from before the setting existed keep live dragging on.
+        assert!(Prefs::parse("tabs=true").live_drag);
         assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());
     }
 }

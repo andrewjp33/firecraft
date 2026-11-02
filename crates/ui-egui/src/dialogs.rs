@@ -302,6 +302,8 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
         ui.separator();
         ui.strong("Editing");
+        ui.checkbox(&mut prefs.live_drag, "Show objects while dragging them")
+            .on_hover_text("On: objects move with the pointer. Off: only their outline moves and the canvas redraws when you let go (lighter on slower computers).");
         ui.horizontal(|ui| {
             ui.label("Undo Steps:");
             ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));

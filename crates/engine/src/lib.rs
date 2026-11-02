@@ -424,6 +424,20 @@ impl DocState {
         });
     }
 
+    /// Move the selected objects as part of a live edit (no undo step of its own; see
+    /// [`begin_live_edit`](Self::begin_live_edit)).
+    pub fn move_selection_live(&mut self, dx: f64, dy: f64) {
+        if self.selection.is_empty() || (dx == 0.0 && dy == 0.0) {
+            return;
+        }
+        for r in self.selection.clone() {
+            if let Some(e) = self.element_mut(r) {
+                e.translate(dx, dy);
+            }
+        }
+        self.touch();
+    }
+
     /// Scale/Skew/Distort/rotate: replace the selected objects with `originals` (copies taken
     /// when the transform began) transformed by `m`, so repeated adjustments resample once.
     pub fn transform_from(

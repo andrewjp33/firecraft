@@ -225,6 +225,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let space = !ui.ctx().egui_wants_keyboard_input() && ui.ctx().input(|i| i.key_down(egui::Key::Space));
     let tool = if space { Tool::Hand } else { app.session.tool };
     let options = app.session.options.clone();
+    let live_drag = app.prefs.live_drag;
     let Some(d) = app.session.docs.get_mut(index) else {
         return;
     };
@@ -419,15 +420,37 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     None => d.deselect(),
                 },
             }
+            // Live dragging: the objects themselves move (one undo step for the whole drag).
+            if live_drag && !d.selection.is_empty() && !view.drag_secondary {
+                d.begin_live_edit("Move");
+                view.live_move = Some((0.0, 0.0));
+            }
         }
     }
     let drag_now = resp.interact_pointer_pos();
     let dragging = resp.dragged() && view.drag_start.is_some();
+    // Live move: follow the pointer in whole pixels.
+    if let (Some(applied), Some(a), Some(b)) = (view.live_move, view.drag_start, drag_now.or(hover)) {
+        let ((ax, ay), (bx, by)) = (to_doc(a), to_doc(b));
+        let target = ((bx - ax).round(), (by - ay).round());
+        if target != applied {
+            d.move_selection_live(target.0 - applied.0, target.1 - applied.1);
+            view.live_move = Some(target);
+            // The canvas texture was drawn earlier this frame: show the move in the next one.
+            ctx.request_repaint();
+        }
+    }
     if resp.drag_stopped() {
         if let (Some(a), Some(b)) = (view.drag_start, drag_now.or(hover)) {
             let (ax, ay) = to_doc(a);
             let (bx, by) = to_doc(b);
             match tool {
+                // A live move already moved the objects: keep it, or drop it if it went nowhere.
+                Tool::Pointer | Tool::SelectBehind if view.live_move.is_some() => {
+                    if view.live_move == Some((0.0, 0.0)) {
+                        d.cancel_live_edit();
+                    }
+                }
                 Tool::Pointer | Tool::SelectBehind => {
                     d.move_selection((bx - ax).round(), (by - ay).round(), "Move")
                 }
@@ -457,6 +480,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             }
         }
         view.drag_start = None;
+        view.live_move = None;
     }
     if dragging && tool == Tool::Hand {
         view.pan += resp.drag_delta();
@@ -515,7 +539,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     if !view.preview {
         // Object selection: light-blue bounds with corner handles.
         let drag_offset = match (tool, dragging, view.drag_start, drag_now) {
-            (Tool::Pointer, true, Some(a), Some(b)) => b - a,
+            (Tool::Pointer, true, Some(a), Some(b)) if view.live_move.is_none() => b - a,
             _ => Vec2::ZERO,
         };
         for r in &d.selection {
