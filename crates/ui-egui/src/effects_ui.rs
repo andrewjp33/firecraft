@@ -18,8 +18,22 @@ use crate::{FireCraftApp, theme};
 pub struct EffectsUi {
     /// Highlighted row.
     pub selected: Option<usize>,
-    /// The effect whose settings popup is open: (document id, list index, changed yet).
-    pub editing: Option<(u64, usize, bool)>,
+    /// The effect whose settings popup is open.
+    pub editing: Option<Editing>,
+}
+
+/// An open settings popup: OK keeps its changes (one undo step), Cancel restores the
+/// document as it was when it opened (removing the effect if it was just added).
+#[derive(Clone, Debug)]
+pub struct Editing {
+    doc: u64,
+    index: usize,
+    /// The objects being edited (the popup closes, keeping its changes, if this changes).
+    selection: Vec<firecraft_engine::ElementRef>,
+    /// The effects list when the popup opened (before the effect was added, if it was).
+    original: Vec<EffectEntry>,
+    /// Opened by adding the effect from the "+" menu.
+    added: bool,
 }
 
 /// How a setting is edited and stored.
@@ -682,6 +696,8 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
     let mut new_list: Option<(Vec<EffectEntry>, &'static str)> = None;
     let mut open_editor: Option<usize> = None;
+    // An effect with settings is added with its popup open: Cancel there removes it again.
+    let mut adding = false;
     ui.horizontal(|ui| {
         ui.label("Effects:");
         ui.menu_button("+", |ui| {
@@ -699,6 +715,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                             l.push(create(d));
                             if !d.fields.is_empty() {
                                 open_editor = Some(l.len() - 1);
+                                adding = true;
                             }
                             new_list = Some((l, "Add Effect"));
                             ui.close();
@@ -807,52 +824,71 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 }
             });
         });
-    let has_new = new_list.is_some();
-    if let (Some((l, label)), Some(d)) = (new_list, app.session.active_doc_mut()) {
-        d.set_effects(l, label);
-    }
-    if let Some(i) = open_editor {
-        app.effects_ui.selected = Some(i);
-        app.effects_ui.editing = Some((doc_id, i, false));
-        // Settings changes in the popup are one undo step (after any add above).
-        if let Some(d) = app.session.active_doc_mut() {
-            let _ = has_new;
-            d.begin_live_edit("Edit Effect");
+    let Some(d) = app.session.active_doc_mut() else {
+        return;
+    };
+    let selection = d.selection.clone();
+    match (new_list, open_editor) {
+        (Some((l, _)), Some(i)) if adding => {
+            d.begin_live_edit("Add Effect");
+            d.set_effects_live(l);
+            app.effects_ui.selected = Some(i);
+            app.effects_ui.editing = Some(Editing {
+                doc: doc_id,
+                index: i,
+                selection,
+                original: list,
+                added: true,
+            });
+        }
+        (new_list, open_editor) => {
+            if let Some((l, label)) = new_list {
+                d.set_effects(l, label);
+            }
+            if let Some(i) = open_editor {
+                let original = d.selected_effects().unwrap_or_default();
+                d.begin_live_edit("Edit Effect");
+                app.effects_ui.selected = Some(i);
+                app.effects_ui.editing = Some(Editing {
+                    doc: doc_id,
+                    index: i,
+                    selection,
+                    original,
+                    added: false,
+                });
+            }
         }
     }
 }
 
-/// The settings popup of the effect being edited (live; closes with OK, Escape or a click on
-/// the canvas).
+/// The settings popup of the effect being edited. Changes show live; OK (or Enter) keeps them,
+/// Cancel (or Escape, or the close button) undoes them.
 pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
-    let Some((doc_id, index, changed_before)) = app.effects_ui.editing else {
+    let Some(ed) = app.effects_ui.editing.clone() else {
         return;
     };
     let Some(d) = app.session.active_doc_mut() else {
         app.effects_ui.editing = None;
         return;
     };
-    if d.id != doc_id {
+    // Another document, or another selection: keep what was done so far.
+    let entry = d.selected_effects().and_then(|l| l.get(ed.index).cloned());
+    let def = entry.as_ref().and_then(def_for);
+    let (Some(mut e), Some(def)) = (entry, def) else {
+        app.effects_ui.editing = None;
+        return;
+    };
+    if d.id != ed.doc || d.selection != ed.selection {
         app.effects_ui.editing = None;
         return;
     }
-    let Some(mut list) = d.selected_effects() else {
-        app.effects_ui.editing = None;
-        return;
-    };
-    let Some(entry) = list.get(index).cloned() else {
-        app.effects_ui.editing = None;
-        return;
-    };
-    let Some(def) = def_for(&entry) else {
-        app.effects_ui.editing = None;
-        return;
-    };
-    let mut e = entry;
     let mut changed = false;
-    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter));
+    let (mut ok, mut cancel) =
+        ctx.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+    let mut open = true;
     egui::Window::new(e.name().trim_end_matches("...").to_owned())
         .id(egui::Id::unique("effect_editor"))
+        .open(&mut open)
         .collapsible(false)
         .resizable(false)
         .default_pos(ctx.content_rect().left_bottom() + vec2(320.0, -330.0))
@@ -866,19 +902,27 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
                     }
                 });
             ui.separator();
-            if ui.button("OK").clicked() {
-                close = true;
-            }
+            ui.horizontal(|ui| {
+                ok |= ui.button("OK").clicked();
+                cancel |= ui.button("Cancel").clicked();
+            });
         });
-    if changed {
-        if let Some(slot) = list.get_mut(index) {
+    cancel |= !open;
+    if changed && let Some(mut list) = d.selected_effects() {
+        if let Some(slot) = list.get_mut(ed.index) {
             *slot = e;
         }
         d.set_effects_live(list);
-        app.effects_ui.editing = Some((doc_id, index, true));
     }
-    if close {
-        if !changed_before && !changed {
+    if cancel {
+        d.cancel_live_edit();
+        app.effects_ui.editing = None;
+        if ed.added {
+            app.effects_ui.selected = None;
+        }
+    } else if ok {
+        // Nothing changed: no undo step.
+        if !ed.added && d.selected_effects().as_ref() == Some(&ed.original) {
             d.discard_live_edit();
         }
         app.effects_ui.editing = None;

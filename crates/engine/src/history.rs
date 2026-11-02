@@ -48,6 +48,11 @@ impl History {
         self.undo.pop();
     }
 
+    /// Remove the most recent undo step and return its document (cancelling a live edit).
+    pub fn take_last(&mut self) -> Option<Document> {
+        self.undo.pop().map(|(_, d)| d)
+    }
+
     pub fn undo(&mut self, current: &Document) -> Option<Document> {
         let (label, doc) = self.undo.pop()?;
         self.redo.push((label, current.clone()));

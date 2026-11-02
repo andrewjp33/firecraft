@@ -334,11 +334,12 @@ impl Effect {
                     *p = Rgba { a: p.a, ..c };
                 }
             }
-            Effect::GaussianBlur { radius } => {
-                if let Some(sigma) = gaussian_sigma(*radius) {
-                    blur_rgba(img, sigma)
-                }
-            }
+            Effect::GaussianBlur { radius } => match gaussian_sigma(*radius) {
+                Some(sigma) => blur_rgba(img, sigma),
+                // Above 200 Fireworks MX fills the object with its average colour.
+                None if *radius > 200.0 => average_colour(img),
+                None => {}
+            },
             Effect::MotionBlur { distance, angle } => motion_blur(img, *distance, *angle),
             Effect::RadialBlur { amount } => radial_blur(img, *amount),
             Effect::Shadow {
@@ -534,7 +535,30 @@ fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
 
 /// Gaussian Blur's sigma for a `gaussian_blur_radius`, measured in Fireworks MX (step-edge fits for
 /// radii 1-249): sigma = 1.021 x radius with the kernel reaching ~2.5 x radius; radii above 70 blur
-/// like 70, and radii above 200 don't blur at all.
+/// like 70. Radii above 200 don't blur (`None`): the object becomes its average colour instead
+/// (see [`average_colour`]).
+/// Every pixel of the object takes the object's average colour (weighted by alpha); alpha and
+/// shape are unchanged. Fireworks MX's Gaussian Blur above radius 200 (measured: a colour ramp
+/// averaging (127.08, 127.01, 130.0) became (127, 127, 130) throughout).
+pub fn average_colour(img: &mut RgbaImage) {
+    let (mut sum, mut weight) = ([0f64; 3], 0f64);
+    for p in img.pixels() {
+        let a = p.a as f64;
+        sum[0] += p.r as f64 * a;
+        sum[1] += p.g as f64 * a;
+        sum[2] += p.b as f64 * a;
+        weight += a;
+    }
+    if weight <= 0.0 {
+        return;
+    }
+    let ch = |v: f64| (v / weight).round().clamp(0.0, 255.0) as u8;
+    let (r, g, b) = (ch(sum[0]), ch(sum[1]), ch(sum[2]));
+    for p in img.pixels_mut().iter_mut().filter(|p| p.a > 0) {
+        *p = Rgba { r, g, b, a: p.a };
+    }
+}
+
 pub fn gaussian_sigma(radius: f32) -> Option<f32> {
     if !(radius > 0.0 && radius <= 200.0) {
         return None;
@@ -828,6 +852,15 @@ mod tests {
         assert_eq!(e, Some(Effect::GaussianBlur { radius: 100.0 }));
         assert_eq!(gaussian_sigma(100.0), gaussian_sigma(70.0));
         assert_eq!(gaussian_sigma(201.0), None);
+        // Above 200: the average colour, shape kept.
+        let mut img = RgbaImage::new(4, 1, Rgba::TRANSPARENT);
+        img.set(0, 0, Rgba::new(0, 0, 0, 255));
+        img.set(1, 0, Rgba::new(200, 100, 50, 255));
+        img.set(2, 0, Rgba::new(100, 100, 100, 128));
+        Effect::GaussianBlur { radius: 250.0 }.apply_with(&mut img, crate::ColorMath::Classic);
+        assert_eq!(img.get(0, 0), Some(Rgba::new(100, 60, 40, 255)));
+        assert_eq!(img.get(2, 0), Some(Rgba::new(100, 60, 40, 128)));
+        assert_eq!(img.get(3, 0), Some(Rgba::TRANSPARENT));
         let e = Effect::parse(
             &params(&[("EffectMoaID", BEVEL_GLOW), ("BevelType", "0")]),
             &HashMap::new(),

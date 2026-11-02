@@ -44,6 +44,8 @@ pub struct DocState {
     pub pixels: Option<PixelSelection>,
     pub zoom: f32,
     pub dirty: bool,
+    /// `dirty` when the live edit in progress began (restored if it's cancelled).
+    live_dirty: bool,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
 }
@@ -59,6 +61,7 @@ impl DocState {
             pixels: None,
             zoom: 1.0,
             dirty: false,
+            live_dirty: false,
             revision: 0,
         }
     }
@@ -470,6 +473,17 @@ impl DocState {
     /// [`set_effects_live`](Self::set_effects_live) calls change the document without more.
     pub fn begin_live_edit(&mut self, label: &str) {
         self.history.push(label, &self.doc);
+        self.live_dirty = self.dirty;
+    }
+
+    /// Cancel the live edit in progress: the document returns to how it was when it began, with
+    /// no undo step left behind.
+    pub fn cancel_live_edit(&mut self) {
+        if let Some(doc) = self.history.take_last() {
+            self.doc = doc;
+            self.after_history();
+            self.dirty = self.live_dirty;
+        }
     }
 
     /// End a live edit that changed nothing: remove its undo step.
@@ -778,6 +792,25 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelling_a_live_edit_restores_the_document_without_an_undo_step() {
+        let mut d = DocState::new(Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        let (before, steps) = (d.doc.clone(), d.history.labels().count());
+        d.dirty = false;
+        d.begin_live_edit("Add Effect");
+        let fx = firecraft_doc::EffectEntry::from_pairs(&[
+            ("EffectIsVisible", "true"),
+            ("EffectMoaID", "{d2541291-70d6-11d1-8c8000a024cdc039}"),
+        ]);
+        d.set_effects_live(vec![fx]);
+        assert_ne!(d.doc, before);
+        d.cancel_live_edit();
+        assert_eq!(d.doc, before);
+        assert_eq!(d.history.labels().count(), steps);
+        assert!(!d.dirty && !d.history.can_redo());
+    }
 
     fn doc_with_disc() -> DocState {
         let mut img = RgbaImage::new(100, 100, Rgba::WHITE);

@@ -595,23 +595,20 @@ fn zoom_at(d: &mut DocState, view: &mut View, rect: Rect, at: Option<Pos2>, fact
     d.zoom = new;
 }
 
+/// Transparency checkerboard over `r`, fixed to the screen (its squares don't move with the
+/// canvas when scrolling or zooming).
 fn checkerboard(p: &egui::Painter, r: Rect) {
     let s = 8.0;
     p.rect_filled(r, 0.0, Color32::WHITE);
-    let mut y = r.top();
-    let mut row = 0;
-    while y < r.bottom() {
-        let mut x = r.left() + if row % 2 == 0 { 0.0 } else { s };
-        while x < r.right() {
-            p.rect_filled(
-                Rect::from_min_max(pos2(x, y), pos2((x + s).min(r.right()), (y + s).min(r.bottom()))),
-                0.0,
-                Color32::from_gray(204),
-            );
-            x += 2.0 * s;
+    let (col0, row0) = ((r.left() / s).floor() as i64, (r.top() / s).floor() as i64);
+    let (col1, row1) = ((r.right() / s).ceil() as i64, (r.bottom() / s).ceil() as i64);
+    for row in row0..row1 {
+        for col in (col0..col1).filter(|c| (c + row).rem_euclid(2) == 1) {
+            let sq = Rect::from_min_size(pos2(col as f32 * s, row as f32 * s), vec2(s, s)).intersect(r);
+            if sq.is_positive() {
+                p.rect_filled(sq, 0.0, Color32::from_gray(204));
+            }
         }
-        y += s;
-        row += 1;
     }
 }
 

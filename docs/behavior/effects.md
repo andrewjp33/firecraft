@@ -7,7 +7,7 @@ the object's raw node, so saving never loses an effect.
 
 | Effect | Status |
 |---|---|
-| Gaussian Blur | **measured** (radii 1-249): `gaussian_blur_radius` is in pixels; Gaussian with sigma = 1.021 x radius (kernel ~2.5 x radius); radii above 70 behave as 70; radii above 200 do not blur at all |
+| Gaussian Blur | **measured** (radii 1-249): `gaussian_blur_radius` is in pixels; Gaussian with sigma = 1.021 x radius (kernel ~2.5 x radius); radii above 70 behave as 70; above 200 there is no blur: the object becomes its (alpha-weighted) average colour, shape and alpha unchanged (measured with a colour ramp; solid test shapes made this look like "no effect") |
 | Drop Shadow | **measured**: offset = round(distance x (cos a, -sin a)), hard edges at softness 0; softness = Gaussian with sigma = 0.475 x `ShadowBlur` (fit RMS 0.006) |
 | Hue/Saturation | **bit-exact** (read from `0x7d7433` with REA, verified on 48 renders): byte HSL; hue byte -> whole degrees (x360/256), + `hue_amount`, back (x256/360, wraps); saturation/lightness move by (255-x)*k for k>0, x*k for k<0 (k = amount/100), truncated. Colorize is still approximate |
 | Brightness/Contrast, Levels, Auto Levels, Curves, Invert, Convert to Alpha, Color Fill | implemented from parameters; not yet measured |
