@@ -453,13 +453,13 @@ impl Edges {
                 match self.mode {
                     // Halftone dots: dots on a rotated grid growing towards the inside.
                     3 => {
-                        let (fu, fv) = ((u / cell).fract() - 0.5, (v / cell).fract() - 0.5);
+                        let (fu, fv) = ((u / cell).rem_euclid(1.0) - 0.5, (v / cell).rem_euclid(1.0) - 0.5);
                         let r = (fu * fu + fv * fv).sqrt();
                         if r < t * 0.72 { 1.0 } else { 0.0 }
                     }
                     // Halftone lines: lines thickening towards the inside.
                     5 => {
-                        if ((v / cell).fract() - 0.5).abs() < t * 0.5 {
+                        if ((v / cell).rem_euclid(1.0) - 0.5).abs() < t * 0.5 {
                             1.0
                         } else {
                             0.0
@@ -608,6 +608,36 @@ mod tests {
         assert_eq!(b.profile.first().copied(), Some((0.0, 0.261)));
         assert_eq!(b.inclination, 45.0);
         assert!(!b.shade_interior);
+    }
+
+    #[test]
+    fn rotated_halftone_covers_every_edge() {
+        // The grid is rotated about the image's top-left: where its coordinates go negative
+        // (left side, at 45 degrees) dots must still appear (fract() of negatives lost them).
+        let mut img = RgbaImage::new(140, 140, Rgba::TRANSPARENT);
+        img.draw(&RgbaImage::new(120, 120, Rgba::new(255, 0, 0, 255)), 10, 10, 255);
+        let e = Edges {
+            width: 20.0,
+            margin: 0.0,
+            feature: 1.5,
+            direction: 45.0,
+            mode: 3,
+            color: Rgba::WHITE,
+            transparent: true,
+            seed: 1,
+        };
+        e.apply(&mut img);
+        let kept = |x0: u32, x1: u32| {
+            (10..110)
+                .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+                .filter(|&(x, y)| img.get(x as i64, y as i64).is_some_and(|p| p.a > 0))
+                .count()
+        };
+        // The outer half of the band: left side (grid coordinates positive) and right side
+        // (negative at 45 degrees).
+        let (left, right) = (kept(10, 20), kept(120, 130));
+        assert!(left > 0 && right > 0, "left {left} right {right}");
+        assert!(left * 2 > right && right * 2 > left, "left {left} right {right}");
     }
 
     #[test]
