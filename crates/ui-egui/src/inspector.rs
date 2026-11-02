@@ -205,8 +205,11 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         None => ("".into(), None),
     };
     let mut move_to: Option<(f64, f64)> = None;
+    // In the Symbol Editor positions are the symbol's own (0,0 = its origin), as in Fireworks.
+    let origin = d.symbol_link.map_or((0.0, 0.0), |l| l.offset);
     identity(ui, &title, tool, |ui| {
         if let Some((x, y, w, h)) = bounds {
+            let (x, y) = (x - origin.0, y - origin.1);
             let (mut nx, mut ny) = (x.round(), y.round());
             egui::Grid::new("pi_geom").spacing(vec2(4.0, 2.0)).show(ui, |ui| {
                 ui.label("W:");
