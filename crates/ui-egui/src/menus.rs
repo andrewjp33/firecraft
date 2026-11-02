@@ -584,8 +584,19 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     if pressed(Modifiers::NONE, Key::F4) {
         toggle_panels(app);
     }
+    let point_tool = matches!(app.session.tool, Tool::Subselect | Tool::Pen);
     if pressed(Modifiers::NONE, Key::Delete) || pressed(Modifiers::NONE, Key::Backspace) {
-        with_doc(app, |d| d.delete());
+        // Selected path points (Subselection/Pen), else the selected objects.
+        let i = app.session.active;
+        let points = point_tool
+            && app
+                .session
+                .docs
+                .get_mut(i)
+                .is_some_and(|d| crate::path_tool::delete(&mut app.path_edit, d));
+        if !points {
+            with_doc(app, |d| d.delete());
+        }
     }
     // Arrow keys nudge the selection (Shift: 10 px).
     for (k, dx, dy) in [
@@ -594,10 +605,23 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
         (Key::ArrowUp, 0.0, -1.0),
         (Key::ArrowDown, 0.0, 1.0),
     ] {
-        if pressed(Modifiers::SHIFT, k) {
-            with_doc(app, |d| d.move_selection(dx * 10.0, dy * 10.0, "Move"));
+        let step = if pressed(Modifiers::SHIFT, k) {
+            10.0
         } else if pressed(Modifiers::NONE, k) {
-            with_doc(app, |d| d.move_selection(dx, dy, "Move"));
+            1.0
+        } else {
+            continue;
+        };
+        // Selected path points (Subselection/Pen), else the selected objects.
+        let i = app.session.active;
+        let points = point_tool
+            && app
+                .session
+                .docs
+                .get_mut(i)
+                .is_some_and(|d| crate::path_tool::nudge(&mut app.path_edit, d, dx * step, dy * step));
+        if !points {
+            with_doc(app, |d| d.move_selection(dx * step, dy * step, "Move"));
         }
     }
     // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks).

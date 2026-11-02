@@ -5,11 +5,13 @@
 
 mod history;
 mod objects;
+pub mod paths;
 mod symbols;
 mod tools;
 
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
+pub use paths::PointRef;
 pub use symbols::SymbolLink;
 pub use tools::{Tool, ToolOptions};
 
@@ -849,6 +851,28 @@ impl DocState {
                 }
             }
         });
+    }
+
+    /// Property inspector "Rectangle roundness" (0..=1) of the selected rectangles. `live`: part
+    /// of a drag begun with `begin_live_edit` (no undo step of its own).
+    pub fn set_roundness(&mut self, roundness: f64, live: bool) {
+        let apply = |s: &mut DocState| {
+            for r in s.selection.clone() {
+                if let Some(Element {
+                    kind: ElementKind::Path(p),
+                    ..
+                }) = s.element_mut(r)
+                {
+                    p.set_roundness(roundness);
+                }
+            }
+        };
+        if live {
+            apply(self);
+            self.touch();
+        } else {
+            self.edit("Rectangle Roundness", apply);
+        }
     }
 
     /// Set the blend mode of the selected objects.

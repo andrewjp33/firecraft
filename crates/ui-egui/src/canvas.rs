@@ -822,7 +822,26 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     // Tools with editing state of their own (one for the app) work in the active document
     // only; other windows just show their document (Fireworks shows handles in one window).
     let active = index == app.session.active;
-    if !active && matches!(tool, Tool::NineSlice | Tool::Scale | Tool::Skew | Tool::Distort) {
+    if !active
+        && matches!(
+            tool,
+            Tool::NineSlice | Tool::Scale | Tool::Skew | Tool::Distort | Tool::Pen | Tool::Subselect
+        )
+    {
+        return;
+    }
+    // The Pen and Subselection tools too.
+    if matches!(tool, Tool::Pen | Tool::Subselect) {
+        crate::path_tool::canvas(
+            &mut app.path_edit,
+            d,
+            tool,
+            &p,
+            resp,
+            (origin, z),
+            &app.session.options,
+            app.prefs.cursor_style,
+        );
         return;
     }
     // The 9-slice tool handles its own input and overlay.

@@ -145,6 +145,23 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     identity(ui, tool.label(), Some(tool), |_| {});
     let o = &mut app.session.options;
     ui.vertical(|ui| {
+        if tool == Tool::Rectangle {
+            ui.horizontal(|ui| {
+                ui.label("Rectangle roundness:");
+                let mut pct = o.roundness * 100.0;
+                if ui
+                    .add(
+                        DragValue::new(&mut pct)
+                            .range(0.0..=100.0)
+                            .max_decimals(0)
+                            .suffix("%"),
+                    )
+                    .changed()
+                {
+                    o.roundness = (pct / 100.0).clamp(0.0, 1.0);
+                }
+            });
+        }
         ui.horizontal(|ui| {
             icons::glyph(ui, icons::Glyph::Bucket, 16.0);
             if tools_panel::swatch(ui, o.fill, vec2(22.0, 14.0)).clicked() {
@@ -195,6 +212,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let (title, tool) = match first.as_ref().map(|e| &e.kind) {
         _ if count > 1 => (format!("{count} objects"), Some(Tool::Pointer)),
         Some(ElementKind::Bitmap(_)) => ("Bitmap".into(), Some(Tool::Marquee)),
+        Some(ElementKind::Path(p)) if p.rect.is_some() => ("Rectangle".into(), Some(Tool::Rectangle)),
         Some(ElementKind::Path(p)) if p.contours.iter().all(|c| c.closed) => ("Path".into(), Some(Tool::Pen)),
         Some(ElementKind::Path(_)) => ("Path".into(), Some(Tool::Line)),
         Some(ElementKind::Text(_)) => ("Text".into(), Some(Tool::Text)),
@@ -273,6 +291,27 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     ui.label(format!("{} px", s.diameter));
                 }
             });
+            // Rectangle roundness (Fireworks: rectangle primitives only).
+            if let Some(r) = p.rect {
+                ui.horizontal(|ui| {
+                    ui.label("Rectangle roundness:");
+                    let mut pct = (r.roundness * 100.0).round();
+                    let resp = ui.add(
+                        DragValue::new(&mut pct)
+                            .range(0.0..=100.0)
+                            .max_decimals(0)
+                            .suffix("%"),
+                    );
+                    if let Some(d) = app.session.active_doc_mut() {
+                        if resp.drag_started() {
+                            d.begin_live_edit("Rectangle Roundness");
+                        }
+                        if resp.changed() {
+                            d.set_roundness(pct / 100.0, resp.dragged());
+                        }
+                    }
+                });
+            }
         });
         ui.separator();
     }

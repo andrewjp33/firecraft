@@ -119,6 +119,8 @@ impl Tool {
             self,
             Tool::Pointer
                 | Tool::SelectBehind
+                | Tool::Subselect
+                | Tool::Pen
                 | Tool::Scale
                 | Tool::Skew
                 | Tool::Distort

@@ -18,7 +18,8 @@ items 5 and 6 (live effects, gradient fills) and blend modes highly.
 
 
 1. **Clipboard** (Cut/Copy/Paste objects and pixels), Duplicate/Clone, Group/Ungroup, Arrange
-2. **Pen and Subselection** tools; editing bezier points; Scale/Crop tools; Transform
+2. **Pen and Subselection** tools; editing bezier points (done: see
+   `docs/behavior/paths.md`; rectangle primitives with roundness); Scale/Crop tools; Transform
 3. **Brush, Pencil, Eraser, Paint Bucket** (Fireworks' brush presets: `BPLv` fields)
 4. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
 5. **Live Effects** in the Property inspector (drop shadow, bevels, glow, blur; `EFLv` parameters

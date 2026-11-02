@@ -26,6 +26,7 @@ mod library;
 mod menus;
 mod nine;
 mod panels;
+mod path_tool;
 mod theme;
 mod tools_panel;
 mod transform_tool;
@@ -233,6 +234,7 @@ pub struct FireCraftApp {
     styled: bool,
     nine: Option<nine::NineEdit>,
     transform: Option<transform_tool::TransformEdit>,
+    path_edit: path_tool::PathEdit,
     effects_ui: effects_ui::EffectsUi,
     /// Edit > Copy/Cut: the objects, and the note put on the system clipboard (pasting the
     /// note back pastes them).
@@ -261,6 +263,7 @@ impl FireCraftApp {
             styled: false,
             nine: None,
             transform: None,
+            path_edit: path_tool::PathEdit::default(),
             effects_ui: effects_ui::EffectsUi::default(),
             clipboard: None,
             clipboard_keys: false,
@@ -366,6 +369,10 @@ impl FireCraftApp {
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();
+        // Choosing another tool finishes the path the Pen is drawing (as in Fireworks).
+        if self.session.tool != firecraft_engine::Tool::Pen {
+            self.path_edit.end_pen();
+        }
         if let Some((doc, id)) =
             ctx.data_mut(|m| m.remove_temp::<(usize, u32)>(egui::Id::unique("edit_symbol")))
         {
