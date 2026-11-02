@@ -57,12 +57,22 @@ adapted from [FirePixel](https://github.com/Zignixx/firepixel) (Apache-2.0); see
 Requires Rust 1.95+ (edition 2024). The Makefile wraps the common commands (`make help`):
 
 ```sh
-make build        # Linux debug build   -> target/debug/firecraft
+make              # Linux + Windows debug builds -> dist/linux/firecraft, dist/windows/firecraft.exe
+make build        # Linux debug build only
 make run FILE=x.png
-make windows      # Windows .exe (needs: sudo apt install mingw-w64)
+make windows      # Windows .exe only (needs: sudo apt install mingw-w64)
 make test         # all tests
 make parity       # compare renders with Fireworks for ../ref_fw_images (REF_DIR=...)
+make clean        # remove FireCraft's own build outputs; compiled dependencies stay (fast rebuild)
+make distclean    # remove everything (the next build compiles all dependencies again)
+make size         # disk used by target/ and dist/
 ```
+
+Finished binaries are copied to `dist/` (release builds: `dist/linux-release/`,
+`dist/windows-release/`; web: `dist/web/`). Cargo's `target/` holds the compiled dependencies,
+which rarely change: `make clean` keeps them, so a rebuild takes seconds rather than minutes.
+With [sccache](https://github.com/mozilla/sccache) installed, the Makefile uses it
+automatically and compiled dependencies survive even `make distclean`.
 
 Or with cargo directly:
 
@@ -82,7 +92,7 @@ Windows: `cargo build -p firecraft` on Windows (MSVC toolchain), or cross-compil
 
 ```sh
 sudo apt install mingw-w64          # once
-scripts/build-windows.sh            # -> target/x86_64-pc-windows-gnu/debug/firecraft.exe
+make windows                        # -> dist/windows/firecraft.exe
 ```
 
 Startup: a small software-drawn splash shows (at least 2 s) while the GPU renderer starts
