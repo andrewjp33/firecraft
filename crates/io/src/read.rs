@@ -215,7 +215,8 @@ fn read_symbol(m: &Node, ctx: &Ctx) -> Option<Symbol> {
         frames: m.int_of("FRC").unwrap_or(1).clamp(1, 10_000) as usize,
         // NGSv: four NGCf guides, top y, bottom y, left x, right x (read from Fireworks CS
         // files; FireCraft keeps the node as read when saving).
-        nine: m.child("NGS").and_then(|n| {
+        // (FNGv: the same guides kept by FireCraft where CS can't take them.)
+        nine: m.child("NGS").or_else(|| m.child("FNG")).and_then(|n| {
             let v: Vec<f64> = n
                 .children
                 .iter()

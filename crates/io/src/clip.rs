@@ -174,3 +174,85 @@ mod nine_tests {
         assert_eq!(ngc, [-7.0, 7.0, -10.0, 10.0]);
     }
 }
+
+#[cfg(test)]
+mod cs_compat_tests {
+    use firecraft_doc::{Bitmap, Document, Element, ElementKind, Layer, Symbol, SymbolKind};
+    use firecraft_fwpng::Node;
+    use firecraft_raster::transform::Affine;
+    use firecraft_raster::{Rgba, RgbaImage};
+
+    fn symbol(id: u32) -> Symbol {
+        let mut layer = Layer::new("Layer 1");
+        layer.cells = vec![vec![Element::new(ElementKind::Bitmap(Bitmap {
+            x: -30,
+            y: -20,
+            image: RgbaImage::new(60, 40, Rgba::new(9, 9, 9, 255)),
+        }))]];
+        Symbol {
+            id,
+            name: format!("s{id}"),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer, Layer::web_layer()],
+            frames: 1,
+            nine: Some((-10.0, 10.0, -7.0, 7.0)),
+            raw: None,
+        }
+    }
+
+    #[test]
+    fn cs_markers_dropped_and_skewed_nine_slices_hidden_from_cs() {
+        let mut doc = Document::new(300, 200, 72.0, Some(Rgba::WHITE));
+        doc.symbols = std::sync::Arc::new(vec![symbol(1), symbol(2)]);
+        let inst = |id, m: Affine| {
+            Element::new(ElementKind::Instance {
+                symbol: id,
+                name: String::new(),
+                matrix: m,
+                bounds: None,
+            })
+        };
+        let rotated = Affine {
+            a: 0.0,
+            b: 2.0,
+            c: -2.0,
+            d: 0.0,
+            e: 100.0,
+            f: 100.0,
+            ..Affine::IDENTITY
+        };
+        let perspective = Affine {
+            g: 0.001,
+            e: 200.0,
+            f: 100.0,
+            ..Affine::IDENTITY
+        };
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            cell.push(inst(1, rotated));
+            cell.push(inst(2, perspective));
+        }
+        // As if read from a Fireworks CS file.
+        let mut root = crate::write::new_root();
+        root.children.push(Node::int("VRS", 10));
+        root.children.push(Node::int("VRM", 1));
+        doc.raw = Some(root);
+        let back = crate::open(&crate::save_fireworks_png(&doc).expect("saved"), None).expect("opened");
+        let (tree, _) = crate::fireworks_tree(&back);
+        assert!(tree.child("VRS").is_none() && tree.child("VRM").is_none());
+        let msts: Vec<&Node> = tree
+            .child("MSL")
+            .expect("symbols")
+            .children
+            .iter()
+            .filter(|c| c.is("MST"))
+            .collect();
+        // Rotated only: CS's node. Perspective: FireCraft's own, which CS ignores.
+        assert!(msts[0].child("NGS").is_some() && msts[0].child("FNG").is_none());
+        assert!(msts[1].child("NGS").is_none() && msts[1].child("FNG").is_some());
+        assert!(
+            back.symbols
+                .iter()
+                .all(|s| s.nine == Some((-10.0, 10.0, -7.0, 7.0)))
+        );
+    }
+}

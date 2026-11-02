@@ -49,3 +49,6 @@ moves it, which FireCraft doesn't reproduce.
 * 9-slice symbols keep their slices when skewed, distorted or put in perspective. Fireworks CS
   asks whether to remove the 9-slice scaling for those transforms (and for the 9-slice tool);
   FireCraft doesn't need to.
+* In Fireworks CS a skewed or perspective 9-slice instance hangs CS5 on opening; FireCraft
+  keeps such a symbol's guides in its own `FNGv` node, so CS5 shows it unsliced (MX
+  regardless shows symbols unsliced).

@@ -43,6 +43,11 @@ fn put(parent: &mut Node, node: Node) {
 /// Build the `mkTS` tree and the tiles it references.
 pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     let mut root = doc.raw.clone().unwrap_or_else(new_root);
+    // A Fireworks CS file's MKBv carries CS-only fields (version VRSi/VRMi, page ids...) that
+    // tell CS to read the CS document (PDCv) stored after it. FireCraft writes only MKBv (PDCv
+    // would be stale after edits), so drop them: CS then reads the file like an MX one, as it
+    // does files from Fireworks MX (otherwise it shows an empty canvas).
+    root.children.retain(|c| !CS_ROOT_ONLY.iter().any(|t| c.is(t)));
     let origin = (
         root.float_of("XLC").unwrap_or(0.0),
         root.float_of("YLC").unwrap_or(0.0),
@@ -155,6 +160,32 @@ pub(crate) fn new_root() -> Node {
     )
 }
 
+/// Root fields only Fireworks CS writes (see `fireworks_tree`).
+const CS_ROOT_ONLY: [&str; 8] = ["VRS", "VRM", "PID", "PIL", "ILL", "IMP", "LSM", "ZSL"];
+
+/// Whether any instance of symbol `id` (in the document or in symbols) is skewed or in
+/// perspective (its transformed axes aren't perpendicular, or it isn't affine).
+fn symbol_skewed(doc: &Document, id: u32) -> bool {
+    fn any(els: &[Element], id: u32) -> bool {
+        els.iter().any(|e| match &e.kind {
+            ElementKind::Instance { symbol, matrix, .. } if *symbol == id => {
+                let dot = matrix.a * matrix.c + matrix.b * matrix.d;
+                let scale = (matrix.a.hypot(matrix.b) * matrix.c.hypot(matrix.d)).max(1e-12);
+                !matrix.is_affine() || (dot / scale).abs() > 1e-6
+            }
+            ElementKind::Group(children) => any(children, id),
+            ElementKind::Masked { content, .. } => any(content, id),
+            _ => false,
+        })
+    }
+    doc.layers.iter().flat_map(|l| l.cells.iter()).any(|c| any(c, id))
+        || doc
+            .symbols
+            .iter()
+            .flat_map(|s| s.layers.iter().flat_map(|l| l.cells.iter()))
+            .any(|c| any(c, id))
+}
+
 /// `MSLv`: the symbol definitions (`MSTv`), in symbol space (no canvas origin). A symbol read
 /// from a file keeps its original node for what FireCraft doesn't model; a new one gets
 /// Fireworks MX's defaults (as Convert to Symbol writes them).
@@ -216,8 +247,29 @@ fn write_symbols(root: &mut Node, doc: &Document, w: &mut Writer) {
                 None => n.children.retain(|c| !c.is("MSY")),
             }
             // 9-slice guides (Fireworks CS's NGSv, after GDSv). Fireworks MX ignores the node
-            // (the file opens, the symbol scales plainly); CS reads it.
-            match s.nine {
+            // (the file opens, the symbol scales plainly); CS reads it. Fireworks CS doesn't
+            // allow skewing or distorting a 9-slice instance (it asks to remove the slices) and
+            // hangs opening one, so a symbol with such an instance keeps its guides in a
+            // FireCraft-only node (FNGv) that MX and CS ignore: CS shows it unsliced.
+            n.children.retain(|c| !c.is("FNG"));
+            let cs_safe = !symbol_skewed(doc, s.id);
+            if let (Some((left, right, top, bottom)), false) = (s.nine, cs_safe) {
+                n.children.retain(|c| !c.is("NGS"));
+                let fng = Node::vector(
+                    "FNG",
+                    [top, bottom, left, right]
+                        .into_iter()
+                        .map(|v| Node::float("NGC", v))
+                        .collect(),
+                );
+                let at = n
+                    .children
+                    .iter()
+                    .position(|c| c.is("GDS"))
+                    .map_or(n.children.len(), |i| i + 1);
+                n.children.insert(at, fng);
+            }
+            match s.nine.filter(|_| cs_safe) {
                 Some((left, right, top, bottom)) => {
                     let mut ngs = n.child("NGS").cloned().unwrap_or_else(|| {
                         Node::vector(

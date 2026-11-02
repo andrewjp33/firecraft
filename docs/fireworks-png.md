@@ -78,6 +78,20 @@ are omitted when they coincide with the anchor.
 * Not required: preset lists, `prVW`, `mkBS`, `sBIT`, `tEXt`, `PCLv`, textures, gradient handles,
   `BZLv`/`NSDf` on points, `RQNi`.
 
+## Fireworks CS files
+
+A Fireworks CS5 tree holds two documents: `MKBv` (the classic one, which Fireworks MX reads;
+in CS files its root also has `VRSi`/`VRMi` version fields and `PIDs`, `PILb`, `ILLb`, `IMPb`,
+`LSMv`, `ZSLv`), followed by a second top-level node, `PDCv` (`VRSi`, `VRMi`, then the whole
+document again, CS's own copy). FireCraft reads `MKBv` and writes only it; it removes the
+CS-only root fields, since with them CS expects the `PDCv` and opens an empty canvas (seen on
+a re-saved CS5 file). Without them CS reads the file like one from MX.
+
+9-slice guides (`NGSv` in a symbol, see `docs/behavior/symbols.md`) are read by CS. CS never
+skews or distorts a 9-slice instance (it asks to remove the slices) and hangs opening a file
+that has one; for a symbol with such an instance FireCraft writes the guides in its own node
+`FNGv` (same `NGCf` values) instead, which MX and CS ignore, so CS shows it unsliced.
+
 ## Clipboard
 
 Fireworks MX copies objects as a clipboard format named **"PNG"** holding a complete Fireworks
