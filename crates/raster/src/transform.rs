@@ -147,6 +147,61 @@ impl Affine {
         Self::from_rows(m)
     }
 
+    /// The affine transform taking each point of `from` to the same point of `to` (within
+    /// `tol` pixels), if there is one (at least three points, not all on a line).
+    pub fn fit(from: &[(f64, f64)], to: &[(f64, f64)], tol: f64) -> Option<Affine> {
+        if from.len() != to.len() || from.len() < 3 {
+            return None;
+        }
+        // The three points spanning the largest triangle.
+        let n = from.len().min(64);
+        let mut best = (0.0, 0, 1, 2);
+        for i in 0..n {
+            for j in i + 1..n {
+                for k in j + 1..n {
+                    let (p, q, r) = (from[i], from[j], from[k]);
+                    let v = ((q.0 - p.0) * (r.1 - p.1) - (r.0 - p.0) * (q.1 - p.1)).abs();
+                    if v > best.0 {
+                        best = (v, i, j, k);
+                    }
+                }
+            }
+        }
+        let (v, i, j, k) = best;
+        if v < 1e-6 {
+            return None;
+        }
+        let (p, q, r) = (from[i], from[j], from[k]);
+        let det = p.0 * (q.1 - r.1) - p.1 * (q.0 - r.0) + (q.0 * r.1 - r.0 * q.1);
+        // Solve u = x * s + y * t + w for the three points.
+        let solve = |u0: f64, u1: f64, u2: f64| {
+            let s = (u0 * (q.1 - r.1) - p.1 * (u1 - u2) + (u1 * r.1 - u2 * q.1)) / det;
+            let t = (p.0 * (u1 - u2) - u0 * (q.0 - r.0) + (q.0 * u2 - r.0 * u1)) / det;
+            let w = (p.0 * (q.1 * u2 - r.1 * u1) - p.1 * (q.0 * u2 - r.0 * u1)
+                + u0 * (q.0 * r.1 - r.0 * q.1))
+                / det;
+            (s, t, w)
+        };
+        let (a, c, e) = solve(to[i].0, to[j].0, to[k].0);
+        let (b, d, f) = solve(to[i].1, to[j].1, to[k].1);
+        let m = Affine {
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            ..Affine::IDENTITY
+        };
+        from.iter()
+            .zip(to)
+            .all(|(&(x, y), &(tx, ty))| {
+                let (mx, my) = m.apply(x, y);
+                (mx - tx).abs() <= tol && (my - ty).abs() <= tol
+            })
+            .then_some(m)
+    }
+
     /// Determinant of the linear (2x2) part, normalised by i.
     pub fn det(&self) -> f64 {
         (self.a * self.d - self.b * self.c) / (self.i * self.i).max(1e-24)

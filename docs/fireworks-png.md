@@ -82,17 +82,24 @@ are omitted when they coincide with the anchor.
 
 ## Shape primitives (PRIv)
 
-A rectangle drawn with Fireworks' Rectangle tool is a *RectanglePrimitive*: its `PTHv` has a
+A rectangle drawn with Fireworks' Rectangle tool is a *RectanglePrimitive*: its `PTHv` has
+`PTTi 1`, `TOXf`/`TOYf`, `PCFb`, `PSXf..PFYf` after `RNDi`, and after the points a
 `PRIv { PCFb, PSXf..PFYf, MTXv (row vectors: M20/M21 translation), RCTv { RDSf roundness,
-LFTf, TOPf, RITf, BOTf base box }, RDMb }`, and `TOXf`/`TOYf` on the path. Fireworks MX and CS
-rebuild the shape from `RCTv` and `MTXv`, not from the path points (verified with
-tools/fwmx-oracle: a file with moved points but the old `PRIv` opens with the shape at its old
-place). When FireCraft saves a path whose points changed, it fits the affine transform taking
-the original points to the new ones and applies it to `MTXv` and the primitive's points (it
-stays a primitive, verified for a move and a rotate+scale); if no affine transform fits (a
-point dragged), it drops `PRIv` and Fireworks opens a plain path. A record already out of step
-with the points (files saved before FireCraft handled this) is repaired on save by fitting the
-transform from the record's own rectangle corners.
+LFTf, TOPf, RITf, BOTf base box } }` (CS adds `RDMb`). Fireworks MX and CS rebuild the shape
+from `RCTv` and `MTXv`, not from the path points (verified with tools/fwmx-oracle: moved
+points with the old record reopen at the old place).
+
+Roundness `RDSf` (0..1) is the corner radius as a fraction of half the shorter side (hd.png:
+0.3 on a 209x123 box gives radius 18.45). The outline: 4 corners clockwise from top left, or
+with rounding 8 points from the left end of the top edge, each corner a quarter circle with
+handles 0.5523 of the radius.
+
+FireCraft keeps the record as `Path::rect` (`RectShape`: base box, roundness, matrix). Moves
+and affine transforms update its matrix; editing points makes the path plain (no `PRIv`). On
+read and write, a record that doesn't match the points (files saved by FireCraft before it
+kept primitives) is fitted to them by an affine transform, or dropped. FireCraft's Rectangle
+tool draws primitives, which Fireworks MX opens as RectanglePrimitive objects (verified:
+sharp, rounded, and rotated rounded, rendering the same as FireCraft).
 
 ## Fireworks CS files
 

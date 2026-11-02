@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use firecraft_doc::{
-    BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Frame, Layer, MaskMode, Path, Stroke,
-    Symbol, Text,
+    BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Frame, Layer, MaskMode, Path,
+    RectShape, Stroke, Symbol, Text,
 };
 use firecraft_fwpng::{FwPng, Node, Tile};
 use firecraft_raster::gradient::{Gradient, GradientKind};
@@ -262,19 +262,7 @@ fn symbol_bounds(s: &Symbol) -> Option<(f64, f64, f64, f64)> {
 /// the matrix in canvas space, i.e. minus the canvas origin).
 fn read_instance(n: &Node, ctx: &Ctx) -> ElementKind {
     let symbol = n.u32_of("MSN").unwrap_or(0);
-    let m = n.child("MTX");
-    let g = |t: &str, d: f64| m.and_then(|m| m.float_of(t)).unwrap_or(d);
-    let doc_space = Affine {
-        a: g("M00", 1.0),
-        b: g("M01", 0.0),
-        g: g("M02", 0.0),
-        c: g("M10", 0.0),
-        d: g("M11", 1.0),
-        h: g("M12", 0.0),
-        e: g("M20", 0.0),
-        f: g("M21", 0.0),
-        i: g("M22", 1.0),
-    };
+    let doc_space = matrix_of(n.child("MTX"));
     let matrix = Affine::translate(-ctx.origin.0, -ctx.origin.1).then(&doc_space);
     let (name, sb) = ctx
         .symbols
@@ -445,7 +433,7 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
 
 fn read_path(n: &Node, ctx: &Ctx) -> Path {
     let (ox, oy) = ctx.origin;
-    let contours = n
+    let contours: Vec<Contour> = n
         .child("PBL")
         .map(|pbl| {
             pbl.children_tagged("PBP")
@@ -496,11 +484,53 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
             softness: preset.int_of("BSE").unwrap_or(0).clamp(0, 100) as u8,
         })
     });
+    let rect = read_rect(n, &contours, ctx);
     Path {
         contours,
         fill,
         stroke,
+        rect,
     }
+}
+
+/// A Fireworks matrix (`MTXv`, row vectors) as an `Affine`.
+pub(crate) fn matrix_of(m: Option<&Node>) -> Affine {
+    let g = |t: &str, d: f64| m.and_then(|m| m.float_of(t)).unwrap_or(d);
+    Affine {
+        a: g("M00", 1.0),
+        b: g("M01", 0.0),
+        g: g("M02", 0.0),
+        c: g("M10", 0.0),
+        d: g("M11", 1.0),
+        h: g("M12", 0.0),
+        e: g("M20", 0.0),
+        f: g("M21", 0.0),
+        i: g("M22", 1.0),
+    }
+}
+
+/// A rectangle primitive (`PRIv`: base box `RCTv` with roundness `RDSf`, matrix `MTXv`). If the
+/// record doesn't match the path's points (files saved by FireCraft before it kept primitives
+/// in step), it is fitted to them; if it can't be, the path is read as a plain path.
+fn read_rect(n: &Node, contours: &[Contour], ctx: &Ctx) -> Option<RectShape> {
+    let pri = n.child("PRI")?;
+    let r = pri.child("RCT")?;
+    let (l, t, rt, b) = (
+        r.float_of("LFT")?,
+        r.float_of("TOP")?,
+        r.float_of("RIT")?,
+        r.float_of("BOT")?,
+    );
+    // (Possibly with perspective: Fireworks keeps a distorted rectangle a primitive.)
+    let doc_space = matrix_of(pri.child("MTX"));
+    let mut shape = RectShape::new(l, t, rt, b, r.float_of("RDS").unwrap_or(0.0));
+    shape.matrix = Affine::translate(-ctx.origin.0, -ctx.origin.1).then(&doc_space);
+    let path = Path {
+        contours: contours.to_vec(),
+        rect: Some(shape),
+        ..Path::default()
+    };
+    path.rect_in_step()
 }
 
 /// Gradient stops (`FGLv`: colour ramp `FG0`/`FGV`, opacity ramp `FG1`) and handles

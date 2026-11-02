@@ -96,6 +96,119 @@ pub struct Path {
     pub contours: Vec<Contour>,
     pub fill: Option<Fill>,
     pub stroke: Option<Stroke>,
+    /// Drawn with the Rectangle tool: Fireworks' rectangle primitive (`PRIv`), which Fireworks
+    /// rebuilds from this record rather than from the points. Moves and transforms keep it;
+    /// editing points makes the path a plain one (`None`).
+    pub rect: Option<RectShape>,
+}
+
+/// A Fireworks rectangle primitive: a base rectangle with rounded corners, placed by `matrix`
+/// (base space -> canvas).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RectShape {
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+    /// Corner roundness, 0..=1: the corner radius as a fraction of half the shorter side
+    /// (Fireworks' `RDSf`, shown as a percentage).
+    pub roundness: f64,
+    pub matrix: Affine,
+}
+
+impl RectShape {
+    /// An axis-aligned rectangle in canvas space.
+    pub fn new(left: f64, top: f64, right: f64, bottom: f64, roundness: f64) -> Self {
+        Self {
+            left: left.min(right),
+            top: top.min(bottom),
+            right: left.max(right),
+            bottom: top.max(bottom),
+            roundness: roundness.clamp(0.0, 1.0),
+            matrix: Affine::IDENTITY,
+        }
+    }
+
+    /// The outline as Fireworks builds it: four corners clockwise from top left, or with
+    /// rounding eight points, from the left end of the top edge, each corner a quarter circle
+    /// (bezier handles 0.5523 of the radius).
+    pub fn contour(&self) -> Contour {
+        let (l, t, r, b) = (self.left, self.top, self.right, self.bottom);
+        let rad = self.roundness.clamp(0.0, 1.0) * (r - l).abs().min((b - t).abs()) / 2.0;
+        let k = rad * 0.552_284_75;
+        let pts = if rad <= 1e-9 {
+            vec![
+                BezierPoint::corner(l, t),
+                BezierPoint::corner(r, t),
+                BezierPoint::corner(r, b),
+                BezierPoint::corner(l, b),
+            ]
+        } else {
+            let p = |x, y, pred, succ| BezierPoint { x, y, pred, succ };
+            vec![
+                p(l + rad, t, (-k, 0.0), (0.0, 0.0)),
+                p(r - rad, t, (0.0, 0.0), (k, 0.0)),
+                p(r, t + rad, (0.0, -k), (0.0, 0.0)),
+                p(r, b - rad, (0.0, 0.0), (0.0, k)),
+                p(r - rad, b, (k, 0.0), (0.0, 0.0)),
+                p(l + rad, b, (0.0, 0.0), (-k, 0.0)),
+                p(l, b - rad, (0.0, k), (0.0, 0.0)),
+                p(l, t + rad, (0.0, 0.0), (0.0, -k)),
+            ]
+        };
+        let m = &self.matrix;
+        let points = pts
+            .into_iter()
+            .map(|pt| {
+                let (ax, ay) = m.apply(pt.x, pt.y);
+                let pr = m.apply(pt.x + pt.pred.0, pt.y + pt.pred.1);
+                let su = m.apply(pt.x + pt.succ.0, pt.y + pt.succ.1);
+                BezierPoint {
+                    x: ax,
+                    y: ay,
+                    pred: (pr.0 - ax, pr.1 - ay),
+                    succ: (su.0 - ax, su.1 - ay),
+                }
+            })
+            .collect();
+        Contour { points, closed: true }
+    }
+}
+
+impl Path {
+    /// The rectangle record in step with the points: as it is when its outline matches them,
+    /// else fitted to them by an affine transform (points changed without the record), else
+    /// none (the points no longer form that rectangle: a plain path).
+    pub fn rect_in_step(&self) -> Option<RectShape> {
+        let mut r = self.rect?;
+        let anchors = |c: &[Contour]| -> Vec<(f64, f64)> {
+            c.iter()
+                .flat_map(|c| c.points.iter())
+                .map(|p| (p.x, p.y))
+                .collect()
+        };
+        let points = anchors(&self.contours);
+        let built = anchors(std::slice::from_ref(&r.contour()));
+        let close = built.len() == points.len()
+            && built
+                .iter()
+                .zip(&points)
+                .all(|(p, q)| (p.0 - q.0).abs() < 0.5 && (p.1 - q.1).abs() < 0.5);
+        if close {
+            return Some(r);
+        }
+        let m = Affine::fit(&built, &points, 0.05)?;
+        r.matrix = m.then(&r.matrix);
+        Some(r)
+    }
+
+    /// Set a rectangle primitive's roundness (0..=1) and rebuild its outline.
+    pub fn set_roundness(&mut self, roundness: f64) {
+        if let Some(r) = &mut self.rect {
+            r.roundness = roundness.clamp(0.0, 1.0);
+            self.contours = vec![r.contour()];
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -190,7 +303,7 @@ impl Element {
         }
         match &self.kind {
             ElementKind::Bitmap(_) => "Bitmap".into(),
-            ElementKind::Path(p) if p.contours.iter().all(|c| c.closed) => "Path".into(),
+            ElementKind::Path(p) if p.rect.is_some() => "Rectangle".into(),
             ElementKind::Path(_) => "Path".into(),
             ElementKind::Text(t) => t.text.chars().take(24).collect(),
             ElementKind::Group(_) => "Group".into(),
@@ -261,6 +374,9 @@ impl Element {
                 if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
                     g.translate(dx, dy);
                 }
+                if let Some(r) = &mut p.rect {
+                    r.matrix = Affine::translate(dx, dy).then(&r.matrix);
+                }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
                 b.x += dx.round() as i64;
@@ -316,6 +432,11 @@ impl Element {
                 }
                 if let Some(s) = &mut p.stroke {
                     s.diameter = (s.diameter * m.scale()).max(0.1);
+                }
+                // A rectangle primitive stays one under transforms, perspective included (as in
+                // Fireworks: rotated, skewed or distorted rectangles remain rectangles).
+                if let Some(r) = &mut p.rect {
+                    r.matrix = m.then(&r.matrix);
                 }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
@@ -480,6 +601,7 @@ impl Element {
         match &mut self.kind {
             ElementKind::Bitmap(b) => map_bitmap(b),
             ElementKind::Path(p) => {
+                p.rect = None;
                 for pt in p.contours.iter_mut().flat_map(|c| c.points.iter_mut()) {
                     let (ax, ay) = (mx.apply(pt.x), my.apply(pt.y));
                     let pred = (mx.apply(pt.x + pt.pred.0) - ax, my.apply(pt.y + pt.pred.1) - ay);

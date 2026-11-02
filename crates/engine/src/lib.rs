@@ -14,7 +14,7 @@ pub use symbols::SymbolLink;
 pub use tools::{Tool, ToolOptions};
 
 use firecraft_doc::{
-    BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Layer, Path, Stroke,
+    BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Layer, Path, RectShape, Stroke,
 };
 use firecraft_raster::mask::Combine;
 use firecraft_raster::nine::{self, Insets};
@@ -663,7 +663,11 @@ impl DocState {
         if x1 - x0 < 1.0 || y1 - y0 < 1.0 {
             return;
         }
-        let points = if ellipse {
+        // Rectangles are Fireworks rectangle primitives (with roundness).
+        let rect = (!ellipse).then(|| RectShape::new(x0, y0, x1, y1, opts.roundness));
+        let points = if let Some(r) = &rect {
+            r.contour().points
+        } else {
             // Four-point bezier ellipse (kappa = 0.5523).
             let (cx, cy, rx, ry) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0);
             let k = 0.552_284_75;
@@ -693,15 +697,9 @@ impl DocState {
                     succ: (0.0, -ry * k),
                 },
             ]
-        } else {
-            vec![
-                BezierPoint::corner(x0, y0),
-                BezierPoint::corner(x1, y0),
-                BezierPoint::corner(x1, y1),
-                BezierPoint::corner(x0, y1),
-            ]
         };
         let path = Path {
+            rect,
             contours: vec![Contour { points, closed: true }],
             fill: opts.fill.map(|color| Fill {
                 color,
@@ -738,6 +736,7 @@ impl DocState {
                 diameter: opts.stroke_size as f64,
                 softness: 0,
             }),
+            rect: None,
         };
         self.add_element(Element::new(ElementKind::Path(path)), "Line");
     }

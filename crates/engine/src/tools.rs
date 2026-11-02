@@ -146,6 +146,8 @@ pub struct ToolOptions {
     pub stroke: Option<Rgba>,
     pub fill: Option<Rgba>,
     pub stroke_size: u32,
+    /// Rectangle tool: corner roundness, 0..=1 (Property inspector "Rectangle roundness", %).
+    pub roundness: f64,
 }
 
 impl Default for ToolOptions {
@@ -158,6 +160,7 @@ impl Default for ToolOptions {
             stroke: Some(Rgba::BLACK),
             fill: Some(Rgba::new(0x99, 0x99, 0x99, 255)),
             stroke_size: 1,
+            roundness: 0.0,
         }
     }
 }
