@@ -1,7 +1,10 @@
 # Bundled plug-ins (Eye Candy 4000 LE, Splat LE)
 
 Fireworks MX ships Alien Skin's Eye Candy 4000 LE (Bevel Boss, Marble, Motion Trail) and Splat
-LE (Edges) as Photoshop `.8bf` plug-ins. FireCraft has built-in versions
+LE (Edges) as Photoshop `.8bf` plug-ins. These are the **LE ("light") demo editions** bundled
+with a new install: a few filters each, with the options listed below. The full commercial Eye
+Candy 4000 and Splat products have many more filters and settings; FireCraft covers only what
+the bundled LE editions offer (and what documents made with them contain). FireCraft has built-in versions
 (`crates/raster/src/plugins.rs`), written clean-room from the plug-ins' published parameters and
 from renders; documents keep the original parameters, so they still open with the real
 plug-ins in Fireworks.

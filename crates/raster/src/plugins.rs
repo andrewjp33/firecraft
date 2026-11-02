@@ -1,4 +1,5 @@
-//! Built-in versions of the plug-in filters bundled with Fireworks MX: Alien Skin Eye Candy
+//! Built-in versions of the plug-in filters bundled with Fireworks MX, the LE ("light") demo
+//! editions of Alien Skin Eye Candy
 //! 4000 LE (Bevel Boss, Motion Trail, Marble) and Splat LE (Edges).
 //!
 //! Clean-room: written from the plug-ins' documented parameters (their scripting dictionary:

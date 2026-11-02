@@ -69,7 +69,7 @@ pub enum Effect {
     },
     /// Inner/Outer Bevel, Raised/Inset Emboss.
     Bevel(crate::bevel::Bevel),
-    /// Bundled plug-ins (Eye Candy 4000 LE, Splat LE), built in.
+    /// The bundled plug-ins (the LE demo editions of Eye Candy 4000 and Splat), built in.
     BevelBoss(crate::plugins::BevelBoss),
     MotionTrail(crate::plugins::MotionTrail),
     Edges(crate::plugins::Edges),
