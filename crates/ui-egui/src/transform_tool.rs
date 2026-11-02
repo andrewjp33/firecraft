@@ -85,11 +85,25 @@ fn sync<'a>(edit: &'a mut Option<TransformEdit>, d: &DocState) -> Option<&'a mut
         .as_ref()
         .is_none_or(|e| e.doc != d.id || e.refs != d.selection || e.revision != d.revision);
     if stale {
-        // Instances show their own (dotted) outline inside the box, as in Fireworks; the box
-        // is the selection's bounds, and transforms compose onto each instance's own (so a
-        // distorted instance keeps its perspective).
+        // A single symbol instance: the box is its own outline (rotated, skewed or distorted as
+        // the instance is; the same whichever transform tool), and edits rebuild its matrix from
+        // its symbol's content rectangle, so perspective is kept and nothing accumulates.
+        let single = match d.selection.as_slice() {
+            [r] => d.instance_quad(*r).and_then(|(q, content)| {
+                let mut e = d.element(*r)?.clone();
+                if let firecraft_doc::ElementKind::Instance { matrix, bounds, .. } = &mut e.kind {
+                    *matrix = Affine::IDENTITY;
+                    *bounds = Some(content);
+                }
+                Some((q, content, vec![(*r, e)]))
+            }),
+            _ => None,
+        };
         let is_instance = d.selection.iter().any(|r| d.instance_quad(*r).is_some());
-        let (quad, originals) = (corners(rect), d.selected_elements());
+        let (quad, rect, originals) = match single {
+            Some((q, content, originals)) => (q, content, originals),
+            None => (corners(rect), rect, d.selected_elements()),
+        };
         *edit = Some(TransformEdit {
             doc: d.id,
             refs: d.selection.clone(),
@@ -519,11 +533,12 @@ pub fn canvas(
         pts.clone(),
         Stroke::new(1.0, theme::HANDLE_BLUE),
     ));
-    // A symbol instance also shows its own outline, dotted, as it is now (Fireworks shows both
-    // the transform box and the instance's outline).
+    // A symbol instance also shows the rectangle around it, dotted (Fireworks: the solid box is
+    // the instance's shape, the dotted one its rectangular bounds).
     if edit.instance {
         for r in &edit.refs {
-            if let Some((q, _)) = d.instance_quad(*r) {
+            if let Some((x, y, w, h)) = d.instance_rect(*r) {
+                let q = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)];
                 let mut ring: Vec<Pos2> = q.iter().map(|&c| to_screen(c)).collect();
                 ring.extend(ring.first().copied());
                 p.extend(egui::Shape::dashed_line(

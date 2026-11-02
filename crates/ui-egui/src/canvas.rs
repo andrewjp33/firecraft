@@ -966,9 +966,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             _ => Vec2::ZERO,
         };
         for r in &d.selection {
-            // A symbol instance also shows its own outline, dotted (its content rectangle under
-            // the instance's transform), as Fireworks does.
-            if let Some((q, _)) = d.instance_quad(*r) {
+            // A symbol instance shows the rectangle around it, dotted, and nothing else (as in
+            // Fireworks; its distorted shape appears with the transform tools).
+            if let Some((x, y, w, h)) = d.instance_rect(*r) {
+                let q = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)];
                 let mut ring: Vec<Pos2> = q.iter().map(|c| to_screen(c.0, c.1) + drag_offset).collect();
                 ring.extend(ring.first().copied());
                 p.extend(Shape::dashed_line(
@@ -977,7 +978,6 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     3.0,
                     3.0,
                 ));
-                // With the Pointer, that outline is all an instance shows (Fireworks).
                 continue;
             }
             if let Some((x, y, w, h)) = d.element(*r).and_then(|e| e.bounds()) {

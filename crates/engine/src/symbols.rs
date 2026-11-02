@@ -187,6 +187,16 @@ impl DocState {
         Some((q, (x, y, w, h)))
     }
 
+    /// The rectangle around an instance's outline (x, y, w, h): what Fireworks draws dotted.
+    pub fn instance_rect(&self, r: ElementRef) -> Option<(f64, f64, f64, f64)> {
+        let (q, _) = self.instance_quad(r)?;
+        let x0 = q.iter().map(|p| p.0).fold(f64::MAX, f64::min);
+        let y0 = q.iter().map(|p| p.1).fold(f64::MAX, f64::min);
+        let x1 = q.iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        let y1 = q.iter().map(|p| p.1).fold(f64::MIN, f64::max);
+        Some((x0, y0, x1 - x0, y1 - y0))
+    }
+
     /// Whether Break Apart has something to do.
     pub fn can_break_apart(&self) -> bool {
         self.selection.iter().any(|r| self.instance_symbol(*r).is_some())
