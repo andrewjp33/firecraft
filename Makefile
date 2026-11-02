@@ -21,6 +21,8 @@ OWN_PACKAGES := firecraft firecraft-web firecraft-ui-egui firecraft-engine firec
 REF_DIR ?= ../ref_fw_images
 # Each `make parity` run gets its own folder here (date, time, commit), with index.html pages.
 PARITY_RUNS ?= ../parity_runs
+# The latest run is also copied here (replaced each run).
+PARITY_OUT ?= target/parity
 # How many of the newest runs keep their comparison images (older runs keep their tables).
 PARITY_KEEP ?= 10
 DIST := dist
@@ -99,6 +101,7 @@ parity:
 	run=$$(date +%Y-%m-%d_%H%M)_$$commit; \
 	prev=$$(ls -d $(PARITY_RUNS)/*/ 2>/dev/null | grep -v "/$$run/" | sort | tail -1); \
 	PARITY_LABEL="$$(date '+%Y-%m-%d %H:%M'), commit $$commit" PARITY_PREV="$$prev" PARITY_KEEP=$(PARITY_KEEP) \
+	PARITY_LATEST=$(PARITY_OUT) \
 	$(CARGO) run -q --release -p firecraft-io --example parity_report -- $(PARITY_RUNS)/$$run $(REF_DIR)/*.png; \
 	echo "All runs: $$(cd $(PARITY_RUNS) && pwd)/index.html"
 

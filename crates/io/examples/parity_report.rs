@@ -203,8 +203,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     std::fs::write(
         out.join("index.html"),
-        run_page(&label, &rows, &prev, prev_name.as_deref()),
+        run_page(&label, &rows, &prev, prev_name.as_deref(), "../"),
     )?;
+    // The latest run also in PARITY_LATEST (replacing what was there), linking back to the
+    // folder of all runs.
+    if let Some(latest) = std::env::var_os("PARITY_LATEST").map(std::path::PathBuf::from) {
+        std::fs::create_dir_all(&latest)?;
+        for e in std::fs::read_dir(&latest)?.filter_map(|e| e.ok()) {
+            if e.path().is_file() {
+                std::fs::remove_file(e.path())?;
+            }
+        }
+        for e in std::fs::read_dir(&out)?.filter_map(|e| e.ok()) {
+            std::fs::copy(e.path(), latest.join(e.file_name()))?;
+        }
+        let runs = out
+            .parent()
+            .and_then(|p| std::fs::canonicalize(p).ok())
+            .map(|p| format!("file://{}/", p.display()))
+            .unwrap_or_default();
+        std::fs::write(
+            latest.join("index.html"),
+            run_page(&label, &rows, &prev, prev_name.as_deref(), &runs),
+        )?;
+        println!("Latest run also in: {}", latest.join("index.html").display());
+    }
     if let Some(parent) = out.parent() {
         let keep = std::env::var("PARITY_KEEP")
             .ok()
@@ -252,7 +275,7 @@ fn esc(s: &str) -> String {
 const STYLE: &str = "body{font:14px system-ui,sans-serif;margin:16px;background:#f4f4f4;color:#222}
 h1{font-size:20px;margin:0 0 4px}.sub{color:#666;margin-bottom:12px}
 table{border-collapse:collapse;background:#fff}th,td{padding:4px 8px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top}
-th{background:#e8e8e8;cursor:pointer;position:sticky;top:0}td.n{text-align:right;font-variant-numeric:tabular-nums}
+th{background:#e8e8e8;cursor:pointer;position:sticky;top:0}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .up{color:#0a7d2c;font-weight:600}.down{color:#c0262d;font-weight:600}.same{color:#999}.bad{color:#c0262d;font-weight:600}
 .plain{color:#999}img{max-width:420px;border:1px solid #ccc;background:#fff}.notes{color:#666;font-size:12px;max-width:260px}
 .bar{display:inline-block;height:8px;background:#3b82f6;vertical-align:middle;margin-left:6px}";
@@ -284,6 +307,8 @@ fn run_page(
     rows: &[Row],
     prev: &std::collections::HashMap<String, (f64, bool)>,
     prev_name: Option<&str>,
+    // The folder of all runs, for links ("../" from a run folder).
+    runs: &str,
 ) -> String {
     let tests: Vec<&Row> = rows.iter().filter(|r| !r.plain && !r.failed).collect();
     let avg = tests.iter().map(|r| r.matched).sum::<f64>() / tests.len().max(1) as f64;
@@ -302,7 +327,7 @@ fn run_page(
         "<!doctype html><meta charset=utf-8><title>Parity {}</title><style>{STYLE}</style>
 <h1>FireCraft vs Fireworks: {}</h1><div class=sub>{} files ({} parity tests): average match {avg:.1}%;
 {lossless}/{} lossless round trips{}. Each image: Fireworks | FireCraft | difference (brighter = more different).
-<a href=\"../index.html\">All runs</a></div>
+<a href=\"{runs}index.html\">All runs</a></div>
 <table><thead><tr><th>file</th><th>match %</th><th>change</th><th>mean Δ</th><th>size</th><th>round trips</th><th>notes</th><th>Fireworks | FireCraft | difference</th></tr></thead><tbody>",
         esc(label),
         esc(label),
@@ -310,7 +335,7 @@ fn run_page(
         tests.len(),
         rows.len(),
         match prev_name {
-            Some(p) => format!("; since <a href=\"../{0}/index.html\">{0}</a>: {up} better, {down} worse", esc(p)),
+            Some(p) => format!("; since <a href=\"{runs}{0}/index.html\">{0}</a>: {up} better, {down} worse", esc(p)),
             None => String::new(),
         },
     );
@@ -363,29 +388,38 @@ fn runs_index(parent: &std::path::Path, keep: usize) -> std::io::Result<()> {
     }
     let mut h = format!(
         "<!doctype html><meta charset=utf-8><title>Parity runs</title><style>{STYLE}</style>
-<h1>FireCraft vs Fireworks: parity runs</h1><div class=sub>Newest first. Average match over the files that are parity tests in each run
-(the reference set grows over time, so compare a file's own history in its run pages). The newest {keep} runs keep their comparison images.</div>
-<table><thead><tr><th>run</th><th>files</th><th>average match %</th><th>change</th></tr></thead><tbody>"
+<h1>FireCraft vs Fireworks: parity runs</h1><div class=sub>Newest first. Average match over the files that are parity tests in each run;
+the change from the previous run counts only the files both runs tested (the reference set grows over time). The newest {keep} runs keep their comparison images.</div>
+<table><thead><tr><th>run</th><th>files</th><th>average match %</th><th>change (same files)</th></tr></thead><tbody>"
     );
-    let stats: Vec<(String, usize, f64)> = runs
+    let results: Vec<_> = runs
         .iter()
-        .map(|r| {
-            let res = read_results(&parent.join(r).join("results.tsv"));
-            let tests: Vec<f64> = res.values().filter(|v| v.1).map(|v| v.0).collect();
-            (
-                r.clone(),
-                res.len(),
-                tests.iter().sum::<f64>() / tests.len().max(1) as f64,
-            )
-        })
+        .map(|r| read_results(&parent.join(r).join("results.tsv")))
         .collect();
-    for (i, (run, n, avg)) in stats.iter().enumerate() {
-        let before = stats.get(i + 1).map(|s| s.2);
+    let avg_of = |m: &std::collections::HashMap<String, (f64, bool)>,
+                  only: Option<&std::collections::HashMap<String, (f64, bool)>>| {
+        let v: Vec<f64> = m
+            .iter()
+            .filter(|(k, v)| v.1 && only.is_none_or(|o| o.get(*k).is_some_and(|x| x.1)))
+            .map(|(_, v)| v.0)
+            .collect();
+        (!v.is_empty()).then(|| v.iter().sum::<f64>() / v.len() as f64)
+    };
+    for (i, (run, res)) in runs.iter().zip(&results).enumerate() {
+        let avg = avg_of(res, None).unwrap_or(0.0);
+        // The change from the previous run, over the files both runs tested.
+        let chg = match results.get(i + 1) {
+            Some(before) => match (avg_of(res, Some(before)), avg_of(before, Some(res))) {
+                (Some(now), Some(then)) => change(now, Some(then)),
+                _ => "<td></td>".to_owned(),
+            },
+            None => change(avg, None),
+        };
         h += &format!(
             "<tr><td><a href=\"{0}/index.html\">{0}</a></td><td class=n>{n}</td><td class=n data-v=\"{avg:.2}\">{avg:.1}<span class=bar style=\"width:{w:.0}px\"></span></td>{chg}</tr>\n",
             esc(run),
+            n = res.len(),
             w = avg * 0.6,
-            chg = change(*avg, before),
         );
     }
     std::fs::write(parent.join("index.html"), h + "</tbody></table>" + SORT)

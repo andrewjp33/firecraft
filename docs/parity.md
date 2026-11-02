@@ -15,7 +15,9 @@ previous run; each run's `index.html` lists every file with its match, its chang
 previous run (green better, red worse), round-trip status and the comparison image (click to
 enlarge, click a column title to sort). Each run folder also has `report.txt` (the printed
 table) and `results.tsv`. The newest 10 runs keep their images (`PARITY_KEEP=N` to change);
-older runs keep their tables. `PARITY_RUNS=dir` puts the runs elsewhere.
+older runs keep their tables. `PARITY_RUNS=dir` puts the runs elsewhere. The latest run is also
+copied to `target/parity/` (replaced each run; `PARITY_OUT=dir` to change), its links pointing
+back to the folder of all runs.
 
 For each file it checks the lossless container round trip, opens and renders the document,
 compares with Fireworks' render (match% = pixels within 8 levels, composited over white), checks
