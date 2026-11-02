@@ -55,6 +55,8 @@ TXTv  text attributes (FONs, PTSf, BOLb...), TFSv runs, cached IMGv
 GRPv  GRTi, ELMv
 (any) OBNs object name (Layers panel), after the object's own data, before BLDi/EFLv/OPAi;
       VISb (first child) hidden; BLDi blend mode; OPAi opacity in tenths of a percent
+      LCKb locked (Fireworks CS's per-object lock, after VISb; CS writes it on every object,
+      some MX objects carry LCKb 0; MX ignores it). FireCraft writes it when set or as read.
 MSLv  (root) MSTv* symbol definitions: UNMs name, MSNi id, MSYi type (absent Graphic, 1 Button
       with FRCi 4 states, 2 Animation), MOXf/MOYf, LUTs, own LYLv (Layer 1 + Web Layer), GRDv,
       GDSv, FRCi frames, OSBi, OSAi, BGCi, ATSb 1, IDSb, DVLb, IODb; LFNs/LMNi when linked to a

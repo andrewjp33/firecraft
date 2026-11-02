@@ -507,6 +507,16 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
     } else if n.child("VIS").is_none() {
         n.children.insert(0, Node::bool("VIS", false));
     }
+    // Per-object lock `LCKb` (Fireworks CS writes it on every object, after VISb or first;
+    // Fireworks MX ignores it). Written when locked, or kept as read.
+    match n.children.iter().position(|c| c.is("LCK")) {
+        Some(i) => n.children[i] = Node::bool("LCK", el.locked),
+        None if el.locked => {
+            let at = n.children.iter().position(|c| c.is("VIS")).map_or(0, |i| i + 1);
+            n.children.insert(at, Node::bool("LCK", true));
+        }
+        None => {}
+    }
     // Object name `OBNs`: after the object's own data, before blending, effects and opacity.
     match &el.name {
         Some(name) => {

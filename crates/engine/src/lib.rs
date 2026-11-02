@@ -165,7 +165,8 @@ impl DocState {
                 continue;
             }
             for (ei, el) in layer.elements(self.frame()).iter().enumerate().rev() {
-                if !el.visible {
+                // Hidden and locked objects can't be picked.
+                if !el.visible || el.locked {
                     continue;
                 }
                 let near = el.deep_bounds(&ctx).is_some_and(|(bx, by, bw, bh)| {
@@ -253,8 +254,45 @@ impl DocState {
             .iter()
             .enumerate()
             .filter(|(_, l)| l.visible && !l.locked && !l.web)
-            .flat_map(|(li, l)| (0..l.elements(f).len()).map(move |ei| ElementRef { layer: li, index: ei }))
+            .flat_map(|(li, l)| {
+                l.elements(f)
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.visible && !e.locked)
+                    .map(move |(ei, _)| ElementRef { layer: li, index: ei })
+            })
             .collect();
+    }
+
+    /// Show/hide an object (Layers panel eye). One undo step.
+    pub fn toggle_object_visible(&mut self, r: ElementRef) {
+        let Some(on) = self.element(r).map(|e| !e.visible) else {
+            return;
+        };
+        self.edit(if on { "Show Object" } else { "Hide Object" }, |s| {
+            if let Some(e) = s.element_mut(r) {
+                e.visible = on;
+            }
+            if !on {
+                s.selection.retain(|x| *x != r);
+            }
+        });
+    }
+
+    /// Lock/unlock an object (Fireworks CS's per-object lock; Layers panel). A locked object
+    /// can't be selected, so locking deselects it. One undo step.
+    pub fn toggle_object_locked(&mut self, r: ElementRef) {
+        let Some(on) = self.element(r).map(|e| !e.locked) else {
+            return;
+        };
+        self.edit(if on { "Lock Object" } else { "Unlock Object" }, |s| {
+            if let Some(e) = s.element_mut(r) {
+                e.locked = on;
+            }
+            if on {
+                s.selection.retain(|x| *x != r);
+            }
+        });
     }
 
     /// Select > Select Inverse (pixel selections).

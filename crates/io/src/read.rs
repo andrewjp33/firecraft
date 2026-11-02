@@ -186,6 +186,8 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
     el.name = n.str_of("OBN").filter(|s| !s.is_empty()).map(str::to_owned);
     // Hidden objects (eye off in the Layers panel).
     el.visible = n.bool_of("VIS").unwrap_or(true);
+    // Per-object lock (Fireworks CS; MX files don't have it).
+    el.locked = n.bool_of("LCK").unwrap_or(false);
     if let Some(b) = n.int_of("BLD") {
         el.blend = firecraft_raster::BlendMode::from_fw_code(b);
     }

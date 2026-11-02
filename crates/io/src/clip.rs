@@ -201,6 +201,39 @@ mod cs_compat_tests {
     }
 
     #[test]
+    fn object_lock_and_visibility_round_trip() {
+        let mut doc = Document::new(100, 100, 72.0, Some(Rgba::WHITE));
+        let bitmap = |x| {
+            Element::new(ElementKind::Bitmap(Bitmap {
+                x,
+                y: 0,
+                image: RgbaImage::new(8, 8, Rgba::new(1, 2, 3, 255)),
+            }))
+        };
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            let mut locked = bitmap(0);
+            locked.locked = true;
+            let mut hidden = bitmap(20);
+            hidden.locked = true;
+            hidden.visible = false;
+            cell.extend([locked, hidden, bitmap(40)]);
+        }
+        let back = crate::open(&crate::save_fireworks_png(&doc).expect("saved"), None).expect("opened");
+        let flags: Vec<(bool, bool)> = back.layers[0]
+            .elements(0)
+            .iter()
+            .map(|e| (e.locked, e.visible))
+            .collect();
+        assert_eq!(flags, vec![(true, true), (true, false), (false, true)]);
+        // Exactly the two locked objects are written locked.
+        fn count(n: &Node) -> usize {
+            usize::from(n.is("LCK") && n.text.trim() == "1") + n.children.iter().map(count).sum::<usize>()
+        }
+        let (tree, _) = crate::fireworks_tree(&back);
+        assert_eq!(count(&tree), 2);
+    }
+
+    #[test]
     fn cs_markers_dropped_and_skewed_nine_slices_hidden_from_cs() {
         let mut doc = Document::new(300, 200, 72.0, Some(Rgba::WHITE));
         doc.symbols = std::sync::Arc::new(vec![symbol(1), symbol(2)]);

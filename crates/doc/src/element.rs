@@ -156,6 +156,9 @@ pub enum ElementKind {
 pub struct Element {
     pub name: Option<String>,
     pub visible: bool,
+    /// Locked (Fireworks CS's per-object lock, `LCKb`): can't be selected or edited. Fireworks
+    /// MX ignores it.
+    pub locked: bool,
     /// Percent, 0..=100 (Fireworks stores tenths of a percent in `OPAi`).
     pub opacity: f32,
     pub blend: BlendMode,
@@ -171,6 +174,7 @@ impl Element {
         Self {
             name: None,
             visible: true,
+            locked: false,
             opacity: 100.0,
             blend: BlendMode::Normal,
             effects: Vec::new(),

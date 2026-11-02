@@ -198,6 +198,8 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut toggle_vis: Option<usize> = None;
     let mut toggle_lock: Option<usize> = None;
     let mut toggle_disc: Option<usize> = None;
+    let mut toggle_obj_vis: Option<ElementRef> = None;
+    let mut toggle_obj_lock: Option<ElementRef> = None;
     let mut rename: Option<(usize, Option<usize>, String)> = None;
     let mut rows: Vec<(Rect, Row)> = Vec::new();
     // A name being edited: Enter or clicking elsewhere keeps it, Escape cancels.
@@ -290,8 +292,27 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     .is_some_and(|(l, o, _)| *l == li && *o == Some(ei));
                 // The whole row (thumbnail, name and the space after it) selects the object.
                 let background = ui.painter().add(egui::Shape::Noop);
+                // The object's eye and lock (Fireworks CS), in the layer's eye and lock columns.
+                let mut buttons = egui::Rect::NOTHING;
                 let row = ui.horizontal(|ui| {
-                    ui.add_space(46.0);
+                    let indent = ui.horizontal(|ui| {
+                        ui.add_space(14.0 + ui.spacing().item_spacing.x);
+                        let eye = icons::glyph_button(ui, Glyph::Eye, 16.0, true);
+                        if !el.visible {
+                            ui.painter().rect_filled(eye.rect.shrink(1.0), 0.0, theme::PANEL);
+                        }
+                        if eye.on_hover_text("Show/Hide Object").clicked() {
+                            toggle_obj_vis = Some(r);
+                        }
+                        let lock = icons::glyph_button(ui, Glyph::Lock, 14.0, true);
+                        if !el.locked {
+                            ui.painter().rect_filled(lock.rect.shrink(1.0), 0.0, theme::PANEL);
+                        }
+                        if lock.on_hover_text("Lock/Unlock Object").clicked() {
+                            toggle_obj_lock = Some(r);
+                        }
+                    });
+                    buttons = indent.response.rect;
                     thumbnail(ui, &el.kind);
                     if editing {
                         name_edit(ui, &mut st, &mut rename);
@@ -309,7 +330,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 let rect = row.response.rect;
                 rows.push((rect, Row::Object(li, ei)));
                 if selected {
-                    let band = egui::Rect::from_min_max(egui::pos2(rect.left() + 44.0, rect.top()), rect.max);
+                    let band = egui::Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
                     ui.painter().set(
                         background,
                         egui::Shape::rect_filled(band, 0.0, theme::SELECT_BLUE),
@@ -318,20 +339,22 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 if editing {
                     continue;
                 }
+                let hit = egui::Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
                 let click = ui
                     .interact(
-                        rect,
+                        hit,
                         ui.scope_id().with(("layer_row", li, ei)),
                         Sense::click_and_drag(),
                     )
                     .on_hover_text("Double-click to rename; drag to move (also to another layer)");
-                if click.clicked() {
+                // Locked objects can't be selected (Fireworks CS).
+                if click.clicked() && !el.locked {
                     select = Some(r);
                 }
                 if click.double_clicked() {
                     st.renaming = Some((li, Some(ei), el.name.clone().unwrap_or_default()));
                 }
-                if click.drag_started() {
+                if click.drag_started() && !el.locked {
                     // Dragging an unselected object moves just that one.
                     if !selected {
                         d.selection = vec![r];
@@ -387,6 +410,12 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         && let Some(l) = d.doc.layers.get_mut(i)
     {
         l.locked = !l.locked;
+    }
+    if let Some(r) = toggle_obj_vis {
+        d.toggle_object_visible(r);
+    }
+    if let Some(r) = toggle_obj_lock {
+        d.toggle_object_locked(r);
     }
     if let Some(i) = toggle_disc
         && let Some(l) = d.doc.layers.get_mut(i)
