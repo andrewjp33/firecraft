@@ -35,7 +35,22 @@ pub struct TransformEdit {
     /// in the box as the box moves and changes shape.
     pivot_uv: Pt,
     drag: Option<Drag>,
+    /// Live preview of the drag in progress.
+    preview: Option<Preview>,
 }
+
+/// How a transform is previewed while dragging.
+#[derive(Clone, Debug)]
+enum Preview {
+    /// The real transform each frame (objects that render quickly): exactly the result.
+    Exact,
+    /// The objects' look when the drag began, warped each frame (slow effects): fast, but
+    /// effects are stretched with the object until the drag ends.
+    Warp(Vec<(ElementRef, Element, firecraft_raster::RgbaImage, i64, i64)>),
+}
+
+/// Objects that render (with their effects) within this are previewed exactly.
+const EXACT_PREVIEW_MS: f64 = 30.0;
 
 #[derive(Clone, Copy, Debug)]
 struct Drag {
@@ -77,6 +92,7 @@ fn sync<'a>(edit: &'a mut Option<TransformEdit>, d: &DocState) -> Option<&'a mut
             quad: corners(rect),
             pivot_uv: (0.5, 0.5),
             drag: None,
+            preview: None,
         });
     }
     edit.as_mut()
@@ -383,6 +399,7 @@ pub fn canvas(
     resp: &egui::Response,
     (origin, z): (Pos2, f32),
     cursors: crate::cursors::CursorStyle,
+    live: bool,
 ) {
     let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
@@ -417,6 +434,19 @@ pub fn canvas(
             pivot: pivot_of(edit),
             start: to_doc(q),
         });
+        // Live preview: the objects as they look now, warped as the box changes.
+        if live && handle != Handle::Pivot {
+            // Rendering the objects once tells how heavy they are.
+            let t = std::time::Instant::now();
+            let baked = d.bake(&edit.originals);
+            let quick = t.elapsed().as_secs_f64() * 1000.0 <= EXACT_PREVIEW_MS;
+            edit.preview = Some(if quick {
+                Preview::Exact
+            } else {
+                Preview::Warp(baked)
+            });
+            d.begin_live_edit("Transform");
+        }
     }
     if let (Some(drag), Some(q)) = (edit.drag, resp.interact_pointer_pos()) {
         if drag.handle == Handle::Pivot {
@@ -426,7 +456,19 @@ pub fn canvas(
                 edit.pivot_uv = uv;
             }
         } else {
-            edit.quad = dragged(tool, &drag, to_doc(q), mods.shift, mods.alt);
+            let quad = dragged(tool, &drag, to_doc(q), mods.shift, mods.alt);
+            if quad != edit.quad
+                && let (Some(preview), Some(m)) = (&edit.preview, Affine::rect_to_quad(edit.rect, quad))
+            {
+                match preview {
+                    Preview::Exact => d.transform_from_live(&edit.originals, &m),
+                    Preview::Warp(baked) => d.preview_transform(baked, &m),
+                }
+                // Our own change: keep this edit going.
+                edit.revision = d.revision;
+                resp.ctx.request_repaint();
+            }
+            edit.quad = quad;
         }
     }
     // Cursor: what a drag here does (or is doing).
@@ -450,6 +492,11 @@ pub fn canvas(
             (_, Tool::Distort) => "Distort",
             _ => "Scale",
         };
+        // The preview goes; the real transform (one undo step) replaces it.
+        if edit.preview.take().is_some() {
+            d.cancel_live_edit();
+            edit.revision = d.revision;
+        }
         if edit.quad != drag.start_quad
             && let Some(m) = Affine::rect_to_quad(edit.rect, edit.quad)
         {
@@ -593,6 +640,7 @@ mod tests {
             quad: corners(rect),
             pivot_uv: (0.5, 0.5),
             drag: None,
+            preview: None,
         };
         let to_screen = |p: Pt| pos2(p.0 as f32, p.1 as f32);
         // 3 px from the top-right corner: snaps there.

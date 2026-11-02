@@ -379,6 +379,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             resp,
             (origin, z),
             app.prefs.cursor_style,
+            app.prefs.live_drag,
         );
         return;
     }

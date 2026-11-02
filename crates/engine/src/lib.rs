@@ -438,6 +438,69 @@ impl DocState {
         self.touch();
     }
 
+    /// [`transform_from`](Self::transform_from) as part of a live edit (no undo step of its own).
+    pub fn transform_from_live(
+        &mut self,
+        originals: &[(ElementRef, Element)],
+        m: &firecraft_raster::transform::Affine,
+    ) {
+        for (r, orig) in originals {
+            if let Some(e) = self.element_mut(*r) {
+                let mut t = orig.clone();
+                t.transform(m);
+                *e = t;
+            }
+        }
+        self.touch();
+    }
+
+    /// How `objects` look now (effects included, before opacity and blending), for previewing
+    /// a transform cheaply: each object's pixels and their canvas position.
+    pub fn bake(&self, objects: &[(ElementRef, Element)]) -> Vec<(ElementRef, Element, RgbaImage, i64, i64)> {
+        let ctx = firecraft_doc::RenderCtx {
+            symbols: &self.doc.symbols,
+            frame: self.doc.current_frame,
+            depth: 0,
+            math: self.doc.color_math,
+        };
+        objects
+            .iter()
+            .filter_map(|(r, e)| {
+                let (rx, ry, rw, rh) = e.full_region(&ctx)?;
+                let (img, x, y) = e.pixels(rx, ry, rw, rh, &ctx)?;
+                Some((*r, e.clone(), img, rx + x, ry + y))
+            })
+            .collect()
+    }
+
+    /// Show `baked` objects (from [`bake`](Self::bake)) transformed by `m`, as bitmaps of their
+    /// look, during a live edit: a fast preview of Scale/Skew/Distort/rotate (the real
+    /// transform replaces it when the drag ends).
+    pub fn preview_transform(
+        &mut self,
+        baked: &[(ElementRef, Element, RgbaImage, i64, i64)],
+        m: &firecraft_raster::transform::Affine,
+    ) {
+        for (r, orig, img, x, y) in baked {
+            let Some((img, x, y)) = firecraft_raster::transform::transform_image(img, *x, *y, m) else {
+                continue;
+            };
+            let mut e = Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap {
+                x,
+                y,
+                image: img,
+            }));
+            e.name = orig.name.clone();
+            e.visible = orig.visible;
+            e.opacity = orig.opacity;
+            e.blend = orig.blend;
+            if let Some(slot) = self.element_mut(*r) {
+                *slot = e;
+            }
+        }
+        self.touch();
+    }
+
     /// Scale/Skew/Distort/rotate: replace the selected objects with `originals` (copies taken
     /// when the transform began) transformed by `m`, so repeated adjustments resample once.
     pub fn transform_from(

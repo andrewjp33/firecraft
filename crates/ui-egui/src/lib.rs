@@ -73,8 +73,9 @@ pub struct Prefs {
     pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
     /// Tool cursors: FireCraft's own (Fireworks style) or the system's.
     pub cursor_style: cursors::CursorStyle,
-    /// Show objects moving while they're dragged (off: only their outline moves, and the canvas
-    /// redraws once on release, for slower computers).
+    /// Show objects while moving them: dragged with the Pointer, or scaled, rotated, skewed or
+    /// distorted (off: only their outline or box moves, and the canvas redraws once on release,
+    /// for slower computers).
     pub live_drag: bool,
 }
 
