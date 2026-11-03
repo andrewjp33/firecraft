@@ -89,6 +89,9 @@ pub struct Stroke {
     pub name: String,
     pub diameter: f64,
     pub softness: u8,
+    /// Anti-aliased tip (the brush preset's `BIAb`): placed at sub-pixel positions; otherwise
+    /// it snaps to whole pixels.
+    pub anti_alias: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -684,7 +687,7 @@ impl Element {
                                 line.push(first);
                             }
                         }
-                        stamp_stroke(&mut layer, &line, s.color, s.diameter, s.softness);
+                        stamp_stroke(&mut layer, &line, s.color, s.diameter, s.softness, s.anti_alias);
                     }
                 }
                 Some((layer, x0, y0))

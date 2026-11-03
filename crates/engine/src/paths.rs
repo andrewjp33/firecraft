@@ -210,6 +210,7 @@ impl DocState {
                 name: "bn_1-Pixel Anti-Aliased".into(),
                 diameter: opts.stroke_size as f64,
                 softness: 0,
+                anti_alias: true,
             }),
             rect: None,
         };

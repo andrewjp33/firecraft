@@ -64,6 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: "bn_1-Pixel Anti-Aliased".into(),
             diameter: 1.0,
             softness: 0,
+            anti_alias: true,
         }),
         rect: None,
     })));

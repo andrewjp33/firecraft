@@ -481,7 +481,9 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
             category: preset.str_of("CAT").unwrap_or("bc_Pencil").to_owned(),
             name: preset.str_of("INM").unwrap_or_default().to_owned(),
             diameter: preset.int_of("BDI").unwrap_or(1).clamp(1, 1000) as f64,
-            softness: preset.int_of("BSE").unwrap_or(0).clamp(0, 100) as u8,
+            // BSEi is in tenths of a percent (1000 = 100%).
+            softness: (preset.int_of("BSE").unwrap_or(0).clamp(0, 1000) / 10) as u8,
+            anti_alias: preset.bool_of("BIA").unwrap_or(true),
         })
     });
     let rect = read_rect(n, &contours, ctx);
