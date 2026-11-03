@@ -124,6 +124,7 @@ the GPU. Force one with `FIRECRAFT_RENDERER=glow` or `FIRECRAFT_RENDERER=wgpu`.
 crates/
   fwpng      L0  Fireworks PNG container: chunks, tagged document tree, pixel tiles (no deps)
   raster     L0  pixels, masks, magic wand, marquees, feather, vector rasterization
+  stroke     L0  Fireworks' brush engine (adapted from FirePixel, Apache-2.0)
   doc        L1  document model: canvas, layers, frames, bitmap/path/text/group elements
   io         L2  Document <-> Fireworks PNG, flat PNG import/export
   engine     L3  session, tools, selection, commands, undo history

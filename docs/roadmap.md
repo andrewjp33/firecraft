@@ -34,8 +34,8 @@ Rendering parity on real files is tracked in [parity.md](parity.md).
    selected with the Subselection tool (they do nothing yet); Layers panel rows for members
 3. **Crop tool**; Lasso and Polygon Lasso
 4. **Brush, Pencil, Eraser, Paint Bucket**, Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp
-   (Fireworks' brush presets: `BPLv` fields); stroke softness and the other brush categories
-   (the Pencil's dab stamping is measured: [behavior/strokes.md](behavior/strokes.md))
+   (strokes already draw with Fireworks' brush engine: [behavior/strokes.md](behavior/strokes.md));
+   stroke textures
 5. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
 6. **Fills and strokes in the Property inspector**: gradient editing, patterns, textures, edge
    and stroke settings (`FPLv`/`GLDv`/`TXFv`/`BPLv`)

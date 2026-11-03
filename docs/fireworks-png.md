@@ -124,8 +124,8 @@ PNG cropped to the copied objects, with the root `XLCf`/`YLCf` set to their orig
 X11 target `image/png` (with Wine's `explorer` running, as in a desktop session); see
 `docs/behavior/clipboard.md`.
 
-Fireworks MX renders FireCraft-written documents the same as FireCraft, except stroke softness
-(see `docs/behavior/strokes.md`).
+Fireworks MX renders FireCraft-written documents the same as FireCraft (strokes: see
+`docs/behavior/strokes.md`).
 
 ## Compatibility levels (design)
 

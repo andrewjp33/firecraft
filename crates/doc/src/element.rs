@@ -4,7 +4,7 @@ use firecraft_fwpng::Node;
 use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{AxisMap, resample};
-use firecraft_raster::path::{Pt, fill_polygons, fill_polygons_with, flatten_cubic, stamp_stroke};
+use firecraft_raster::path::{Pt, fill_polygons, fill_polygons_with, flatten_cubic};
 use firecraft_raster::transform::{Affine, sample, transform_image};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
@@ -103,6 +103,42 @@ pub struct Path {
     /// rebuilds from this record rather than from the points. Moves and transforms keep it;
     /// editing points makes the path a plain one (`None`).
     pub rect: Option<RectShape>,
+    /// Fireworks' stored flattened outline (`PCLv`, with pen pressure and velocity per point),
+    /// valid while the path's contours equal its `source`.
+    pub pcl: Option<StoredPolyline>,
+}
+
+/// One point of Fireworks' stored polyline (`PPTv`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PolyPoint {
+    pub x: f64,
+    pub y: f64,
+    /// Pen pressure (`PRSf`), velocity (`VELf`) and random seed (`RNDi`).
+    pub pressure: f32,
+    pub velocity: f32,
+    pub seed: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PolyLine {
+    pub points: Vec<PolyPoint>,
+    pub closed: bool,
+}
+
+/// Fireworks' flattened outline of a path and the contours it was made from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoredPolyline {
+    pub source: Vec<Contour>,
+    pub lines: Vec<PolyLine>,
+}
+
+impl StoredPolyline {
+    /// Move it with its path.
+    fn map(&mut self, f: impl Fn(f64, f64) -> (f64, f64)) {
+        for q in self.lines.iter_mut().flat_map(|l| l.points.iter_mut()) {
+            (q.x, q.y) = f(q.x, q.y);
+        }
+    }
 }
 
 /// A Fireworks rectangle primitive: a base rectangle with rounded corners, placed by `matrix`
@@ -380,6 +416,10 @@ impl Element {
                 if let Some(r) = &mut p.rect {
                     r.matrix = Affine::translate(dx, dy).then(&r.matrix);
                 }
+                if let Some(pcl) = &mut p.pcl {
+                    pcl.map(|x, y| (x + dx, y + dy));
+                    pcl.source.clone_from(&p.contours);
+                }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
                 b.x += dx.round() as i64;
@@ -440,6 +480,11 @@ impl Element {
                 // Fireworks: rotated, skewed or distorted rectangles remain rectangles).
                 if let Some(r) = &mut p.rect {
                     r.matrix = m.then(&r.matrix);
+                }
+                // Fireworks transforms its stored polyline with the path (keeping pen data).
+                if let Some(pcl) = &mut p.pcl {
+                    pcl.map(|x, y| m.apply(x, y));
+                    pcl.source.clone_from(&p.contours);
                 }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
@@ -605,6 +650,7 @@ impl Element {
             ElementKind::Bitmap(b) => map_bitmap(b),
             ElementKind::Path(p) => {
                 p.rect = None;
+                p.pcl = None;
                 for pt in p.contours.iter_mut().flat_map(|c| c.points.iter_mut()) {
                     let (ax, ay) = (mx.apply(pt.x), my.apply(pt.y));
                     let pred = (mx.apply(pt.x + pt.pred.0) - ax, my.apply(pt.y + pt.pred.1) - ay);
@@ -680,15 +726,7 @@ impl Element {
                     }
                 }
                 if let Some(s) = &p.stroke {
-                    for c in &p.contours {
-                        let mut line = c.flatten(fx, fy);
-                        if c.closed {
-                            if let Some(&first) = line.first() {
-                                line.push(first);
-                            }
-                        }
-                        stamp_stroke(&mut layer, &line, s.color, s.diameter, s.softness, s.anti_alias);
-                    }
+                    crate::stroke_fw::draw(&mut layer, p, s, self.raw.as_ref(), (fx, fy));
                 }
                 Some((layer, x0, y0))
             }

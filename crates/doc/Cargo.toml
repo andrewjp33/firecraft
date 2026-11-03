@@ -12,3 +12,4 @@ workspace = true
 [dependencies]
 firecraft-raster = { workspace = true }
 firecraft-fwpng = { workspace = true }
+firecraft-stroke = { workspace = true }

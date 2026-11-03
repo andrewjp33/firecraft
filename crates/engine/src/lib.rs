@@ -891,6 +891,7 @@ impl DocState {
         };
         let path = Path {
             rect,
+            pcl: None,
             contours: vec![Contour { points, closed: true }],
             fill: opts.fill.map(|color| Fill {
                 color,
@@ -930,6 +931,7 @@ impl DocState {
                 anti_alias: true,
             }),
             rect: None,
+            pcl: None,
         };
         self.add_element(Element::new(ElementKind::Path(path)), "Line");
     }

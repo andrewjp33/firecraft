@@ -1,0 +1,9 @@
+[package]
+name = "firecraft-stroke"
+description = "Fireworks' stroke (brush) engine, adapted from FirePixel's fp-vector (Apache-2.0)"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+rust-version.workspace = true
+
+[dependencies]

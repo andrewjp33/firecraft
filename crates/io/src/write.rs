@@ -684,8 +684,11 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         match &p.stroke {
             Some(s) => {
                 put(attrs, Node::int("BCL", to_argb(s.color)));
-                if attrs.child("BPL").is_none() {
-                    attrs.children.push(brush_preset(s.diameter));
+                // The file's brush preset, in step with FireCraft's stroke settings; new
+                // strokes get FireCraft's pencil.
+                match attrs.child_mut("BPL") {
+                    Some(bpl) => firecraft_doc::stroke_fw::sync_preset(bpl, s),
+                    None => attrs.children.push(firecraft_doc::stroke_fw::pencil_preset(s)),
                 }
             }
             None => attrs.children.retain(|c| !c.is("BPL")),
@@ -848,41 +851,6 @@ fn fill_preset() -> Node {
 }
 
 /// "Pencil / 1-Pixel Anti-Aliased"-style brush preset (field values as in Fireworks MX output).
-fn brush_preset(diameter: f64) -> Node {
-    let i = |t: &str, v: i64| Node::int(t, v);
-    Node::vector(
-        "BPL",
-        vec![
-            Node::string("CAT", "bc_Pencil"),
-            Node::string("INM", "bn_1-Pixel Anti-Aliased"),
-            Node::bool("RDO", false),
-            i("BAN", 0),
-            i("BAS", 1000),
-            i("BDI", diameter.round().clamp(1.0, 1000.0) as i64),
-            i("BMM", 15),
-            i("BMS", 10),
-            i("BSE", 0),
-            i("BSF", 1),
-            i("BSH", 1),
-            i("BBL", 0),
-            i("BBK", 0),
-            i("BCN", 1000),
-            i("BEF", 0),
-            i("BRT", 1),
-            i("BFB", 1),
-            i("BFR", 0),
-            i("BNT", 1),
-            i("BSP", 150),
-            i("BTB", 0),
-            i("BTE", 0),
-            i("BTS", 0),
-            i("BSM", 0),
-            i("BCM", 0),
-            Node::bool("BIA", true),
-        ],
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -910,6 +878,7 @@ mod tests {
             }),
             stroke: None,
             rect: None,
+            pcl: None,
         };
         doc.layers[0].cells[0].push(Element::new(ElementKind::Path(path)));
         doc

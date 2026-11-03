@@ -12,14 +12,15 @@
 //! `firecraft-io`.
 
 pub mod element;
+pub mod stroke_fw;
 
 mod cache;
 pub mod effects;
 pub use cache::{Dirty, RenderCache};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
-    BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, RectShape, Stroke, Text,
-    remap_tiles, tile_refs,
+    BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,
+    StoredPolyline, Stroke, Text, remap_tiles, tile_refs,
 };
 use firecraft_fwpng::Node;
 use firecraft_raster::{ColorMath, Rgba, RgbaImage};

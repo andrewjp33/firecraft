@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use firecraft_doc::{
     BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Frame, Layer, MaskMode, Path,
-    RectShape, Stroke, Symbol, Text,
+    PolyLine, PolyPoint, RectShape, StoredPolyline, Stroke, Symbol, Text,
 };
 use firecraft_fwpng::{FwPng, Node, Tile};
 use firecraft_raster::gradient::{Gradient, GradientKind};
@@ -487,12 +487,41 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
         })
     });
     let rect = read_rect(n, &contours, ctx);
+    let pcl = read_pcl(n, &contours, ctx);
     Path {
         contours,
         fill,
         stroke,
         rect,
+        pcl,
     }
+}
+
+/// Fireworks' flattened outline (`PCLv { PPLv* { ISCb, PPTv* { XLCf YLCf PRSf VELf RNDi } } }`,
+/// document coordinates): what its brushes stroke, with pen pressure and velocity per point.
+fn read_pcl(n: &Node, contours: &[Contour], ctx: &Ctx) -> Option<StoredPolyline> {
+    let (ox, oy) = ctx.origin;
+    let lines: Vec<PolyLine> = n
+        .child("PCL")?
+        .children_tagged("PPL")
+        .map(|l| PolyLine {
+            closed: l.bool_of("ISC").unwrap_or(false),
+            points: l
+                .children_tagged("PPT")
+                .map(|p| PolyPoint {
+                    x: p.float_of("XLC").unwrap_or(0.0) - ox,
+                    y: p.float_of("YLC").unwrap_or(0.0) - oy,
+                    pressure: p.float_of("PRS").unwrap_or(0.0) as f32,
+                    velocity: p.float_of("VEL").unwrap_or(0.0) as f32,
+                    seed: p.u32_of("RND").unwrap_or(0),
+                })
+                .collect(),
+        })
+        .collect();
+    (!lines.is_empty()).then(|| StoredPolyline {
+        source: contours.to_vec(),
+        lines,
+    })
 }
 
 /// A Fireworks matrix (`MTXv`, row vectors) as an `Affine`.

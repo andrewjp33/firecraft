@@ -213,6 +213,7 @@ impl DocState {
                 anti_alias: true,
             }),
             rect: None,
+            pcl: None,
         };
         self.add_element(Element::new(ElementKind::Path(path)), "Pen");
         self.selection.first().copied()

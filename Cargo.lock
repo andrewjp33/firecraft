@@ -1107,6 +1107,7 @@ version = "0.1.0"
 dependencies = [
  "firecraft-fwpng",
  "firecraft-raster",
+ "firecraft-stroke",
 ]
 
 [[package]]
@@ -1140,6 +1141,10 @@ dependencies = [
 
 [[package]]
 name = "firecraft-raster"
+version = "0.1.0"
+
+[[package]]
+name = "firecraft-stroke"
 version = "0.1.0"
 
 [[package]]

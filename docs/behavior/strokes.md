@@ -1,43 +1,53 @@
-# Strokes (brush dabs)
+# Strokes (brushes)
 
-Measured with Fireworks MX (`tools/fwmx-oracle`): `crates/io/examples/stroke_probe.rs` writes
-lines at chosen sub-pixel positions with a template file's stroke, Fireworks MX opens and
-re-saves the file, and its render is read back pixel by pixel.
+FireCraft draws path strokes with Fireworks' brush engine as reproduced by FirePixel
+(`crates/stroke`, adapted from FirePixel's `fp-vector`/`fp-geom`, Apache-2.0; see
+ATTRIBUTION.md). Its module comments (in German) describe the Fireworks behaviour each piece
+reproduces; FirePixel derived it from the Fireworks binary and verified it against Fireworks
+renders.
 
-## How Fireworks draws a stroke
+## Checked against Fireworks MX
 
-* The path's points are snapped **down to 1/16 px** (lines 1/32 px apart render identically in
-  pairs).
-* The brush tip is stamped ("dabs") **every 1 px** along each segment, starting at the segment's
-  start: a segment of length L gets round(L) dabs, the end point itself gets none. So the first
-  pixel of a 1-px line is full and the last one half (one dab instead of two).
-* Overlapping dabs combine like layered paint: coverage = 1 - (1 - a)(1 - b) ... (two
-  half-strength dabs give 0.75).
-* **Anti-aliased** tips (the brush preset's `BIAb` 1) are placed at the dab's exact position:
-  each tip pixel is spread over the 2x2 pixels under it by bilinear weights. **Non-anti-aliased**
-  tips snap to whole pixels (top-left at floor(centre - D/2 + 0.5)).
-* Tip of diameter D (`BDIi`): a 1-px anti-aliased tip is a single full pixel. Larger tips: a
-  disc; non-anti-aliased: the pixels whose centre is inside it (exact); anti-aliased: the
-  disc's coverage of each pixel (close: Fireworks' edge rows are a little softer).
+Measured with `crates/io/examples/stroke_probe.rs`: it writes lines at chosen sub-pixel positions
+(and a grid of 64 brushes: diameters 1-15, softness 0/25/50/100%, anti-aliased or not) with a
+template file's stroke; Fireworks MX opens and re-saves the file, and its render is compared
+with FireCraft's (`parity_report`):
 
-Result for the "1-Pixel Anti-Aliased" pencil (the usual Fireworks stroke): a pixel at distance d
-from the line gets 1 - ((1 + d) / 2)^2 for d <= 1 (191 for a line through pixel centres, 112/111
-for a line on a pixel boundary). FireCraft reproduces Fireworks' render of the probe lines to a
-mean 0.27 levels (91% of pixels exact; a few pixels at the ends of angled lines differ).
+| Test | Match | Mean error (levels) |
+|---|---|---|
+| 1-px lines at 1/32-px steps, angles 0-90 degrees | 100.0% | 0.00 |
+| 64-brush grid | 99.9% | 0.03 |
+| lines.png / lines2.png / tablet2.png (user files) | 100.0 / 99.9 / 100.0% | 0.00 / 0.06 / 0.15 |
 
-## Softness (approximate)
+What the measurements showed, and the engine implements:
 
-`BSEi` is the edge softness in tenths of a percent (1000 = 100%; Fireworks' "Soft" brush is
-500). How Fireworks fades the tip isn't known yet: a free fit of the tip's radial profile
-reproduces each brush to ~1 level, but no simple formula fits all diameters and softness levels.
-FireCraft's interim model fades the tip linearly over the outer part of its radius and weakens
-each dab so the ~D/2 dabs a pixel receives add up to that fade (fitted at 100% softness; mean
-error over the 192 measured brush profiles 3.5 levels per pixel, 4.4 for the previous model).
-Next step: find the tip/softness code in the Fireworks MX binary (the Pencil/brush preset fields
-`BSEi`, `BDIi`, `BSPi`, `BASi`, `BCNi` ...) and measure what it points to.
+* Points are snapped down to 1/16 px; the tip is stamped ("dabs") along the line, 1 px apart for
+  the Pencil, from the start of each segment up to (not including) its end.
+* Overlapping dabs combine as 1 - (1 - a)(1 - b); a soft or partly transparent brush weakens
+  each dab (FirePixel's overlap table) so that the dabs over a pixel add up to the intended
+  value.
+* Anti-aliased tips (`BIAb` 1) are shifted to the dab's sub-pixel position (16 steps); others
+  snap to whole pixels.
+* A 1-px anti-aliased tip is a single pixel: a pixel at distance d from a line gets
+  1 - ((1 + d) / 2)^2 (191 for a line through pixel centres, 112/111 on a pixel boundary).
+* Softness (`BSEi`, tenths of a percent; the Property inspector's Edge slider shows 1000 - BSEi)
+  fades the tip linearly in the squared distance, with Fireworks' bell curve (`BSFi`).
+* Inside/outside placement (`BRPi`) doubles the diameter and masks the stroke with the path's
+  fill coverage.
 
-## Not yet covered
+## Inputs
 
-Brush categories other than the Pencil (Air Brush, Calligraphy, Charcoal, Crayon, Felt Tip,
-Oil, Watercolor, Random, Unnatural): textures, spacing (`BSPi`), pressure and the other preset
-fields; 1-px lines' ends on angled lines; stroke placement (inside/centred/outside).
+* The brush comes from the path's preset (`BPLv`: diameter `BDIi`, softness `BSEi`, shape,
+  aspect `BASi`, concentration `BCNi`, spacing `BSPi`, natural brush settings, dashes,
+  sensitivities); new FireCraft strokes use Fireworks' "1-Pixel Anti-Aliased" pencil. FireCraft's
+  stroke settings (colour, diameter, softness, anti-aliasing) override the preset and are written
+  back into it on save.
+* The outline is Fireworks' stored polyline (`PCLv`, with pen pressure, velocity and a random
+  seed per point) while the path's points are unchanged; moves and transforms carry it along;
+  after point edits FireCraft flattens the path with Fireworks' own flattening (FirePixel:
+  28,095 of 28,099 stored outlines reproduced point for point).
+
+## Not yet
+
+* Stroke textures (`TXBv` images) aren't loaded, so textured strokes draw untextured.
+* Pen pressure stored on bezier points (`BZCi`/`BAZv`) is not kept when points are edited.
