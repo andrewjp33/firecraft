@@ -336,7 +336,7 @@ impl Effect {
             }
             Effect::GaussianBlur { radius } => match gaussian_sigma(*radius) {
                 Some(sigma) => gaussian_blur(img, sigma),
-                // Above 200 Fireworks MX fills the object with its average colour.
+                // Above 200 Fireworks fills the object's rectangle with its average colour.
                 None if *radius > 200.0 => average_colour(img),
                 None => {}
             },
@@ -538,25 +538,50 @@ fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
 /// measurements in Fireworks MX, which fitted 1.021 x radius); radii above 70 blur like 70. Radii
 /// above 200 don't blur (`None`): the object becomes its average colour instead (see
 /// [`average_colour`]; measured in Fireworks MX).
-/// Every pixel of the object takes the object's average colour (weighted by alpha); alpha and
-/// shape are unchanged. Fireworks MX's Gaussian Blur above radius 200 (measured: a colour ramp
-/// averaging (127.08, 127.01, 130.0) became (127, 127, 130) throughout).
+/// Fireworks' Gaussian Blur above radius 200: the object's pixel rectangle (the bounds of its
+/// pixels with alpha > 0) is filled, fully opaque, with the plain average of every pixel in that
+/// rectangle, transparent ones counting as white (Fireworks' empty buffer). Verified in Fireworks
+/// MX: a red circle became a (255, 53, 53) square (circleBlur.png); the rule follows FirePixel's
+/// reconstruction (`gauss.rs`, Apache-2.0).
 pub fn average_colour(img: &mut RgbaImage) {
-    let (mut sum, mut weight) = ([0f64; 3], 0f64);
-    for p in img.pixels() {
-        let a = p.a as f64;
-        sum[0] += p.r as f64 * a;
-        sum[1] += p.g as f64 * a;
-        sum[2] += p.b as f64 * a;
-        weight += a;
+    let (w, h) = (img.width() as i64, img.height() as i64);
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, -1i64, -1i64);
+    for y in 0..h {
+        for x in 0..w {
+            if img.get(x, y).is_some_and(|p| p.a > 0) {
+                (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+            }
+        }
     }
-    if weight <= 0.0 {
+    if x1 < x0 {
+        // No visible pixels: the whole area (white when empty).
+        (x0, y0, x1, y1) = (0, 0, w - 1, h - 1);
+    }
+    let mut sum = [0u64; 3];
+    let mut n = 0u64;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let p = img.get(x, y).unwrap_or(Rgba::TRANSPARENT);
+            let c = if p.a == 0 {
+                [255, 255, 255]
+            } else {
+                [p.r, p.g, p.b]
+            };
+            for (s, v) in sum.iter_mut().zip(c) {
+                *s += v as u64;
+            }
+            n += 1;
+        }
+    }
+    if n == 0 {
         return;
     }
-    let ch = |v: f64| (v / weight).round().clamp(0.0, 255.0) as u8;
-    let (r, g, b) = (ch(sum[0]), ch(sum[1]), ch(sum[2]));
-    for p in img.pixels_mut().iter_mut().filter(|p| p.a > 0) {
-        *p = Rgba { r, g, b, a: p.a };
+    let avg = |k: usize| (sum[k] / n).min(255) as u8;
+    let fill = Rgba::new(avg(0), avg(1), avg(2), 255);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            img.set(x, y, fill);
+        }
     }
 }
 
@@ -893,15 +918,21 @@ mod tests {
         assert_eq!(e, Some(Effect::GaussianBlur { radius: 100.0 }));
         assert_eq!(gaussian_sigma(100.0), gaussian_sigma(70.0));
         assert_eq!(gaussian_sigma(201.0), None);
-        // Above 200: the average colour, shape kept.
+        // Above 200: the object's rectangle filled opaque with the plain average of its pixels.
         let mut img = RgbaImage::new(4, 1, Rgba::TRANSPARENT);
         img.set(0, 0, Rgba::new(0, 0, 0, 255));
         img.set(1, 0, Rgba::new(200, 100, 50, 255));
         img.set(2, 0, Rgba::new(100, 100, 100, 128));
         Effect::GaussianBlur { radius: 250.0 }.apply_with(&mut img, crate::ColorMath::Classic);
-        assert_eq!(img.get(0, 0), Some(Rgba::new(100, 60, 40, 255)));
-        assert_eq!(img.get(2, 0), Some(Rgba::new(100, 60, 40, 128)));
+        assert_eq!(img.get(0, 0), Some(Rgba::new(100, 66, 50, 255)));
+        assert_eq!(img.get(2, 0), Some(Rgba::new(100, 66, 50, 255)));
         assert_eq!(img.get(3, 0), Some(Rgba::TRANSPARENT));
+        // Transparent pixels inside the rectangle count as white (a red circle: (255, 53, 53)).
+        let mut img = RgbaImage::new(3, 1, Rgba::TRANSPARENT);
+        img.set(0, 0, Rgba::new(255, 0, 0, 255));
+        img.set(2, 0, Rgba::new(255, 0, 0, 255));
+        Effect::GaussianBlur { radius: 250.0 }.apply_with(&mut img, crate::ColorMath::Classic);
+        assert_eq!(img.get(1, 0), Some(Rgba::new(255, 85, 85, 255)));
         let e = Effect::parse(
             &params(&[("EffectMoaID", BEVEL_GLOW), ("BevelType", "0")]),
             &HashMap::new(),
