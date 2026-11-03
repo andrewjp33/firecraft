@@ -7,7 +7,7 @@ the object's raw node, so saving never loses an effect.
 
 | Effect | Status |
 |---|---|
-| Gaussian Blur | **measured** (radii 1-249): `gaussian_blur_radius` is in pixels; Gaussian with sigma = 1.021 x radius (kernel ~2.5 x radius); radii above 70 behave as 70; above 200 there is no blur: the object becomes its (alpha-weighted) average colour, shape and alpha unchanged (measured with a colour ramp; solid test shapes made this look like "no effect") |
+| Gaussian Blur | **exact** (FirePixel's reconstruction, adapted, Apache-2.0): sigma = `gaussian_blur_radius` (0.1-70; above 70 as 70); separable kernel to ceil(3 sigma), `f32` weights, horizontal then vertical pass each rounding down to 8 bits; colour averaged over pixels with alpha > 0 (not alpha-weighted); output ceil(2.5 sigma) beyond the object. Above 200 (measured in Fireworks MX): no blur, the object becomes its alpha-weighted average colour, shape and alpha unchanged (FirePixel documents a different rule, probably Fireworks CS's: the whole rectangle filled opaque with the unweighted average) |
 | Drop Shadow | **measured**: offset = round(distance x (cos a, -sin a)), hard edges at softness 0; softness = Gaussian with sigma = 0.475 x `ShadowBlur` (fit RMS 0.006) |
 | Hue/Saturation | **bit-exact** (read from `0x7d7433` with REA, verified on 48 renders): byte HSL; hue byte -> whole degrees (x360/256), + `hue_amount`, back (x256/360, wraps); saturation/lightness move by (255-x)*k for k>0, x*k for k<0 (k = amount/100), truncated. Colorize is still approximate |
 | Brightness/Contrast, Levels, Auto Levels, Curves, Invert, Convert to Alpha, Color Fill | implemented from parameters; not yet measured |

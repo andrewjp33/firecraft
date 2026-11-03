@@ -335,7 +335,7 @@ impl Effect {
                 }
             }
             Effect::GaussianBlur { radius } => match gaussian_sigma(*radius) {
-                Some(sigma) => blur_rgba(img, sigma),
+                Some(sigma) => gaussian_blur(img, sigma),
                 // Above 200 Fireworks MX fills the object with its average colour.
                 None if *radius > 200.0 => average_colour(img),
                 None => {}
@@ -421,8 +421,8 @@ impl Effect {
     /// Extra room an effect needs around the object, in pixels.
     pub fn margin(&self) -> u32 {
         let m = match self {
-            // The box-blur approximation reaches 3 sigma (Fireworks' kernel ~2.5).
-            Effect::GaussianBlur { radius } => gaussian_sigma(*radius).map_or(0.0, |s| s * 3.0),
+            // Fireworks' blurred output reaches ceil(2.5 sigma) beyond the object.
+            Effect::GaussianBlur { radius } => gaussian_sigma(*radius).map_or(0.0, |s| (s * 2.5).ceil()),
             Effect::MotionBlur { distance, .. } => *distance,
             Effect::Shadow {
                 distance, softness, ..
@@ -533,10 +533,11 @@ fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
     }
 }
 
-/// Gaussian Blur's sigma for a `gaussian_blur_radius`, measured in Fireworks MX (step-edge fits for
-/// radii 1-249): sigma = 1.021 x radius with the kernel reaching ~2.5 x radius; radii above 70 blur
-/// like 70. Radii above 200 don't blur (`None`): the object becomes its average colour instead
-/// (see [`average_colour`]).
+/// Gaussian Blur's sigma for a `gaussian_blur_radius`: the radius itself (FirePixel's
+/// reconstruction, `fp-raster/src/filters/gauss.rs`; it also matches FireCraft's step-edge
+/// measurements in Fireworks MX, which fitted 1.021 x radius); radii above 70 blur like 70. Radii
+/// above 200 don't blur (`None`): the object becomes its average colour instead (see
+/// [`average_colour`]; measured in Fireworks MX).
 /// Every pixel of the object takes the object's average colour (weighted by alpha); alpha and
 /// shape are unchanged. Fireworks MX's Gaussian Blur above radius 200 (measured: a colour ramp
 /// averaging (127.08, 127.01, 130.0) became (127, 127, 130) throughout).
@@ -563,7 +564,81 @@ pub fn gaussian_sigma(radius: f32) -> Option<f32> {
     if !(radius > 0.0 && radius <= 200.0) {
         return None;
     }
-    Some(radius.min(70.0) * 1.021)
+    Some(radius.clamp(0.1, 70.0))
+}
+
+/// Fireworks' Gaussian blur (adapted from FirePixel's `gaussian_blur_raw`, single precision,
+/// Apache-2.0): a separable kernel of half-width ceil(3 sigma), weights
+/// exp(-x^2 / 2 sigma^2) / sqrt(2 pi sigma) computed in `f32`; horizontal pass, then vertical,
+/// each rounding down to 8 bits. Per output pixel the window is cut at the image edge (weights
+/// renormalized); alpha is the weighted mean over the window, colour the weighted mean over
+/// the window's pixels with alpha above 0 (not alpha-weighted).
+pub fn gaussian_blur(img: &mut RgbaImage, sigma: f32) {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    if w == 0 || h == 0 || !(sigma > 0.0) {
+        return;
+    }
+    let s = sigma as f64;
+    let f = |v: f64| v as f32 as f64;
+    let n = (s * 3.0).ceil().max(0.0) as usize;
+    let two = f(f(s + s) * s);
+    let inv = f(1.0 / f(s * std::f64::consts::TAU));
+    let norm = inv.powf(0.5);
+    let mut kernel: Vec<f32> = (0..=n)
+        .map(|i| {
+            let x = i as i64 - n as i64;
+            ((f(-((x * x) as f64)) / two).exp() * norm) as f32
+        })
+        .collect();
+    let tail: Vec<f32> = kernel.iter().rev().skip(1).copied().collect();
+    kernel.extend(tail);
+    let pass = |src: &[[u8; 4]], dst: &mut [[u8; 4]]| {
+        let len = src.len();
+        for (t, d) in dst.iter_mut().enumerate() {
+            let (lo, hi) = (t.saturating_sub(n), (len - 1).min(t + n));
+            let (mut sw, mut sa, mut swc) = (0.0f32, 0.0f32, 0.0f32);
+            let mut sc = [0.0f32; 3];
+            for (j, p) in src.iter().enumerate().take(hi + 1).skip(lo) {
+                let k = kernel.get(j + n - t).copied().unwrap_or(0.0);
+                if p[3] != 0 {
+                    for (c, acc) in sc.iter_mut().enumerate() {
+                        *acc += p[c] as f32 * k;
+                    }
+                    swc += k;
+                }
+                sa += p[3] as f32 * k;
+                sw += k;
+            }
+            let fl = |v: f32| v.floor().clamp(0.0, 255.0) as u8;
+            let col = |c: usize| if swc != 0.0 { fl(sc[c] / swc) } else { 0 };
+            *d = [col(0), col(1), col(2), if sw != 0.0 { fl(sa / sw) } else { 0 }];
+        }
+    };
+    let src: Vec<[u8; 4]> = img.pixels().iter().map(|p| [p.r, p.g, p.b, p.a]).collect();
+    // Horizontal pass, row by row.
+    let mut tmp = vec![[0u8; 4]; w * h];
+    for (row_in, row_out) in src.chunks(w).zip(tmp.chunks_mut(w)) {
+        pass(row_in, row_out);
+    }
+    // Vertical pass, column by column.
+    let mut col_in = vec![[0u8; 4]; h];
+    let mut col_out = vec![[0u8; 4]; h];
+    let px = img.pixels_mut();
+    for x in 0..w {
+        for (y, c) in col_in.iter_mut().enumerate() {
+            *c = tmp[y * w + x];
+        }
+        pass(&col_in, &mut col_out);
+        for (y, c) in col_out.iter().enumerate() {
+            if let Some(p) = px.get_mut(y * w + x) {
+                *p = if c[3] == 0 {
+                    Rgba::TRANSPARENT
+                } else {
+                    Rgba::new(c[0], c[1], c[2], c[3])
+                };
+            }
+        }
+    }
 }
 
 fn hue_saturation(c: [f32; 3], hue: f32, sat: f32, light: f32, colorize: bool) -> [f32; 3] {
@@ -719,40 +794,6 @@ fn paint_inside(img: &mut RgbaImage, plane: &[f32], color: Rgba) {
         let k = (a * color.a as f32 / 255.0).round().clamp(0.0, 255.0) as u8;
         let mixed = Rgba { a: 255, ..*p }.over(Rgba { a: 255, ..color }, k);
         *p = Rgba { a: p.a, ..mixed };
-    }
-}
-
-fn blur_rgba(img: &mut RgbaImage, radius: f32) {
-    let (w, h) = (img.width(), img.height());
-    // Blur premultiplied channels so transparent pixels don't darken edges.
-    let px = img.pixels();
-    let a: Vec<f32> = px.iter().map(|p| p.a as f32).collect();
-    let pm =
-        |f: fn(&Rgba) -> u8| -> Vec<f32> { px.iter().map(|p| f(p) as f32 * p.a as f32 / 255.0).collect() };
-    let (r, g, b) = (pm(|p| p.r), pm(|p| p.g), pm(|p| p.b));
-    let (a, r, g, b) = (
-        blur_plane(&a, w, h, radius),
-        blur_plane(&r, w, h, radius),
-        blur_plane(&g, w, h, radius),
-        blur_plane(&b, w, h, radius),
-    );
-    write_premultiplied(img, &a, &r, &g, &b);
-}
-
-fn write_premultiplied(img: &mut RgbaImage, a: &[f32], r: &[f32], g: &[f32], b: &[f32]) {
-    for (i, p) in img.pixels_mut().iter_mut().enumerate() {
-        let al = a.get(i).copied().unwrap_or(0.0);
-        if al < 0.5 {
-            *p = Rgba::TRANSPARENT;
-            continue;
-        }
-        let c = |v: Option<&f32>| (v.copied().unwrap_or(0.0) * 255.0 / al).round().clamp(0.0, 255.0) as u8;
-        *p = Rgba::new(
-            c(r.get(i)),
-            c(g.get(i)),
-            c(b.get(i)),
-            al.round().clamp(0.0, 255.0) as u8,
-        );
     }
 }
 
