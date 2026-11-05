@@ -1004,7 +1004,7 @@ impl Element {
 
     /// The opacity byte used when blending.
     pub fn opacity_byte(&self) -> u8 {
-        (self.opacity.clamp(0.0, 100.0) * 2.55).round() as u8
+        (self.opacity.clamp(0.0, 100.0) as f64 * 255.0 / 100.0).round() as u8
     }
 
     /// The object's own pixels after its effects, before opacity and blending, as an image and

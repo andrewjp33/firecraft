@@ -68,7 +68,9 @@ impl Rgba {
 
     /// Source-over composite of `src` onto `self` with an extra opacity (0..=255).
     pub fn over(self, src: Rgba, opacity: u8) -> Rgba {
-        let sa = src.a as u32 * opacity as u32 / 255;
+        // round(alpha * opacity / 255), as Fireworks MX (an image at 50% object opacity).
+        let v = src.a as u32 * opacity as u32;
+        let sa = ((v + 128) + ((v + 128) >> 8)) >> 8;
         if sa == 0 {
             return self;
         }

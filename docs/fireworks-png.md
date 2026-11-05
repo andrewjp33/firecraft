@@ -81,6 +81,14 @@ are omitted when they coincide with the anchor.
   referenced by preserved nodes.
 * A path needs **`RNDi`** (per-object id) and **both `BCLi` and `FCLi`** in `PATv`, even with no
   stroke or no fill. Without them the file fails to open (error `0x8004142B`).
+* **Child order matters for paths.** MX reads a path's effects, blend mode and opacity only in
+  its header: `VISb LCKb PATv BRPi PTTi FOTb EFLv RNDi TOXf TOYf BLDi OPAi PCFb PSX..PFY PBLv
+  PCLv PRIv ... OBNs`; after the points they are ignored (FireCraft wrote opacity there, so MX
+  showed FireCraft paths fully opaque until 2026-11-05). Bitmaps: `... TILv BLDi OPAi EFLv
+  OBNs`. Verified by letting MX set opacity, blend mode and name (`setOpacity`, `setBlendMode`,
+  `setElementName`) and reading its save.
+* `OPAi` = floor(byte * 1000 / 255) of Fireworks' opacity byte; reading, byte =
+  round(OPAi * 255 / 1000) (500 and 501 -> 128, 498 -> 127).
 * Not required: preset lists, `prVW`, `mkBS`, `sBIT`, `tEXt`, `PCLv`, textures, gradient handles,
   `BZLv`/`NSDf` on points, `RQNi`.
 

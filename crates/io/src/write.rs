@@ -557,12 +557,53 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         n.children.retain(|c| !c.is("BLD"));
     }
     if el.opacity < 100.0 || n.child("OPA").is_some() {
-        put(
-            &mut n,
-            Node::int("OPA", (el.opacity.clamp(0.0, 100.0) * 10.0).round() as i64),
-        );
+        // Fireworks keeps opacity as a byte and saves floor(byte * 1000 / 255) (50% -> 501).
+        let byte = (el.opacity.clamp(0.0, 100.0) as f64 * 255.0 / 100.0).round() as i64;
+        put(&mut n, Node::int("OPA", byte * 1000 / 255));
     }
+    mx_order(&mut n);
     n
+}
+
+/// Put a path's or bitmap's children in Fireworks MX's order (verified with
+/// tools/fwmx-oracle: MX reads a path's opacity, blend mode and effects only in its header,
+/// and ignores them after the points):
+/// path `VISb LCKb PATv BRPi PTTi FOTb EFLv RNDi TOXf TOYf BLDi OPAi PCFb PSX..PFY PBLv PCLv
+/// PRIv ... OBNs`, bitmap `VISb LCKb XOF YOF XLC YLC WPX HPX TSZ TILv ... BLDi OPAi EFLv OBNs`.
+/// Tags not listed keep their place relative to their neighbours.
+fn mx_order(n: &mut Node) {
+    const PATH: [&str; 22] = [
+        "VIS", "LCK", "PAT", "BRP", "PTT", "FOT", "EFL", "RND", "TOX", "TOY", "BLD", "OPA", "PCF", "PSX",
+        "PSY", "PEX", "PEY", "PFX", "PFY", "PBL", "PCL", "PRI",
+    ];
+    const IMAGE: [&str; 10] = [
+        "VIS", "LCK", "XOF", "YOF", "XLC", "YLC", "WPX", "HPX", "TSZ", "TIL",
+    ];
+    const IMAGE_END: [&str; 4] = ["BLD", "OPA", "EFL", "OBN"];
+    let is_path = n.is("PTH");
+    let rank = |c: &Node| -> usize {
+        if is_path {
+            match PATH.iter().position(|t| c.is(t)) {
+                Some(i) => i * 2,
+                None if c.is("OBN") => 1000,
+                None => PATH.len() * 2 + 1, // after PRIv (DTAv, POPi, EOFb, AGMb...)
+            }
+        } else {
+            match (
+                IMAGE.iter().position(|t| c.is(t)),
+                IMAGE_END.iter().position(|t| c.is(t)),
+            ) {
+                (Some(i), _) => i * 2,
+                (_, Some(i)) => 100 + i,
+                _ => IMAGE.len() * 2 + 1,
+            }
+        }
+    };
+    if is_path || n.is("IMG") {
+        let mut kids = std::mem::take(&mut n.children);
+        kids.sort_by_key(|c| rank(c));
+        n.children = kids;
+    }
 }
 
 fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {

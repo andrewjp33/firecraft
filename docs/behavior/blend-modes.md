@@ -44,6 +44,12 @@ precision" keeps the same colour models and parameters but computes in `f64` and
 lightness, float luma and Tint. Images between steps stay 8 bits per channel. Saved as `FCMi`
 (see fireworks-png.md); Fireworks MX renders such files with its own math.
 
+**Measured compositing** (`crates/io/examples/composite_probe.rs` through tools/fwmx-oracle,
+canvas (100, 150, 200), all exact): a bitmap's alpha ramp over the canvas (256/256), the same at
+50% object opacity (256/256), solid paths at 1..100% (100/100), a bitmap over a semi-transparent
+one (256/256). Rules: opacity byte `b = round(percent * 255 / 100)`; alpha `round(a * b / 255)`;
+onto an opaque pixel `round((s*a + d*(255-a))/255)`.
+
 **Normal onto opaque pixels rounds** (2026-11-05): semi-transparent texture-fill pixels over
 white match Fireworks MX only with `round((s*a + d*(255-a))/255)` (21,600 pixels); FireCraft
 truncated before. It raised parity on gym.png and spectrum_wave.png by ~7 points each (pixels
