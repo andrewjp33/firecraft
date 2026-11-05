@@ -3,7 +3,8 @@
 ## Selecting
 
 * **Pointer** (V): click an object to select it (Shift adds or removes); groups are selected
-  whole. A selected path is shown by its own outline, highlighted (as in Fireworks); other
+  whole. A selected path is shown by its own outline, highlighted, with blue squares at an open
+  path's ends (as in Fireworks); other
   objects and rectangles by their bounding box with corner handles. Pressing inside the selection's box drags the selection even where another object lies
   on top (Fireworks). Objects are picked where they have pixels (a pixel test, 2 px tolerance),
   not by bounding box. **Select Behind** (the Pointer's flyout) selects the next object down at

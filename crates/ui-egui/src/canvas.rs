@@ -1077,6 +1077,17 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                             Shape::line(pts, line)
                         });
                     }
+                    // An open path's ends: blue squares (Fireworks).
+                    if !c.closed {
+                        for b in [c.points.first(), c.points.last()].into_iter().flatten() {
+                            let at = to_screen(b.x, b.y) + drag_offset;
+                            p.rect_filled(
+                                Rect::from_center_size(at, vec2(5.0, 5.0)),
+                                0.0,
+                                theme::HANDLE_BLUE,
+                            );
+                        }
+                    }
                 }
                 continue;
             }
