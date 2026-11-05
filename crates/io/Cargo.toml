@@ -14,4 +14,5 @@ firecraft-fwpng = { workspace = true }
 firecraft-raster = { workspace = true }
 firecraft-doc = { workspace = true }
 png = { workspace = true }
+weezl = { workspace = true }
 thiserror = { workspace = true }

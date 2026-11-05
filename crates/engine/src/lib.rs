@@ -899,6 +899,7 @@ impl DocState {
         let path = Path {
             rect,
             pcl: None,
+            texture_origin: None,
             contours: vec![Contour { points, closed: true }],
             fill: opts.fill.map(|color| Fill {
                 color,
@@ -925,6 +926,7 @@ impl DocState {
             stroke: Some(opts.new_stroke(opts.stroke.unwrap_or(Rgba::BLACK))),
             rect: None,
             pcl: None,
+            texture_origin: None,
         };
         self.add_element(Element::new(ElementKind::Path(path)), "Line");
     }
@@ -1127,6 +1129,12 @@ impl DocState {
                                 .map_or(1.0, |b| b.diameter as f64);
                             p.stroke = Some(Stroke::from_preset(color, index, d));
                         }
+                    }
+                    // Textured presets need a texture (Fireworks always keeps one).
+                    if let Some(st) = &mut p.stroke
+                        && st.texture.is_none()
+                    {
+                        st.texture.clone_from(&opts.stroke_texture);
                     }
                 }
             }

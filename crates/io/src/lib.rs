@@ -8,6 +8,7 @@
 mod clip;
 mod flat;
 mod read;
+pub mod textures;
 mod write;
 
 pub use clip::{clipboard_png, read_clipboard_png};

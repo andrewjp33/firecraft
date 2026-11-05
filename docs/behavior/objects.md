@@ -81,7 +81,9 @@ the stroke category menu (None, Fireworks' 12 categories with their 54 presets, 
 Options...), the inside/centred/outside buttons, the edge preview and the edge softness.
 Choosing a category keeps the stroke's colour, size and position, as Fireworks does; dragging
 the size or softness is one undo step. Strokes draw with Fireworks' brush engine
-([strokes.md](strokes.md)); stroke textures are not loaded yet.
+([strokes.md](strokes.md)). The third row is the stroke's **texture** (Fireworks' textures when
+its folder is found, FireCraft's built-in ones, those in the document, Other... for a PNG or GIF)
+and its amount; edge texture is in Edit Stroke. See [strokes.md](strokes.md#textures).
 
 **Stroke Options...** (end of the category menu) opens Edit Stroke (after FirePixel's
 `brush_edit.rs`): Options (ink amount, spacing and flow for natural brushes, build-up, texture,

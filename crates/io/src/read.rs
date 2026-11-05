@@ -486,17 +486,59 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
             anti_alias: preset.bool_of("BIA").unwrap_or(true),
             brush: Some(preset.clone()),
             placement: n.int_of("BRP").unwrap_or(1).clamp(0, 2) as u8,
+            texture: a.child("TXB").and_then(|t| read_texture(t, ctx)),
         })
     });
     let rect = read_rect(n, &contours, ctx);
     let pcl = read_pcl(n, &contours, ctx);
+    let texture_origin = match (n.float_of("TOX"), n.float_of("TOY")) {
+        (Some(x), Some(y)) => Some((x - ctx.origin.0, y - ctx.origin.1)),
+        _ => None,
+    };
     Path {
         contours,
         fill,
         stroke,
         rect,
         pcl,
+        texture_origin,
     }
+}
+
+/// A texture (`TXBv`/`TXFv { INMs [UNMs] MSKv }`): its name and 8-bit mask, whose tiles
+/// (`TSZi{100}`) are 256 x 256 coverage bytes laid out row-major over `WPXi` x `HPXi`.
+fn read_texture(n: &Node, ctx: &Ctx) -> Option<firecraft_doc::Texture> {
+    let name = n.str_of("INM").unwrap_or_default();
+    let m = n.child("MSK")?;
+    let w = m.int_of("WPX")?.clamp(0, 16_384) as u32;
+    let h = m.int_of("HPX")?.clamp(0, 16_384) as u32;
+    let tsz = m.int_of("TSZ").unwrap_or(256).clamp(1, 4096) as u32;
+    let cols = w.div_ceil(tsz).max(1);
+    let mut data = vec![255u8; w as usize * h as usize];
+    let ids = m
+        .child("TIL")
+        .map(|t| t.children.iter().filter_map(Node::as_u32).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let mut found = false;
+    for (i, id) in ids.iter().enumerate() {
+        let Some(tile) = ctx.tiles.get(id) else { continue };
+        found = true;
+        let (tx, ty) = ((i as u32 % cols) * tsz, (i as u32 / cols) * tsz);
+        for y in 0..tsz.min(h.saturating_sub(ty)) {
+            for x in 0..tsz.min(w.saturating_sub(tx)) {
+                if let (Some(v), Some(d)) = (
+                    tile.data.get((y * tsz + x) as usize),
+                    data.get_mut(((ty + y) * w + tx + x) as usize),
+                ) {
+                    *d = *v;
+                }
+            }
+        }
+    }
+    if !found {
+        return None;
+    }
+    firecraft_doc::Texture::new(name, w, h, data)
 }
 
 /// Fireworks' flattened outline (`PCLv { PPLv* { ISCb, PPTv* { XLCf YLCf PRSf VELf RNDi } } }`,

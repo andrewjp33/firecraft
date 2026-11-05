@@ -58,6 +58,14 @@ pub trait Platform {
     fn take_opened(&mut self) -> Vec<(String, Vec<u8>)> {
         Vec::new()
     }
+    /// Ask for an image to use as a texture (PNG or GIF): (display name, bytes).
+    fn open_image(&mut self) -> Option<(String, Vec<u8>)> {
+        self.open_file()
+    }
+    /// Ask for a folder (desktop only).
+    fn pick_folder(&mut self) -> Option<String> {
+        None
+    }
 }
 
 /// User preferences (Edit > Preferences).
@@ -85,6 +93,9 @@ pub struct Prefs {
     /// Mouse highlight (Fireworks: Preferences > Editing): the object the Pointer or
     /// Subselection tool would select is outlined in red under the mouse.
     pub mouse_highlight: bool,
+    /// Fireworks' install folder (or a folder of textures), for its textures; empty: look in
+    /// the usual places.
+    pub fireworks_dir: String,
 }
 
 impl Prefs {
@@ -102,7 +113,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\nfireworks_dir={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -117,6 +128,7 @@ impl Prefs {
             self.cursor_style.key(),
             self.live_drag,
             self.mouse_highlight,
+            self.fireworks_dir.replace(['\n', '\r'], ""),
         )
     }
 
@@ -151,6 +163,7 @@ impl Prefs {
                 "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
                 "live_drag" => p.live_drag = flag,
                 "mouse_highlight" => p.mouse_highlight = flag,
+                "fireworks_dir" => p.fireworks_dir = v.trim().to_owned(),
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -197,6 +210,7 @@ impl Default for Prefs {
             cursor_style: cursors::CursorStyle::Fireworks,
             live_drag: true,
             mouse_highlight: true,
+            fireworks_dir: String::new(),
         }
     }
 }
@@ -257,6 +271,9 @@ pub struct FireCraftApp {
     quit_confirmed: bool,
     /// Showing the "save changes before quitting?" prompt.
     quit_prompt: bool,
+    /// Textures offered for strokes, and the Fireworks folder setting they were read for.
+    textures: firecraft_io::textures::TextureLibrary,
+    textures_for: Option<String>,
 }
 
 impl FireCraftApp {
@@ -279,7 +296,35 @@ impl FireCraftApp {
             workspace: egui::Rect::NOTHING,
             quit_confirmed: false,
             quit_prompt: false,
+            textures: Default::default(),
+            textures_for: None,
         }
+    }
+
+    /// The texture list, read again when the Fireworks folder setting changes; new strokes get
+    /// its default texture (Fireworks' "Grain" when found).
+    pub(crate) fn texture_library(&mut self) -> &mut firecraft_io::textures::TextureLibrary {
+        if self.textures_for.as_deref() != Some(self.prefs.fireworks_dir.as_str()) {
+            let dir = self.prefs.fireworks_dir.trim();
+            let dirs =
+                firecraft_io::textures::fireworks_dirs((!dir.is_empty()).then(|| std::path::Path::new(dir)));
+            let mut lib = firecraft_io::textures::TextureLibrary::scan(&dirs);
+            for t in std::mem::take(&mut self.textures).loaded() {
+                lib.add(t);
+            }
+            self.textures = lib;
+            self.textures_for = Some(self.prefs.fireworks_dir.clone());
+            let default = self.textures.default_texture();
+            let o = &mut self.session.options;
+            let builtin = o
+                .stroke_texture
+                .as_ref()
+                .is_none_or(|t| firecraft_io::textures::BUILTIN.contains(&t.name.as_str()));
+            if builtin {
+                o.stroke_texture = default;
+            }
+        }
+        &mut self.textures
     }
 
     /// Open a file given its bytes (command line, drag and drop).
@@ -375,6 +420,7 @@ impl FireCraftApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // Tool options the preferences remember.
         self.prefs.aa_style = self.session.options.aa_style;
+        self.texture_library();
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();

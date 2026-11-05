@@ -47,6 +47,34 @@ What the measurements showed, and the engine implements:
   after point edits FireCraft flattens the path with Fireworks' own flattening (FirePixel:
   28,095 of 28,099 stored outlines reproduced point for point).
 
+## Textures
+
+A stroke's texture (`TXBv { INMs MSKv }` in the path's attributes) is an 8-bit mask, tiled from
+the path's texture origin (`TOXf`/`TOYf`, which moves with the path). The brush's texture amount
+(`BTBi`, the Property inspector's "Texture" percentage) and edge texture (`BTEi`) say how much
+it removes ink; FirePixel's engine applies it. Verified with tools/fwmx-oracle
+(`crates/io/examples/texture_probe.rs`): simple and natural brushes at several amounts, edge
+texture, and the texture origin match Fireworks MX pixel for pixel, with Fireworks' own
+textures (Grain, Burlap, Hatch 1, Line-Diag 2, Waffle) and with a made-up one.
+
+* **Fireworks draws from the mask in the file**, not from its texture folder: a file whose
+  "Grain" mask is stripes draws stripes in MX. So a FireCraft file shows the same textures in
+  Fireworks whatever their source.
+* **From an image, the mask is `255 - grey`** (dark pixels take ink away): the masks MX embeds
+  for its Grain, Burlap (PNG), Hatch 1, Line-Diag 2 and Waffle (GIF) files equal FireCraft's
+  byte for byte. Transparent pixels count as white (not checked against Fireworks; its textures
+  are opaque).
+* Mask tiles are 256 x 256 bytes (`TSZi{100}`) with tile flags 1; paths using the same texture
+  share its tiles, as in Fireworks.
+* Fireworks keeps a texture on every path (default "Grain") even at 0%; FireCraft keeps the one
+  read, and new strokes get the tool's texture.
+
+**Where textures come from**: an installed Fireworks' `Configuration/Textures` folder (Edit >
+Preferences > Fireworks folder, or found in the usual install locations, also under Wine; MX's
+49 textures all decode like ImageMagick reads them), FireCraft's own built-in textures (FireCraft
+Noise, Weave, Diagonal; drawn in code, used when Fireworks isn't found), the textures in the
+open document, and any PNG or GIF (Texture > Other...). Nothing of Fireworks is bundled.
+
 ## Not yet
 
 * The 3D Glow brush (natural, alpha remap) comes out up to ~10-19 levels too bright in parts
@@ -54,5 +82,8 @@ What the measurements showed, and the engine implements:
   gives the same pixels, so it's in the engine as reconstructed (possibly an MX/CS difference),
   not in FireCraft's port.
 
-* Stroke textures (`TXBv` images) aren't loaded, so textured strokes draw untextured.
+* Random brushes on paths FireCraft creates or edits (Oil, Random, some Watercolor, scatter)
+  can scatter differently in Fireworks MX: MX picks a random seed per point when it first builds
+  a path's polyline (`PCLv`), and FireCraft doesn't write one yet. Paths from Fireworks keep
+  theirs and match (texture probe: Watercolor Heavy exact once MX's polyline is present).
 * Pen pressure stored on bezier points (`BZCi`/`BAZv`) is not kept when points are edited.

@@ -5,7 +5,7 @@
 //! ```text
 //! u32be  magic   0xFACECAFE
 //! u32be  id      referenced by TIDi{..} in the tree
-//! u32be  flags   0 or 1; meaning unknown, preserved
+//! u32be  flags   1 for mask tiles (Fireworks MX refuses texture masks without it), else 0
 //! [u8;64]        reserved, zero in every observed file
 //! ...            zlib stream
 //! ```

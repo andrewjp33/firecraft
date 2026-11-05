@@ -98,6 +98,9 @@ pub struct Stroke {
     pub brush: Option<Node>,
     /// Stroke placement (`BRPi` on the path): 0 inside, 1 centred, 2 outside.
     pub placement: u8,
+    /// The stroke's texture (`TXBv`), applied by the brush's texture amounts (`BTBi`, edge
+    /// texture `BTEi`); kept when they are 0, as Fireworks does.
+    pub texture: Option<Texture>,
 }
 
 impl Stroke {
@@ -117,6 +120,7 @@ impl Stroke {
                 anti_alias: p.antialiased,
                 brush: Some(crate::brush_presets::node(p, d as i32)),
                 placement: 1,
+                texture: None,
             },
             None => Stroke {
                 color,
@@ -127,16 +131,38 @@ impl Stroke {
                 anti_alias: true,
                 brush: None,
                 placement: 1,
+                texture: None,
             },
         }
     }
 
-    /// Switch to preset `index`, keeping colour, size and placement (as Fireworks' stroke
+    /// The texture amount (the brush's `BTBi`, per mille; Fireworks' "Texture" percentage).
+    pub fn texture_amount(&self) -> i32 {
+        self.brush
+            .as_ref()
+            .and_then(|b| b.int_of("BTB"))
+            .unwrap_or(0)
+            .clamp(0, 1000) as i32
+    }
+
+    /// Set the texture amount (per mille); the brush keeps its other settings.
+    pub fn set_texture_amount(&mut self, permille: i32) {
+        let base = self
+            .brush
+            .clone()
+            .unwrap_or_else(|| crate::stroke_fw::pencil_preset(self));
+        let mut f = crate::brush_presets::BrushFields::from_node(&base);
+        f.texture_blend = permille.clamp(0, 1000);
+        self.brush = Some(f.to_node(&base));
+    }
+
+    /// Switch to preset `index`, keeping colour, size, placement and texture (as Fireworks' stroke
     /// category menu does).
     pub fn set_preset(&mut self, index: usize) {
-        let keep = (self.color, self.diameter, self.placement);
+        let keep = (self.color, self.diameter, self.placement, self.texture.take());
         *self = Stroke::from_preset(keep.0, index, keep.1);
         self.placement = keep.2;
+        self.texture = keep.3;
     }
 }
 
@@ -152,6 +178,33 @@ pub struct Path {
     /// Fireworks' stored flattened outline (`PCLv`, with pen pressure and velocity per point),
     /// valid while the path's contours equal its `source`.
     pub pcl: Option<StoredPolyline>,
+    /// Where its textures are anchored (`TOXf`/`TOYf`, canvas pixels); moves and transforms
+    /// with the path. `None`: the top-left of its bounds.
+    pub texture_origin: Option<(f64, f64)>,
+}
+
+/// A texture (a stroke's `TXBv { INMs, MSKv }`): its name and 8-bit mask, tiled across the
+/// path from its texture origin. Fireworks files carry the mask, so a document shows its
+/// textures without Fireworks' texture folder.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Texture {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    /// `width` x `height` coverage values, row by row (shared between copies).
+    pub mask: std::sync::Arc<Vec<u8>>,
+}
+
+impl Texture {
+    /// A texture from a mask; `None` if the sizes don't match or it is empty.
+    pub fn new(name: impl Into<String>, width: u32, height: u32, mask: Vec<u8>) -> Option<Texture> {
+        (width > 0 && height > 0 && mask.len() == width as usize * height as usize).then(|| Texture {
+            name: name.into(),
+            width,
+            height,
+            mask: std::sync::Arc::new(mask),
+        })
+    }
 }
 
 /// One point of Fireworks' stored polyline (`PPTv`).
@@ -466,6 +519,9 @@ impl Element {
                     pcl.map(|x, y| (x + dx, y + dy));
                     pcl.source.clone_from(&p.contours);
                 }
+                if let Some(o) = &mut p.texture_origin {
+                    *o = (o.0 + dx, o.1 + dy);
+                }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
                 b.x += dx.round() as i64;
@@ -531,6 +587,9 @@ impl Element {
                 if let Some(pcl) = &mut p.pcl {
                     pcl.map(|x, y| m.apply(x, y));
                     pcl.source.clone_from(&p.contours);
+                }
+                if let Some(o) = &mut p.texture_origin {
+                    *o = m.apply(o.0, o.1);
                 }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {

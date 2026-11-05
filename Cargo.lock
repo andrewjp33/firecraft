@@ -1137,6 +1137,7 @@ dependencies = [
  "firecraft-raster",
  "png",
  "thiserror 2.0.21",
+ "weezl",
 ]
 
 [[package]]

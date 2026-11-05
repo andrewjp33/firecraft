@@ -54,6 +54,8 @@ pub struct EditStroke {
     original: BrushFields,
     tab: usize,
     property: usize,
+    /// The stroke's texture (for the sample stroke).
+    texture: Option<firecraft_doc::Texture>,
 }
 
 /// Open Edit Stroke for the selection (`tool` false; with nothing selected, for new strokes)
@@ -89,6 +91,7 @@ pub fn open(app: &mut FireCraftApp, tool: bool) {
     firecraft_doc::stroke_fw::sync_preset(&mut base, &stroke);
     let brush = BrushFields::from_node(&base);
     app.dialogs.edit_stroke = Some(EditStroke {
+        texture: stroke.texture.clone(),
         tool,
         base,
         original: brush.clone(),
@@ -226,8 +229,14 @@ fn options_page(ui: &mut egui::Ui, b: &mut BrushFields) {
         });
 }
 
-fn shape_page(ui: &mut egui::Ui, base: &Node, b: &mut BrushFields, color: Rgba) {
-    preview(ui, base, b, color, vec2(80.0, 80.0), true);
+fn shape_page(
+    ui: &mut egui::Ui,
+    base: &Node,
+    b: &mut BrushFields,
+    color: Rgba,
+    tex: Option<&firecraft_doc::Texture>,
+) {
+    preview(ui, base, b, color, tex, vec2(80.0, 80.0), true);
     let mut square = !b.round;
     if ui.checkbox(&mut square, "Square").changed() {
         b.round = !square;
@@ -312,7 +321,15 @@ fn sensitivity_page(ui: &mut egui::Ui, b: &mut BrushFields, property: &mut usize
 }
 
 /// A sample stroke (an S curve), or one dab (`dot`), drawn with the brush by the stroke engine.
-fn preview(ui: &mut egui::Ui, base: &Node, b: &BrushFields, color: Rgba, size: egui::Vec2, dot: bool) {
+fn preview(
+    ui: &mut egui::Ui,
+    base: &Node,
+    b: &BrushFields,
+    color: Rgba,
+    tex: Option<&firecraft_doc::Texture>,
+    size: egui::Vec2,
+    dot: bool,
+) {
     let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     ui.painter().rect_filled(r, 0.0, Color32::WHITE);
     ui.painter().rect_stroke(
@@ -342,6 +359,7 @@ fn preview(ui: &mut egui::Ui, base: &Node, b: &BrushFields, color: Rgba, size: e
         color.g,
         color.b,
         format!("{bb:?}"),
+        tex.map(|t| t.name.clone()),
     ));
     let tex = ui
         .ctx()
@@ -376,6 +394,7 @@ fn preview(ui: &mut egui::Ui, base: &Node, b: &BrushFields, color: Rgba, size: e
                 anti_alias: bb.antialiased,
                 brush: Some(node),
                 placement: 1,
+                texture: tex.cloned(),
             };
             let mut img = RgbaImage::new(w, h, Rgba::TRANSPARENT);
             firecraft_doc::stroke_fw::draw(&mut img, &path, &stroke, None, (0.0, 0.0));
@@ -421,12 +440,20 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.separator();
             match d.tab {
                 0 => options_page(ui, &mut d.brush),
-                1 => shape_page(ui, &d.base, &mut d.brush, color),
+                1 => shape_page(ui, &d.base, &mut d.brush, color, d.texture.as_ref()),
                 _ => sensitivity_page(ui, &mut d.brush, &mut d.property),
             }
             ui.add_space(6.0);
             // The sample stroke with the edited brush (every tab).
-            preview(ui, &d.base, &d.brush, color, vec2(330.0, 60.0), false);
+            preview(
+                ui,
+                &d.base,
+                &d.brush,
+                color,
+                d.texture.as_ref(),
+                vec2(330.0, 60.0),
+                false,
+            );
             ui.add_space(6.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Cancel").clicked() {

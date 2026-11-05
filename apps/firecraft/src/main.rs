@@ -43,6 +43,21 @@ impl Platform for Desktop {
         Some(path.display().to_string())
     }
 
+    fn open_image(&mut self) -> Option<(String, Vec<u8>)> {
+        let path = rfd::FileDialog::new()
+            .add_filter("Images", &["png", "gif"])
+            .add_filter("All files", &["*"])
+            .pick_file()?;
+        let bytes = std::fs::read(&path).ok()?;
+        Some((path.display().to_string(), bytes))
+    }
+
+    fn pick_folder(&mut self) -> Option<String> {
+        rfd::FileDialog::new()
+            .pick_folder()
+            .map(|p| p.display().to_string())
+    }
+
     fn write_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         // Write to a sibling temp file and rename, so a failed save never truncates the document.
         let tmp = format!("{path}.firecraft-tmp");

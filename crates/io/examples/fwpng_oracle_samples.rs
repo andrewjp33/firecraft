@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stroke: None,
         rect: None,
         pcl: None,
+        texture_origin: None,
     })));
     cell.push(Element::new(ElementKind::Path(Path {
         contours: vec![Contour {
@@ -68,9 +69,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             anti_alias: true,
             brush: None,
             placement: 1,
+            texture: None,
         }),
         rect: None,
         pcl: None,
+        texture_origin: None,
     })));
     std::fs::write(out.join("new.png"), firecraft_io::save_fireworks_png(&doc)?)?;
     std::fs::write(out.join("new_flat_expected.png"), firecraft_io::export_png(&doc)?)?;

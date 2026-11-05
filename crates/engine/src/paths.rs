@@ -207,6 +207,7 @@ impl DocState {
             stroke: Some(opts.new_stroke(opts.stroke.unwrap_or(firecraft_raster::Rgba::BLACK))),
             rect: None,
             pcl: None,
+            texture_origin: None,
         };
         self.add_element(Element::new(ElementKind::Path(path)), "Pen");
         self.selection.first().copied()

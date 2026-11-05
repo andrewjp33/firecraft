@@ -51,6 +51,10 @@ PTHv  PATv { BCLi stroke ARGB, FCLi fill ARGB, BPLv brush preset, FPLv fill pres
       BRPi, PTTi, FOTb, RNDi, TOXf.., PSXf..PFYf (gradient handles), EFLv effects,
       PBLv { PBPv* { ISCb closed, BSLf, PPCi, PBTv* { XLCf YLCf [XPCf YPCf] [XSCf YSCf] ... } } },
       PCLv (cached flattened stroke polyline with pressure)
+TXBv  (stroke texture; TXFv fill texture) INMs name, MSKv { WPXi HPXi TSZi{100} TILv { TIDi* } }:
+      8-bit mask = 255 - grey of the texture image, 256 x 256-byte tiles with tile flags 1
+      (MX refuses mask tiles with flags 0); Fireworks draws from this mask, not its folder.
+      TOXf/TOYf on the path: texture origin (document space)
 TXTv  text attributes (FONs, PTSf, BOLb...), TFSv runs, cached IMGv
 GRPv  GRTi, ELMv
 (any) OBNs object name (Layers panel), after the object's own data, before BLDi/EFLv/OPAi;

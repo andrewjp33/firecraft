@@ -11,7 +11,7 @@ use firecraft_fwpng::Node;
 use firecraft_raster::{Rgba, RgbaImage};
 use firecraft_stroke::attrs::{
     BrushParams, BrushType, Feedback, PathContour, PointDynamics, Stroke as FwStroke, StrokePlacement,
-    TipColoringMode, TipShape, TipSpacingMode, VectorPath,
+    StrokeTexture, TipColoringMode, TipShape, TipSpacingMode, VectorPath,
 };
 use firecraft_stroke::support::color::Argb;
 use firecraft_stroke::support::geom::{BezierContour, BezierNode, IRect, Point, Vec2};
@@ -239,6 +239,20 @@ fn bezier(c: &Contour, off: (f64, f64)) -> BezierContour {
     )
 }
 
+/// Where `path`'s texture is anchored: its texture origin, else the top-left of its points.
+pub fn texture_origin(path: &Path) -> (f64, f64) {
+    path.texture_origin.unwrap_or_else(|| {
+        let pts = path.contours.iter().flat_map(|c| c.points.iter());
+        let x = pts.clone().map(|p| p.x).fold(f64::INFINITY, f64::min);
+        let y = pts.map(|p| p.y).fold(f64::INFINITY, f64::min);
+        if x.is_finite() && y.is_finite() {
+            (x, y)
+        } else {
+            (0.0, 0.0)
+        }
+    })
+}
+
 /// Draw `path`'s stroke onto `layer` (whose pixel (0, 0) is canvas point -`off`), as Fireworks
 /// does. `raw` is the path's original Fireworks node, if any.
 pub fn draw(layer: &mut RgbaImage, path: &Path, stroke: &Stroke, raw: Option<&Node>, off: (f64, f64)) {
@@ -256,14 +270,25 @@ pub fn draw(layer: &mut RgbaImage, path: &Path, stroke: &Stroke, raw: Option<&No
         fill_over_stroke: raw.and_then(|r| r.bool_of("FOT")).unwrap_or(false),
         placement: StrokePlacement::from_u32(stroke.placement as u32),
         ptt: flag("PTT") == Some(1),
-        texture_offset: Vec2::new(0.0, 0.0),
+        texture_offset: {
+            let (x, y) = texture_origin(path);
+            Vec2::new(x + off.0, y + off.1)
+        },
         random_seed: flag("RND").unwrap_or(0) as u32,
     };
     let c = stroke.color;
-    let fw = FwStroke::new(
+    let mut fw = FwStroke::new(
         brush_for(stroke, raw),
         Argb(((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | c.b as u32),
     );
+    fw.texture = stroke.texture.as_ref().and_then(|t| {
+        let r = IRect::new(0, 0, t.width as i32, t.height as i32);
+        firecraft_stroke::support::raster::Mask::from_raw(r, t.mask.to_vec())
+            .ok()
+            .map(|m| StrokeTexture {
+                mask: std::sync::Arc::new(m),
+            })
+    });
     let rect = IRect::new(0, 0, w as i32, h as i32);
     let px = firecraft_stroke::stroke::stroke_layer(&vp, &fw, rect);
     for (k, p) in px.iter().enumerate() {
@@ -304,6 +329,7 @@ mod tests {
                 anti_alias: true,
                 brush: None,
                 placement: 1,
+                texture: None,
             };
             let mut img = RgbaImage::new(80, 10, Rgba::BLACK);
             draw(&mut img, &path, &stroke, None, (0.0, 0.0));

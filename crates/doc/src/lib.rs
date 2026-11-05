@@ -21,7 +21,7 @@ pub use cache::{Dirty, RenderCache};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
     BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,
-    StoredPolyline, Stroke, Text, remap_tiles, tile_refs,
+    StoredPolyline, Stroke, Text, Texture, remap_tiles, tile_refs,
 };
 use firecraft_fwpng::Node;
 use firecraft_raster::{ColorMath, Rgba, RgbaImage};

@@ -157,6 +157,8 @@ pub struct ToolOptions {
     /// A brush edited in the Edit Stroke dialog (its `BPLv`), used for new strokes instead of
     /// the preset until a stroke category is chosen again.
     pub stroke_brush: Option<firecraft_fwpng::Node>,
+    /// The texture new strokes get (Fireworks: "Grain"; set by the UI from its texture list).
+    pub stroke_texture: Option<firecraft_doc::Texture>,
 }
 
 impl ToolOptions {
@@ -170,6 +172,7 @@ impl ToolOptions {
             s.anti_alias = b.bool_of("BIA").unwrap_or(s.anti_alias);
             s.brush = Some(b.clone());
         }
+        s.texture = self.stroke_texture.clone();
         s
     }
 }
@@ -188,6 +191,7 @@ impl Default for ToolOptions {
             stroke_preset: firecraft_doc::brush_presets::default_index(),
             stroke_softness: 0,
             stroke_brush: None,
+            stroke_texture: None,
         }
     }
 }

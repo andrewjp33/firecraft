@@ -472,7 +472,9 @@ pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raste
 /// Edit > Preferences.
 fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     let mut close = false;
+    let found = app.textures.has_fireworks();
     let prefs = &mut app.prefs;
+    let platform = &mut app.platform;
     dialog("Preferences").show(ctx, |ui| {
         ui.strong("Workspace");
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
@@ -505,6 +507,23 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             color_math_combo(ui, "prefs_color_math", &mut prefs.color_math);
         });
         ui.weak("FireCraft: Fireworks' formulas in double precision (no byte rounding of hue, saturation, lightness).\nFireworks MX: bit-exact Fireworks results. Files from Fireworks always open with Fireworks MX math.");
+        ui.separator();
+        ui.strong("Folders");
+        ui.horizontal(|ui| {
+            ui.label("Fireworks folder:");
+            ui.add(egui::TextEdit::singleline(&mut prefs.fireworks_dir).desired_width(260.0))
+                .on_hover_text("An installed Fireworks (MX to CS6), for its textures. Empty: FireCraft looks in the usual install folders.");
+            if ui.button("Browse...").clicked()
+                && let Some(dir) = platform.pick_folder()
+            {
+                prefs.fireworks_dir = dir;
+            }
+        });
+        ui.weak(if found {
+            "Fireworks' textures found."
+        } else {
+            "Fireworks' textures not found: FireCraft's built-in textures and those in documents are offered."
+        });
         ui.separator();
         close = ui.button("OK").clicked();
     });

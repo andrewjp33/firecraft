@@ -26,6 +26,8 @@ struct Writer {
     next_rnd: i64,
     /// Frame count of each symbol (new instances record it, `ANNi`).
     symbol_frames: std::collections::HashMap<u32, usize>,
+    /// Mask tiles already written per texture (shared by every path using it, as in Fireworks).
+    texture_tiles: Vec<(std::sync::Arc<Vec<u8>>, u32, Vec<u32>)>,
 }
 
 impl Writer {
@@ -63,6 +65,7 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
         origin,
         next_rnd: 0x0060_0000,
         symbol_frames: doc.symbols.iter().map(|s| (s.id, s.frames)).collect(),
+        texture_tiles: Vec::new(),
     };
 
     put(&mut root, Node::int("FRC", doc.frames.len().max(1) as i64));
@@ -597,6 +600,62 @@ fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
     n
 }
 
+/// A texture node (`TXBv`/`TXFv { INMs MSKv { WPXi HPXi TSZi{100} TILv } }`): mask tiles of
+/// 256 x 256 coverage bytes, written once per texture and shared by every path using it.
+fn texture_node(tag: &str, t: &firecraft_doc::Texture, w: &mut Writer) -> Node {
+    const TS: u32 = 256;
+    let known = w
+        .texture_tiles
+        .iter()
+        .find(|(m, width, _)| (std::sync::Arc::ptr_eq(m, &t.mask) || **m == *t.mask) && *width == t.width)
+        .map(|e| e.2.clone());
+    let ids = known.unwrap_or_else(|| {
+        let mut ids = Vec::new();
+        for ty in (0..t.height).step_by(TS as usize) {
+            for tx in (0..t.width).step_by(TS as usize) {
+                let mut data = vec![0u8; (TS * TS) as usize];
+                for y in 0..TS.min(t.height - ty) {
+                    for x in 0..TS.min(t.width - tx) {
+                        if let (Some(d), Some(v)) = (
+                            data.get_mut((y * TS + x) as usize),
+                            t.mask.get(((ty + y) * t.width + tx + x) as usize),
+                        ) {
+                            *d = *v;
+                        }
+                    }
+                }
+                let id = w.tile_id();
+                // Fireworks marks mask tiles with flags 1 and refuses a file whose texture
+                // tiles lack it (verified with tools/fwmx-oracle).
+                let mut tile = Tile::new(id, data);
+                tile.flags = 1;
+                w.tiles.push(tile);
+                ids.push(id);
+            }
+        }
+        w.texture_tiles.push((t.mask.clone(), t.width, ids.clone()));
+        ids
+    });
+    Node::vector(
+        tag,
+        vec![
+            Node::string("INM", &t.name),
+            Node::vector(
+                "MSK",
+                vec![
+                    Node::int("WPX", t.width as i64),
+                    Node::int("HPX", t.height as i64),
+                    Node::int("TSZ", TS as i64),
+                    Node::vector(
+                        "TIL",
+                        ids.into_iter().map(|id| Node::int("TID", id as i64)).collect(),
+                    ),
+                ],
+            ),
+        ],
+    )
+}
+
 fn contour_node(c: &Contour, origin: (f64, f64)) -> Node {
     let points = c
         .points
@@ -667,6 +726,21 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         Some(r) => write_rect(&mut n, r, w.origin),
         None => n.children.retain(|c| !c.is("PRI")),
     }
+    // Texture origin (`TOXf`/`TOYf`, after `RNDi` as Fireworks writes it).
+    let (tx, ty) = firecraft_doc::stroke_fw::texture_origin(p);
+    for (tag, v) in [("TOX", tx + w.origin.0), ("TOY", ty + w.origin.1)] {
+        match n.children.iter().position(|c| c.is(tag)) {
+            Some(i) => n.children[i] = Node::float(tag, v),
+            None => {
+                let at = n
+                    .children
+                    .iter()
+                    .position(|c| c.is("RND") || c.is("TOX"))
+                    .map_or(n.children.len(), |i| i + 1);
+                n.children.insert(at, Node::float(tag, v));
+            }
+        }
+    }
     let mut gradient_handles = None;
     if let Some(attrs) = n.child_mut("PAT") {
         match &p.fill {
@@ -693,6 +767,20 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
                     .unwrap_or_else(|| firecraft_doc::stroke_fw::pencil_preset(s));
                 firecraft_doc::stroke_fw::sync_preset(&mut bpl, s);
                 put(attrs, bpl);
+                if let Some(t) = &s.texture {
+                    let txb = texture_node("TXB", t, w);
+                    match attrs.children.iter().position(|c| c.is("TXB")) {
+                        Some(i) => attrs.children[i] = txb,
+                        None => {
+                            let at = attrs
+                                .children
+                                .iter()
+                                .rposition(|c| c.is("BPL") || c.is("FPL"))
+                                .map_or(attrs.children.len(), |i| i + 1);
+                            attrs.children.insert(at, txb);
+                        }
+                    }
+                }
             }
             None => attrs.children.retain(|c| !c.is("BPL")),
         }
@@ -886,6 +974,7 @@ mod tests {
             stroke: None,
             rect: None,
             pcl: None,
+            texture_origin: None,
         };
         doc.layers[0].cells[0].push(Element::new(ElementKind::Path(path)));
         doc
