@@ -73,6 +73,15 @@ impl Rgba {
             return self;
         }
         let da = self.a as u32;
+        if da == 255 {
+            // Onto an opaque pixel Fireworks MX rounds: round((s*a + d*(255-a)) / 255)
+            // (measured with semi-transparent texture fills over white, 21,600 pixels exact).
+            let mix = |s: u8, d: u8| {
+                let v = s as u32 * sa + d as u32 * (255 - sa);
+                (((v + 128) + ((v + 128) >> 8)) >> 8).min(255) as u8
+            };
+            return Rgba::new(mix(src.r, self.r), mix(src.g, self.g), mix(src.b, self.b), 255);
+        }
         let out_a = sa + da * (255 - sa) / 255;
         if out_a == 0 {
             return Rgba::TRANSPARENT;

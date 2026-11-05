@@ -289,6 +289,50 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 }
                 ui.label(if p.fill.is_some() { "Solid" } else { "None" });
             });
+            // Texture, its amount and Transparent (Fireworks' fill section).
+            let f = p.fill.as_ref();
+            let has = f.is_some();
+            let (name, amount, transparent) = f.map_or((String::new(), 0, false), |f| {
+                (
+                    f.texture.as_ref().map(|t| t.name.clone()).unwrap_or_default(),
+                    f.texture_amount,
+                    f.texture_transparent,
+                )
+            });
+            ui.horizontal(|ui| {
+                ui.add_enabled(has, egui::Label::new("Texture:"));
+                if let Some(t) = crate::stroke_panel::texture_picker(app, ui, &name, has)
+                    && let Some(d) = app.session.active_doc_mut()
+                {
+                    d.edit_fill("Fill Texture", false, move |f| f.texture = Some(t.clone()));
+                }
+                let mut pct = (amount as f64 / 10.0).round();
+                let resp = ui.add_enabled(
+                    has,
+                    DragValue::new(&mut pct)
+                        .range(0.0..=100.0)
+                        .max_decimals(0)
+                        .suffix("%"),
+                );
+                if let Some(d) = app.session.active_doc_mut() {
+                    if resp.drag_started() {
+                        d.begin_live_edit("Fill Texture");
+                    }
+                    if resp.changed() {
+                        let v = (pct.round() as u16).min(100) * 10;
+                        d.edit_fill("Fill Texture", resp.dragged(), move |f| f.texture_amount = v);
+                    }
+                }
+                let mut tr = transparent;
+                if ui
+                    .add_enabled(has, egui::Checkbox::new(&mut tr, "Transparent"))
+                    .on_hover_text("The texture makes the fill transparent instead of lighter")
+                    .changed()
+                    && let Some(d) = app.session.active_doc_mut()
+                {
+                    d.edit_fill("Fill Texture", false, move |f| f.texture_transparent = tr);
+                }
+            });
             // Rectangle roundness (Fireworks: rectangle primitives only).
             if let Some(r) = p.rect {
                 ui.horizontal(|ui| {

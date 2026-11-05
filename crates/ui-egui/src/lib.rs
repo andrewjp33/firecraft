@@ -316,12 +316,15 @@ impl FireCraftApp {
             self.textures_for = Some(self.prefs.fireworks_dir.clone());
             let default = self.textures.default_texture();
             let o = &mut self.session.options;
-            let builtin = o
-                .stroke_texture
-                .as_ref()
-                .is_none_or(|t| firecraft_io::textures::BUILTIN.contains(&t.name.as_str()));
-            if builtin {
-                o.stroke_texture = default;
+            let builtin = |t: &Option<firecraft_doc::Texture>| {
+                t.as_ref()
+                    .is_none_or(|t| firecraft_io::textures::BUILTIN.contains(&t.name.as_str()))
+            };
+            if builtin(&o.stroke_texture) {
+                o.stroke_texture.clone_from(&default);
+            }
+            if builtin(&o.fill_texture) {
+                o.fill_texture = default;
             }
         }
         &mut self.textures

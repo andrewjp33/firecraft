@@ -7,7 +7,7 @@ function (Tint `0x56d6b0`, Luminosity `0x56d580`, Hue `0x56d270`, Color `0x56d48
 
 | Mode | `BLDi` | FireCraft formula | Max error vs Fireworks (0-255) |
 |---|---|---|---|
-| Normal | absent | source over | 0 |
+| Normal | absent | source over; onto an opaque pixel `round((s*a + d*(255-a))/255)` | 0 (see below) |
 | Multiply | 2 | b*s/255 | 0 |
 | Difference | 3 | abs(b-s) | 0 |
 | Screen | 5 | 255-(255-b)(255-s)/255 | 0 |
@@ -44,3 +44,8 @@ precision" keeps the same colour models and parameters but computes in `f64` and
 lightness, float luma and Tint. Images between steps stay 8 bits per channel. Saved as `FCMi`
 (see fireworks-png.md); Fireworks MX renders such files with its own math.
 
+**Normal onto opaque pixels rounds** (2026-11-05): semi-transparent texture-fill pixels over
+white match Fireworks MX only with `round((s*a + d*(255-a))/255)` (21,600 pixels); FireCraft
+truncated before. It raised parity on gym.png and spectrum_wave.png by ~7 points each (pixels
+within 2 levels) but lowered ball.png, sun.png and tm.png by 0.3-1.3: effect-heavy files, so
+Fireworks probably truncates when compositing effect results. Open question.

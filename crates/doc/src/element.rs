@@ -79,6 +79,54 @@ pub struct Fill {
     pub anti_alias: bool,
     /// Gradient fills (handles in canvas coordinates); `None` for solid fills.
     pub gradient: Option<Gradient>,
+    /// The fill's texture (`TXFv`; Fireworks keeps one on every path, "Grain" by default).
+    pub texture: Option<Texture>,
+    /// Texture amount in per mille (`FTBi` in the fill preset).
+    pub texture_amount: u16,
+    /// "Transparent" (`FSMi` 1): the texture takes coverage away; otherwise (`FSMi` 2) it
+    /// lightens the colour.
+    pub texture_transparent: bool,
+}
+
+/// `round(v / 255)` for `v` up to 255 * 255 (Fireworks' rounding).
+fn round255(v: u32) -> u32 {
+    ((v + 128) + ((v + 128) >> 8)) >> 8
+}
+
+/// Apply a fill's texture to its pixels (FirePixel's `paint.rs`, Apache-2.0): weight
+/// `w = FTBi * 255 / 1000`, the mask tiled from the texture origin `(ox, oy)` (canvas pixels;
+/// `at` = the layer's top-left canvas pixel). Opaque: colour toward white,
+/// `f = round((255 - T) w / 255)`, `c' = c + round((255 - c) f / 255)`. Transparent: coverage
+/// `s = T + (255 - w) - round(T (255 - w) / 255)`, `a' = round(s a / 255)`.
+pub fn apply_fill_texture(layer: &mut RgbaImage, f: &Fill, origin: (f64, f64), at: (i64, i64)) {
+    let Some(t) = &f.texture else { return };
+    let w = f.texture_amount.min(1000) as u32 * 255 / 1000;
+    if w == 0 || t.width == 0 || t.height == 0 {
+        return;
+    }
+    let (tw, th) = (t.width as i64, t.height as i64);
+    let (ox, oy) = (origin.0.floor() as i64, origin.1.floor() as i64);
+    let (lw, lh) = (layer.width() as i64, layer.height() as i64);
+    for ly in 0..lh {
+        let v = (ly + at.1 - oy).rem_euclid(th);
+        for lx in 0..lw {
+            let Some(mut p) = layer.get(lx, ly) else { continue };
+            if p.a == 0 {
+                continue;
+            }
+            let u = (lx + at.0 - ox).rem_euclid(tw);
+            let tv = t.mask.get((v * tw + u) as usize).copied().unwrap_or(255) as u32;
+            if f.texture_transparent {
+                let s = tv + (255 - w) - round255(tv * (255 - w));
+                p.a = round255(s * p.a as u32).min(255) as u8;
+            } else {
+                let k = (w * (255 - tv) + 127) / 255;
+                let ch = |c: u8| (c as u32 + ((255 - c as u32) * k + 127) / 255).min(255) as u8;
+                (p.r, p.g, p.b) = (ch(p.r), ch(p.g), ch(p.b));
+            }
+            layer.set(lx, ly, p);
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -829,6 +877,12 @@ impl Element {
                         }),
                         None => fill_polygons(&mut layer, &polys, f.color, f.anti_alias),
                     }
+                    apply_fill_texture(
+                        &mut layer,
+                        f,
+                        crate::stroke_fw::texture_origin(p),
+                        (ox + x0, oy + y0),
+                    );
                 }
                 if let Some(s) = &p.stroke {
                     crate::stroke_fw::draw(&mut layer, p, s, self.raw.as_ref(), (fx, fy));
@@ -1084,6 +1138,9 @@ fn mask_coverage(
                     category: "fc_Solid".into(),
                     anti_alias: true,
                     gradient: None,
+                    texture: None,
+                    texture_amount: 0,
+                    texture_transparent: false,
                 });
                 p.stroke = None;
             }

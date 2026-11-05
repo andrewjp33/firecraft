@@ -159,6 +159,8 @@ pub struct ToolOptions {
     pub stroke_brush: Option<firecraft_fwpng::Node>,
     /// The texture new strokes get (Fireworks: "Grain"; set by the UI from its texture list).
     pub stroke_texture: Option<firecraft_doc::Texture>,
+    /// The texture new fills get (at 0%, as Fireworks keeps one on every fill).
+    pub fill_texture: Option<firecraft_doc::Texture>,
 }
 
 impl ToolOptions {
@@ -192,6 +194,7 @@ impl Default for ToolOptions {
             stroke_softness: 0,
             stroke_brush: None,
             stroke_texture: None,
+            fill_texture: None,
         }
     }
 }

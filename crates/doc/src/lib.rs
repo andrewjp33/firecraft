@@ -418,6 +418,31 @@ mod tests {
         assert_eq!(img, cached);
     }
 
+    /// Fill textures (FirePixel's formulas, checked against Fireworks MX with
+    /// fill_texture_probe): opaque lightens toward white where the mask is 0, transparent takes
+    /// coverage away there; mask 255 leaves the fill as it is.
+    #[test]
+    fn fill_texture_modes() {
+        let tex = element::Texture::new("t", 2, 1, vec![0, 255]);
+        let mut f = Fill {
+            color: Rgba::new(200, 0, 0, 255),
+            category: "fc_Solid".into(),
+            anti_alias: true,
+            gradient: None,
+            texture: tex,
+            texture_amount: 1000,
+            texture_transparent: false,
+        };
+        let red = Rgba::new(200, 0, 0, 255);
+        let mut img = RgbaImage::new(2, 1, red);
+        element::apply_fill_texture(&mut img, &f, (0.0, 0.0), (0, 0));
+        assert_eq!((img.get(0, 0), img.get(1, 0)), (Some(Rgba::WHITE), Some(red)));
+        f.texture_transparent = true;
+        let mut img = RgbaImage::new(2, 1, red);
+        element::apply_fill_texture(&mut img, &f, (0.0, 0.0), (0, 0));
+        assert_eq!((img.get(0, 0).map(|p| p.a), img.get(1, 0)), (Some(0), Some(red)));
+    }
+
     #[test]
     fn symbols_of_symbols_get_bounds() {
         use firecraft_raster::transform::Affine;

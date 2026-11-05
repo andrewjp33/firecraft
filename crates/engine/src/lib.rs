@@ -909,6 +909,9 @@ impl DocState {
                 category: "fc_Solid".into(),
                 anti_alias: true,
                 gradient: None,
+                texture: opts.fill_texture.clone(),
+                texture_amount: 0,
+                texture_transparent: false,
             }),
             stroke: opts.stroke.map(|color| opts.new_stroke(color)),
         };
@@ -1048,6 +1051,9 @@ impl DocState {
                                 category: "fc_Solid".into(),
                                 anti_alias: true,
                                 gradient: None,
+                                texture: None,
+                                texture_amount: 0,
+                                texture_transparent: false,
                             })
                         }
                     }
@@ -1101,6 +1107,28 @@ impl DocState {
                 }) = s.element_mut(r)
                 {
                     f(st);
+                }
+            }
+        };
+        if live {
+            apply(self);
+            self.touch();
+        } else {
+            self.edit(label, apply);
+        }
+    }
+
+    /// Change the fill of the selected paths that have one (`live`: part of a slider drag begun
+    /// with `begin_live_edit`, no undo step of its own).
+    pub fn edit_fill(&mut self, label: &str, live: bool, f: impl Fn(&mut Fill)) {
+        let apply = |s: &mut DocState| {
+            for r in s.selection.clone() {
+                if let Some(Element {
+                    kind: ElementKind::Path(Path { fill: Some(fl), .. }),
+                    ..
+                }) = s.element_mut(r)
+                {
+                    f(fl);
                 }
             }
         };

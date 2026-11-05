@@ -474,6 +474,10 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
             anti_alias: preset.int_of("FET").unwrap_or(1) != 0,
             gradient: read_gradient(&category, preset, n, ctx),
             category,
+            texture: a.child("TXF").and_then(|t| read_texture(t, ctx)),
+            texture_amount: preset.int_of("FTB").unwrap_or(0).clamp(0, 1000) as u16,
+            // FSMi 1 = transparent; anything else (2 is the default) lightens the colour.
+            texture_transparent: preset.int_of("FSM") == Some(1),
         })
     });
     let stroke = attrs.and_then(|a| {

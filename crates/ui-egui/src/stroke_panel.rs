@@ -201,7 +201,16 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
         // Row 3: texture and its amount (Fireworks: "Texture: Grain  0%").
         ui.horizontal(|ui| {
             ui.add_enabled(s.has, egui::Label::new("Texture:"));
-            texture_menu(app, ui, target, &s);
+            if let Some(t) = texture_picker(app, ui, &s.texture, s.has) {
+                match target {
+                    Target::Tool => app.session.options.stroke_texture = Some(t),
+                    Target::Selection => {
+                        if let Some(d) = app.session.active_doc_mut() {
+                            d.edit_stroke("Stroke Texture", false, move |st| st.texture = Some(t.clone()));
+                        }
+                    }
+                }
+            }
             let mut amount = s.texture_amount as f64;
             let resp = ui.add_enabled(
                 s.has,
@@ -241,16 +250,18 @@ fn tool_brush(app: &FireCraftApp) -> firecraft_fwpng::Node {
     })
 }
 
-/// The textures of the active document's strokes (also inside groups and masks).
+/// The textures of the active document's strokes and fills (also inside groups and masks).
 fn document_textures(app: &FireCraftApp) -> Vec<firecraft_doc::Texture> {
     fn walk(els: &[firecraft_doc::Element], out: &mut Vec<firecraft_doc::Texture>) {
         for e in els {
             match &e.kind {
                 ElementKind::Path(p) => {
-                    if let Some(t) = p.stroke.as_ref().and_then(|s| s.texture.as_ref())
-                        && !out.iter().any(|o| o.name == t.name)
-                    {
-                        out.push(t.clone());
+                    let stroke = p.stroke.as_ref().and_then(|s| s.texture.as_ref());
+                    let fill = p.fill.as_ref().and_then(|f| f.texture.as_ref());
+                    for t in [stroke, fill].into_iter().flatten() {
+                        if !out.iter().any(|o| o.name == t.name) {
+                            out.push(t.clone());
+                        }
                     }
                 }
                 ElementKind::Group(c) => walk(c, out),
@@ -273,19 +284,24 @@ fn document_textures(app: &FireCraftApp) -> Vec<firecraft_doc::Texture> {
     out
 }
 
-/// The texture menu: Fireworks' textures (when found), FireCraft's built-in ones, those in
-/// the document, and Other... (an image file).
-fn texture_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &Shown) {
+/// The texture menu (strokes and fills): Fireworks' textures (when found), FireCraft's built-in
+/// ones, those in the document, and Other... (an image file). Returns the texture chosen.
+pub(crate) fn texture_picker(
+    app: &mut FireCraftApp,
+    ui: &mut egui::Ui,
+    current: &str,
+    enabled: bool,
+) -> Option<firecraft_doc::Texture> {
     let mut pick: Option<String> = None;
     let mut other = false;
-    let label = if s.texture.is_empty() {
+    let label = if current.is_empty() {
         "None".to_owned()
     } else {
-        s.texture.clone()
+        current.to_owned()
     };
     let button = egui::Button::new(format!("{label}     ")).min_size(vec2(130.0, 18.0));
     let (resp, _) = ui
-        .add_enabled_ui(s.has, |ui| {
+        .add_enabled_ui(enabled, |ui| {
             egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
                 for t in document_textures(app) {
                     app.texture_library().add(t);
@@ -297,7 +313,7 @@ fn texture_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &S
                 }
                 egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                     for name in lib.names() {
-                        if ui.selectable_label(name == s.texture, &name).clicked() {
+                        if ui.selectable_label(name == current, &name).clicked() {
                             pick = Some(name);
                             ui.close();
                         }
@@ -316,11 +332,11 @@ fn texture_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &S
     crate::fpui::glyphs::chevron_down(
         ui.painter(),
         arrow,
-        Color32::from_gray(if s.has { 40 } else { 150 }),
+        Color32::from_gray(if enabled { 40 } else { 150 }),
     );
     let texture = if other {
         let Some((name, bytes)) = app.platform.open_image() else {
-            return;
+            return None;
         };
         let stem = std::path::Path::new(&name)
             .file_stem()
@@ -346,15 +362,7 @@ fn texture_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &S
     } else {
         pick.and_then(|n| app.texture_library().get(&n))
     };
-    let Some(t) = texture else { return };
-    match target {
-        Target::Tool => app.session.options.stroke_texture = Some(t),
-        Target::Selection => {
-            if let Some(d) = app.session.active_doc_mut() {
-                d.edit_stroke("Stroke Texture", false, move |st| st.texture = Some(t.clone()));
-            }
-        }
-    }
+    texture
 }
 
 /// Start a live edit for a dragged value (one undo step for the drag).

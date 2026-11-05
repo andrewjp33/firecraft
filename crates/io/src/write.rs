@@ -752,6 +752,25 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
                 if attrs.child("FPL").is_none() {
                     attrs.children.push(fill_preset());
                 }
+                if let Some(fpl) = attrs.child_mut("FPL") {
+                    put(fpl, Node::int("FTB", f.texture_amount.min(1000) as i64));
+                    put(fpl, Node::int("FSM", if f.texture_transparent { 1 } else { 2 }));
+                }
+                if let Some(t) = &f.texture {
+                    let txf = texture_node("TXF", t, w);
+                    match attrs.children.iter().position(|c| c.is("TXF")) {
+                        Some(i) => attrs.children[i] = txf,
+                        None => {
+                            // After TXBv (Fireworks' order: BPL, FPL, TXB, TXF).
+                            let at = attrs
+                                .children
+                                .iter()
+                                .rposition(|c| c.is("TXB") || c.is("BPL") || c.is("FPL"))
+                                .map_or(attrs.children.len(), |i| i + 1);
+                            attrs.children.insert(at, txf);
+                        }
+                    }
+                }
             }
             None => attrs.children.retain(|c| !c.is("FPL")),
         }
@@ -792,6 +811,11 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         if attrs.child("BCL").is_none() {
             attrs.children.insert(0, Node::int("BCL", to_argb(Rgba::BLACK)));
         }
+        // Fireworks' order (others after, as they were).
+        const ORDER: [&str; 6] = ["BCL", "FCL", "BPL", "FPL", "TXB", "TXF"];
+        attrs
+            .children
+            .sort_by_key(|c| ORDER.iter().position(|t| c.is(t)).unwrap_or(ORDER.len()));
     }
     // Stroke placement (`BRPi`: 0 inside, 1 centred, 2 outside).
     if let Some(st) = &p.stroke {
@@ -970,6 +994,9 @@ mod tests {
                 category: "fc_Solid".into(),
                 anti_alias: true,
                 gradient: None,
+                texture: None,
+                texture_amount: 0,
+                texture_transparent: false,
             }),
             stroke: None,
             rect: None,
