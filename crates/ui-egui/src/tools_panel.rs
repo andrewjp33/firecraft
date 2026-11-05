@@ -261,11 +261,6 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     });
 }
 
-pub fn swatch(ui: &mut egui::Ui, color: Option<Rgba>, size: egui::Vec2) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    paint_swatch(ui.painter(), r, color);
-    resp
-}
 
 pub fn paint_swatch(p: &egui::Painter, r: Rect, color: Option<Rgba>) {
     match color {
@@ -318,11 +313,21 @@ fn colors(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             } else {
                 app.session.options.fill
             };
-            let resp =
-                swatch(ui, cur, vec2(24.0, 14.0)).on_hover_text(format!("{label} color (click to edit)"));
-            if resp.clicked() {
-                app.dialogs.color_target = Some(is_stroke);
+            // Fireworks CS's colour pop-up (FirePixel's re-creation).
+            use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
+            let footer = if is_stroke {
+                Footer::Stroke { placement: None, enabled: false }
+            } else {
+                Footer::Fill { kinds: false }
+            };
+            let choice = cp::color_box(ui, ("tools_color", is_stroke), vec2(24.0, 14.0), cur, footer);
+            let slot = if is_stroke { &mut app.session.options.stroke } else { &mut app.session.options.fill };
+            match choice {
+                Some(ColorChoice::Color(c)) => *slot = Some(cp::to_rgba(c)),
+                Some(ColorChoice::None) => *slot = None,
+                _ => {}
             }
+            let _ = label;
         });
     }
     ui.horizontal(|ui| {

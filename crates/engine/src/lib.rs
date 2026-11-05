@@ -1031,6 +1031,63 @@ impl DocState {
         });
     }
 
+    /// The selected paths' fill colour (`None`: no fill; a path without fill gets a solid one).
+    pub fn set_fill_color(&mut self, color: Option<Rgba>) {
+        let refs = self.selection.clone();
+        self.edit(if color.is_some() { "Fill Color" } else { "No Fill" }, |s| {
+            for r in refs {
+                if let Some(Element {
+                    kind: ElementKind::Path(p),
+                    ..
+                }) = s.element_mut(r)
+                {
+                    match (color, &mut p.fill) {
+                        (None, f) => *f = None,
+                        (Some(c), Some(f)) => f.color = c,
+                        (Some(c), f) => {
+                            *f = Some(Fill {
+                                color: c,
+                                category: "fc_Solid".into(),
+                                anti_alias: true,
+                                gradient: None,
+                            })
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// The selected paths' stroke colour (`None`: no stroke; a path without stroke gets the
+    /// 1-Pixel Anti-Aliased pencil).
+    pub fn set_stroke_color(&mut self, color: Option<Rgba>) {
+        let refs = self.selection.clone();
+        self.edit(if color.is_some() { "Stroke Color" } else { "No Stroke" }, |s| {
+            for r in refs {
+                if let Some(Element {
+                    kind: ElementKind::Path(p),
+                    ..
+                }) = s.element_mut(r)
+                {
+                    match (color, &mut p.stroke) {
+                        (None, st) => *st = None,
+                        (Some(c), Some(st)) => st.color = c,
+                        (Some(c), st) => {
+                            *st = Some(Stroke {
+                                color: c,
+                                category: "bc_Pencil".into(),
+                                name: "bn_1-Pixel Anti-Aliased".into(),
+                                diameter: 1.0,
+                                softness: 0,
+                                anti_alias: true,
+                            })
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     /// Set opacity (0..=100) on selected objects.
     pub fn set_opacity(&mut self, opacity: f32) {
         let refs = self.selection.clone();

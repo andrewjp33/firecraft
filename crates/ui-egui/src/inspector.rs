@@ -6,7 +6,8 @@ use firecraft_doc::ElementKind;
 use firecraft_engine::Tool;
 use firecraft_raster::{AntiAliasStyle, Edge};
 
-use crate::{FireCraftApp, icons, theme, tools_panel};
+use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
+use crate::{FireCraftApp, icons, theme};
 
 fn header(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut open = app.pi_open;
@@ -164,8 +165,10 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
         }
         ui.horizontal(|ui| {
             icons::glyph(ui, icons::Glyph::Bucket, 16.0);
-            if tools_panel::swatch(ui, o.fill, vec2(22.0, 14.0)).clicked() {
-                app.dialogs.color_target = Some(false);
+            match cp::color_box(ui, "tool_fill", vec2(22.0, 14.0), o.fill, Footer::Fill { kinds: false }) {
+                Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
+                Some(ColorChoice::None) => o.fill = None,
+                _ => {}
             }
             ComboBox::from_id_salt("fill_kind")
                 .width(80.0)
@@ -181,8 +184,16 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
                 });
             ui.separator();
             icons::glyph(ui, icons::Glyph::Pencil, 16.0);
-            if tools_panel::swatch(ui, o.stroke, vec2(22.0, 14.0)).clicked() {
-                app.dialogs.color_target = Some(true);
+            match cp::color_box(
+                ui,
+                "tool_stroke",
+                vec2(22.0, 14.0),
+                o.stroke,
+                Footer::Stroke { placement: None, enabled: false },
+            ) {
+                Some(ColorChoice::Color(c)) => o.stroke = Some(cp::to_rgba(c)),
+                Some(ColorChoice::None) => o.stroke = None,
+                _ => {}
             }
             ui.add(DragValue::new(&mut o.stroke_size).range(1..=100).suffix(" px"));
             ComboBox::from_id_salt("stroke_kind")
@@ -278,15 +289,39 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.separator();
     }
     // Fill/stroke of a single path.
+    let (mut fill_choice, mut stroke_choice): (Option<Option<firecraft_raster::Rgba>>, Option<Option<firecraft_raster::Rgba>>) =
+        (None, None);
     if let Some(ElementKind::Path(p)) = first.as_ref().map(|e| &e.kind) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 icons::glyph(ui, icons::Glyph::Bucket, 16.0);
-                tools_panel::swatch(ui, p.fill.as_ref().map(|f| f.color), vec2(22.0, 14.0));
+                let fill = cp::color_box(
+                    ui,
+                    "sel_fill",
+                    vec2(22.0, 14.0),
+                    p.fill.as_ref().map(|f| f.color),
+                    Footer::Fill { kinds: false },
+                );
+                match fill {
+                    Some(ColorChoice::Color(c)) => fill_choice = Some(Some(cp::to_rgba(c))),
+                    Some(ColorChoice::None) => fill_choice = Some(None),
+                    _ => {}
+                }
                 ui.label(if p.fill.is_some() { "Solid" } else { "None" });
                 ui.separator();
                 icons::glyph(ui, icons::Glyph::Pencil, 16.0);
-                tools_panel::swatch(ui, p.stroke.as_ref().map(|s| s.color), vec2(22.0, 14.0));
+                let stroke = cp::color_box(
+                    ui,
+                    "sel_stroke",
+                    vec2(22.0, 14.0),
+                    p.stroke.as_ref().map(|s| s.color),
+                    Footer::Stroke { placement: None, enabled: false },
+                );
+                match stroke {
+                    Some(ColorChoice::Color(c)) => stroke_choice = Some(Some(cp::to_rgba(c))),
+                    Some(ColorChoice::None) => stroke_choice = Some(None),
+                    _ => {}
+                }
                 if let Some(s) = &p.stroke {
                     ui.label(format!("{} px", s.diameter));
                 }
@@ -314,6 +349,14 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         });
         ui.separator();
+    }
+    if let Some(d) = app.session.active_doc_mut() {
+        if let Some(c) = fill_choice {
+            d.set_fill_color(c);
+        }
+        if let Some(c) = stroke_choice {
+            d.set_stroke_color(c);
+        }
     }
     // Opacity / blend / effects column.
     let mut opacity = first.as_ref().map(|e| e.opacity).unwrap_or(100.0);
@@ -367,8 +410,18 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Canvas:");
-            if tools_panel::swatch(ui, canvas, vec2(22.0, 14.0)).on_hover_text("Canvas color").clicked() {
-                app.dialogs.canvas_color = true;
+            match cp::color_box(ui, "canvas_color", vec2(22.0, 14.0), canvas, Footer::Canvas) {
+                Some(ColorChoice::Color(c)) => {
+                    if let Some(d) = app.session.active_doc_mut() {
+                        d.set_canvas(Some(cp::to_rgba(c)));
+                    }
+                }
+                Some(ColorChoice::None) => {
+                    if let Some(d) = app.session.active_doc_mut() {
+                        d.set_canvas(None);
+                    }
+                }
+                _ => {}
             }
             if ui.button("Canvas Size...").clicked() {
                 app.dialogs.open_canvas_size(app.session.active_doc());

@@ -462,6 +462,10 @@ pub fn export(app: &mut FireCraftApp) {
 
 #[allow(clippy::cognitive_complexity)] // a flat shortcut table; to be replaced by craft-keymap
 pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
+    // A colour pop-up takes the keyboard (typed HEX/RGB values, Enter, Esc).
+    if crate::fpui::color_picker::any_open(ctx) {
+        return;
+    }
     // Don't steal keys from text fields.
     if ctx.egui_wants_keyboard_input() {
         return;

@@ -23,8 +23,6 @@ pub struct Dialogs {
     pub new_custom: [u8; 3],
     pub canvas_size: Option<(u32, u32)>,
     pub canvas_color: bool,
-    /// Editing the stroke (`true`) or fill (`false`) tool colour.
-    pub color_target: Option<bool>,
     pub prefs: bool,
     pub about: bool,
     pub feather: Option<u32>,
@@ -210,7 +208,6 @@ impl Default for Dialogs {
             new_custom: [255, 255, 255],
             canvas_size: None,
             canvas_color: false,
-            color_target: None,
             prefs: false,
             about: false,
             feather: None,
@@ -373,27 +370,6 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
         }
         if close {
             app.dialogs.canvas_color = false;
-        }
-    }
-    let dl = &mut app.dialogs;
-    if let Some(stroke) = dl.color_target {
-        let mut close = false;
-        let o = &mut app.session.options;
-        let slot = if stroke { &mut o.stroke } else { &mut o.fill };
-        dialog(if stroke { "Stroke Color" } else { "Fill Color" }).show(ctx, |ui| {
-            let mut none = slot.is_none();
-            ui.checkbox(&mut none, "None");
-            if none {
-                *slot = None;
-            } else {
-                let mut c = slot.unwrap_or(Rgba::BLACK);
-                rgba_edit(ui, &mut c);
-                *slot = Some(c);
-            }
-            close = ui.button("OK").clicked();
-        });
-        if close {
-            app.dialogs.color_target = None;
         }
     }
     let dl = &mut app.dialogs;

@@ -10,6 +10,12 @@ FireCraft is MIT OR Apache-2.0. It adapts small pieces from these projects under
 
 Adapted:
 
+- `crates/ui-egui/src/fpui/`: FirePixel's re-creation of Fireworks CS's colour pop-up
+  (`color_picker.rs`, from `crates/fp-ui/src/inspector/color_picker.rs`), its glyph set
+  (`glyphs.rs`, from `inspector/glyphs.rs`), field/button helpers (`fields.rs`, from
+  `inspector/fields.rs`, `widgets.rs`, `dialogs/mod.rs`), its default theme colours (`theme.rs`)
+  and English texts (`texts.rs`, from `fp-i18n`'s en locale). FireCraft's changes are listed at
+  the top of `color_picker.rs`.
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in
   FirePixel's `crates/fp-raster/src/filters/gauss.rs` (kernel in single precision, separable
   passes rounding down to 8 bits, colour over non-transparent pixels, output margin).

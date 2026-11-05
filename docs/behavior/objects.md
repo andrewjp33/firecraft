@@ -51,3 +51,15 @@ Subselection tool yet (roadmap).
 Objects follow the pointer while dragged ("Show objects while moving them" in Preferences; off
 shows only an outline, for slower PCs). The Scale, Skew and Distort tools and rotating preview
 live under the same preference.
+
+## Colour pop-up
+
+Every colour box (Tools panel stroke and fill, the Property inspector's tool options, a
+selected path's fill and stroke, the canvas colour) opens Fireworks CS's colour pop-up, as
+re-created by FirePixel (`crates/ui-egui/src/fpui/color_picker.rs`): a 21 x 15 swatch grid, a
+preview, HEX and RGB fields with copy buttons, opacity with a drop-down slider, None (and, for
+fills and strokes, kind/placement buttons), and the colour-wheel dialog. The eyedropper is on as
+soon as it opens: the preview follows the colour under the pointer anywhere in FireCraft's
+window, and a click there takes it (clicks outside the window don't pick a colour). Esc cancels,
+Enter applies typed values. Gradient/pattern fills and stroke placement buttons are shown but
+not yet active.
