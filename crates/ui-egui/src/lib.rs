@@ -28,6 +28,7 @@ mod menus;
 mod nine;
 mod panels;
 mod path_tool;
+mod stroke_panel;
 mod theme;
 mod tools_panel;
 mod transform_tool;

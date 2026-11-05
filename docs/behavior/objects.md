@@ -63,3 +63,15 @@ soon as it opens: the preview follows the colour under the pointer anywhere in F
 window, and a click there takes it (clicks outside the window don't pick a colour). Esc cancels,
 Enter applies typed values. Gradient/pattern fills and stroke placement buttons are shown but
 not yet active.
+
+## Stroke controls
+
+The Property inspector shows Fireworks CS's stroke controls (FirePixel's layout,
+`crates/ui-egui/src/stroke_panel.rs`), for the selected paths and for new strokes (shape and pen
+tools): the colour box (its footer sets the stroke position for a selection), the tip size,
+the stroke category menu (None, Fireworks' 12 categories with their 54 presets, Stroke
+Options...), the inside/centred/outside buttons, the edge preview and the edge softness.
+Choosing a category keeps the stroke's colour, size and position, as Fireworks does; dragging
+the size or softness is one undo step. Strokes draw with Fireworks' brush engine
+([strokes.md](strokes.md)); Stroke Options (the Edit Stroke dialog) and stroke textures are not
+done yet.

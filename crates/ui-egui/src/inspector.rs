@@ -182,37 +182,11 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
                     }
                     ui.add_enabled(false, egui::Button::new("Linear (soon)"));
                 });
-            ui.separator();
-            icons::glyph(ui, icons::Glyph::Pencil, 16.0);
-            match cp::color_box(
-                ui,
-                "tool_stroke",
-                vec2(22.0, 14.0),
-                o.stroke,
-                Footer::Stroke { placement: None, enabled: false },
-            ) {
-                Some(ColorChoice::Color(c)) => o.stroke = Some(cp::to_rgba(c)),
-                Some(ColorChoice::None) => o.stroke = None,
-                _ => {}
-            }
-            ui.add(DragValue::new(&mut o.stroke_size).range(1..=100).suffix(" px"));
-            ComboBox::from_id_salt("stroke_kind")
-                .width(110.0)
-                .selected_text(if o.stroke.is_some() {
-                    "1-Pixel Soft"
-                } else {
-                    "None"
-                })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(o.stroke.is_none(), "None").clicked() {
-                        o.stroke = None;
-                    }
-                    if ui.selectable_label(o.stroke.is_some(), "Pencil").clicked() && o.stroke.is_none() {
-                        o.stroke = Some(firecraft_raster::Rgba::BLACK);
-                    }
-                });
         });
     });
+    // Fireworks CS's stroke controls (FirePixel's layout).
+    ui.separator();
+    crate::stroke_panel::show(app, ui, crate::stroke_panel::Target::Tool);
 }
 
 fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
@@ -289,8 +263,8 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.separator();
     }
     // Fill/stroke of a single path.
-    let (mut fill_choice, mut stroke_choice): (Option<Option<firecraft_raster::Rgba>>, Option<Option<firecraft_raster::Rgba>>) =
-        (None, None);
+    let mut fill_choice: Option<Option<firecraft_raster::Rgba>> = None;
+    let is_path = matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Path(_)));
     if let Some(ElementKind::Path(p)) = first.as_ref().map(|e| &e.kind) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -308,23 +282,6 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     _ => {}
                 }
                 ui.label(if p.fill.is_some() { "Solid" } else { "None" });
-                ui.separator();
-                icons::glyph(ui, icons::Glyph::Pencil, 16.0);
-                let stroke = cp::color_box(
-                    ui,
-                    "sel_stroke",
-                    vec2(22.0, 14.0),
-                    p.stroke.as_ref().map(|s| s.color),
-                    Footer::Stroke { placement: None, enabled: false },
-                );
-                match stroke {
-                    Some(ColorChoice::Color(c)) => stroke_choice = Some(Some(cp::to_rgba(c))),
-                    Some(ColorChoice::None) => stroke_choice = Some(None),
-                    _ => {}
-                }
-                if let Some(s) = &p.stroke {
-                    ui.label(format!("{} px", s.diameter));
-                }
             });
             // Rectangle roundness (Fireworks: rectangle primitives only).
             if let Some(r) = p.rect {
@@ -354,9 +311,11 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         if let Some(c) = fill_choice {
             d.set_fill_color(c);
         }
-        if let Some(c) = stroke_choice {
-            d.set_stroke_color(c);
-        }
+    }
+    // Fireworks CS's stroke controls (FirePixel's layout).
+    if is_path {
+        crate::stroke_panel::show(app, ui, crate::stroke_panel::Target::Selection);
+        ui.separator();
     }
     // Opacity / blend / effects column.
     let mut opacity = first.as_ref().map(|e| e.opacity).unwrap_or(100.0);

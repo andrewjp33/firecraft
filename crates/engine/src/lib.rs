@@ -1067,6 +1067,54 @@ impl DocState {
         });
     }
 
+    /// Change the stroke of the selected paths that have one (`live`: part of a slider drag
+    /// begun with `begin_live_edit`, no undo step of its own).
+    pub fn edit_stroke(&mut self, label: &str, live: bool, f: impl Fn(&mut Stroke)) {
+        let apply = |s: &mut DocState| {
+            for r in s.selection.clone() {
+                if let Some(Element {
+                    kind: ElementKind::Path(Path { stroke: Some(st), .. }),
+                    ..
+                }) = s.element_mut(r)
+                {
+                    f(st);
+                }
+            }
+        };
+        if live {
+            apply(self);
+            self.touch();
+        } else {
+            self.edit(label, apply);
+        }
+    }
+
+    /// The selected paths' stroke preset (Property inspector stroke category); paths without a
+    /// stroke get one in the stroke colour of the tools, as Fireworks does.
+    pub fn set_stroke_preset(&mut self, index: usize, opts: &ToolOptions) {
+        let refs = self.selection.clone();
+        let color = opts.stroke.unwrap_or(Rgba::BLACK);
+        self.edit("Stroke", |s| {
+            for r in refs {
+                if let Some(Element {
+                    kind: ElementKind::Path(p),
+                    ..
+                }) = s.element_mut(r)
+                {
+                    match &mut p.stroke {
+                        Some(st) => st.set_preset(index),
+                        None => {
+                            let d = firecraft_doc::brush_presets::BRUSH_PRESETS
+                                .get(index)
+                                .map_or(1.0, |b| b.diameter as f64);
+                            p.stroke = Some(Stroke::from_preset(color, index, d));
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     /// Set opacity (0..=100) on selected objects.
     pub fn set_opacity(&mut self, opacity: f32) {
         let refs = self.selection.clone();
