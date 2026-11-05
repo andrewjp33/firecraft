@@ -609,8 +609,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, Color32::from_gray(0xE0));
 
-    let fit =
-        (rect.width() / d.doc.width.max(1) as f32).min(rect.height() / d.doc.height.max(1) as f32) * 0.95;
+    // The zoom counts screen pixels (100%: one document pixel per screen pixel, as in
+    // Fireworks), so with display scaling a canvas pixel is 1/ppp points; drawing is in points.
+    let ppp = ctx.pixels_per_point();
+    let fit = (rect.width() / d.doc.width.max(1) as f32).min(rect.height() / d.doc.height.max(1) as f32)
+        * 0.95
+        * ppp;
     if d.zoom == 0.0 {
         // View > Fit All.
         d.zoom = fit.clamp(1.0 / 16.0, 64.0);
@@ -621,9 +625,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         // on) the symbol's content rather than its large canvas.
         match d.view_focus {
             Some((fx, fy, fw, fh)) => {
-                let f = (rect.width() / fw.max(1.0) as f32).min(rect.height() / fh.max(1.0) as f32) * 0.9;
+                let f =
+                    (rect.width() / fw.max(1.0) as f32).min(rect.height() / fh.max(1.0) as f32) * 0.9 * ppp;
                 d.zoom = f.clamp(1.0 / 16.0, 1.0);
-                center_on(d, view, (fx + fw / 2.0, fy + fh / 2.0));
+                center_on(d, view, (fx + fw / 2.0, fy + fh / 2.0), ppp);
             }
             None => d.zoom = fit.clamp(1.0 / 16.0, 1.0),
         }
@@ -640,9 +645,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             view.pan += scroll;
         }
     }
-    let z = d.zoom;
+    let z = d.zoom / ppp;
     let size = vec2(d.doc.width as f32, d.doc.height as f32) * z;
-    let origin = (rect.center() - size / 2.0 + view.pan).round();
+    // On whole screen pixels, so 100% shows each document pixel on exactly one screen pixel.
+    let origin = ((rect.center() - size / 2.0 + view.pan) * ppp).round() / ppp;
     let canvas_rect = Rect::from_min_size(origin, size);
     let to_doc =
         |pos: Pos2| -> (f64, f64) { (((pos.x - origin.x) / z) as f64, ((pos.y - origin.y) / z) as f64) };
@@ -946,13 +952,13 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     let (w, h) = ((bx - ax).abs() as f32, (by - ay).abs() as f32);
                     if w >= 2.0 && h >= 2.0 {
                         let out = mods.alt || view.drag_secondary;
-                        let fit = (rect.width() / w).min(rect.height() / h);
+                        let fit = (rect.width() / w).min(rect.height() / h) * ppp;
                         d.zoom = if out {
                             (d.zoom * d.zoom / fit).clamp(1.0 / 16.0, 64.0)
                         } else {
                             fit.clamp(1.0 / 16.0, 64.0)
                         };
-                        center_on(d, view, ((ax + bx) / 2.0, (ay + by) / 2.0));
+                        center_on(d, view, ((ax + bx) / 2.0, (ay + by) / 2.0), ppp);
                     }
                 }
                 Tool::Hand => {}
@@ -1218,9 +1224,10 @@ pub fn mouse_highlight(p: &egui::Painter, d: &DocState, r: ElementRef, to_screen
 }
 
 /// Pan so that document point `c` sits in the middle of the view.
-fn center_on(d: &DocState, view: &mut View, c: (f64, f64)) {
-    let size = vec2(d.doc.width as f32, d.doc.height as f32) * d.zoom;
-    view.pan = size / 2.0 - vec2(c.0 as f32, c.1 as f32) * d.zoom;
+fn center_on(d: &DocState, view: &mut View, c: (f64, f64), ppp: f32) {
+    let z = d.zoom / ppp;
+    let size = vec2(d.doc.width as f32, d.doc.height as f32) * z;
+    view.pan = size / 2.0 - vec2(c.0 as f32, c.1 as f32) * z;
 }
 
 fn zoom_at(d: &mut DocState, view: &mut View, rect: Rect, at: Option<Pos2>, factor: f32) {

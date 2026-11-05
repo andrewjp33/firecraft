@@ -35,6 +35,8 @@ pub struct PathEdit {
     drag: Option<Drag>,
     /// The document's revision when this state was last in step with it.
     revision: u64,
+    /// The canvas scale (points per document pixel) last shown.
+    scale: f32,
 }
 
 enum Drag {
@@ -170,6 +172,7 @@ pub fn canvas(
     (cursors, highlight): (crate::cursors::CursorStyle, bool),
 ) {
     edit.sync(d);
+    edit.scale = z;
     let ctx = resp.ctx.clone();
     let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
@@ -499,7 +502,7 @@ fn pen_press(
             }
             return;
         }
-        let tol = (HIT as f64) / d.zoom as f64;
+        let tol = (HIT as f64) / edit.scale.max(1e-3) as f64;
         if let Some((ci, seg, t, _)) = paths::nearest_segment(&p, at.0, at.1, tol) {
             if let Some(pt) = d.insert_point(r, ci, seg, t) {
                 edit.target = Some(r);
