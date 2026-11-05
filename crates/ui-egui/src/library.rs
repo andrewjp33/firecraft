@@ -23,12 +23,38 @@ struct LibraryUi {
     preview: Option<((u64, u32, u64), egui::TextureHandle)>,
 }
 
-fn kind_glyph(kind: SymbolKind) -> &'static str {
+/// The symbol type's icon, drawn (the UI font has no such characters): a diamond for
+/// Graphic, a play triangle for Animation, a framed square for Button.
+fn kind_icon(ui: &mut egui::Ui, kind: SymbolKind) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::hover());
+    let p = ui.painter();
+    let c = r.center();
+    let col = ui.visuals().text_color();
     match kind {
-        SymbolKind::Graphic => "◆",
-        SymbolKind::Animation => "▶",
-        SymbolKind::Button => "▣",
+        SymbolKind::Graphic => {
+            let pts = vec![
+                c + egui::vec2(0.0, -5.0),
+                c + egui::vec2(5.0, 0.0),
+                c + egui::vec2(0.0, 5.0),
+                c + egui::vec2(-5.0, 0.0),
+            ];
+            p.add(egui::Shape::convex_polygon(pts, col, egui::Stroke::NONE));
+        }
+        SymbolKind::Animation => {
+            let pts = vec![
+                c + egui::vec2(-4.0, -5.0),
+                c + egui::vec2(5.0, 0.0),
+                c + egui::vec2(-4.0, 5.0),
+            ];
+            p.add(egui::Shape::convex_polygon(pts, col, egui::Stroke::NONE));
+        }
+        SymbolKind::Button => {
+            let sq = egui::Rect::from_center_size(c, egui::vec2(10.0, 10.0));
+            p.rect_stroke(sq, 1.0, egui::Stroke::new(1.2, col), egui::StrokeKind::Inside);
+            p.rect_filled(sq.shrink(3.0), 0.0, col);
+        }
     }
+    resp
 }
 
 pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
@@ -109,7 +135,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let selected = st.selected == Some(*id);
         if st.renaming.as_ref().is_some_and(|(r, _)| r == id) {
             ui.horizontal(|ui| {
-                ui.label(kind_glyph(*kind));
+                kind_icon(ui, *kind);
                 if let Some((_, text)) = st.renaming.as_mut() {
                     let r = ui.add(egui::TextEdit::singleline(text).desired_width(140.0));
                     if !r.has_focus() && !r.lost_focus() {
@@ -125,27 +151,31 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             });
             continue;
         }
+        // Only the icon and name are the drag source: egui centres what's dragged on the
+        // pointer, so a full-width row would show its name far left of it.
         let row = ui
-            .dnd_drag_source(
-                egui::Id::unique(("library_row", doc_id, *id)),
-                SymbolDrag {
-                    doc: doc_id,
-                    symbol: *id,
-                },
-                |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(kind_glyph(*kind)).on_hover_text(kind.label());
-                        let text = RichText::new(name);
-                        let text = if selected {
-                            text.color(Color32::WHITE).background_color(theme::SELECT_BLUE)
-                        } else {
-                            text
-                        };
-                        ui.add(egui::Label::new(text).selectable(false));
-                        ui.add_space(ui.available_width());
-                    });
-                },
-            )
+            .horizontal(|ui| {
+                ui.dnd_drag_source(
+                    egui::Id::unique(("library_row", doc_id, *id)),
+                    SymbolDrag {
+                        doc: doc_id,
+                        symbol: *id,
+                    },
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            kind_icon(ui, *kind).on_hover_text(kind.label());
+                            let text = RichText::new(name);
+                            let text = if selected {
+                                text.color(Color32::WHITE).background_color(theme::SELECT_BLUE)
+                            } else {
+                                text
+                            };
+                            ui.add(egui::Label::new(text).selectable(false));
+                        });
+                    },
+                );
+                ui.add_space(ui.available_width());
+            })
             .response;
         let click = ui.interact(
             row.rect,
