@@ -150,6 +150,19 @@ pub struct ToolOptions {
     pub stroke_size: u32,
     /// Rectangle tool: corner roundness, 0..=1 (Property inspector "Rectangle roundness", %).
     pub roundness: f64,
+    /// Stroke preset for new strokes (index into `firecraft_doc::brush_presets`) and its edge
+    /// softness (percent).
+    pub stroke_preset: usize,
+    pub stroke_softness: u8,
+}
+
+impl ToolOptions {
+    /// A new stroke with the tool settings, in `color`.
+    pub fn new_stroke(&self, color: Rgba) -> firecraft_doc::Stroke {
+        let mut s = firecraft_doc::Stroke::from_preset(color, self.stroke_preset, self.stroke_size as f64);
+        s.softness = self.stroke_softness.min(100);
+        s
+    }
 }
 
 impl Default for ToolOptions {
@@ -163,6 +176,8 @@ impl Default for ToolOptions {
             fill: Some(Rgba::new(0x99, 0x99, 0x99, 255)),
             stroke_size: 1,
             roundness: 0.0,
+            stroke_preset: firecraft_doc::brush_presets::default_index(),
+            stroke_softness: 0,
         }
     }
 }

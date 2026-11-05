@@ -5,7 +5,7 @@
 //! Editing a path's points makes a rectangle primitive a plain path (`Path::rect` = `None`), as
 //! Fireworks does when a rectangle's points are edited.
 
-use firecraft_doc::{BezierPoint, Contour, Element, ElementKind, Fill, Path, Stroke};
+use firecraft_doc::{BezierPoint, Contour, Element, ElementKind, Fill, Path};
 
 use crate::{DocState, ElementRef, ToolOptions};
 
@@ -204,14 +204,7 @@ impl DocState {
                 anti_alias: true,
                 gradient: None,
             }),
-            stroke: Some(Stroke {
-                color: opts.stroke.unwrap_or(firecraft_raster::Rgba::BLACK),
-                category: "bc_Pencil".into(),
-                name: "bn_1-Pixel Anti-Aliased".into(),
-                diameter: opts.stroke_size as f64,
-                softness: 0,
-                anti_alias: true,
-            }),
+            stroke: Some(opts.new_stroke(opts.stroke.unwrap_or(firecraft_raster::Rgba::BLACK))),
             rect: None,
             pcl: None,
         };

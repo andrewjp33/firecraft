@@ -66,6 +66,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             diameter: 1.0,
             softness: 0,
             anti_alias: true,
+            brush: None,
+            placement: 1,
         }),
         rect: None,
         pcl: None,

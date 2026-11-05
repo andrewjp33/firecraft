@@ -899,14 +899,7 @@ impl DocState {
                 anti_alias: true,
                 gradient: None,
             }),
-            stroke: opts.stroke.map(|color| Stroke {
-                color,
-                category: "bc_Pencil".into(),
-                name: "bn_1-Pixel Anti-Aliased".into(),
-                diameter: opts.stroke_size as f64,
-                softness: 0,
-                anti_alias: true,
-            }),
+            stroke: opts.stroke.map(|color| opts.new_stroke(color)),
         };
         self.add_element(
             Element::new(ElementKind::Path(path)),
@@ -922,14 +915,7 @@ impl DocState {
                 closed: false,
             }],
             fill: None,
-            stroke: Some(Stroke {
-                color: opts.stroke.unwrap_or(Rgba::BLACK),
-                category: "bc_Pencil".into(),
-                name: "bn_1-Pixel Anti-Aliased".into(),
-                diameter: opts.stroke_size as f64,
-                softness: 0,
-                anti_alias: true,
-            }),
+            stroke: Some(opts.new_stroke(opts.stroke.unwrap_or(Rgba::BLACK))),
             rect: None,
             pcl: None,
         };
@@ -1073,14 +1059,7 @@ impl DocState {
                         (None, st) => *st = None,
                         (Some(c), Some(st)) => st.color = c,
                         (Some(c), st) => {
-                            *st = Some(Stroke {
-                                color: c,
-                                category: "bc_Pencil".into(),
-                                name: "bn_1-Pixel Anti-Aliased".into(),
-                                diameter: 1.0,
-                                softness: 0,
-                                anti_alias: true,
-                            })
+                            *st = Some(Stroke::from_preset(c, firecraft_doc::brush_presets::default_index(), 1.0))
                         }
                     }
                 }

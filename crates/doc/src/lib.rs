@@ -12,6 +12,7 @@
 //! `firecraft-io`.
 
 pub mod element;
+pub mod brush_presets;
 pub mod stroke_fw;
 
 mod cache;

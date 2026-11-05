@@ -157,10 +157,10 @@ pub fn brush_params(bpl: &Node) -> BrushParams {
 /// The engine's brush for a FireCraft stroke: the file's preset (or FireCraft's pencil) with the
 /// stroke's own settings.
 fn brush_for(stroke: &Stroke, raw: Option<&Node>) -> BrushParams {
-    let mut bpl = raw
-        .and_then(|r| r.child("PAT"))
-        .and_then(|a| a.child("BPL"))
-        .cloned()
+    let mut bpl = stroke
+        .brush
+        .clone()
+        .or_else(|| raw.and_then(|r| r.child("PAT")).and_then(|a| a.child("BPL")).cloned())
         .unwrap_or_else(|| pencil_preset(stroke));
     sync_preset(&mut bpl, stroke);
     brush_params(&bpl)
@@ -232,7 +232,7 @@ pub fn draw(layer: &mut RgbaImage, path: &Path, stroke: &Stroke, raw: Option<&No
         fill: None,
         stroke: None,
         fill_over_stroke: raw.and_then(|r| r.bool_of("FOT")).unwrap_or(false),
-        placement: StrokePlacement::from_u32(flag("BRP").unwrap_or(1).max(0) as u32),
+        placement: StrokePlacement::from_u32(stroke.placement as u32),
         ptt: flag("PTT") == Some(1),
         texture_offset: Vec2::new(0.0, 0.0),
         random_seed: flag("RND").unwrap_or(0) as u32,
@@ -280,6 +280,8 @@ mod tests {
                 diameter: 1.0,
                 softness: 0,
                 anti_alias: true,
+                brush: None,
+                placement: 1,
             };
             let mut img = RgbaImage::new(80, 10, Rgba::BLACK);
             draw(&mut img, &path, &stroke, None, (0.0, 0.0));

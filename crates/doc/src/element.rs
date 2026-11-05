@@ -92,6 +92,52 @@ pub struct Stroke {
     /// Anti-aliased tip (the brush preset's `BIAb`): placed at sub-pixel positions; otherwise
     /// it snaps to whole pixels.
     pub anti_alias: bool,
+    /// The full brush preset (`BPLv`: tip, spacing, natural brush settings, dashes,
+    /// sensitivities); `diameter`, `softness` and `anti_alias` above override its fields.
+    /// `None`: Fireworks' 1-Pixel Anti-Aliased pencil.
+    pub brush: Option<Node>,
+    /// Stroke placement (`BRPi` on the path): 0 inside, 1 centred, 2 outside.
+    pub placement: u8,
+}
+
+impl Stroke {
+    /// A centred stroke of preset `index` (see [`crate::brush_presets`]) with `diameter`.
+    pub fn from_preset(color: Rgba, index: usize, diameter: f64) -> Stroke {
+        let p = crate::brush_presets::BRUSH_PRESETS
+            .get(index)
+            .or(crate::brush_presets::BRUSH_PRESETS.first());
+        let d = diameter.round().clamp(1.0, 1000.0);
+        match p {
+            Some(p) => Stroke {
+                color,
+                category: p.category.into(),
+                name: p.name.into(),
+                diameter: d,
+                softness: (p.softness.clamp(0, 1000) / 10) as u8,
+                anti_alias: p.antialiased,
+                brush: Some(crate::brush_presets::node(p, d as i32)),
+                placement: 1,
+            },
+            None => Stroke {
+                color,
+                category: "bc_Pencil".into(),
+                name: "bn_1-Pixel Anti-Aliased".into(),
+                diameter: d,
+                softness: 0,
+                anti_alias: true,
+                brush: None,
+                placement: 1,
+            },
+        }
+    }
+
+    /// Switch to preset `index`, keeping colour, size and placement (as Fireworks' stroke
+    /// category menu does).
+    pub fn set_preset(&mut self, index: usize) {
+        let keep = (self.color, self.diameter, self.placement);
+        *self = Stroke::from_preset(keep.0, index, keep.1);
+        self.placement = keep.2;
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

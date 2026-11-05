@@ -484,6 +484,8 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
             // BSEi is in tenths of a percent (1000 = 100%).
             softness: (preset.int_of("BSE").unwrap_or(0).clamp(0, 1000) / 10) as u8,
             anti_alias: preset.bool_of("BIA").unwrap_or(true),
+            brush: Some(preset.clone()),
+            placement: n.int_of("BRP").unwrap_or(1).clamp(0, 2) as u8,
         })
     });
     let rect = read_rect(n, &contours, ctx);

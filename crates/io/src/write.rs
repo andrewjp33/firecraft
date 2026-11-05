@@ -686,10 +686,13 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
                 put(attrs, Node::int("BCL", to_argb(s.color)));
                 // The file's brush preset, in step with FireCraft's stroke settings; new
                 // strokes get FireCraft's pencil.
-                match attrs.child_mut("BPL") {
-                    Some(bpl) => firecraft_doc::stroke_fw::sync_preset(bpl, s),
-                    None => attrs.children.push(firecraft_doc::stroke_fw::pencil_preset(s)),
-                }
+                let mut bpl = s
+                    .brush
+                    .clone()
+                    .or_else(|| attrs.child("BPL").cloned())
+                    .unwrap_or_else(|| firecraft_doc::stroke_fw::pencil_preset(s));
+                firecraft_doc::stroke_fw::sync_preset(&mut bpl, s);
+                put(attrs, bpl);
             }
             None => attrs.children.retain(|c| !c.is("BPL")),
         }
@@ -701,6 +704,10 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         if attrs.child("BCL").is_none() {
             attrs.children.insert(0, Node::int("BCL", to_argb(Rgba::BLACK)));
         }
+    }
+    // Stroke placement (`BRPi`: 0 inside, 1 centred, 2 outside).
+    if let Some(st) = &p.stroke {
+        put(&mut n, Node::int("BRP", st.placement.min(2) as i64));
     }
     // Gradient handles follow the object when it is moved or scaled.
     if let Some((s, e, f)) = gradient_handles {
