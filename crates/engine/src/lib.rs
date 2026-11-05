@@ -362,6 +362,18 @@ impl DocState {
     /// Select Behind: select the object below the currently selected one at this point (the
     /// topmost if the selection isn't under the point), wrapping around.
     pub fn select_behind(&mut self, x: f64, y: f64) {
+        match self.behind_target(x, y) {
+            Some(h) => {
+                self.selection = vec![h];
+                self.pixels = None;
+            }
+            None => self.deselect(),
+        }
+    }
+
+    /// What a Select Behind click at this point would select: the object below the selected
+    /// one (the topmost if the selection isn't under the point), wrapping around.
+    pub fn behind_target(&self, x: f64, y: f64) -> Option<ElementRef> {
         let hits = self.hits_at(x, y);
         let next = match self.selection.as_slice() {
             [one] => hits
@@ -370,13 +382,7 @@ impl DocState {
                 .map_or(0, |k| (k + 1) % hits.len().max(1)),
             _ => 0,
         };
-        match hits.get(next) {
-            Some(&h) => {
-                self.selection = vec![h];
-                self.pixels = None;
-            }
-            None => self.deselect(),
-        }
+        hits.get(next).copied()
     }
 
     /// Whether canvas point (`x`, `y`) is inside the selection's bounding box (pressing there

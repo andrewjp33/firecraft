@@ -1153,7 +1153,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         && let Some(h) = hover
     {
         let (x, y) = to_doc(h);
-        if let Some(r) = d.hit_test(x, y)
+        let target = if tool == Tool::SelectBehind {
+            d.behind_target(x, y)
+        } else {
+            d.hit_test(x, y)
+        };
+        if let Some(r) = target
             && !d.selection.contains(&r)
         {
             mouse_highlight(&p, d, r, &to_screen);
@@ -1189,6 +1194,16 @@ pub fn mouse_highlight(p: &egui::Painter, d: &DocState, r: ElementRef, to_screen
                     } else {
                         Shape::line(pts, red)
                     });
+                }
+                // An open path's ends: red squares (as the selection's blue ones).
+                if !c.closed {
+                    for b in [c.points.first(), c.points.last()].into_iter().flatten() {
+                        p.rect_filled(
+                            Rect::from_center_size(to_screen(b.x, b.y), vec2(5.0, 5.0)),
+                            0.0,
+                            red.color,
+                        );
+                    }
                 }
             }
         }
