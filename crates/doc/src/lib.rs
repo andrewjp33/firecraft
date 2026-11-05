@@ -150,6 +150,9 @@ pub struct RenderCtx<'a> {
     pub frame: usize,
     pub depth: u32,
     pub math: ColorMath,
+    /// The symbols being drawn around this point, outermost first (`depth` of them): a symbol
+    /// that contains itself, directly or through others, is drawn once, not recursively.
+    pub chain: [u32; MAX_SYMBOL_DEPTH as usize],
 }
 
 impl RenderCtx<'_> {
@@ -158,13 +161,25 @@ impl RenderCtx<'_> {
         frame: 0,
         depth: 0,
         math: ColorMath::Classic,
+        chain: [0; MAX_SYMBOL_DEPTH as usize],
     };
 
-    pub fn deeper(&self) -> Self {
-        Self {
-            depth: self.depth + 1,
-            ..*self
+    /// Inside `el` (an instance: its symbol joins the chain).
+    pub fn deeper(&self, el: &Element) -> Self {
+        let mut c = *self;
+        if let (ElementKind::Instance { symbol, .. }, Some(slot)) =
+            (&el.kind, c.chain.get_mut(self.depth as usize))
+        {
+            *slot = *symbol;
         }
+        c.depth = self.depth + 1;
+        c
+    }
+
+    /// Whether symbol `id` is already being drawn further out.
+    pub fn inside_symbol(&self, id: u32) -> bool {
+        let n = (self.depth as usize).min(self.chain.len());
+        self.chain.get(..n).is_some_and(|c| c.contains(&id))
     }
 }
 
@@ -335,6 +350,7 @@ impl Document {
             frame,
             depth: 0,
             math: self.color_math,
+            chain: [0; crate::MAX_SYMBOL_DEPTH as usize],
         };
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
             for el in layer.elements(frame) {
@@ -347,6 +363,61 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
+    /// Symbols that contain each other (A holds 8 B's, B holds 8 A's) draw each symbol once
+    /// per chain instead of recursing 8^16 times (pasting Symbol 3 into Symbol 2 froze the app).
+    #[test]
+    fn symbols_containing_each_other_render_quickly() {
+        use firecraft_raster::transform::Affine;
+        let sym = |id: u32, other: u32| {
+            let mut l = Layer::new("Layer 1");
+            if let Some(c) = l.elements_mut(0) {
+                c.push(Element::new(ElementKind::Bitmap(Bitmap {
+                    x: 0,
+                    y: 0,
+                    image: RgbaImage::new(4, 4, Rgba::BLACK),
+                })));
+                for k in 0..8 {
+                    c.push(Element::new(ElementKind::Instance {
+                        symbol: other,
+                        name: String::new(),
+                        matrix: Affine::translate(5.0 * k as f64, 5.0),
+                        bounds: None,
+                    }));
+                }
+            }
+            Symbol {
+                id,
+                name: format!("S{id}"),
+                kind: SymbolKind::Graphic,
+                layers: vec![l],
+                frames: 1,
+                nine: None,
+                raw: None,
+            }
+        };
+        let mut doc = Document::new(100, 100, 72.0, Some(Rgba::WHITE));
+        let mut symbols = vec![sym(1, 2), sym(2, 1)];
+        refresh_nested_instance_bounds(&mut symbols);
+        doc.symbols = std::sync::Arc::new(symbols);
+        if let Some(c) = doc.layers[0].elements_mut(0) {
+            c.push(Element::new(ElementKind::Instance {
+                symbol: 1,
+                name: String::new(),
+                matrix: Affine::translate(10.0, 10.0),
+                bounds: None,
+            }));
+        }
+        let t = std::time::Instant::now();
+        let img = doc.render(0);
+        let mut cache = RenderCache::default();
+        let cached = doc.render_cached(0, &mut cache);
+        assert!(t.elapsed().as_secs() < 10, "took {:?}", t.elapsed());
+        // A's bitmap and the B's inside it are drawn.
+        assert_eq!(img.get(11, 11).map(|p| p.r), Some(0));
+        assert_eq!(img.get(16, 16).map(|p| p.r), Some(0));
+        assert_eq!(img, cached);
+    }
+
     #[test]
     fn symbols_of_symbols_get_bounds() {
         use firecraft_raster::transform::Affine;

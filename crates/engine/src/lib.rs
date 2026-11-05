@@ -311,6 +311,7 @@ impl DocState {
             frame: self.frame(),
             depth: 0,
             math: self.doc.color_math,
+            chain: [0; firecraft_doc::MAX_SYMBOL_DEPTH as usize],
         };
         let mut out = Vec::new();
         for (li, layer) in self.doc.layers.iter().enumerate().rev() {
@@ -338,6 +339,7 @@ impl DocState {
             frame: self.frame(),
             depth: 0,
             math: self.doc.color_math,
+            chain: [0; firecraft_doc::MAX_SYMBOL_DEPTH as usize],
         };
         let mut r = self.hit_test(x, y)?;
         'down: loop {
@@ -726,6 +728,7 @@ impl DocState {
             frame: self.doc.current_frame,
             depth: 0,
             math: self.doc.color_math,
+            chain: [0; firecraft_doc::MAX_SYMBOL_DEPTH as usize],
         };
         objects
             .iter()

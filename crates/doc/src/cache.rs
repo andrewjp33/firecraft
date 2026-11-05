@@ -196,6 +196,7 @@ impl Document {
             frame,
             depth: 0,
             math: self.color_math,
+            chain: [0; crate::MAX_SYMBOL_DEPTH as usize],
         };
         let canvas = self.canvas.unwrap_or(Rgba::TRANSPARENT);
         cache.last = (0, 0);
@@ -313,7 +314,7 @@ fn collect_units<'a>(el: &Element, ctx: &RenderCtx<'a>, cache: &mut RenderCache,
     }
     let mut pieces = Vec::new();
     if pass_through {
-        let inner = ctx.deeper();
+        let inner = ctx.deeper(&local);
         for c in local.pass_through_children(ctx) {
             collect_pieces(&c, &inner, &mut pieces);
         }
@@ -343,7 +344,7 @@ fn collect_pieces(el: &Element, ctx: &RenderCtx, out: &mut Vec<Piece>) {
     }
     if el.is_pass_through() {
         let inner = if matches!(el.kind, ElementKind::Instance { .. }) {
-            ctx.deeper()
+            ctx.deeper(el)
         } else {
             *ctx
         };
@@ -473,7 +474,7 @@ fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {
             quantized(&format!("{m:?}")).hash(h);
             // The symbol's contents (what the instance shows in this frame).
             if let Some(children) = el.symbol_elements(ctx) {
-                let inner = ctx.deeper();
+                let inner = ctx.deeper(el);
                 for c in &children {
                     hash_element(c, &inner, h);
                     c.opacity.to_bits().hash(h);

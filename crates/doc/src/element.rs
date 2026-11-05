@@ -699,7 +699,7 @@ impl Element {
             ElementKind::Instance {
                 matrix, bounds: None, ..
             } => {
-                let inner = ctx.deeper();
+                let inner = ctx.deeper(self);
                 let kids = self.symbol_elements(ctx)?;
                 let (x, y, w, h) = union(&mut kids.iter().filter_map(|c| c.deep_bounds(&inner)))?;
                 Some(matrix.map_rect(x, y, w, h))
@@ -714,7 +714,7 @@ impl Element {
         let ElementKind::Instance { symbol, .. } = &self.kind else {
             return None;
         };
-        if ctx.depth >= MAX_SYMBOL_DEPTH {
+        if ctx.depth >= MAX_SYMBOL_DEPTH || ctx.inside_symbol(*symbol) {
             return None;
         }
         let sym = ctx.symbols.iter().find(|s| s.id == *symbol)?;
@@ -853,7 +853,7 @@ impl Element {
                 }
                 let matrix = nine.map_or(*matrix, |(_, _, rest)| rest);
                 let matrix = &matrix;
-                let inner = ctx.deeper();
+                let inner = ctx.deeper(self);
                 let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
                 for c in &children {
                     if let Some((bx, by, bw, bh)) = c.deep_bounds(&inner) {
@@ -899,7 +899,7 @@ impl Element {
             }
             ElementKind::Instance { .. } => {
                 let children = self.instance_elements(ctx)?;
-                let inner = ctx.deeper();
+                let inner = ctx.deeper(self);
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
                 children
                     .iter()
@@ -1037,7 +1037,7 @@ impl Element {
         }
         if self.is_pass_through() {
             let inner = if matches!(self.kind, ElementKind::Instance { .. }) {
-                ctx.deeper()
+                ctx.deeper(self)
             } else {
                 *ctx
             };

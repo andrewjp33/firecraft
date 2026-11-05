@@ -768,13 +768,12 @@ fn paste(app: &mut FireCraftApp) {
     {
         match firecraft_io::read_clipboard_png(&png) {
             Ok((elements, symbols, tiles)) => {
-                with_doc(app, |d| {
-                    d.paste(&firecraft_engine::Clipboard {
-                        elements,
-                        symbols,
-                        tiles,
-                    })
-                });
+                let clip = firecraft_engine::Clipboard {
+                    elements,
+                    symbols,
+                    tiles,
+                };
+                with_doc(app, |d| d.paste(&clip));
             }
             Err(e) => app.status = Some((format!("Can't paste the clipboard's image: {e}"), true)),
         }
@@ -784,6 +783,10 @@ fn paste(app: &mut FireCraftApp) {
         d.paste(clip);
     }
 }
+
+/// Fireworks MX's message when a symbol dropped from the Library into a Symbol Editor would
+/// end up containing itself (the drop is refused).
+pub const SELF_NEST: &str = "Could not drag and drop.\nAlthough symbols may contain other symbols, a symbol can not contain a copy of itself.";
 
 /// Ctrl+X / Ctrl+C / Ctrl+V (egui turns them into clipboard events). An image from another
 /// application pastes as a new bitmap object in the middle of the canvas.

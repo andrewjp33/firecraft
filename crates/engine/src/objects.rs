@@ -174,6 +174,64 @@ impl DocState {
                 }
             }
         }
+        // In a Symbol Editor, an instance that would make the edited symbol contain itself
+        // (Symbol 3 pasted into Symbol 2, which Symbol 3 is made of): as Fireworks MX does, the
+        // clipboard's symbols that lead back to it are pasted as copies (same names, new ids,
+        // contents as copied), so nothing contains itself (verified: mechscene2_loop.png).
+        if let Some(link) = self.symbol_link {
+            // The clipboard's symbols, with the document's for any nested ones it doesn't carry.
+            let mut used = Vec::new();
+            clip.elements
+                .iter()
+                .for_each(|e| crate::symbols::instances_in(e, &mut used));
+            let mut k = 0;
+            while let Some(&id) = used.get(k) {
+                k += 1;
+                if !clip.symbols.iter().any(|s| s.id == id)
+                    && let Some(s) = self.doc.symbols.iter().find(|s| s.id == id)
+                {
+                    clip.symbols.push(s.clone());
+                }
+                if let Some(sym) = clip.symbols.iter().find(|s| s.id == id) {
+                    for e in sym.layers.iter().flat_map(|l| l.cells.iter().flatten()) {
+                        crate::symbols::instances_in(e, &mut used);
+                    }
+                }
+            }
+            let looping: Vec<u32> = clip
+                .symbols
+                .iter()
+                .map(|s| s.id)
+                .filter(|&id| crate::symbols::symbol_reaches(&clip.symbols, id, link.symbol))
+                .collect();
+            let mut next = self
+                .doc
+                .symbols
+                .iter()
+                .chain(clip.symbols.iter())
+                .map(|x| x.id)
+                .max()
+                .unwrap_or(0)
+                + 1;
+            for from in looping {
+                let to = next;
+                next += 1;
+                clip.elements.iter_mut().for_each(|e| renumber(e, from, to));
+                for sym in &mut clip.symbols {
+                    if sym.id == from {
+                        sym.id = to;
+                    }
+                    for layer in &mut sym.layers {
+                        layer
+                            .cells
+                            .iter_mut()
+                            .flatten()
+                            .for_each(|e| renumber(e, from, to));
+                    }
+                }
+            }
+            firecraft_doc::refresh_nested_instance_bounds(&mut clip.symbols);
+        }
         // Tiles: keep identical ones, renumber those whose ids this document uses otherwise.
         let mut next_tile = self
             .doc

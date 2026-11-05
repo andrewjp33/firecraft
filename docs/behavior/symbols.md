@@ -16,6 +16,18 @@ Measured with Fireworks MX (`dom.convertToSymbol` on test shapes, then the saved
   first, also after editing a nested symbol). Until 2026-11-05 a symbol made only of other
   symbols' instances had no bounds, so its instances (mechscene2.png's floor, Symbol 3) could be
   dragged but showed no outline and couldn't be transformed.
+* **A symbol can't contain itself** (Fireworks MX, checked by the user and in
+  mechscene2_loop.png):
+  * Dragging a symbol from the Library into a Symbol Editor where it would end up inside itself
+    (directly, or because it contains the edited symbol) is refused with Fireworks' message
+    "Could not drag and drop. Although symbols may contain other symbols, a symbol can not
+    contain a copy of itself."
+  * Pasting such an instance works, but the clipboard's symbols that lead back to the edited
+    symbol come in as copies (same names, new ids, contents as they were copied): pasting
+    Symbol 3 into Symbol 2 (which Symbol 3 is made of) adds a second "Symbol 3" made of a second
+    "Symbol 2".
+  * A file whose symbols do contain each other draws each such symbol once per chain instead of
+    recursing (before 2026-11-05 FireCraft froze: about 12^16 drawings).
 * **Break Apart** replaces an instance with the symbol's objects as the instance shows them; the
   symbol stays in the Library.
 

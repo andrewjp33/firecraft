@@ -91,6 +91,49 @@ fn all_cells(doc: &mut Document) -> Vec<&mut Vec<Element>> {
     out
 }
 
+/// The symbols `e` shows instances of (also inside groups and masks).
+pub(crate) fn instances_in(e: &Element, out: &mut Vec<u32>) {
+    match &e.kind {
+        ElementKind::Instance { symbol, .. } => {
+            if !out.contains(symbol) {
+                out.push(*symbol);
+            }
+        }
+        ElementKind::Group(children) => children.iter().for_each(|c| instances_in(c, out)),
+        ElementKind::Masked { content, mask, .. } => {
+            content.iter().for_each(|c| instances_in(c, out));
+            instances_in(mask, out);
+        }
+        _ => {}
+    }
+}
+
+/// Whether symbol `from` is `target` or contains an instance of it, directly or through other
+/// symbols.
+pub(crate) fn symbol_reaches(symbols: &[Symbol], from: u32, target: u32) -> bool {
+    let mut seen = vec![from];
+    let mut todo = vec![from];
+    while let Some(id) = todo.pop() {
+        if id == target {
+            return true;
+        }
+        let Some(sym) = symbols.iter().find(|s| s.id == id) else {
+            continue;
+        };
+        let mut used = Vec::new();
+        for e in sym.layers.iter().flat_map(|l| l.cells.iter().flatten()) {
+            instances_in(e, &mut used);
+        }
+        for u in used {
+            if !seen.contains(&u) {
+                seen.push(u);
+                todo.push(u);
+            }
+        }
+    }
+    false
+}
+
 /// After a symbol's content changed: its instances' cached bounds and names.
 fn refresh_instances(doc: &mut Document, id: u32) {
     let Some(sym) = doc.symbols.iter().find(|s| s.id == id) else {
@@ -248,6 +291,7 @@ impl DocState {
             frame: self.doc.current_frame,
             depth: 0,
             math: self.doc.color_math,
+            chain: [0; firecraft_doc::MAX_SYMBOL_DEPTH as usize],
         };
         // Each instance's objects, in place (instances' own opacity/blend/effects are dropped,
         // as Fireworks does).
@@ -288,7 +332,20 @@ impl DocState {
 
     /// Library: place an instance of `id` with its origin at (`x`, `y`) on the current layer,
     /// selected.
+    /// In a Symbol Editor: whether an instance of `id` here would make the edited symbol contain
+    /// itself (`id` is that symbol, or contains it through other symbols). Placing one would
+    /// recurse endlessly.
+    pub fn would_nest_itself(&self, id: u32) -> bool {
+        self.symbol_link
+            .is_some_and(|l| symbol_reaches(&self.doc.symbols, id, l.symbol))
+    }
+
+    /// Place an instance of symbol `id` with its origin at (`x`, `y`); nothing if that would put
+    /// the edited symbol inside itself ([`DocState::would_nest_itself`]).
     pub fn insert_instance(&mut self, id: u32, x: f64, y: f64) {
+        if self.would_nest_itself(id) {
+            return;
+        }
         let Some(sym) = self.doc.symbols.iter().find(|s| s.id == id) else {
             return;
         };
@@ -736,6 +793,84 @@ mod tests {
         s.sync_symbols();
         assert_eq!(s.docs.len(), 1);
     }
+    /// In a symbol's editor, an instance of a symbol containing it can't be pasted or dropped
+    /// (it would contain itself); others can.
+    #[test]
+    fn a_symbol_cannot_be_placed_inside_itself() {
+        let mut s = Session::default();
+        s.push(doc().doc);
+        let d = s.active_doc_mut().expect("doc");
+        d.add_shape((150.0, 20.0, 190.0, 60.0), false, &ToolOptions::default());
+        d.selection = vec![ElementRef::new(0, 0)];
+        let inner = d.convert_to_symbol("inner", SymbolKind::Graphic).expect("inner");
+        let other = {
+            let n = d.doc.layers[0].elements(0).len();
+            d.selection = vec![ElementRef::new(0, n - 1)];
+            d.convert_to_symbol("other", SymbolKind::Graphic).expect("other")
+        };
+        let at = d.doc.layers[0]
+            .elements(0)
+            .iter()
+            .position(|e| matches!(&e.kind, ElementKind::Instance { symbol, .. } if *symbol == inner))
+            .expect("inner instance");
+        d.selection = vec![ElementRef::new(0, at)];
+        let outer = d.convert_to_symbol("outer", SymbolKind::Graphic).expect("outer");
+        // Copy an outer instance, then edit the inner symbol.
+        let top = d.doc.layers[0].elements(0).len();
+        d.selection = (0..top)
+            .map(|i| ElementRef::new(0, i))
+            .filter(|r| d.instance_symbol(*r) == Some(outer))
+            .collect();
+        let clip = d.copy().expect("copied");
+        s.edit_symbol(0, inner);
+        let ed = s.active_doc_mut().expect("inner editor");
+        let n = ed.doc.layers[0].elements(0).len();
+        assert!(ed.would_nest_itself(outer) && ed.would_nest_itself(inner));
+        assert!(!ed.would_nest_itself(other));
+        // Dropping from the Library is refused (Fireworks: "a symbol can not contain a copy of
+        // itself"); other symbols can be placed.
+        ed.insert_instance(outer, 0.0, 0.0);
+        ed.insert_instance(inner, 0.0, 0.0);
+        assert_eq!(ed.doc.layers[0].elements(0).len(), n);
+        ed.insert_instance(other, 0.0, 0.0);
+        assert_eq!(ed.doc.layers[0].elements(0).len(), n + 1);
+        // Pasting goes in as copies of the symbols that lead back (as Fireworks MX does):
+        // "outer" and "inner" again, with new ids, and nothing contains itself.
+        ed.paste(&clip);
+        let els = ed.doc.layers[0].elements(0);
+        assert_eq!(els.len(), n + 2);
+        let pasted = match &els[n + 1].kind {
+            ElementKind::Instance { symbol, .. } => *symbol,
+            _ => panic!("not an instance"),
+        };
+        assert_ne!(pasted, outer);
+        let name = |id: u32| ed.doc.symbols.iter().find(|s| s.id == id).map(|s| s.name.clone());
+        assert_eq!(name(pasted).as_deref(), Some("outer"));
+        assert!(!symbol_reaches(&ed.doc.symbols, pasted, inner));
+        assert_eq!(ed.doc.symbols.iter().filter(|s| s.name == "inner").count(), 2);
+        s.sync_symbols();
+        let root = &s.docs[0];
+        assert!(
+            !root
+                .doc
+                .symbols
+                .iter()
+                .any(|x| symbol_reaches_strict(&root.doc.symbols, x.id))
+        );
+    }
+
+    /// Whether symbol `id` contains itself (through at least one instance).
+    fn symbol_reaches_strict(symbols: &[Symbol], id: u32) -> bool {
+        let Some(sym) = symbols.iter().find(|s| s.id == id) else {
+            return false;
+        };
+        let mut used = Vec::new();
+        for e in sym.layers.iter().flat_map(|l| l.cells.iter().flatten()) {
+            instances_in(e, &mut used);
+        }
+        used.iter().any(|&u| symbol_reaches(symbols, u, id))
+    }
+
     /// Symbol 2 edited from inside Symbol 3's editor (mechscene2.png): the change reaches the
     /// document, the outer editor shows it, Done returns to the outer editor, and reopening
     /// keeps it.
