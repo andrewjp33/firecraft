@@ -75,5 +75,13 @@ the stroke category menu (None, Fireworks' 12 categories with their 54 presets, 
 Options...), the inside/centred/outside buttons, the edge preview and the edge softness.
 Choosing a category keeps the stroke's colour, size and position, as Fireworks does; dragging
 the size or softness is one undo step. Strokes draw with Fireworks' brush engine
-([strokes.md](strokes.md)); Stroke Options (the Edit Stroke dialog) and stroke textures are not
-done yet.
+([strokes.md](strokes.md)); stroke textures are not loaded yet.
+
+**Stroke Options...** (end of the category menu) opens Edit Stroke (after FirePixel's
+`brush_edit.rs`): Options (ink amount, spacing and flow for natural brushes, build-up, texture,
+edge texture, edge effect, tips, tip spacing and variation for several tips, dashes with on/off
+lengths), Shape (tip preview, square, size, edge, aspect, angle) and Sensitivity (each stroke
+property's dependence on pressure, speed, horizontal and vertical direction and randomness),
+with a sample stroke drawn by the brush engine. OK applies it to the selected strokes (one undo
+step) or, with nothing selected or from the tool options, to new strokes; the dialog never
+changes the brush type (natural/simple), as in Fireworks.

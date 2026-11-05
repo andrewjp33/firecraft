@@ -15,6 +15,10 @@ pub enum CanvasChoice {
 
 #[derive(Clone, Debug)]
 pub struct Dialogs {
+    /// Edit Stroke (Stroke Options...).
+    pub edit_stroke: Option<crate::stroke_dialog::EditStroke>,
+    /// A message box: title and text.
+    pub message: Option<(String, String)>,
     pub new_doc: bool,
     pub new_w: u32,
     pub new_h: u32,
@@ -200,6 +204,8 @@ fn numeric_transform(app: &mut FireCraftApp, ctx: &egui::Context) {
 impl Default for Dialogs {
     fn default() -> Self {
         Self {
+            edit_stroke: None,
+            message: None,
             new_doc: false,
             new_w: 660,
             new_h: 440,
@@ -266,6 +272,17 @@ fn rgba_edit(ui: &mut egui::Ui, c: &mut Rgba) -> bool {
 }
 
 pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
+    crate::stroke_dialog::show(app, ctx);
+    if let Some((title, text)) = app.dialogs.message.clone() {
+        let mut close = false;
+        dialog(&title).show(ctx, |ui| {
+            ui.label(text);
+            close = ui.button("OK").clicked();
+        });
+        if close || ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter)) {
+            app.dialogs.message = None;
+        }
+    }
     let dl = &mut app.dialogs;
     if dl.new_doc {
         let mut create = false;

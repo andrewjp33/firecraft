@@ -154,6 +154,9 @@ pub struct ToolOptions {
     /// softness (percent).
     pub stroke_preset: usize,
     pub stroke_softness: u8,
+    /// A brush edited in the Edit Stroke dialog (its `BPLv`), used for new strokes instead of
+    /// the preset until a stroke category is chosen again.
+    pub stroke_brush: Option<firecraft_fwpng::Node>,
 }
 
 impl ToolOptions {
@@ -161,6 +164,12 @@ impl ToolOptions {
     pub fn new_stroke(&self, color: Rgba) -> firecraft_doc::Stroke {
         let mut s = firecraft_doc::Stroke::from_preset(color, self.stroke_preset, self.stroke_size as f64);
         s.softness = self.stroke_softness.min(100);
+        if let Some(b) = &self.stroke_brush {
+            s.category = b.str_of("CAT").unwrap_or_default().to_owned();
+            s.name = b.str_of("INM").unwrap_or_default().to_owned();
+            s.anti_alias = b.bool_of("BIA").unwrap_or(s.anti_alias);
+            s.brush = Some(b.clone());
+        }
         s
     }
 }
@@ -178,6 +187,7 @@ impl Default for ToolOptions {
             roundness: 0.0,
             stroke_preset: firecraft_doc::brush_presets::default_index(),
             stroke_softness: 0,
+            stroke_brush: None,
         }
     }
 }

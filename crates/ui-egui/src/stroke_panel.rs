@@ -227,6 +227,7 @@ fn set_placement(app: &mut FireCraftApp, k: u8) {
 /// The stroke category menu: None, each category with its presets, Stroke Options...
 fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &Shown) {
     let mut pick: Option<Option<usize>> = None;
+    let mut pick_options = false;
     let button = egui::Button::new(format!("{}     ", s.label)).min_size(vec2(130.0, 18.0));
     let (resp, _) = egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
         if ui.selectable_label(!s.has, "None").clicked() {
@@ -250,13 +251,18 @@ fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &
             });
         }
         ui.separator();
-        ui.add_enabled(false, egui::Button::new("Stroke Options...").frame(false))
-            .on_disabled_hover_text("Coming soon");
+        if ui.button("Stroke Options...").clicked() {
+            pick_options = true;
+            ui.close();
+        }
     });
     // The drop-down arrow (FirePixel's chevron glyph).
     let r = resp.rect;
     let arrow = Rect::from_center_size(egui::pos2(r.right() - 10.0, r.center().y), vec2(9.0, 9.0));
     crate::fpui::glyphs::chevron_down(ui.painter(), arrow, Color32::from_gray(40));
+    if pick_options {
+        crate::stroke_dialog::open(app, target == Target::Tool);
+    }
     let Some(choice) = pick else { return };
     match (target, choice) {
         (Target::Tool, None) => app.session.options.stroke = None,
@@ -267,6 +273,7 @@ fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &
                 o.stroke_size = BRUSH_PRESETS.get(i).map_or(1, |p| p.diameter.max(1) as u32);
             }
             o.stroke_preset = i;
+            o.stroke_brush = None;
             o.stroke_softness = BRUSH_PRESETS
                 .get(i)
                 .map_or(0, |p| (p.softness / 10).clamp(0, 100) as u8);

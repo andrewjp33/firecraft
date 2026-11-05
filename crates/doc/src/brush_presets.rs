@@ -1998,3 +1998,186 @@ pub fn node(p: &BrushPreset, diameter: i32) -> Node {
 pub fn default_index() -> usize {
     find("bc_Pencil", "bn_1-Pixel Anti-Aliased").unwrap_or(0)
 }
+
+/// A brush preset's fields, for editing (the Edit Stroke dialog). Values as in the file:
+/// per-mille for percentages, degrees for the angle.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BrushFields {
+    pub category: String,
+    pub name: String,
+    pub angle: i32,
+    pub aspect: i32,
+    pub diameter: i32,
+    pub max_count: i32,
+    pub min_size: i32,
+    pub softness: i32,
+    pub bell: bool,
+    pub round: bool,
+    pub blackness: i32,
+    pub concentration: i32,
+    pub alpha_remap: i32,
+    pub natural: bool,
+    pub feedback: i32,
+    pub flow_rate: i32,
+    pub tip_count: i32,
+    pub spacing: i32,
+    pub texture_blend: i32,
+    pub texture_edge: i32,
+    pub tip_spacing: i32,
+    pub tip_spacing_mode: i32,
+    pub tip_coloring_mode: i32,
+    pub antialiased: bool,
+    pub dash_count: i32,
+    pub dash_on: [i32; 3],
+    pub dash_off: [i32; 3],
+    /// Sensitivities: (source `PSHVR`, target `ZAOBRHLS`, per mille).
+    pub sensitivities: Vec<(u8, u8, i32)>,
+}
+
+impl BrushFields {
+    /// Read a brush preset node (`BPLv`).
+    pub fn from_node(n: &Node) -> BrushFields {
+        let g = |t: &str| n.int_of(t).unwrap_or(0) as i32;
+        let mut sensitivities = Vec::new();
+        for c in &n.children {
+            let t = c.tag;
+            if t[0] == b'S'
+                && b"PSHVR".contains(&t[1])
+                && b"ZAOBRHLS".contains(&t[2])
+                && let Ok(v) = i64::from_str_radix(c.text.trim(), 16)
+            {
+                sensitivities.push((t[1], t[2], v as i32));
+            }
+        }
+        BrushFields {
+            category: n.str_of("CAT").unwrap_or_default().to_owned(),
+            name: n.str_of("INM").unwrap_or_default().to_owned(),
+            angle: g("BAN"),
+            aspect: g("BAS"),
+            diameter: g("BDI").max(1),
+            max_count: g("BMM"),
+            min_size: g("BMS"),
+            softness: g("BSE"),
+            bell: g("BSF") == 1,
+            round: g("BSH") == 1,
+            blackness: g("BBK"),
+            concentration: g("BCN"),
+            alpha_remap: g("BEF"),
+            natural: g("BRT") == 0,
+            feedback: g("BFB"),
+            flow_rate: g("BFR"),
+            tip_count: g("BNT"),
+            spacing: g("BSP"),
+            texture_blend: g("BTB"),
+            texture_edge: g("BTE"),
+            tip_spacing: g("BTS"),
+            tip_spacing_mode: g("BSM"),
+            tip_coloring_mode: g("BCM"),
+            antialiased: n.bool_of("BIA").unwrap_or(false),
+            dash_count: g("NDI"),
+            dash_on: [g("DO1"), g("DO2"), g("DO3")],
+            dash_off: [g("DF1"), g("DF2"), g("DF3")],
+            sensitivities,
+        }
+    }
+
+    /// The fields written back into `base` (a copy of the node they came from, so fields
+    /// FireCraft doesn't edit stay), in Fireworks' field order for new fields.
+    pub fn to_node(&self, base: &Node) -> Node {
+        let mut n = base.clone();
+        let put = |n: &mut Node, node: Node| match n.children.iter_mut().find(|c| c.tag == node.tag) {
+            Some(slot) => *slot = node,
+            None => n.children.push(node),
+        };
+        let i = |t: &str, v: i32| Node::int(t, v as i64);
+        for (t, v) in [
+            ("BAN", self.angle),
+            ("BAS", self.aspect),
+            ("BDI", self.diameter.clamp(1, 1000)),
+            ("BMM", self.max_count),
+            ("BMS", self.min_size),
+            ("BSE", self.softness),
+            ("BSF", i32::from(self.bell)),
+            ("BSH", i32::from(self.round)),
+            ("BBK", self.blackness),
+            ("BCN", self.concentration),
+            ("BEF", self.alpha_remap),
+            ("BRT", if self.natural { 0 } else { 1 }),
+            ("BFB", self.feedback),
+            ("BFR", self.flow_rate),
+            ("BNT", self.tip_count.max(1)),
+            ("BSP", self.spacing),
+            ("BTB", self.texture_blend),
+            ("BTE", self.texture_edge),
+            ("BTS", self.tip_spacing),
+            ("BSM", self.tip_spacing_mode),
+            ("BCM", self.tip_coloring_mode),
+        ] {
+            put(&mut n, i(t, v));
+        }
+        put(&mut n, Node::bool("BIA", self.antialiased));
+        // Dashes: written when used, or kept as read (Fireworks MX has no dashes).
+        let had_dashes = n.child("NDI").is_some();
+        if self.dash_count > 0 || had_dashes {
+            put(&mut n, i("NDI", self.dash_count));
+            for k in 0..3 {
+                put(&mut n, i(&format!("DO{}", k + 1), self.dash_on[k]));
+                put(&mut n, i(&format!("DF{}", k + 1), self.dash_off[k]));
+            }
+        }
+        // Sensitivities: replaced as a whole, at the end.
+        n.children.retain(|c| {
+            !(c.tag[0] == b'S' && b"PSHVR".contains(&c.tag[1]) && b"ZAOBRHLS".contains(&c.tag[2]))
+        });
+        for &(s, t, v) in &self.sensitivities {
+            if v > 0 {
+                n.children.push(i(&String::from_utf8_lossy(&[b'S', s, t]), v));
+            }
+        }
+        n
+    }
+
+    /// Sensitivity of `target` to `source`, per mille (0 when not set).
+    pub fn sensitivity(&self, source: u8, target: u8) -> i32 {
+        self.sensitivities
+            .iter()
+            .find(|(s, t, _)| *s == source && *t == target)
+            .map_or(0, |e| e.2)
+    }
+
+    pub fn set_sensitivity(&mut self, source: u8, target: u8, permille: i32) {
+        self.sensitivities
+            .retain(|(s, t, _)| !(*s == source && *t == target));
+        if permille > 0 {
+            self.sensitivities.push((source, target, permille.min(1000)));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fields_round_trip_every_preset() {
+        for p in BRUSH_PRESETS {
+            let n = node(p, p.diameter.max(1));
+            let f = BrushFields::from_node(&n);
+            assert_eq!(f.to_node(&n), n, "{} / {}", p.category, p.name);
+        }
+    }
+
+    #[test]
+    fn editing_changes_only_that_field() {
+        let p = &BRUSH_PRESETS[default_index()];
+        let n = node(p, 1);
+        let mut f = BrushFields::from_node(&n);
+        f.tip_count = 3;
+        f.set_sensitivity(b'P', b'Z', 500);
+        let out = f.to_node(&n);
+        assert_eq!(out.int_of("BNT"), Some(3));
+        assert_eq!(out.int_of("SPZ"), Some(500));
+        assert_eq!(out.str_of("INM"), n.str_of("INM"));
+        assert_eq!(BrushFields::from_node(&out), f);
+    }
+}

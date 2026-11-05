@@ -1162,6 +1162,7 @@ dependencies = [
  "egui",
  "firecraft-doc",
  "firecraft-engine",
+ "firecraft-fwpng",
  "firecraft-io",
  "firecraft-raster",
  "firecraft-sysclip",
