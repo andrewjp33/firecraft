@@ -86,6 +86,60 @@ impl Symbol {
     }
 }
 
+/// Give instances nested inside symbols their bounds (each symbol's content mapped through the
+/// instance's matrix), innermost symbols first: a symbol made only of other symbols' instances
+/// then has content bounds too (its instances get a selection outline and transform handles).
+pub fn refresh_nested_instance_bounds(symbols: &mut [Symbol]) {
+    fn walk(
+        els: &mut [Element],
+        info: &std::collections::HashMap<u32, Option<(f64, f64, f64, f64)>>,
+    ) -> bool {
+        let mut changed = false;
+        for e in els {
+            match &mut e.kind {
+                ElementKind::Instance {
+                    symbol,
+                    matrix,
+                    bounds,
+                    ..
+                } => {
+                    let b = info
+                        .get(symbol)
+                        .copied()
+                        .flatten()
+                        .map(|(x, y, w, h)| matrix.map_rect(x, y, w, h));
+                    if b.is_some() && *bounds != b {
+                        *bounds = b;
+                        changed = true;
+                    }
+                }
+                ElementKind::Group(children) => changed |= walk(children, info),
+                ElementKind::Masked { content, mask, .. } => {
+                    changed |= walk(content, info);
+                    changed |= walk(std::slice::from_mut(mask.as_mut()), info);
+                }
+                _ => {}
+            }
+        }
+        changed
+    }
+    for _ in 0..MAX_SYMBOL_DEPTH {
+        let info: std::collections::HashMap<u32, Option<(f64, f64, f64, f64)>> =
+            symbols.iter().map(|s| (s.id, s.content_bounds())).collect();
+        let mut changed = false;
+        for s in symbols.iter_mut() {
+            for l in &mut s.layers {
+                for cell in &mut l.cells {
+                    changed |= walk(cell, &info);
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
 /// Symbols may contain instances of other symbols; deeper nesting is ignored (cycle guard).
 pub const MAX_SYMBOL_DEPTH: u32 = 16;
 
@@ -293,6 +347,45 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn symbols_of_symbols_get_bounds() {
+        use firecraft_raster::transform::Affine;
+        let sym = |id: u32, e: Element| {
+            let mut l = Layer::new("Layer 1");
+            if let Some(c) = l.elements_mut(0) {
+                c.push(e);
+            }
+            Symbol {
+                id,
+                name: format!("S{id}"),
+                kind: SymbolKind::Graphic,
+                layers: vec![l],
+                frames: 1,
+                nine: None,
+                raw: None,
+            }
+        };
+        let inst = |symbol: u32, dx: f64| {
+            Element::new(ElementKind::Instance {
+                symbol,
+                name: String::new(),
+                matrix: Affine::translate(dx, 0.0),
+                bounds: None,
+            })
+        };
+        let bitmap = Element::new(ElementKind::Bitmap(Bitmap {
+            x: 0,
+            y: 0,
+            image: RgbaImage::new(10, 20, Rgba::BLACK),
+        }));
+        // 3 holds an instance of 2, which holds an instance of 1 (read in that order).
+        let mut symbols = vec![sym(3, inst(2, 100.0)), sym(2, inst(1, 5.0)), sym(1, bitmap)];
+        assert_eq!(symbols[0].content_bounds(), None);
+        refresh_nested_instance_bounds(&mut symbols);
+        assert_eq!(symbols[1].content_bounds(), Some((5.0, 0.0, 10.0, 20.0)));
+        assert_eq!(symbols[0].content_bounds(), Some((105.0, 0.0, 10.0, 20.0)));
+    }
+
     use super::*;
 
     #[test]

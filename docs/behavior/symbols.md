@@ -11,6 +11,11 @@ Measured with Fireworks MX (`dom.convertToSymbol` on test shapes, then the saved
   instances show Up), Animation (2; instances play along with the document's frames).
 * New symbols get the node Fireworks writes for them (`LUTs`, grid/guides, `ATSb` 1 ...); new
   instances `XFMi` 0, `ANNi` = frame count, `ANXf`/`ANYf` 0, `ASCf` 100.
+* **Symbols of symbols**: an instance's outline (the dotted box, Scale/Skew/Distort handles,
+  9-slice) comes from its symbol's content bounds, which count nested instances (innermost
+  first, also after editing a nested symbol). Until 2026-11-05 a symbol made only of other
+  symbols' instances had no bounds, so its instances (mechscene2.png's floor, Symbol 3) could be
+  dragged but showed no outline and couldn't be transformed.
 * **Break Apart** replaces an instance with the symbol's objects as the instance shows them; the
   symbol stays in the Library.
 

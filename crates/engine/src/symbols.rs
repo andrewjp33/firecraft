@@ -105,6 +105,20 @@ fn refresh_instances(doc: &mut Document, id: u32) {
             }
         });
     }
+    // Symbols containing it changed size too: refresh nested instances, then every instance
+    // from its symbol's (possibly new) content.
+    firecraft_doc::refresh_nested_instance_bounds(Arc::make_mut(&mut doc.symbols).as_mut_slice());
+    let info: Vec<(u32, Option<(f64, f64, f64, f64)>)> =
+        doc.symbols.iter().map(|s| (s.id, s.content_bounds())).collect();
+    for cell in all_cells(doc) {
+        for (sid, content) in &info {
+            for_instances(cell, *sid, &mut |e| {
+                if let ElementKind::Instance { matrix, bounds, .. } = &mut e.kind {
+                    *bounds = content.map(|(x, y, w, h)| matrix.map_rect(x, y, w, h));
+                }
+            });
+        }
+    }
 }
 
 impl DocState {

@@ -41,7 +41,7 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
         origin: (0.0, 0.0),
         symbols: HashMap::new(),
     };
-    let symbols: Vec<Symbol> = root
+    let mut symbols: Vec<Symbol> = root
         .child("MSL")
         .map(|msl| {
             msl.children_tagged("MST")
@@ -49,6 +49,8 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
                 .collect()
         })
         .unwrap_or_default();
+    // Instances inside symbols were read before the symbols' bounds were known.
+    firecraft_doc::refresh_nested_instance_bounds(&mut symbols);
     let symbol_info = symbols
         .iter()
         .map(|s| (s.id, (s.name.clone(), symbol_bounds(s))))
