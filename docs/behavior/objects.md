@@ -9,6 +9,9 @@
   on top (Fireworks). Objects are picked where they have pixels (a pixel test, 2 px tolerance),
   not by bounding box. **Select Behind** (the Pointer's flyout) selects the next object down at
   the same spot on each click.
+* **Mouse highlight** (Preferences > Editing, on by default, as in Fireworks): with the Pointer,
+  the object a click would select is outlined in red under the mouse (a path along its own
+  outline, other objects by their box); with the Subselection tool, the member inside a group.
 * **Subselection** (A): selects inside groups, down to the innermost member under the pointer
   (a group's members, a masked group's content); for paths it also selects and edits points
   (see [paths.md](paths.md)). A selected member can be moved, transformed, given effects,

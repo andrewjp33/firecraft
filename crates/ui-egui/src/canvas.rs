@@ -1,7 +1,7 @@
 //! Document windows (or tabs) and the canvas: rendering, tool input and selection overlays.
 
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2, pos2, vec2};
-use firecraft_engine::{DocState, Tool};
+use firecraft_engine::{DocState, ElementRef, Tool};
 use firecraft_raster::Mask;
 use firecraft_raster::mask::Combine;
 
@@ -840,7 +840,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             resp,
             (origin, z),
             &app.session.options,
-            app.prefs.cursor_style,
+            (app.prefs.cursor_style, app.prefs.mouse_highlight),
         );
         return;
     }
@@ -1145,8 +1145,61 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             }
         }
     }
+    // Mouse highlight: the object a click would select, outlined in red (Fireworks).
+    if app.prefs.mouse_highlight
+        && !view.preview
+        && matches!(tool, Tool::Pointer | Tool::SelectBehind)
+        && !dragging
+        && let Some(h) = hover
+    {
+        let (x, y) = to_doc(h);
+        if let Some(r) = d.hit_test(x, y)
+            && !d.selection.contains(&r)
+        {
+            mouse_highlight(&p, d, r, &to_screen);
+        }
+    }
     // Pointer readout in the tooltip area is handy while developing; Fireworks shows it in Info.
     let _ = hover;
+}
+
+/// Fireworks' mouse highlight: object `r` outlined in red (a path along its own outline,
+/// anything else as its box; a symbol instance as its rectangle).
+pub fn mouse_highlight(p: &egui::Painter, d: &DocState, r: ElementRef, to_screen: &dyn Fn(f64, f64) -> Pos2) {
+    let red = Stroke::new(1.5, Color32::from_rgb(255, 0, 0));
+    if let Some((x, y, w, h)) = d.instance_rect(r) {
+        let q = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)];
+        p.add(Shape::closed_line(
+            q.iter().map(|c| to_screen(c.0, c.1)).collect(),
+            red,
+        ));
+        return;
+    }
+    match d.element(r).map(|e| &e.kind) {
+        Some(firecraft_doc::ElementKind::Path(path)) if path.rect.is_none() => {
+            for c in &path.contours {
+                let pts: Vec<Pos2> = c
+                    .flatten(0.0, 0.0)
+                    .into_iter()
+                    .map(|(x, y)| to_screen(x, y))
+                    .collect();
+                if pts.len() >= 2 {
+                    p.add(if c.closed {
+                        Shape::closed_line(pts, red)
+                    } else {
+                        Shape::line(pts, red)
+                    });
+                }
+            }
+        }
+        Some(_) => {
+            if let Some((x, y, w, h)) = d.element(r).and_then(|e| e.bounds()) {
+                let br = Rect::from_min_max(to_screen(x, y), to_screen(x + w, y + h));
+                p.rect_stroke(br, 0.0, red, StrokeKind::Outside);
+            }
+        }
+        None => {}
+    }
 }
 
 /// Pan so that document point `c` sits in the middle of the view.

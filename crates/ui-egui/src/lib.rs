@@ -82,6 +82,9 @@ pub struct Prefs {
     /// distorted (off: only their outline or box moves, and the canvas redraws once on release,
     /// for slower computers).
     pub live_drag: bool,
+    /// Mouse highlight (Fireworks: Preferences > Editing): the object the Pointer or
+    /// Subselection tool would select is outlined in red under the mouse.
+    pub mouse_highlight: bool,
 }
 
 impl Prefs {
@@ -99,7 +102,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -113,6 +116,7 @@ impl Prefs {
                 .map_or_else(|| "transparent".to_owned(), |c| c.to_hex()),
             self.cursor_style.key(),
             self.live_drag,
+            self.mouse_highlight,
         )
     }
 
@@ -146,6 +150,7 @@ impl Prefs {
                 }
                 "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
                 "live_drag" => p.live_drag = flag,
+                "mouse_highlight" => p.mouse_highlight = flag,
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -191,6 +196,7 @@ impl Default for Prefs {
             new_doc: (660, 440, 72.0, Some(firecraft_raster::Rgba::WHITE)),
             cursor_style: cursors::CursorStyle::Fireworks,
             live_drag: true,
+            mouse_highlight: true,
         }
     }
 }
@@ -483,6 +489,7 @@ mod prefs_tests {
             undo_steps: 250,
             color_math: firecraft_raster::ColorMath::Precise,
             live_drag: false,
+            mouse_highlight: false,
             ..Prefs::default()
         };
         assert_eq!(Prefs::parse(&p.serialize()), p);

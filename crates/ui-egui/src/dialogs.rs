@@ -490,6 +490,8 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
         ui.separator();
         ui.strong("Editing");
+        ui.checkbox(&mut prefs.mouse_highlight, "Mouse highlight")
+            .on_hover_text("Outline in red the object the Pointer (or Subselection tool) would select under the mouse.");
         ui.checkbox(&mut prefs.live_drag, "Show objects while moving them")
             .on_hover_text("On: objects follow the pointer when dragged, scaled, rotated, skewed or distorted. Off: only their outline or box moves and the canvas redraws when you let go (lighter on slower computers).");
         ui.horizontal(|ui| {

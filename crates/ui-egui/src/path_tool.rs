@@ -167,7 +167,7 @@ pub fn canvas(
     resp: &egui::Response,
     (origin, z): (Pos2, f32),
     opts: &ToolOptions,
-    cursors: crate::cursors::CursorStyle,
+    (cursors, highlight): (crate::cursors::CursorStyle, bool),
 ) {
     edit.sync(d);
     let ctx = resp.ctx.clone();
@@ -377,6 +377,20 @@ pub fn canvas(
         crate::cursors::set(&ctx, crate::cursors::Cur::Subselect, cursors);
     }
     edit.revision = d.revision;
+    // Mouse highlight: the member a click would select (inside groups), in red.
+    if highlight
+        && tool == Tool::Subselect
+        && edit.drag.is_none()
+        && resp.hovered()
+        && let Some(h) = pointer
+    {
+        let at = to_doc(h);
+        if let Some(r) = d.hit_deep(at.0, at.1)
+            && !d.selection.contains(&r)
+        {
+            crate::canvas::mouse_highlight(painter, d, r, &|x, y| to_screen((x, y)));
+        }
+    }
     overlay(
         edit,
         d,
