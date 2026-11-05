@@ -16,13 +16,19 @@ use crate::{DocState, ElementRef, Session};
 /// A document that is a symbol being edited.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SymbolLink {
-    /// The document the symbol belongs to (`DocState::id`).
+    /// The document the symbol belongs to (`DocState::id`): always the real document, also for
+    /// a symbol opened from inside another Symbol Editor, so every edit reaches it.
     pub parent: u64,
     pub symbol: u32,
     /// Symbol space -> editor canvas.
     pub offset: (f64, f64),
     /// The editor's revision last written back.
     pub synced: u64,
+    /// Where Done returns: the document, or the Symbol Editor it was opened from.
+    pub back: u64,
+    /// The document's revision whose symbols this editor holds (its copy is refreshed when the
+    /// document's symbols change, e.g. by another Symbol Editor).
+    pub parent_seen: u64,
 }
 
 /// Least room around a symbol's content in its editor (at least the content's own size is
@@ -470,8 +476,18 @@ impl Session {
     /// Open symbol `id` of document `doc` (index) in the Symbol Editor (or switch to it if it's
     /// already open).
     pub fn edit_symbol(&mut self, doc: usize, id: u32) {
+        let Some(from) = self.docs.get(doc) else { return };
+        let back = from.id;
+        // From inside a Symbol Editor: the symbol still belongs to the real document.
+        let doc = match from.symbol_link {
+            Some(l) => match self.docs.iter().position(|d| d.id == l.parent) {
+                Some(p) => p,
+                None => return,
+            },
+            None => doc,
+        };
         let Some(parent) = self.docs.get(doc) else { return };
-        let pid = parent.id;
+        let (pid, parent_rev) = (parent.id, parent.revision);
         if let Some(i) = self
             .docs
             .iter()
@@ -502,6 +518,8 @@ impl Session {
                 symbol: id,
                 offset,
                 synced: d.revision,
+                back,
+                parent_seen: parent_rev,
             });
             d.symbol_nine = nine;
             // Open on the content (and the symbol's origin), not the whole canvas.
@@ -522,9 +540,16 @@ impl Session {
         let Some(i) = self.docs.iter().position(|d| d.id == editor) else {
             return;
         };
-        let parent = self.docs.get(i).and_then(|d| d.symbol_link).map(|l| l.parent);
+        let link = self.docs.get(i).and_then(|d| d.symbol_link);
         self.close(i);
-        if let Some(p) = parent.and_then(|p| self.docs.iter().position(|d| d.id == p)) {
+        // Back to the Symbol Editor it was opened from (if still open), else the document.
+        let to = link.and_then(|l| {
+            self.docs
+                .iter()
+                .position(|d| d.id == l.back)
+                .or_else(|| self.docs.iter().position(|d| d.id == l.parent))
+        });
+        if let Some(p) = to {
             self.active = p;
         }
     }
@@ -550,20 +575,72 @@ impl Session {
                 continue;
             }
             let Some(editor) = self.docs.get(i) else { continue };
-            if editor.revision == link.synced {
+            if editor.revision != link.synced {
+                let (content, revision, guides) = (editor.doc.clone(), editor.revision, editor.symbol_nine);
+                let mut parent_rev = link.parent_seen;
+                if let Some(parent) = self.docs.get_mut(p) {
+                    let changed_before = parent.revision != link.parent_seen;
+                    parent.set_symbol_content_with(link.symbol, &content, link.offset, Some(guides));
+                    // Symbols made inside the editor (Convert to Symbol there) join the document.
+                    let new: Vec<Symbol> = content
+                        .symbols
+                        .iter()
+                        .filter(|s| !parent.doc.symbols.iter().any(|q| q.id == s.id))
+                        .cloned()
+                        .collect();
+                    if !new.is_empty() {
+                        Arc::make_mut(&mut parent.doc.symbols).extend(new);
+                        parent.mark_changed();
+                    }
+                    // Its own write doesn't make the editor's copy stale.
+                    if !changed_before {
+                        parent_rev = parent.revision;
+                    }
+                }
+                if let Some(editor) = self.docs.get_mut(i) {
+                    editor.symbol_link = Some(SymbolLink {
+                        synced: revision,
+                        parent_seen: parent_rev,
+                        ..link
+                    });
+                    // Saved with its document, not on its own.
+                    editor.dirty = false;
+                }
+            }
+        }
+        // Editors whose document's symbols changed (another Symbol Editor wrote back, undo, the
+        // Library): take the document's symbols, so nested instances show the change.
+        for i in 0..self.docs.len() {
+            let Some(link) = self.docs.get(i).and_then(|d| d.symbol_link) else {
+                continue;
+            };
+            let Some(parent) = self.docs.iter().find(|d| d.id == link.parent) else {
+                continue;
+            };
+            if parent.revision == link.parent_seen {
                 continue;
             }
-            let (content, revision, guides) = (editor.doc.clone(), editor.revision, editor.symbol_nine);
-            if let Some(parent) = self.docs.get_mut(p) {
-                parent.set_symbol_content_with(link.symbol, &content, link.offset, Some(guides));
-            }
+            let (symbols, tiles, rev) = (
+                parent.doc.symbols.clone(),
+                parent.doc.raw_tiles.clone(),
+                parent.revision,
+            );
             if let Some(editor) = self.docs.get_mut(i) {
+                let same = Arc::ptr_eq(&editor.doc.symbols, &symbols);
+                if !same {
+                    editor.doc.symbols = symbols;
+                    editor.doc.raw_tiles = tiles;
+                    editor.mark_changed();
+                }
+                let dirty = editor.dirty && !same;
                 editor.symbol_link = Some(SymbolLink {
-                    synced: revision,
+                    parent_seen: rev,
+                    synced: if same { link.synced } else { editor.revision },
                     ..link
                 });
-                // Saved with its document, not on its own.
-                editor.dirty = false;
+                if dirty {
+                    editor.dirty = false;
+                }
             }
         }
         for i in close.into_iter().rev() {
@@ -658,5 +735,53 @@ mod tests {
         s.docs[0].delete_symbol(id);
         s.sync_symbols();
         assert_eq!(s.docs.len(), 1);
+    }
+    /// Symbol 2 edited from inside Symbol 3's editor (mechscene2.png): the change reaches the
+    /// document, the outer editor shows it, Done returns to the outer editor, and reopening
+    /// keeps it.
+    #[test]
+    fn nested_symbol_edit_reaches_the_document() {
+        let mut s = Session::default();
+        s.push(doc().doc);
+        let d = s.active_doc_mut().expect("doc");
+        d.selection = vec![ElementRef::new(0, 0)];
+        let inner = d.convert_to_symbol("inner", SymbolKind::Graphic).expect("inner");
+        d.selection = vec![ElementRef::new(0, 0)];
+        let outer = d.convert_to_symbol("outer", SymbolKind::Graphic).expect("outer");
+        let bounds = |d: &DocState, id: u32| {
+            d.doc
+                .symbols
+                .iter()
+                .find(|s| s.id == id)
+                .and_then(Symbol::content_bounds)
+        };
+        let before = bounds(&s.docs[0], inner).expect("inner bounds");
+        let outer_before = bounds(&s.docs[0], outer).expect("outer bounds");
+        s.edit_symbol(0, outer);
+        let a = s.active;
+        s.edit_symbol(a, inner);
+        let b = s.active;
+        assert_ne!(a, b);
+        let ed = s.active_doc_mut().expect("inner editor");
+        ed.select_all();
+        ed.move_selection(5.0, 0.0, "Move");
+        s.sync_symbols();
+        // The document has it, and the outer editor's copy too.
+        let moved = (before.0 + 5.0, before.1, before.2, before.3);
+        assert_eq!(bounds(&s.docs[0], inner), Some(moved));
+        assert_eq!(bounds(&s.docs[a], inner), Some(moved));
+        assert!(bounds(&s.docs[0], outer).is_some_and(|b| (b.0 - outer_before.0 - 5.0).abs() < 1e-9));
+        // Done returns to the outer editor, then to the document.
+        let b_id = s.docs[b].id;
+        s.finish_symbol_edit(b_id);
+        assert_eq!(s.active, a);
+        let a_id = s.docs[a].id;
+        s.finish_symbol_edit(a_id);
+        assert_eq!(s.active, 0);
+        assert_eq!(bounds(&s.docs[0], inner), Some(moved));
+        // Reopened, the outer editor shows the edited inner symbol.
+        s.edit_symbol(0, outer);
+        let r = s.active;
+        assert_eq!(bounds(&s.docs[r], inner), Some(moved));
     }
 }

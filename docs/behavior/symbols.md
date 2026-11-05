@@ -45,7 +45,13 @@ moves it, which FireCraft doesn't reproduce.
 
 * The Symbol Editor (a document window, as in MX) updates the document and its instances live,
   not only when it closes.
-* It has a **Done** button (from Fireworks CS) that closes it and returns to the document.
+* It has a **Done** button (from Fireworks CS) that closes it and returns to the document, or
+  to the Symbol Editor it was opened from.
+* **Nested symbols**: a symbol opened from inside another Symbol Editor (Symbol 2 from Symbol 3
+  in mechscene2.png) still belongs to the document: its edits go straight to the document, and
+  every open Symbol Editor of that document picks up the changed symbols. (Before 2026-11-05 they
+  went only into the outer editor's copy of the Library and were lost on Done.) Symbols made
+  inside a Symbol Editor (Convert to Symbol there) join the document's Library.
 * **Save** in the Symbol Editor saves the document the symbol belongs to (MX doesn't save from
   the Symbol Editor; with live updates, saving the document is the useful meaning).
 * The Pointer picks a symbol instance where its content is (its distorted shape), not
