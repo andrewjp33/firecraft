@@ -65,7 +65,9 @@ Every colour box (Tools panel stroke and fill, the Property inspector's tool opt
 selected path's fill and stroke, the canvas colour, effect and plug-in colours, the Canvas Color
 and New Document dialogs) opens Fireworks CS's colour pop-up, as
 re-created by FirePixel (`crates/ui-egui/src/fpui/color_picker.rs`): a 21 x 15 swatch grid, a
-preview, HEX and RGB fields with copy buttons, opacity with a drop-down slider, None (and, for
+preview, HEX and RGB fields with copy buttons, opacity with a drop-down slider (fill and stroke
+colours only: Fireworks CS6's pop-up has none for effect colours, the canvas or dialogs; a drop
+shadow's opacity is its own field, as in Fireworks), None (and, for
 fills and strokes, kind/placement buttons), and the colour-wheel dialog. The eyedropper is on as
 soon as it opens: the preview follows the colour under the pointer anywhere in FireCraft's
 window, and a click there takes it (clicks outside the window don't pick a colour). Esc cancels,

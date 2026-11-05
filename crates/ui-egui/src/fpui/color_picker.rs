@@ -114,9 +114,12 @@ impl Footer {
         !matches!(self, Footer::Plain)
     }
 
-    /// Zeile Deckkraft (Feld + Klappschieber) zeigen?
+    /// Show the opacity row (field and drop-down slider)? Only for fill and stroke colours:
+    /// Fireworks CS6's pop-up has none for effect colours (Color Fill, shadows, glows; checked by
+    /// the user in CS6), which have their own opacity setting, nor for the canvas or dialogs.
+    /// FirePixel showed it everywhere but the canvas, where it snapped back to 100%.
     fn has_opacity(self) -> bool {
-        !matches!(self, Footer::Canvas)
+        matches!(self, Footer::Fill { .. } | Footer::Stroke { .. })
     }
 }
 

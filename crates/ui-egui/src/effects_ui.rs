@@ -217,7 +217,7 @@ const EMBOSS_FIELDS: &[Field] = &[
 ];
 const SHADOW_FIELDS: &[Field] = &[
     num("ShadowDistance", "Distance", 0.0, 100.0, 0),
-    field("ShadowColor", "Color / opacity", Kind::ColorAlpha),
+    field("ShadowColor", "Color", Kind::ColorAlpha),
     num("ShadowBlur", "Softness", 0.0, 50.0, 0),
     num("ShadowAngle", "Angle", 0.0, 360.0, 0),
 ];
@@ -636,7 +636,8 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
             use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
             let c = Rgba::from_hex(&raw).unwrap_or(Rgba::BLACK);
             let alpha = matches!(f.kind, Kind::ColorAlpha);
-            let shown = if alpha { c } else { Rgba { a: 255, ..c } };
+            // The colour itself (the shadow's opacity is its own field).
+            let shown = Rgba { a: 255, ..c };
             let mut arr = [c.r, c.g, c.b, c.a];
             let mut changed = false;
             if let Some(ColorChoice::Color(n)) = cp::color_box(
@@ -647,8 +648,27 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
                 Footer::Plain,
             ) {
                 let n = cp::to_rgba(n);
-                arr = [n.r, n.g, n.b, if alpha { n.a } else { 255 }];
+                // The pop-up has no opacity for effect colours (Fireworks CS6); the shadow's
+                // opacity is its own field below and stays as it was.
+                arr = [n.r, n.g, n.b, if alpha { c.a } else { 255 }];
                 changed = true;
+            }
+            if alpha {
+                // Fireworks' drop shadow "Opacity" (the colour's alpha, in %).
+                ui.label("Opacity:");
+                let mut pct = (c.a as f64 * 100.0 / 255.0).round();
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut pct)
+                            .range(0.0..=100.0)
+                            .max_decimals(0)
+                            .suffix("%"),
+                    )
+                    .changed()
+                {
+                    arr[3] = (pct * 255.0 / 100.0).round().clamp(0.0, 255.0) as u8;
+                    changed = true;
+                }
             }
             if changed {
                 out = Some(if matches!(f.kind, Kind::ColorAlpha) {
