@@ -749,7 +749,7 @@ impl Element {
             ElementKind::Path(p) => {
                 // Render only the path's bounds (plus stroke), clipped to the output.
                 let (bx, by, bw, bh) = self.bounds()?;
-                let pad = p.stroke.as_ref().map(|s| s.diameter / 2.0 + 2.0).unwrap_or(2.0);
+                let pad = p.stroke.as_ref().map_or(2.0, crate::stroke_fw::margin);
                 let x0 = ((bx - pad).floor() as i64 - ox).max(0);
                 let y0 = ((by - pad).floor() as i64 - oy).max(0);
                 let x1 = ((bx + bw + pad).ceil() as i64 - ox).min(w as i64);
@@ -956,7 +956,7 @@ impl Element {
             ElementKind::Path(p) => p
                 .stroke
                 .as_ref()
-                .map_or(0.0, |s| s.diameter / 2.0 + s.softness as f64 + 1.0),
+                .map_or(0.0, crate::stroke_fw::margin),
             ElementKind::Group(children) => children.iter().map(Element::max_stroke).fold(0.0, f64::max),
             ElementKind::Masked { content, mask, .. } => content
                 .iter()

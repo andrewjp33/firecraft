@@ -154,6 +154,24 @@ pub fn brush_params(bpl: &Node) -> BrushParams {
     p
 }
 
+/// How far a stroke can reach beyond the path's outline, in pixels (FirePixel's
+/// `stroke_margin`: conservative; natural brushes scatter their tips far, about 10 diameters).
+pub fn margin(stroke: &Stroke) -> f64 {
+    let b = brush_for(stroke, None);
+    let fw = FwStroke::new(b.clone(), Argb(0));
+    let placement = StrokePlacement::from_u32(stroke.placement as u32);
+    let dp = firecraft_stroke::stroke::effective_diameter(&fw, placement);
+    let w = firecraft_stroke::brush::tip_width(dp, b.shape == TipShape::Circle);
+    let mut m = w / 2.0 + 3.0;
+    if b.kind == BrushType::Natural {
+        m += 10.0 * dp + b.tip_spacing as f64 * dp / 1000.0 + 2.0;
+    }
+    if placement == StrokePlacement::Inside {
+        m = m.min(w + 3.0);
+    }
+    m.clamp(0.0, 100_000.0)
+}
+
 /// The engine's brush for a FireCraft stroke: the file's preset (or FireCraft's pencil) with the
 /// stroke's own settings.
 fn brush_for(stroke: &Stroke, raw: Option<&Node>) -> BrushParams {
