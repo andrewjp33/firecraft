@@ -950,6 +950,14 @@ impl Element {
         (w > 0 && h > 0 && w * h <= MAX_PIXELS).then_some((x, y, w as u32, h as u32))
     }
 
+    /// Where the object can have pixels: its bounds grown by how far its stroke and effects
+    /// reach (conservative; for hit testing).
+    pub fn visual_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
+        let (bx, by, bw, bh) = self.deep_bounds(ctx)?;
+        let m = self.max_stroke() + self.effect_margin() as f64 + 1.0;
+        Some((bx - m, by - m, bw + 2.0 * m, bh + 2.0 * m))
+    }
+
     /// Half the widest stroke in the object (strokes reach beyond the geometry's bounds).
     fn max_stroke(&self) -> f64 {
         match &self.kind {

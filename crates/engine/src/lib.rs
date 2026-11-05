@@ -125,7 +125,8 @@ pub fn members(e: &Element) -> Option<&Vec<Element>> {
 fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> bool {
     const TOL: i64 = 2;
     let (px, py) = (x.floor() as i64, y.floor() as i64);
-    let near = el.deep_bounds(ctx).is_some_and(|(bx, by, bw, bh)| {
+    // Where the object can have pixels (its stroke and effects reach beyond its geometry).
+    let near = el.visual_bounds(ctx).is_some_and(|(bx, by, bw, bh)| {
         let t = TOL as f64;
         x >= bx - t && y >= by - t && x < bx + bw.max(1.0) + t && y < by + bh.max(1.0) + t
     });
