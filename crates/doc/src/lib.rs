@@ -11,8 +11,8 @@
 //! The model is plain data. Editing goes through `firecraft-engine`; file formats live in
 //! `firecraft-io`.
 
-pub mod element;
 pub mod brush_presets;
+pub mod element;
 pub mod stroke_fw;
 
 mod cache;

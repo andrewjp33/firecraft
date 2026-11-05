@@ -102,11 +102,7 @@ pub fn paint(p: &Painter, r: Rect, g: Glyph, t: &Theme, enabled: bool) {
     let c = &t.colors;
     let fg = if enabled { c.icon_fg } else { c.icon_disabled };
     let red = if enabled { c.icon_red } else { c.icon_disabled };
-    let blue = if enabled {
-        c.icon_blue
-    } else {
-        c.icon_disabled
-    };
+    let blue = if enabled { c.icon_blue } else { c.icon_disabled };
     let paper = c.icon_paper;
     let s1 = Stroke::new(1.0, fg);
     let m = r.center();
@@ -165,12 +161,7 @@ pub fn paint(p: &Painter, r: Rect, g: Glyph, t: &Theme, enabled: bool) {
                 Glyph::StrokeCenter => (0.0, 2.0 * k),
                 _ => (-1.5 * k, 2.0 * k),
             };
-            p.rect_stroke(
-                b.shrink(inset),
-                0.0,
-                Stroke::new(w, fg),
-                egui::StrokeKind::Middle,
-            );
+            p.rect_stroke(b.shrink(inset), 0.0, Stroke::new(w, fg), egui::StrokeKind::Middle);
             p.rect_stroke(b, 0.0, Stroke::new(1.0, blue), egui::StrokeKind::Middle);
         }
         Glyph::OpNormal | Glyph::OpUnion | Glyph::OpIntersect | Glyph::OpPunch | Glyph::OpCrop => {
@@ -248,10 +239,7 @@ pub fn paint(p: &Painter, r: Rect, g: Glyph, t: &Theme, enabled: bool) {
         }
         Glyph::Bold | Glyph::Italic | Glyph::Underline | Glyph::TextT => {
             // Kurzzeichen je Sprache (deutsch F/K wie im Original, englisch B/I)
-            let (b, i) = (
-                "B".to_owned(),
-                "I".to_owned(),
-            );
+            let (b, i) = ("B".to_owned(), "I".to_owned());
             let (txt, font) = match g {
                 Glyph::Bold => (b.as_str(), t.bold(11.0 * k.max(1.0))),
                 Glyph::Italic => (i.as_str(), egui::FontId::proportional(11.0 * k.max(1.0))),
@@ -369,10 +357,7 @@ pub fn paint(p: &Painter, r: Rect, g: Glyph, t: &Theme, enabled: bool) {
                     };
                     let col = if enabled { col } else { c.icon_disabled };
                     p.rect_filled(
-                        Rect::from_min_size(
-                            pos2(o.x + x as f32 * px, o.y + y as f32 * px),
-                            vec2(px, px),
-                        ),
+                        Rect::from_min_size(pos2(o.x + x as f32 * px, o.y + y as f32 * px), vec2(px, px)),
                         0.0,
                         col,
                     );
@@ -443,11 +428,7 @@ pub fn paint(p: &Painter, r: Rect, g: Glyph, t: &Theme, enabled: bool) {
                     pos2(m.x + 4.5 * k * a.cos(), m.y - 4.5 * k * a.sin())
                 })
                 .collect();
-            let tip = if g == Glyph::RotateCw {
-                pts[0]
-            } else {
-                pts[10]
-            };
+            let tip = if g == Glyph::RotateCw { pts[0] } else { pts[10] };
             p.line(pts, s1);
             p.circle_filled(tip, 1.6 * k, fg);
         }

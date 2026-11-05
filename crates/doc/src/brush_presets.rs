@@ -1905,7 +1905,9 @@ const PRESET_LABELS: &[(&str, &str, &str)] = &[
 
 /// The preset with this category and name (`CATs`/`INMs`).
 pub fn find(category: &str, name: &str) -> Option<usize> {
-    BRUSH_PRESETS.iter().position(|p| p.category == category && p.name == name)
+    BRUSH_PRESETS
+        .iter()
+        .position(|p| p.category == category && p.name == name)
 }
 
 /// A preset's English name.
@@ -1913,24 +1915,34 @@ pub fn label(p: &BrushPreset) -> String {
     PRESET_LABELS
         .iter()
         .find(|(c, n, _)| *c == p.category && *n == p.name)
-        .map_or_else(|| p.name.trim_start_matches("bn_").to_owned(), |(_, _, l)| (*l).to_owned())
+        .map_or_else(
+            || p.name.trim_start_matches("bn_").to_owned(),
+            |(_, _, l)| (*l).to_owned(),
+        )
 }
 
 /// A category's English name.
 pub fn category_label(category: &str) -> String {
-    CATEGORY_LABELS
-        .iter()
-        .find(|(c, _)| *c == category)
-        .map_or_else(|| category.trim_start_matches("bc_").to_owned(), |(_, l)| (*l).to_owned())
+    CATEGORY_LABELS.iter().find(|(c, _)| *c == category).map_or_else(
+        || category.trim_start_matches("bc_").to_owned(),
+        |(_, l)| (*l).to_owned(),
+    )
 }
 
 /// The label the Property inspector shows for a brush preset node (`BPLv`): the preset's name,
 /// else the brush's own name.
 pub fn node_label(bpl: &Node) -> String {
-    let (c, n) = (bpl.str_of("CAT").unwrap_or_default(), bpl.str_of("INM").unwrap_or_default());
+    let (c, n) = (
+        bpl.str_of("CAT").unwrap_or_default(),
+        bpl.str_of("INM").unwrap_or_default(),
+    );
     match find(c, n) {
         Some(i) => label(&BRUSH_PRESETS[i]),
-        None => bpl.str_of("UNM").filter(|s| !s.is_empty()).unwrap_or(n.trim_start_matches("bn_")).to_owned(),
+        None => bpl
+            .str_of("UNM")
+            .filter(|s| !s.is_empty())
+            .unwrap_or(n.trim_start_matches("bn_"))
+            .to_owned(),
     }
 }
 

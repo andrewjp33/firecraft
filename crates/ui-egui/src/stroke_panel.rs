@@ -52,10 +52,13 @@ fn shown(app: &FireCraftApp, target: Target) -> Option<Shown> {
         }
         Target::Selection => {
             let d = app.session.active_doc()?;
-            let path = d.selection.iter().find_map(|r| match d.element(*r).map(|e| &e.kind) {
-                Some(ElementKind::Path(p)) => Some(p),
-                _ => None,
-            })?;
+            let path = d
+                .selection
+                .iter()
+                .find_map(|r| match d.element(*r).map(|e| &e.kind) {
+                    Some(ElementKind::Path(p)) => Some(p),
+                    _ => None,
+                })?;
             let s: Option<&Stroke> = path.stroke.as_ref();
             Some(Shown {
                 has: s.is_some(),
@@ -89,7 +92,11 @@ fn paint_edge_preview(p: &egui::Painter, pv: Rect, col: Color32, size: f64, soft
         } else {
             (255.0 * (1.0 - f * soft as f32 / 120.0)).clamp(30.0, 255.0) as u8
         };
-        p.circle_filled(pv.center(), r0 * f, Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), a));
+        p.circle_filled(
+            pv.center(),
+            r0 * f,
+            Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), a),
+        );
     }
 }
 
@@ -114,7 +121,10 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
             let mut size = s.size.round();
             let resp = ui.add_enabled(
                 s.has,
-                egui::DragValue::new(&mut size).range(1.0..=100.0).max_decimals(0).suffix(" px"),
+                egui::DragValue::new(&mut size)
+                    .range(1.0..=100.0)
+                    .max_decimals(0)
+                    .suffix(" px"),
             );
             if resp.changed() {
                 match target {
@@ -143,11 +153,21 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
             ui.add_enabled(s.has, egui::Label::new("Edge:"));
             let (pv, _) = ui.allocate_exact_size(vec2(22.0, 18.0), Sense::hover());
             ui.painter().rect_filled(pv, 0.0, Color32::WHITE);
-            ui.painter()
-                .rect_stroke(pv, 0.0, Line::new(1.0, Color32::from_gray(140)), StrokeKind::Inside);
+            ui.painter().rect_stroke(
+                pv,
+                0.0,
+                Line::new(1.0, Color32::from_gray(140)),
+                StrokeKind::Inside,
+            );
             if s.has {
                 let c = s.color.unwrap_or(firecraft_raster::Rgba::BLACK);
-                paint_edge_preview(ui.painter(), pv, Color32::from_rgb(c.r, c.g, c.b), s.size, s.softness);
+                paint_edge_preview(
+                    ui.painter(),
+                    pv,
+                    Color32::from_rgb(c.r, c.g, c.b),
+                    s.size,
+                    s.softness,
+                );
             }
             let mut soft = s.softness as f64;
             let resp = ui.add_enabled(
@@ -216,7 +236,11 @@ fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &
         ui.separator();
         for &(cat, cat_label) in brush_presets::CATEGORY_LABELS {
             ui.menu_button(cat_label, |ui| {
-                for (i, p) in BRUSH_PRESETS.iter().enumerate().filter(|(_, p)| p.category == cat) {
+                for (i, p) in BRUSH_PRESETS
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| p.category == cat)
+                {
                     let on = s.has && s.preset == Some(i);
                     if ui.selectable_label(on, brush_presets::label(p)).clicked() {
                         pick = Some(Some(i));
@@ -243,7 +267,9 @@ fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &
                 o.stroke_size = BRUSH_PRESETS.get(i).map_or(1, |p| p.diameter.max(1) as u32);
             }
             o.stroke_preset = i;
-            o.stroke_softness = BRUSH_PRESETS.get(i).map_or(0, |p| (p.softness / 10).clamp(0, 100) as u8);
+            o.stroke_softness = BRUSH_PRESETS
+                .get(i)
+                .map_or(0, |p| (p.softness / 10).clamp(0, 100) as u8);
         }
         (Target::Selection, None) => set_color(app, target, None),
         (Target::Selection, Some(i)) => {

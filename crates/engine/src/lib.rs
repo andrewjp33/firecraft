@@ -1048,23 +1048,34 @@ impl DocState {
     /// 1-Pixel Anti-Aliased pencil).
     pub fn set_stroke_color(&mut self, color: Option<Rgba>) {
         let refs = self.selection.clone();
-        self.edit(if color.is_some() { "Stroke Color" } else { "No Stroke" }, |s| {
-            for r in refs {
-                if let Some(Element {
-                    kind: ElementKind::Path(p),
-                    ..
-                }) = s.element_mut(r)
-                {
-                    match (color, &mut p.stroke) {
-                        (None, st) => *st = None,
-                        (Some(c), Some(st)) => st.color = c,
-                        (Some(c), st) => {
-                            *st = Some(Stroke::from_preset(c, firecraft_doc::brush_presets::default_index(), 1.0))
+        self.edit(
+            if color.is_some() {
+                "Stroke Color"
+            } else {
+                "No Stroke"
+            },
+            |s| {
+                for r in refs {
+                    if let Some(Element {
+                        kind: ElementKind::Path(p),
+                        ..
+                    }) = s.element_mut(r)
+                    {
+                        match (color, &mut p.stroke) {
+                            (None, st) => *st = None,
+                            (Some(c), Some(st)) => st.color = c,
+                            (Some(c), st) => {
+                                *st = Some(Stroke::from_preset(
+                                    c,
+                                    firecraft_doc::brush_presets::default_index(),
+                                    1.0,
+                                ))
+                            }
                         }
                     }
                 }
-            }
-        });
+            },
+        );
     }
 
     /// Change the stroke of the selected paths that have one (`live`: part of a slider drag

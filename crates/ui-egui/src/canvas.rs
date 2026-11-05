@@ -1059,6 +1059,27 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 ));
                 continue;
             }
+            // A path shows itself, highlighted (as in Fireworks); rectangles keep their box.
+            if let Some(firecraft_doc::ElementKind::Path(path)) = d.element(*r).map(|e| &e.kind)
+                && path.rect.is_none()
+            {
+                for c in &path.contours {
+                    let pts: Vec<Pos2> = c
+                        .flatten(0.0, 0.0)
+                        .into_iter()
+                        .map(|(x, y)| to_screen(x, y) + drag_offset)
+                        .collect();
+                    if pts.len() >= 2 {
+                        let line = Stroke::new(1.0, theme::HANDLE_BLUE);
+                        p.add(if c.closed {
+                            Shape::closed_line(pts, line)
+                        } else {
+                            Shape::line(pts, line)
+                        });
+                    }
+                }
+                continue;
+            }
             if let Some((x, y, w, h)) = d.element(*r).and_then(|e| e.bounds()) {
                 let br = Rect::from_min_max(to_screen(x, y), to_screen(x + w, y + h)).translate(drag_offset);
                 p.rect_stroke(br, 0.0, Stroke::new(1.0, theme::HANDLE_BLUE), StrokeKind::Outside);

@@ -19,8 +19,8 @@
 mod canvas;
 pub mod cursors;
 mod dialogs;
-mod fpui;
 pub mod effects_ui;
+mod fpui;
 mod icons;
 mod inspector;
 mod library;

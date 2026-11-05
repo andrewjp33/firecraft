@@ -178,7 +178,11 @@ fn brush_for(stroke: &Stroke, raw: Option<&Node>) -> BrushParams {
     let mut bpl = stroke
         .brush
         .clone()
-        .or_else(|| raw.and_then(|r| r.child("PAT")).and_then(|a| a.child("BPL")).cloned())
+        .or_else(|| {
+            raw.and_then(|r| r.child("PAT"))
+                .and_then(|a| a.child("BPL"))
+                .cloned()
+        })
         .unwrap_or_else(|| pencil_preset(stroke));
     sync_preset(&mut bpl, stroke);
     brush_params(&bpl)

@@ -165,7 +165,13 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
         }
         ui.horizontal(|ui| {
             icons::glyph(ui, icons::Glyph::Bucket, 16.0);
-            match cp::color_box(ui, "tool_fill", vec2(22.0, 14.0), o.fill, Footer::Fill { kinds: false }) {
+            match cp::color_box(
+                ui,
+                "tool_fill",
+                vec2(22.0, 14.0),
+                o.fill,
+                Footer::Fill { kinds: false },
+            ) {
                 Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
                 Some(ColorChoice::None) => o.fill = None,
                 _ => {}

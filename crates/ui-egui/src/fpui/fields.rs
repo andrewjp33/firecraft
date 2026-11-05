@@ -28,9 +28,18 @@ pub fn parse_digits(s: &str) -> Option<f64> {
 /// A label right-aligned in `r`.
 pub fn label_right(ui: &Ui, r: Rect, text: &str, enabled: bool) {
     let t = Theme::current(ui.ctx());
-    let col = if enabled { t.colors.text } else { t.colors.text_disabled };
-    ui.painter()
-        .text(pos2(r.right(), r.center().y), Align2::RIGHT_CENTER, text, t.ui_font(), col);
+    let col = if enabled {
+        t.colors.text
+    } else {
+        t.colors.text_disabled
+    };
+    ui.painter().text(
+        pos2(r.right(), r.center().y),
+        Align2::RIGHT_CENTER,
+        text,
+        t.ui_font(),
+        col,
+    );
 }
 
 /// A toggle button with a glyph (pressed: blue frame, as Fireworks CS).
@@ -45,7 +54,11 @@ pub fn toggle(
 ) -> bool {
     let t = Theme::current(ui.ctx());
     let c = &t.colors;
-    let resp = ui.interact(r, Id::unique(id), if enabled { Sense::click() } else { Sense::hover() });
+    let resp = ui.interact(
+        r,
+        Id::unique(id),
+        if enabled { Sense::click() } else { Sense::hover() },
+    );
     let hot = enabled && resp.hovered();
     if on {
         ui.painter().rect_filled(r, 2.0, c.tool_selected_bg);
@@ -63,12 +76,23 @@ pub fn toggle(
         ui.painter().rect_stroke(
             r,
             2.0,
-            Stroke::new(1.0, if hot { c.button_hover_border } else { c.button_border }),
+            Stroke::new(
+                1.0,
+                if hot {
+                    c.button_hover_border
+                } else {
+                    c.button_border
+                },
+            ),
             StrokeKind::Inside,
         );
     }
     glyphs::paint(ui.painter(), r, glyph, &t, enabled);
-    let resp = if tip.is_empty() { resp } else { resp.on_hover_text(tip) };
+    let resp = if tip.is_empty() {
+        resp
+    } else {
+        resp.on_hover_text(tip)
+    };
     enabled && resp.clicked()
 }
 
@@ -83,14 +107,26 @@ pub fn icon_button(
 ) -> Response {
     let t = Theme::current(ui.ctx());
     let c = &t.colors;
-    let resp = ui.interact(r, Id::unique(id), if enabled { Sense::click() } else { Sense::hover() });
+    let resp = ui.interact(
+        r,
+        Id::unique(id),
+        if enabled { Sense::click() } else { Sense::hover() },
+    );
     if enabled && resp.hovered() {
         ui.painter().rect_filled(r, 2.0, c.button_hover_bg);
-        ui.painter()
-            .rect_stroke(r, 2.0, Stroke::new(1.0, c.button_hover_border), StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            r,
+            2.0,
+            Stroke::new(1.0, c.button_hover_border),
+            StrokeKind::Inside,
+        );
     }
     glyphs::paint(ui.painter(), r, glyph, &t, enabled);
-    if tip.is_empty() { resp } else { resp.on_hover_text(tip) }
+    if tip.is_empty() {
+        resp
+    } else {
+        resp.on_hover_text(tip)
+    }
 }
 
 /// A transparency checkerboard in `rect` with cells of `cell` points.
@@ -98,7 +134,10 @@ pub fn checker(painter: &egui::Painter, rect: Rect, cell: f32, theme: &Theme) {
     let (a, b) = (theme.colors.checker_a, theme.colors.checker_b);
     painter.rect_filled(rect, 0.0, a);
     let p = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
-    let (nx, ny) = ((rect.width() / cell).ceil() as i32, (rect.height() / cell).ceil() as i32);
+    let (nx, ny) = (
+        (rect.width() / cell).ceil() as i32,
+        (rect.height() / cell).ceil() as i32,
+    );
     for y in 0..ny {
         for x in 0..nx {
             if (x + y) % 2 == 1 {
@@ -121,8 +160,12 @@ pub fn push_button(ui: &mut Ui, rect: Rect, label: &str, default: bool, enabled:
     }
     let resp = ui.add_enabled_ui(enabled, |ui| ui.put(rect, button)).inner;
     if default && enabled {
-        ui.painter()
-            .rect_stroke(rect, 2.0, Stroke::new(1.0, theme.colors.focus), StrokeKind::Inside);
+        ui.painter().rect_stroke(
+            rect,
+            2.0,
+            Stroke::new(1.0, theme.colors.focus),
+            StrokeKind::Inside,
+        );
     }
     enabled && resp.clicked()
 }

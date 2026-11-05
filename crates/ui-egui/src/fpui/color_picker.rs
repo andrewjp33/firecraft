@@ -25,8 +25,8 @@ use super::glyphs::Glyph;
 use super::texts;
 use super::theme::Theme;
 use egui::{
-    Align2, Color32, Id, Key, LayerId, Modifiers, Order, Pos2, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui, pos2, vec2,
+    Align2, Color32, Id, Key, LayerId, Modifiers, Order, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
+    pos2, vec2,
 };
 use std::sync::Arc;
 
@@ -67,7 +67,6 @@ pub enum ColorChoice {
 /// white), in place of FirePixel's app state; `None` where there is no document.
 pub type Sampler<'a> = &'a dyn Fn(Pos2) -> Option<Argb>;
 
-
 /// Größe des Popups (Punkte), in allen Aufrufen gleich.
 pub const POPUP_W: f32 = 259.0;
 pub const POPUP_H: f32 = 277.0;
@@ -107,10 +106,7 @@ pub enum Footer {
     Fill { kinds: bool },
     /// Kontur (Werkzeugleiste, Inspektor): Ohne, Strich innen/mittig/außen + Farbkreis.
     /// `placement`: gedrückte Lage (0 innen, 1 mittig, 2 außen), `enabled`: Lage-Knöpfe bedienbar.
-    Stroke {
-        placement: Option<u8>,
-        enabled: bool,
-    },
+    Stroke { placement: Option<u8>, enabled: bool },
 }
 
 impl Footer {
@@ -215,10 +211,7 @@ pub fn grid_color(c: usize, r: usize) -> Argb {
 /// Klickpunkt `click_x`; oben zu wenig Platz → an den oberen Rand von `screen`. Rechts bleibt es im
 /// Fenster.
 pub fn popup_pos(anchor: Rect, click_x: f32, screen: Rect) -> Pos2 {
-    let x = click_x
-        .round()
-        .min(screen.right() - POPUP_W)
-        .max(screen.left());
+    let x = click_x.round().min(screen.right() - POPUP_W).max(screen.left());
     let y = (anchor.top() - POPUP_H).max(screen.top());
     pos2(x, y)
 }
@@ -327,13 +320,7 @@ pub fn hex_text(c: Argb) -> String {
 /// (bei „Ohne“ `rgba(0,0,0,0.00)`).
 pub fn rgba_text(c: Option<Argb>) -> String {
     match c {
-        Some(c) => format!(
-            "rgba({},{},{},{:.2})",
-            c.r(),
-            c.g(),
-            c.b(),
-            c.a() as f64 / 255.0
-        ),
+        Some(c) => format!("rgba({},{},{},{:.2})", c.r(), c.g(), c.b(), c.a() as f64 / 255.0),
         None => "rgba(0,0,0,0.00)".into(),
     }
 }
@@ -542,13 +529,7 @@ impl CpState {
 
 /// Farbe unter dem Zeiger außerhalb des Popups: Leinwand (Dokumentpixel der aktiven Seite, auf Weiß)
 /// bzw. das letzte Bildschirmfoto des App-Fensters.
-fn sample(
-    ctx: &egui::Context,
-    st: Sampler<'_>,
-    s: &mut CpState,
-    p: Pos2,
-    own: &[Id],
-) -> Option<Argb> {
+fn sample(ctx: &egui::Context, st: Sampler<'_>, s: &mut CpState, p: Pos2, own: &[Id]) -> Option<Argb> {
     // Leinwand-Abkürzung nur, wenn dort kein Fenster (Dialog, schwebendes Bedienfeld, Menü) liegt:
     // sonst nahm die Pipette über dem Glühen-Dialog das Dokumentpixel darunter (N27, NP-1)
     // FireCraft: the document under the pointer, unless a window lies over it
@@ -571,9 +552,7 @@ fn sample(
     let c = img.pixels[y as usize * w + x as usize];
     let k = 1.0f32;
     let un = |v: u8| ((v as f32 / k).round().clamp(0.0, 255.0)) as u32;
-    Some(Argb(
-        0xff00_0000 | un(c.r()) << 16 | un(c.g()) << 8 | un(c.b()),
-    ))
+    Some(Argb(0xff00_0000 | un(c.r()) << 16 | un(c.g()) << 8 | un(c.b())))
 }
 
 /// Liegt über `p` ein Fenster/Bereich oberhalb der Grundebene (Dialog, schwebendes Bedienfeld,
@@ -840,9 +819,8 @@ fn body(
     let own = [pid.with("backdrop"), pid.with("area")];
     let (sys_open, slider_open) = (s.sys, s.slider);
     let dragging = s.slider_drag.is_some();
-    let blocked = |p: Pos2| {
-        dragging || (sys_open && sys_rect.contains(p)) || (slider_open && slider_rect.contains(p))
-    };
+    let blocked =
+        |p: Pos2| dragging || (sys_open && sys_rect.contains(p)) || (slider_open && slider_rect.contains(p));
     let mut hover_cell = None;
     let mut shot_frame = false;
     let mut live: Option<Argb> = None;
@@ -950,12 +928,7 @@ fn body(
             let (_, _bg) = ui.allocate_exact_size(union.size(), Sense::click());
             let p = ui.painter().clone();
             p.rect_filled(rect, 0.0, c.menu_bg);
-            p.rect_stroke(
-                rect,
-                0.0,
-                Stroke::new(1.0, c.menu_border),
-                StrokeKind::Inside,
-            );
+            p.rect_stroke(rect, 0.0, Stroke::new(1.0, c.menu_border), StrokeKind::Inside);
             // Raster
             p.rect_filled(grid, 0.0, Color32::BLACK);
             for rr in 0..GRID_ROWS {
@@ -964,26 +937,10 @@ fn body(
                 }
             }
             let frame = Color32::from_gray(0x64);
-            p.vline(
-                o.x + 3.5,
-                (o.y + 3.0)..=(o.y + 184.0),
-                Stroke::new(1.0, frame),
-            );
-            p.vline(
-                o.x + 255.5,
-                (o.y + 3.0)..=(o.y + 184.0),
-                Stroke::new(1.0, frame),
-            );
-            p.hline(
-                (o.x + 3.0)..=(o.x + 256.0),
-                o.y + 3.5,
-                Stroke::new(1.0, frame),
-            );
-            p.hline(
-                (o.x + 3.0)..=(o.x + 256.0),
-                o.y + 183.5,
-                Stroke::new(1.0, frame),
-            );
+            p.vline(o.x + 3.5, (o.y + 3.0)..=(o.y + 184.0), Stroke::new(1.0, frame));
+            p.vline(o.x + 255.5, (o.y + 3.0)..=(o.y + 184.0), Stroke::new(1.0, frame));
+            p.hline((o.x + 3.0)..=(o.x + 256.0), o.y + 3.5, Stroke::new(1.0, frame));
+            p.hline((o.x + 3.0)..=(o.x + 256.0), o.y + 183.5, Stroke::new(1.0, frame));
             if let Some((cc, rr)) = hover_cell {
                 p.rect_stroke(
                     cell_rect(o, cc, rr).expand(1.0),
@@ -1000,10 +957,7 @@ fn body(
                 }
                 None => {
                     p.rect_filled(pv, 0.0, Color32::WHITE);
-                    p.line_segment(
-                        [pv.left_bottom(), pv.right_top()],
-                        Stroke::new(1.5, c.icon_red),
-                    );
+                    p.line_segment([pv.left_bottom(), pv.right_top()], Stroke::new(1.5, c.icon_red));
                 }
             }
             p.rect_stroke(
@@ -1052,12 +1006,7 @@ fn body(
             if footer.has_opacity() {
                 let ck = Rect::from_min_max(o + vec2(3.0, 219.0), o + vec2(13.0, 229.0));
                 super::fields::checker(&p, ck, 2.5, &t);
-                p.rect_stroke(
-                    ck,
-                    0.0,
-                    Stroke::new(1.0, c.field_border),
-                    StrokeKind::Inside,
-                );
+                p.rect_stroke(ck, 0.0, Stroke::new(1.0, c.field_border), StrokeKind::Inside);
                 let op_r = Rect::from_min_max(o + vec2(15.0, 214.0), o + vec2(46.0, 235.0));
                 let mut op = s.op.clone();
                 if field(ui, pid.with("op"), op_r, &mut op, false).changed() {
@@ -1074,14 +1023,7 @@ fn body(
                 p.rect_stroke(
                     dd,
                     0.0,
-                    Stroke::new(
-                        1.0,
-                        if ddr.hovered() {
-                            c.focus
-                        } else {
-                            c.field_border
-                        },
-                    ),
+                    Stroke::new(1.0, if ddr.hovered() { c.focus } else { c.field_border }),
                     StrokeKind::Inside,
                 );
                 super::glyphs::chevron_down(&p, dd, c.icon_fg);
@@ -1239,30 +1181,19 @@ fn body(
                 let r = slider_rect;
                 let resp = ui.interact(r, pid.with("op-slider"), Sense::click_and_drag());
                 ui.painter().rect_filled(r, 0.0, c.menu_bg);
-                ui.painter().rect_stroke(
-                    r,
-                    0.0,
-                    Stroke::new(1.0, c.menu_border),
-                    StrokeKind::Inside,
-                );
+                ui.painter()
+                    .rect_stroke(r, 0.0, Stroke::new(1.0, c.menu_border), StrokeKind::Inside);
                 let (tt, tl) = alpha_track(r);
-                let track = Rect::from_min_max(
-                    pos2(r.center().x - 2.0, tt),
-                    pos2(r.center().x + 2.0, tt + tl),
-                );
+                let track =
+                    Rect::from_min_max(pos2(r.center().x - 2.0, tt), pos2(r.center().x + 2.0, tt + tl));
                 ui.painter().rect_filled(track, 1.0, c.field_bg);
-                ui.painter().rect_stroke(
-                    track,
-                    1.0,
-                    Stroke::new(1.0, c.field_border),
-                    StrokeKind::Inside,
-                );
+                ui.painter()
+                    .rect_stroke(track, 1.0, Stroke::new(1.0, c.field_border), StrokeKind::Inside);
                 let at = if s.slider_drag.is_some() {
                     pointer
                 } else {
-                    resp.interact_pointer_pos().filter(|_| {
-                        resp.dragged() || resp.clicked() || resp.is_pointer_button_down_on()
-                    })
+                    resp.interact_pointer_pos()
+                        .filter(|_| resp.dragged() || resp.clicked() || resp.is_pointer_button_down_on())
                 };
                 if let Some(pp) = at {
                     let v = (1.0 - (pp.y - track.top()) / track.height()).clamp(0.0, 1.0);
@@ -1312,10 +1243,7 @@ fn body(
         .iter()
         .any(|(a, b, cx, d)| Rect::from_min_max(o + vec2(*a, *b), o + vec2(*cx, *d)).contains(p));
         let over_controls = rect.contains(p) && !grid.contains(p);
-        if !over_field
-            && !over_controls
-            && !(s.slider && slider_rect.contains(p))
-        {
+        if !over_field && !over_controls && !(s.slider && slider_rect.contains(p)) {
             // FireCraft: the crosshair while picking (FireCraft has no eyedropper cursor bitmap)
             if !shot_frame && s.shot_pending.is_none() {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -1385,17 +1313,13 @@ fn sys_dialog(ui: &mut Ui, swatch_pid: Id, s: &CpState, r: Rect) -> Option<Optio
     ui.scope_builder(egui::UiBuilder::new().max_rect(pick), |ui| {
         ui.set_clip_rect(pick);
         ui.spacing_mut().slider_width = 200.0;
-        if egui::color_picker::color_picker_color32(ui, &mut rgb, egui::color_picker::Alpha::Opaque)
-        {
+        if egui::color_picker::color_picker_color32(ui, &mut rgb, egui::color_picker::Alpha::Opaque) {
             ui.data_mut(|d| d.insert_temp(col_key, rgb));
         }
     });
     let (ok_l, cancel_l) = (texts::t("btn-apply"), texts::t("btn-cancel"));
     let by = rr.bottom() - 32.0;
-    let ok_r = Rect::from_min_size(
-        pos2(rr.right() - 10.0 - 2.0 * 90.0 - 8.0, by),
-        vec2(90.0, 23.0),
-    );
+    let ok_r = Rect::from_min_size(pos2(rr.right() - 10.0 - 2.0 * 90.0 - 8.0, by), vec2(90.0, 23.0));
     let cancel_r = Rect::from_min_size(pos2(rr.right() - 10.0 - 90.0, by), vec2(90.0, 23.0));
     if super::fields::push_button(ui, ok_r, &ok_l, true, true) {
         let col = ui.data(|d| d.get_temp::<Color32>(col_key)).unwrap_or(rgb);
@@ -1457,10 +1381,7 @@ mod tests {
     fn placement_above_and_clamped_at_top() {
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
         let anchor = Rect::from_min_size(pos2(100.0, 500.0), vec2(20.0, 16.0));
-        assert_eq!(
-            popup_pos(anchor, 105.0, screen),
-            pos2(105.0, 500.0 - POPUP_H)
-        );
+        assert_eq!(popup_pos(anchor, 105.0, screen), pos2(105.0, 500.0 - POPUP_H));
         let high = Rect::from_min_size(pos2(100.0, 40.0), vec2(20.0, 16.0));
         assert_eq!(popup_pos(high, 105.0, screen).y, 0.0);
         assert_eq!(popup_pos(anchor, 1590.0, screen).x, 1600.0 - POPUP_W);

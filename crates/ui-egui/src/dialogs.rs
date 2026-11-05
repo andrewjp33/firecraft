@@ -247,10 +247,20 @@ fn dialog(title: &str) -> egui::Window<'_> {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
 }
 
+/// A colour box with Fireworks CS's colour pop-up (FirePixel's re-creation).
 fn rgba_edit(ui: &mut egui::Ui, c: &mut Rgba) -> bool {
-    let mut arr = [c.r, c.g, c.b, c.a];
-    let changed = ui.color_edit_button_srgba_unmultiplied(&mut arr).changed();
-    *c = Rgba::new(arr[0], arr[1], arr[2], arr[3]);
+    use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
+    let mut changed = false;
+    if let Some(ColorChoice::Color(n)) = cp::color_box(
+        ui,
+        (ui.scope_id(), "rgba_edit"),
+        egui::vec2(28.0, 16.0),
+        Some(*c),
+        Footer::Plain,
+    ) {
+        *c = cp::to_rgba(n);
+        changed = true;
+    }
     ui.label(c.to_hex());
     changed
 }
@@ -283,7 +293,19 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.radio_value(&mut dl.new_canvas, CanvasChoice::Transparent, "Transparent");
             ui.horizontal(|ui| {
                 ui.radio_value(&mut dl.new_canvas, CanvasChoice::Custom, "Custom");
-                ui.color_edit_button_srgb(&mut dl.new_custom);
+                use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
+                let [r, g, b] = dl.new_custom;
+                if let Some(ColorChoice::Color(n)) = cp::color_box(
+                    ui,
+                    "new_doc_custom",
+                    egui::vec2(28.0, 16.0),
+                    Some(Rgba::new(r, g, b, 255)),
+                    Footer::Plain,
+                ) {
+                    let n = cp::to_rgba(n);
+                    dl.new_custom = [n.r, n.g, n.b];
+                    dl.new_canvas = CanvasChoice::Custom;
+                }
             });
             ui.separator();
             ui.horizontal(|ui| {

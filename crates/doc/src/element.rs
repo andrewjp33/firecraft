@@ -953,10 +953,7 @@ impl Element {
     /// Half the widest stroke in the object (strokes reach beyond the geometry's bounds).
     fn max_stroke(&self) -> f64 {
         match &self.kind {
-            ElementKind::Path(p) => p
-                .stroke
-                .as_ref()
-                .map_or(0.0, crate::stroke_fw::margin),
+            ElementKind::Path(p) => p.stroke.as_ref().map_or(0.0, crate::stroke_fw::margin),
             ElementKind::Group(children) => children.iter().map(Element::max_stroke).fold(0.0, f64::max),
             ElementKind::Masked { content, mask, .. } => content
                 .iter()

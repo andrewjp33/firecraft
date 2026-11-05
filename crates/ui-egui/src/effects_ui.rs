@@ -632,16 +632,24 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
             }
         }
         Kind::Color | Kind::ColorAlpha => {
+            // Fireworks CS's colour pop-up (FirePixel's re-creation).
+            use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
             let c = Rgba::from_hex(&raw).unwrap_or(Rgba::BLACK);
+            let alpha = matches!(f.kind, Kind::ColorAlpha);
+            let shown = if alpha { c } else { Rgba { a: 255, ..c } };
             let mut arr = [c.r, c.g, c.b, c.a];
-            let changed = if matches!(f.kind, Kind::ColorAlpha) {
-                ui.color_edit_button_srgba_unmultiplied(&mut arr).changed()
-            } else {
-                let mut rgb = [c.r, c.g, c.b];
-                let ch = ui.color_edit_button_srgb(&mut rgb).changed();
-                arr = [rgb[0], rgb[1], rgb[2], 255];
-                ch
-            };
+            let mut changed = false;
+            if let Some(ColorChoice::Color(n)) = cp::color_box(
+                ui,
+                (ui.scope_id(), "fx_color", f.key),
+                egui::vec2(28.0, 16.0),
+                Some(shown),
+                Footer::Plain,
+            ) {
+                let n = cp::to_rgba(n);
+                arr = [n.r, n.g, n.b, if alpha { n.a } else { 255 }];
+                changed = true;
+            }
             if changed {
                 out = Some(if matches!(f.kind, Kind::ColorAlpha) {
                     format!("#{:02x}{:02x}{:02x}{:02x}", arr[0], arr[1], arr[2], arr[3])
@@ -676,9 +684,17 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
             }
         }
         Kind::PluginColor => {
+            use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
             let c = plugin.color(f.key, Rgba::BLACK);
-            let mut rgb = [c.r, c.g, c.b];
-            if ui.color_edit_button_srgb(&mut rgb).changed() {
+            if let Some(ColorChoice::Color(n)) = cp::color_box(
+                ui,
+                (ui.scope_id(), "plugin_color", f.key),
+                egui::vec2(28.0, 16.0),
+                Some(Rgba { a: 255, ..c }),
+                Footer::Plain,
+            ) {
+                let n = cp::to_rgba(n);
+                let rgb = [n.r, n.g, n.b];
                 let pct = |v: u8| v as f64 / 2.55;
                 let t = format!(
                     "RGB: {:.1}% {:.1}% {:.1}% ({} {} {})",

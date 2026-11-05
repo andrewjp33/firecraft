@@ -3,7 +3,8 @@
 ## Selecting
 
 * **Pointer** (V): click an object to select it (Shift adds or removes); groups are selected
-  whole. Pressing inside the selection's box drags the selection even where another object lies
+  whole. A selected path is shown by its own outline, highlighted (as in Fireworks); other
+  objects and rectangles by their bounding box with corner handles. Pressing inside the selection's box drags the selection even where another object lies
   on top (Fireworks). Objects are picked where they have pixels (a pixel test, 2 px tolerance),
   not by bounding box. **Select Behind** (the Pointer's flyout) selects the next object down at
   the same spot on each click.
@@ -55,7 +56,8 @@ live under the same preference.
 ## Colour pop-up
 
 Every colour box (Tools panel stroke and fill, the Property inspector's tool options, a
-selected path's fill and stroke, the canvas colour) opens Fireworks CS's colour pop-up, as
+selected path's fill and stroke, the canvas colour, effect and plug-in colours, the Canvas Color
+and New Document dialogs) opens Fireworks CS's colour pop-up, as
 re-created by FirePixel (`crates/ui-egui/src/fpui/color_picker.rs`): a 21 x 15 swatch grid, a
 preview, HEX and RGB fields with copy buttons, opacity with a drop-down slider, None (and, for
 fills and strokes, kind/placement buttons), and the colour-wheel dialog. The eyedropper is on as
