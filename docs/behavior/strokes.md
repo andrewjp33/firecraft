@@ -49,5 +49,10 @@ What the measurements showed, and the engine implements:
 
 ## Not yet
 
+* The 3D Glow brush (natural, alpha remap) comes out up to ~10-19 levels too bright in parts
+  of its glow compared with Fireworks MX (lines2.png, 92.6% match). FirePixel's own renderer
+  gives the same pixels, so it's in the engine as reconstructed (possibly an MX/CS difference),
+  not in FireCraft's port.
+
 * Stroke textures (`TXBv` images) aren't loaded, so textured strokes draw untextured.
 * Pen pressure stored on bezier points (`BZCi`/`BAZv`) is not kept when points are edited.
