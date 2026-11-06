@@ -39,6 +39,7 @@ help:
 	@echo "  make release          Linux optimized build  -> $(DIST)/linux-release/firecraft"
 	@echo "  make windows-release  Windows optimized      -> $(DIST)/windows-release/firecraft.exe"
 	@echo "  make web              Browser build (trunk)  -> $(DIST)/web/"
+	@echo "  make web-debug        Browser debug build (dev profile, function names; larger)"
 	@echo "  make web-serve        Serve the browser build at http://127.0.0.1:8766"
 	@echo "  make run [FILE=x.png] Build and run (debug), optionally opening a file"
 	@echo "  make test             Run all tests"
@@ -79,6 +80,10 @@ windows-release:
 web:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
 	cd apps/firecraft-web && trunk build --release
+
+web-debug:
+	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
+	cd apps/firecraft-web && trunk build
 
 web-serve:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
