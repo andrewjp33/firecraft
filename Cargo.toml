@@ -33,6 +33,7 @@ log = "0.4"
 eframe = { version = "0.37", default-features = false }
 egui = { version = "0.37", default-features = false }
 rfd = "0.17"
+instant = { version = "0.1", features = ["wasm-bindgen"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

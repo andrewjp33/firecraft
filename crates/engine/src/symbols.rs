@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use firecraft_doc::{Document, Element, ElementKind, Frame, Layer, Symbol, SymbolKind};
 use firecraft_raster::transform::Affine;
+use instant::SystemTime;
 
 use crate::{DocState, ElementRef, Session};
 
@@ -47,8 +48,8 @@ pub fn thirds(x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
 
 /// A fresh, unused symbol id (Fireworks uses arbitrary 32-bit ids).
 fn new_symbol_id(doc: &Document) -> u32 {
-    let mut seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let mut seed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0x5eed_1234, |d| {
             d.subsec_nanos() ^ (d.as_secs() as u32).rotate_left(13)
         });

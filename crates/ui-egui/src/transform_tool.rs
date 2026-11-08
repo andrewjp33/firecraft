@@ -13,6 +13,7 @@ use egui::{Color32, Pos2, Rect, Stroke, StrokeKind, pos2, vec2};
 use firecraft_doc::Element;
 use firecraft_engine::{DocState, ElementRef, Tool};
 use firecraft_raster::transform::Affine;
+use instant::Instant;
 
 use crate::cursors::Cur;
 use crate::{FireCraftApp, theme};
@@ -458,7 +459,7 @@ pub fn canvas(
         // Live preview: the objects as they look now, warped as the box changes.
         if live && handle != Handle::Pivot {
             // Rendering the objects once tells how heavy they are.
-            let t = std::time::Instant::now();
+            let t = Instant::now();
             let baked = d.bake(&edit.originals);
             let quick = t.elapsed().as_secs_f64() * 1000.0 <= EXACT_PREVIEW_MS;
             edit.preview = Some(if quick {

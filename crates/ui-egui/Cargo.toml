@@ -18,3 +18,4 @@ firecraft-engine = { workspace = true }
 firecraft-sysclip = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 log = { workspace = true }
+instant.workspace = true

@@ -5,6 +5,8 @@ use firecraft_engine::{DocState, ElementRef, Tool};
 use firecraft_raster::Mask;
 use firecraft_raster::mask::Combine;
 
+use instant::Instant;
+
 use crate::{FireCraftApp, View, theme};
 
 pub fn workspace(app: &mut FireCraftApp, ui: &mut egui::Ui) {
@@ -659,7 +661,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let key = (d.revision << 16) ^ d.doc.current_frame as u64;
     let stale = view.texture.as_ref().is_none_or(|(k, _)| *k != key);
     if stale {
-        let t0 = std::time::Instant::now();
+        //let t0 = std::time::Instant::now();
+        let t0 = Instant::now();
         let img = d
             .doc
             .render_cached(d.doc.current_frame, &mut view.cache.borrow_mut());
