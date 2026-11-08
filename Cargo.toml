@@ -54,8 +54,10 @@ opt-level = 2
 debug = false
 
 [profile.dev]
-opt-level = 1
-debug = "line-tables-only"
+#opt-level = 1
+#debug = "line-tables-only"
+opt-level = 0
+debug = true
 
 # The pixel work (rendering, effects, compositing) is optimised fully even in debug builds,
 # so the debug app stays responsive.

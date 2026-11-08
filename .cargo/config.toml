@@ -3,3 +3,6 @@
 linker = "x86_64-w64-mingw32-gcc"
 # Link the MinGW runtime statically so firecraft.exe needs no extra DLLs.
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["--remap-path-prefix=/home/andrew/Documents/work=./work"]
