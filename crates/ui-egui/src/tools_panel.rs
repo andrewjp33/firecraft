@@ -308,6 +308,10 @@ fn colors(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 },
                 16.0,
             );
+            if !is_stroke {
+                crate::fill_ui::tools_fill_box(app, ui);
+                return;
+            }
             let cur = if is_stroke {
                 app.session.options.stroke
             } else {

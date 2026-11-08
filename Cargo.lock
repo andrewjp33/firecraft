@@ -1137,6 +1137,7 @@ dependencies = [
  "firecraft-doc",
  "firecraft-fwpng",
  "firecraft-raster",
+ "image",
  "png",
  "thiserror 2.0.21",
  "weezl",
@@ -1546,6 +1547,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

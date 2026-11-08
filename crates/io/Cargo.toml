@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 firecraft-fwpng = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "bmp", "tiff"] }
 firecraft-raster = { workspace = true }
 firecraft-doc = { workspace = true }
 png = { workspace = true }

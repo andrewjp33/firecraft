@@ -12,7 +12,8 @@ mod symbols;
 mod tools;
 
 pub use fills::{
-    GRADIENT_FILLS, GRADIENT_PRESETS, default_handles, fill_label, new_gradient, opaque_ramp, preset_colors,
+    FillHandles, GRADIENT_FILLS, GRADIENT_PRESETS, PATTERN, WEB_DITHER, default_handles, fill_label,
+    new_gradient, new_pattern, opaque_ramp, preset_colors, web_dither_tile,
 };
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
@@ -1071,13 +1072,21 @@ impl DocState {
                 {
                     match (color, &mut p.fill) {
                         (None, f) => *f = None,
-                        (Some(c), Some(f)) => f.color = c,
+                        (Some(c), Some(f)) => {
+                            f.color = c;
+                            if f.dither.is_some() {
+                                f.dither = Some(fills::dither_tile(c, f.dither_transparent));
+                            }
+                        }
                         (Some(c), f) => {
                             *f = Some(Fill {
                                 color: c,
                                 category: "fc_Solid".into(),
                                 anti_alias: true,
                                 feather: 0,
+                                pattern: None,
+                                dither: None,
+                                dither_transparent: false,
                                 gradient: None,
                                 texture: None,
                                 texture_amount: 0,

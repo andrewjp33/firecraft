@@ -32,6 +32,8 @@ pub struct Popup {
     at: Pos2,
     selected: Option<Stop>,
     dragging: Option<Stop>,
+    /// The Fill Options button was pressed.
+    to_options: bool,
 }
 
 fn color32(c: Rgba) -> Color32 {
@@ -39,7 +41,7 @@ fn color32(c: Rgba) -> Color32 {
 }
 
 /// The ramp, over a checkerboard where it's transparent.
-fn paint_ramp(painter: &egui::Painter, r: Rect, g: &Gradient) {
+pub(crate) fn paint_ramp(painter: &egui::Painter, r: Rect, g: &Gradient) {
     let square = 5.0;
     let (cols, rows) = (
         (r.width() / square).ceil() as i32,
@@ -89,9 +91,11 @@ pub fn open(app: &mut FireCraftApp, target: Target, resp: &egui::Response) {
     }
     app.gradient_popup = Some(Popup {
         target,
-        at: resp.rect.left_bottom() + vec2(0.0, 2.0),
+        // Opens upward: the Property inspector sits at the bottom of the window.
+        at: resp.rect.left_top() - vec2(0.0, 2.0),
         selected: None,
         dragging: None,
+        to_options: false,
     });
 }
 
@@ -121,6 +125,7 @@ pub fn popup(app: &mut FireCraftApp, ctx: &egui::Context) {
     let before = g.clone();
     let shown = egui::Area::new(egui::Id::new("edit_gradient"))
         .order(egui::Order::Foreground)
+        .pivot(egui::Align2::LEFT_BOTTOM)
         .fixed_pos(state.at)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| editor(ui, &mut g, &mut state))
@@ -148,8 +153,15 @@ pub fn popup(app: &mut FireCraftApp, ctx: &egui::Context) {
             i.key_pressed(egui::Key::Enter),
         )
     });
-    let outside = pressed && at.is_some_and(|p| !area.contains(p)) && !cp::any_open(ctx);
-    if enter || outside {
+    // The colour picker and the preset list are pop-ups of their own, outside this one's area.
+    let outside = pressed
+        && at.is_some_and(|p| !area.contains(p))
+        && !cp::any_open(ctx)
+        && !egui::Popup::is_any_open(ctx);
+    if enter || outside || state.to_options {
+        if state.to_options {
+            crate::fill_ui::open_window(app, state.target, state.at);
+        }
         if state.target == Target::Selection
             && let Some(d) = app.session.active_doc_mut()
         {
@@ -330,6 +342,12 @@ fn editor(ui: &mut egui::Ui, g: &mut Gradient, state: &mut Popup) {
                 }
             }
         });
+    if state.target != Target::GradientTool {
+        ui.add_space(4.0);
+        if ui.button("Fill Options...").clicked() {
+            state.to_options = true;
+        }
+    }
 }
 
 /// `g` without its opacity ramp.
@@ -361,31 +379,32 @@ enum Grip {
 pub struct FillDrag {
     grip: Grip,
     press: Pt,
-    orig: Gradient,
+    orig: Trio,
     moved: bool,
 }
 
-/// The gradient after dragging `grip` from `press` to `cur` (Fireworks MX).
-fn dragged(orig: &Gradient, grip: Grip, press: Pt, cur: Pt) -> Gradient {
-    let mut g = orig.clone();
+/// The round, end and side handles.
+type Trio = (Pt, Pt, Pt);
+
+/// The handles after dragging `grip` from `press` to `cur` (Fireworks MX).
+fn dragged((start, end, side): Trio, grip: Grip, press: Pt, cur: Pt) -> Trio {
     let (dx, dy) = (cur.0 - press.0, cur.1 - press.1);
+    let moved = |p: Pt| (p.0 + dx, p.1 + dy);
     match grip {
-        Grip::Move => g.translate(dx, dy),
-        Grip::End => g.end = (orig.end.0 + dx, orig.end.1 + dy),
-        Grip::Side => g.side = (orig.side.0 + dx, orig.side.1 + dy),
+        Grip::Move => (moved(start), moved(end), moved(side)),
+        Grip::End => (start, moved(end), side),
+        Grip::Side => (start, end, moved(side)),
         Grip::Rotate => {
-            let (ox, oy) = orig.start;
+            let (ox, oy) = start;
             let angle = (cur.1 - oy).atan2(cur.0 - ox) - (press.1 - oy).atan2(press.0 - ox);
             let (sin, cos) = angle.sin_cos();
             let turn = |p: Pt| {
                 let (x, y) = (p.0 - ox, p.1 - oy);
                 (ox + x * cos - y * sin, oy + x * sin + y * cos)
             };
-            g.end = turn(orig.end);
-            g.side = turn(orig.side);
+            (start, turn(end), turn(side))
         }
     }
-    g
 }
 
 fn distance_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
@@ -398,7 +417,7 @@ fn distance_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
     (a + d * t).distance(p)
 }
 
-/// The selected gradient's handles: shows them and takes presses on them. `true` while they have
+/// The selected gradient's or pattern's handles: shows them and takes presses on them. `true` while they have
 /// the mouse (the tool underneath then does nothing).
 pub fn handles(
     drag: &mut Option<FillDrag>,
@@ -411,12 +430,12 @@ pub fn handles(
     let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
     let single = d.selection.len() == 1;
-    let Some(g) = d.selected_gradient().filter(|_| single).map(|(_, g)| g.clone()) else {
+    let Some(h) = d.selected_fill_handles().filter(|_| single) else {
         *drag = None;
         return false;
     };
-    let (start, end, side) = (to_screen(g.start), to_screen(g.end), to_screen(g.side));
-    let uses_side = g.uses_side();
+    let (start, end, side) = (to_screen(h.start), to_screen(h.end), to_screen(h.side));
+    let uses_side = h.uses_side;
 
     let (pressed, down, origin_at, now) = ctx.input(|i| {
         (
@@ -449,7 +468,7 @@ pub fn handles(
             *drag = Some(FillDrag {
                 grip,
                 press: to_doc(s),
-                orig: g.clone(),
+                orig: (h.start, h.end, h.side),
                 moved: false,
             });
         }
@@ -461,10 +480,8 @@ pub fn handles(
             let cur = to_doc(s);
             if cur != active.press || active.moved {
                 active.moved = true;
-                let new = dragged(&active.orig, active.grip, active.press, cur);
-                d.edit_gradient("Move Fill Handle", true, |x| {
-                    (x.start, x.end, x.side) = (new.start, new.end, new.side);
-                });
+                let new = dragged(active.orig, active.grip, active.press, cur);
+                d.set_fill_handles(true, new.0, new.1, new.2);
                 ctx.request_repaint();
             }
         }
@@ -520,6 +537,10 @@ mod tests {
     use firecraft_raster::gradient::GradientKind;
 
     /// The Ellipse fill the drags were recorded on in Fireworks MX.
+    fn trio(g: &Gradient) -> Trio {
+        (g.start, g.end, g.side)
+    }
+
     fn ellipse() -> Gradient {
         let mut g = new_gradient(
             GradientKind::Elliptical,
@@ -539,38 +560,35 @@ mod tests {
             opaque_ramp(),
             (60.0, 80.0, 240.0, 120.0),
         );
-        let m = dragged(&g, Grip::Move, (180.0, 140.0), (200.0, 150.0));
-        assert_eq!(
-            (m.start, m.end, m.side),
-            ((200.0, 150.0), (320.0, 150.0), (200.0, 90.0))
-        );
+        let m = dragged(trio(&g), Grip::Move, (180.0, 140.0), (200.0, 150.0));
+        assert_eq!((m.0, m.1, m.2), ((200.0, 150.0), (320.0, 150.0), (200.0, 90.0)));
     }
 
     #[test]
     fn a_square_handle_moves_only_itself() {
         let g = ellipse();
-        let m = dragged(&g, Grip::End, (280.0, 140.0), (300.0, 150.0));
-        assert_eq!((m.start, m.end, m.side), (g.start, (300.0, 150.0), g.side));
-        let m = dragged(&g, Grip::Side, g.side, (230.0, 70.0));
-        assert_eq!((m.start, m.end, m.side), (g.start, g.end, (230.0, 70.0)));
+        let m = dragged(trio(&g), Grip::End, (280.0, 140.0), (300.0, 150.0));
+        assert_eq!((m.0, m.1, m.2), (g.start, (300.0, 150.0), g.side));
+        let m = dragged(trio(&g), Grip::Side, g.side, (230.0, 70.0));
+        assert_eq!((m.0, m.1, m.2), (g.start, g.end, (230.0, 70.0)));
     }
 
     #[test]
     fn dragging_a_line_rotates_about_the_round_handle() {
         // Recorded in Fireworks MX: 240,140 to 240,175 gave 260.38,192.48 and 247.40,108.33.
         let g = ellipse();
-        let m = dragged(&g, Grip::Rotate, (240.0, 140.0), (240.0, 175.0));
+        let m = dragged(trio(&g), Grip::Rotate, (240.0, 140.0), (240.0, 175.0));
         assert!(
-            (m.end.0 - 260.38).abs() < 0.5 && (m.end.1 - 192.48).abs() < 0.5,
+            (m.1.0 - 260.38).abs() < 0.5 && (m.1.1 - 192.48).abs() < 0.5,
             "{:?}",
-            m.end
+            m.1
         );
         assert!(
-            (m.side.0 - 247.40).abs() < 0.5 && (m.side.1 - 108.33).abs() < 0.5,
+            (m.2.0 - 247.40).abs() < 0.5 && (m.2.1 - 108.33).abs() < 0.5,
             "{:?}",
-            m.side
+            m.2
         );
-        assert_eq!(m.start, g.start);
+        assert_eq!(m.0, g.start);
     }
 
     #[test]

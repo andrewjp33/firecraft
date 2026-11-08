@@ -4,7 +4,8 @@ use firecraft_fwpng::Node;
 use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{AxisMap, resample};
-use firecraft_raster::path::{Pt, fill_polygons, fill_polygons_feathered, fill_polygons_with, flatten_cubic};
+use firecraft_raster::path::{Pt, fill_polygons_feathered, fill_polygons_with, flatten_cubic};
+use firecraft_raster::pattern::{PatternFill, web_dither_at};
 use firecraft_raster::transform::{Affine, sample, transform_image};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
@@ -81,6 +82,12 @@ pub struct Fill {
     pub feather: u16,
     /// Gradient fills (handles in canvas coordinates); `None` for solid fills.
     pub gradient: Option<Gradient>,
+    /// Pattern fills (`fc_Pattern`).
+    pub pattern: Option<PatternFill>,
+    /// Web Dither fills (`fc_WebDither`, `FD1i`..`FD4i`): the 2 x 2 tile, by rows.
+    pub dither: Option<[Rgba; 4]>,
+    /// Web Dither's Transparent option (`FDTb`): every other pixel is left empty.
+    pub dither_transparent: bool,
     /// The fill's texture (`TXFv`; Fireworks keeps one on every path, "Grain" by default).
     pub texture: Option<Texture>,
     /// Texture amount in per mille (`FTBi` in the fill preset).
@@ -88,6 +95,17 @@ pub struct Fill {
     /// "Transparent" (`FSMi` 1): the texture takes coverage away; otherwise (`FSMi` 2) it
     /// lightens the colour.
     pub texture_transparent: bool,
+}
+
+impl Fill {
+    /// The fill's handles (gradients and patterns), canvas coordinates.
+    pub fn handles_mut(&mut self) -> Vec<&mut (f64, f64)> {
+        match (&mut self.gradient, &mut self.pattern) {
+            (Some(g), _) => vec![&mut g.start, &mut g.end, &mut g.side],
+            (_, Some(p)) => vec![&mut p.start, &mut p.end, &mut p.side],
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// `round(v / 255)` for `v` up to 255 * 255 (Fireworks' rounding).
@@ -559,8 +577,9 @@ impl Element {
                     pt.x += dx;
                     pt.y += dy;
                 }
-                if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
-                    g.translate(dx, dy);
+                for h in p.fill.iter_mut().flat_map(Fill::handles_mut) {
+                    h.0 += dx;
+                    h.1 += dy;
                 }
                 if let Some(r) = &mut p.rect {
                     r.matrix = Affine::translate(dx, dy).then(&r.matrix);
@@ -620,10 +639,8 @@ impl Element {
                         succ: (su.0 - ax, su.1 - ay),
                     };
                 }
-                if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
-                    for h in [&mut g.start, &mut g.end, &mut g.side] {
-                        *h = m.apply(h.0, h.1);
-                    }
+                for h in p.fill.iter_mut().flat_map(Fill::handles_mut) {
+                    *h = m.apply(h.0, h.1);
                 }
                 if let Some(s) = &mut p.stroke {
                     s.diameter = (s.diameter * m.scale()).max(0.1);
@@ -817,10 +834,8 @@ impl Element {
                         succ,
                     };
                 }
-                if let Some(g) = p.fill.as_mut().and_then(|f| f.gradient.as_mut()) {
-                    for h in [&mut g.start, &mut g.end, &mut g.side] {
-                        *h = (mx.apply(h.0), my.apply(h.1));
-                    }
+                for h in p.fill.iter_mut().flat_map(Fill::handles_mut) {
+                    *h = (mx.apply(h.0), my.apply(h.1));
                 }
             }
             ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
@@ -875,22 +890,29 @@ impl Element {
                 let (fx, fy) = (-((ox + x0) as f64), -((oy + y0) as f64));
                 if let Some(f) = &p.fill {
                     let polys: Vec<Vec<Pt>> = p.contours.iter().map(|c| c.flatten(fx, fy)).collect();
-                    match &f.gradient {
-                        // Shade in canvas coordinates (the layer's pixel + its canvas offset).
-                        // Fireworks samples gradients at the pixel's integer coordinate (its
-                        // top-left corner), not its centre (measured on Folds/Pinch/Waves).
-                        Some(g) => {
-                            let shade = |x: f64, y: f64| g.color_at(x - 0.5 - fx, y - 0.5 - fy);
-                            if f.feather > 0 {
-                                fill_polygons_feathered(&mut layer, &polys, f.feather as usize, &shade);
-                            } else {
-                                fill_polygons_with(&mut layer, &polys, f.anti_alias, &shade);
+                    // Shade in canvas coordinates (the layer's pixel + its canvas offset).
+                    // Fireworks samples gradients at the pixel's integer coordinate (its
+                    // top-left corner), not its centre (measured on Folds/Pinch/Waves).
+                    let shade = |x: f64, y: f64| {
+                        let (cx, cy) = (x - 0.5 - fx, y - 0.5 - fy);
+                        match (&f.gradient, &f.pattern, &f.dither) {
+                            (Some(g), _, _) => g.color_at(cx, cy),
+                            (_, Some(pattern), _) => pattern.color_at(cx, cy),
+                            (_, _, Some(tile)) => {
+                                let c = web_dither_at(tile, cx, cy);
+                                if f.dither_transparent && (cx.round() as i64 + cy.round() as i64) % 2 != 0 {
+                                    Rgba { a: 0, ..c }
+                                } else {
+                                    c
+                                }
                             }
+                            _ => f.color,
                         }
-                        None if f.feather > 0 => {
-                            fill_polygons_feathered(&mut layer, &polys, f.feather as usize, &|_, _| f.color);
-                        }
-                        None => fill_polygons(&mut layer, &polys, f.color, f.anti_alias),
+                    };
+                    if f.feather > 0 {
+                        fill_polygons_feathered(&mut layer, &polys, f.feather as usize, &shade);
+                    } else {
+                        fill_polygons_with(&mut layer, &polys, f.anti_alias, &shade);
                     }
                     apply_fill_texture(
                         &mut layer,
@@ -1157,6 +1179,9 @@ fn mask_coverage(
                     category: "fc_Solid".into(),
                     anti_alias: true,
                     feather: 0,
+                    pattern: None,
+                    dither: None,
+                    dither_transparent: false,
                     gradient: None,
                     texture: None,
                     texture_amount: 0,

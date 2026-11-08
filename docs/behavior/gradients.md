@@ -103,3 +103,28 @@ and `FGYv.FG0v` the colour stops, `FGYv.FG1v` the opacity stops in each stop's a
 
 Feather is Fireworks' triangle filter (FirePixel's reconstruction); a newly feathered edge is 10
 pixels. The Gradient tool's drag and its bitmap fill follow the manual and weren't measured.
+
+## Pattern and Web Dither fills
+
+Measured in Fireworks MX by reading fills back through its scripting API; FireCraft renders Fireworks
+MX's own saved Pattern, Web Dither and Transparent files with no differing pixels.
+
+**Tools panel.** The Fill box shows the selected object's fill, or new objects' with nothing selected.
+A plain colour opens the colour pop-up, whose **Fill Options...** button opens the Fill Options window;
+a gradient opens Edit Gradient (which has the same button).
+
+**Pattern.** `FSHi 15`, the tile stored in the file (`FPTv { INMs IMGv }`). A new or changed pattern puts
+the round handle on the object's centre, with the other two one tile away (right and up), so the first
+pattern on a 60,80 240 x 120 object at 128 x 128 sits at 180,140 / 308,140 / 180,12. Choosing another
+pattern resets the handles the same way. The menu lists the Patterns folder by name; three names differ
+from their files: Berber Rug is "Berber", Illusion 1 is "Illusion", Impressionist-Red is "Impressionist".
+**Other...** adds a PNG, GIF, JPEG, BMP or TIFF file at the bottom of the list.
+
+**Web Dither.** `FSHi 16`, `FD1i`..`FD4i` a 2 x 2 tile by rows: first, second / second, first. Each channel
+uses the websafe levels (multiples of 0x33) on either side of it, or just the nearer one within a quarter of
+a step: 0x34 stays 0x33, 0x80 is 0x66 and 0x99, 0xC0 is 0xCC. The first colour takes every lower level,
+the second every higher one. Editing a dither colour makes the source colour their average, rounded up
+(`#000033` and `#FFFFFF` give `#808099`).
+
+**Transparent** (`FDTb`): every tile entry becomes the websafe colour nearest the source, and every other
+pixel is left empty, by canvas position (x + y odd).

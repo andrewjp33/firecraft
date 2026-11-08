@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use firecraft_doc::Texture;
-use firecraft_raster::RgbaImage;
+use firecraft_raster::{Rgba, RgbaImage};
 
 use crate::{Error, Result};
 
@@ -35,13 +35,24 @@ pub fn mask_from_image(img: &RgbaImage) -> Vec<u8> {
         .collect()
 }
 
-/// Read an image file (PNG or GIF).
+/// Read an image file (PNG or GIF; JPEG, BMP and TIFF for patterns).
 pub fn decode_image(bytes: &[u8]) -> Result<RgbaImage> {
     if bytes.starts_with(b"GIF8") {
         decode_gif(bytes)
-    } else {
+    } else if bytes.starts_with(b"\x89PNG") {
         crate::decode_png(bytes)
+    } else {
+        decode_other(bytes)
     }
+}
+
+fn decode_other(bytes: &[u8]) -> Result<RgbaImage> {
+    let decoded = image::load_from_memory(bytes)
+        .map_err(|e| crate::Error::Unsupported(e.to_string()))?
+        .into_rgba8();
+    let (w, h) = decoded.dimensions();
+    RgbaImage::from_rgba_bytes(w, h, decoded.as_raw())
+        .ok_or_else(|| crate::Error::Unsupported("bad image dimensions".into()))
 }
 
 /// A texture from an image file, named after the file.
@@ -111,9 +122,150 @@ pub fn builtin(name: &str) -> Option<Texture> {
     Texture::new(name, size, size, mask)
 }
 
+/// The file types read as patterns (as Fireworks MX's manual lists them, less Mac PICT).
+pub const PATTERN_EXTENSIONS: [&str; 7] = ["png", "gif", "jpg", "jpeg", "bmp", "tif", "tiff"];
+
+/// A pattern for machines without Fireworks: FireCraft's own, drawn in code.
+pub const BUILTIN_PATTERN: &str = "FireCraft Checks";
+
+fn builtin_pattern() -> Option<RgbaImage> {
+    let (light, dark) = (Rgba::new(0xd8, 0xd8, 0xd8, 255), Rgba::new(0x98, 0x98, 0x98, 255));
+    let px = (0..32u32 * 32)
+        .map(|i| {
+            if (i % 32 / 16 + i / 32 / 16) % 2 == 0 {
+                light
+            } else {
+                dark
+            }
+        })
+        .collect();
+    RgbaImage::from_pixels(32, 32, px)
+}
+
+#[derive(Clone, Debug)]
+enum PatternSource {
+    File(PathBuf),
+    Bytes(Vec<u8>),
+    /// Chosen with Other...: kept when the folders are read again.
+    Added(Vec<u8>),
+    Builtin,
+}
+
+/// Fireworks MX's menu names where they differ from the file's: (file, menu).
+const PATTERN_LABELS: [(&str, &str); 3] = [
+    ("Berber Rug", "Berber"),
+    ("Illusion 1", "Illusion"),
+    ("Impressionist-Red", "Impressionist"),
+];
+
+/// A pattern's name on the menu.
+pub fn pattern_label(file_stem: &str) -> &str {
+    PATTERN_LABELS
+        .iter()
+        .find(|(file, _)| *file == file_stem)
+        .map_or(file_stem, |(_, label)| label)
+}
+
+fn pattern_stem(file: &Path) -> Option<String> {
+    let ext = file.extension()?;
+    PATTERN_EXTENSIONS
+        .iter()
+        .any(|e| ext.eq_ignore_ascii_case(e))
+        .then(|| file.file_stem().map(|n| n.to_string_lossy().to_string()))?
+}
+
+/// The patterns offered: Fireworks' Patterns folder, FireCraft's own and those added.
+#[derive(Clone, Debug, Default)]
+pub struct PatternLibrary {
+    /// (file stem, where it is), in menu order.
+    entries: Vec<(String, PatternSource)>,
+}
+
+impl PatternLibrary {
+    /// From the files of a folder already read (the browser), else `configured` or the usual
+    /// install folders. By menu name, as Fireworks lists them, then FireCraft's own.
+    pub fn scan(configured: Option<&Path>, files: Vec<(String, Vec<u8>)>) -> Self {
+        let mut entries: Vec<(String, PatternSource)> = files
+            .into_iter()
+            .filter_map(|(file, b)| Some((pattern_stem(Path::new(&file))?, PatternSource::Bytes(b))))
+            .collect();
+        if entries.is_empty() {
+            for dir in config_dirs(configured, "Patterns") {
+                let Ok(rd) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                entries.extend(
+                    rd.flatten()
+                        .map(|e| e.path())
+                        .filter_map(|p| Some((pattern_stem(&p)?, PatternSource::File(p)))),
+                );
+                if !entries.is_empty() {
+                    break;
+                }
+            }
+        }
+        entries.sort_by_key(|(n, _)| pattern_label(n).to_lowercase());
+        entries.push((BUILTIN_PATTERN.to_owned(), PatternSource::Builtin));
+        Self { entries }
+    }
+
+    /// The menu's names.
+    pub fn names(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .map(|(n, _)| pattern_label(n).to_owned())
+            .collect()
+    }
+
+    /// The pattern with this menu name: its file stem (the name stored in documents) and image.
+    pub fn get(&self, label: &str) -> Option<(String, RgbaImage)> {
+        let (stem, source) = self.entries.iter().find(|(n, _)| pattern_label(n) == label)?;
+        let image = match source {
+            PatternSource::File(p) => decode_image(&std::fs::read(p).ok()?).ok(),
+            PatternSource::Bytes(b) | PatternSource::Added(b) => decode_image(b).ok(),
+            PatternSource::Builtin => builtin_pattern(),
+        }?;
+        Some((stem.clone(), image))
+    }
+
+    /// The first pattern ("Berber Rug" with Fireworks' folder).
+    pub fn first(&self) -> Option<(String, RgbaImage)> {
+        let (name, _) = self.entries.first()?;
+        self.get(pattern_label(name))
+    }
+
+    /// Add an image file (Other...) at the bottom of the list: its stem and image.
+    pub fn add(&mut self, file: &str, bytes: Vec<u8>) -> std::result::Result<(String, RgbaImage), String> {
+        let image = decode_image(&bytes).map_err(|e| format!("Could not read {file}: {e}"))?;
+        let stem = Path::new(file)
+            .file_stem()
+            .map_or_else(|| file.to_owned(), |n| n.to_string_lossy().to_string());
+        self.entries.retain(|(n, _)| *n != stem);
+        self.entries.push((stem.clone(), PatternSource::Added(bytes)));
+        Ok((stem, image))
+    }
+
+    /// Keep the patterns added to `old`, after reading the folders again.
+    pub fn keep_added(&mut self, old: Self) {
+        self.entries.extend(
+            old.entries
+                .into_iter()
+                .filter(|(_, s)| matches!(s, PatternSource::Added(_))),
+        );
+    }
+}
+
 /// Fireworks texture folders: in `configured` (a Fireworks install folder, or a folder of
 /// textures), `FIRECRAFT_FWMX_DIR`, and the usual install locations (also under Wine).
 pub fn fireworks_dirs(configured: Option<&Path>) -> Vec<PathBuf> {
+    config_dirs(configured, "Textures")
+        .into_iter()
+        .filter(|d| !files_in(d).is_empty())
+        .collect()
+}
+
+/// The folders named `sub` of the Fireworks installs found, or `configured` itself.
+fn config_dirs(configured: Option<&Path>, sub: &str) -> Vec<PathBuf> {
     let mut installs: Vec<PathBuf> = Vec::new();
     if let Some(c) = configured {
         installs.push(c.to_path_buf());
@@ -140,9 +292,9 @@ pub fn fireworks_dirs(configured: Option<&Path>) -> Vec<PathBuf> {
     }
     let mut out: Vec<PathBuf> = Vec::new();
     for i in installs {
-        let t = i.join("Configuration").join("Textures");
+        let t = i.join("Configuration").join(sub);
         let dir = if t.is_dir() { t } else { i };
-        if dir.is_dir() && !out.contains(&dir) && !files_in(&dir).is_empty() {
+        if dir.is_dir() && !out.contains(&dir) {
             out.push(dir);
         }
     }

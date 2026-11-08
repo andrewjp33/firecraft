@@ -3,7 +3,9 @@
 
 use firecraft_doc::{Element, ElementKind, Fill};
 use firecraft_raster::Rgba;
+use firecraft_raster::RgbaImage;
 use firecraft_raster::gradient::{Gradient, GradientKind};
+use firecraft_raster::pattern::PatternFill;
 
 use crate::{DocState, ElementRef, ToolOptions};
 
@@ -24,10 +26,75 @@ pub const GRADIENT_FILLS: [(&str, &str); 11] = [
 
 /// The label for a fill category.
 pub fn fill_label(category: &str) -> &'static str {
-    GRADIENT_FILLS
-        .iter()
-        .find(|(c, _)| *c == category)
-        .map_or("Solid", |(_, l)| l)
+    match category {
+        PATTERN => "Pattern",
+        WEB_DITHER => "Web Dither",
+        _ => GRADIENT_FILLS
+            .iter()
+            .find(|(c, _)| *c == category)
+            .map_or("Solid", |(_, l)| l),
+    }
+}
+
+/// The Pattern fill category.
+pub const PATTERN: &str = "fc_Pattern";
+/// The Web Dither fill category.
+pub const WEB_DITHER: &str = "fc_WebDither";
+
+/// Fireworks MX's Web Dither tile for a colour: per channel, the websafe levels (multiples of
+/// 0x33) either side of it, or the nearer one alone within a quarter of a step of it.
+pub fn web_dither_tile(c: Rgba) -> [Rgba; 4] {
+    let levels = |v: u8| {
+        let (step, rest) = (u32::from(v) / 51, u32::from(v) % 51);
+        let low = (step * 51) as u8;
+        let high = ((step + 1) * 51).min(255) as u8;
+        match rest * 4 {
+            r if r < 51 => (low, low),
+            r if r > 153 => (high, high),
+            _ => (low, high),
+        }
+    };
+    let (r, g, b) = (levels(c.r), levels(c.g), levels(c.b));
+    let (first, second) = (Rgba::new(r.0, g.0, b.0, 255), Rgba::new(r.1, g.1, b.1, 255));
+    [first, second, second, first]
+}
+
+/// The websafe colour nearest `c`.
+fn websafe_nearest(c: Rgba) -> Rgba {
+    let level = |v: u8| ((u32::from(v) + 25) / 51 * 51) as u8;
+    Rgba::new(level(c.r), level(c.g), level(c.b), 255)
+}
+
+/// The Web Dither tile for a colour, with or without Transparent.
+pub(crate) fn dither_tile(c: Rgba, transparent: bool) -> [Rgba; 4] {
+    if transparent {
+        [websafe_nearest(c); 4]
+    } else {
+        web_dither_tile(c)
+    }
+}
+
+/// A pattern placed on an object (bounds x, y, w, h): pixel (0, 0) at its centre and one tile
+/// along each handle (Fireworks MX).
+pub fn new_pattern(name: &str, image: RgbaImage, (x, y, w, h): (f64, f64, f64, f64)) -> PatternFill {
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    let (tw, th) = (f64::from(image.width()), f64::from(image.height()));
+    PatternFill {
+        name: name.to_owned(),
+        image,
+        start: (cx, cy),
+        end: (cx + tw, cy),
+        side: (cx, cy - th),
+    }
+}
+
+/// A selected fill's handles, with whether the third is shown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FillHandles {
+    pub start: (f64, f64),
+    pub end: (f64, f64),
+    pub side: (f64, f64),
+    pub uses_side: bool,
 }
 
 /// Fireworks MX's preset gradients: (label, stops of (position, 0xRRGGBB)).
@@ -178,11 +245,21 @@ impl ToolOptions {
             .fill_gradient
             .as_ref()
             .map(|g| new_gradient(g.kind, g.colors.clone(), g.opacity.clone(), bounds));
+        let pattern = (self.fill_category == PATTERN)
+            .then(|| {
+                let p = self.fill_pattern.clone()?;
+                Some(new_pattern(&p.name, p.image, bounds))
+            })
+            .flatten();
         Some(Fill {
             color,
             category: self.fill_category.clone(),
             anti_alias: self.fill_anti_alias,
             feather: self.fill_feather,
+            pattern,
+            dither: (self.fill_category == WEB_DITHER)
+                .then(|| dither_tile(color, self.fill_dither_transparent)),
+            dither_transparent: self.fill_dither_transparent,
             gradient,
             texture: self.fill_texture.clone(),
             texture_amount: 0,
@@ -234,12 +311,23 @@ impl DocState {
                     category: "fc_Solid".into(),
                     anti_alias: opts.fill_anti_alias,
                     feather: opts.fill_feather,
+                    pattern: None,
+                    dither: None,
+                    dither_transparent: false,
                     gradient: None,
                     texture: opts.fill_texture.clone(),
                     texture_amount: 0,
                     texture_transparent: false,
                 });
                 f.category = category.to_owned();
+                f.pattern = (category == PATTERN)
+                    .then(|| {
+                        let p = f.pattern.take().or_else(|| opts.fill_pattern.clone())?;
+                        Some(new_pattern(&p.name, p.image, bounds))
+                    })
+                    .flatten();
+                f.dither = (category == WEB_DITHER).then(|| dither_tile(f.color, f.dither_transparent));
+                f.dither_transparent &= f.dither.is_some();
                 f.gradient = kind.map(|kind| {
                     let (colors, opacity) = match &f.gradient {
                         Some(g) => (g.colors.clone(), g.opacity.clone()),
@@ -259,6 +347,92 @@ impl DocState {
                 Some(ElementKind::Path(p)) => p.fill.as_ref()?.gradient.as_ref().map(|g| (*r, g)),
                 _ => None,
             })
+    }
+
+    /// The first selected path's fill: `None` with no path selected, `Some(None)` for no fill.
+    pub fn selected_fill(&self) -> Option<Option<&Fill>> {
+        self.selection
+            .iter()
+            .find_map(|r| match self.element(*r).map(|e| &e.kind) {
+                Some(ElementKind::Path(p)) => Some(p.fill.as_ref()),
+                _ => None,
+            })
+    }
+
+    /// The handles of the selected gradient or pattern.
+    pub fn selected_fill_handles(&self) -> Option<FillHandles> {
+        let f = self.selected_fill()??;
+        if let Some(g) = &f.gradient {
+            return Some(FillHandles {
+                start: g.start,
+                end: g.end,
+                side: g.side,
+                uses_side: g.uses_side(),
+            });
+        }
+        f.pattern.as_ref().map(|p| FillHandles {
+            start: p.start,
+            end: p.end,
+            side: p.side,
+            uses_side: true,
+        })
+    }
+
+    /// Move the selected fills' handles (`live`: part of a live edit already begun).
+    pub fn set_fill_handles(&mut self, live: bool, start: (f64, f64), end: (f64, f64), side: (f64, f64)) {
+        self.edit_fill("Move Fill Handle", live, move |f| {
+            if let [a, b, c] = f.handles_mut().as_mut_slice() {
+                (**a, **b, **c) = (start, end, side);
+            }
+        });
+    }
+
+    /// The selected Pattern fills use another pattern, placed afresh on each object (Fireworks
+    /// MX resets the handles).
+    pub fn set_fill_pattern(&mut self, name: &str, image: &RgbaImage) {
+        let refs = self.selection.clone();
+        self.edit("Fill Options", |s| {
+            for r in refs {
+                let bounds = s
+                    .element(r)
+                    .and_then(Element::bounds)
+                    .unwrap_or((0.0, 0.0, 1.0, 1.0));
+                if let Some(Element {
+                    kind: ElementKind::Path(p),
+                    ..
+                }) = s.element_mut(r)
+                    && let Some(q) = p.fill.as_mut().and_then(|f| f.pattern.as_mut())
+                {
+                    *q = new_pattern(name, image.clone(), bounds);
+                }
+            }
+        });
+    }
+
+    /// The selected Web Dither fills' colours (2 x 2, by rows). The source colour becomes their
+    /// average (Fireworks MX).
+    pub fn set_web_dither(&mut self, tile: [Rgba; 4]) {
+        self.edit_fill("Fill Options", false, |f| {
+            if f.dither.is_some() {
+                f.dither = Some(tile);
+                let mean = |a: u8, b: u8| ((u16::from(a) + u16::from(b)).div_ceil(2)) as u8;
+                f.color = Rgba::new(
+                    mean(tile[0].r, tile[1].r),
+                    mean(tile[0].g, tile[1].g),
+                    mean(tile[0].b, tile[1].b),
+                    255,
+                );
+            }
+        });
+    }
+
+    /// The selected Web Dither fills' Transparent option: on, the tile is the websafe colour
+    /// nearest the fill's, with every other pixel left empty (Fireworks MX).
+    pub fn set_web_dither_transparent(&mut self, on: bool) {
+        self.edit_fill("Fill Options", false, |f| {
+            f.dither_transparent = on;
+            f.dither = Some(dither_tile(f.color, on));
+        });
     }
 
     /// Change the selected paths' gradients (`live`: part of a live edit already begun).
@@ -319,6 +493,9 @@ impl DocState {
                     category: category.clone(),
                     anti_alias: true,
                     feather: 0,
+                    pattern: None,
+                    dither: None,
+                    dither_transparent: false,
                     gradient: None,
                     texture: None,
                     texture_amount: 0,
@@ -326,6 +503,9 @@ impl DocState {
                 });
                 f.category = category;
                 f.gradient = Some(gradient);
+                f.pattern = None;
+                f.dither = None;
+                f.dither_transparent = false;
             }
         });
         true
@@ -430,6 +610,115 @@ mod tests {
         let g = f.gradient.as_ref().expect("a gradient");
         assert_eq!(g.opacity.last().map(|s| s.1), Some(40));
         assert_eq!(g.colors.len(), 2);
+    }
+
+    #[test]
+    fn web_dither_matches_fireworks_mx() {
+        // (source, first, second), read back from Fireworks MX.
+        for (source, first, second) in [
+            (0x123456, 0x003333, 0x333366),
+            (0x808080, 0x666666, 0x999999),
+            (0x7f7f7f, 0x666666, 0x999999),
+            (0xff8040, 0xff6633, 0xff9966),
+            (0xccff33, 0xccff33, 0xccff33),
+            (0xa0b0c0, 0x9999cc, 0x99cccc),
+            (0x19334c, 0x003333, 0x333366),
+            (0x20e080, 0x00cc66, 0x33ff99),
+            (0x99cc66, 0x99cc66, 0x99cc66),
+            (0x2d5a87, 0x336666, 0x336699),
+            (0x0c263f, 0x000033, 0x003333),
+        ] {
+            let rgb = |c: u32| Rgba::new((c >> 16) as u8, (c >> 8) as u8, c as u8, 255);
+            let tile = web_dither_tile(rgb(source));
+            assert_eq!(
+                tile,
+                [rgb(first), rgb(second), rgb(second), rgb(first)],
+                "{source:06x}"
+            );
+        }
+        // Transparent: one websafe colour.
+        assert_eq!(
+            dither_tile(Rgba::new(0x0c, 0x26, 0x3f, 255), true),
+            [Rgba::new(0, 0x33, 0x33, 255); 4]
+        );
+    }
+
+    #[test]
+    fn choosing_another_pattern_resets_the_handles_to_its_size() {
+        // Fireworks MX: handles at 210,160 became 180,140 436,140 180,-116 for a 256 x 256 tile.
+        let (mut d, mut o) = doc_with_rect();
+        o.fill_pattern = Some(new_pattern(
+            "A",
+            RgbaImage::new(128, 128, Rgba::WHITE),
+            (0.0, 0.0, 1.0, 1.0),
+        ));
+        d.set_fill_category(PATTERN, &o);
+        d.set_fill_handles(false, (210.0, 160.0), (338.0, 160.0), (210.0, 32.0));
+        d.set_fill_pattern("B", &RgbaImage::new(256, 256, Rgba::WHITE));
+        let h = d.selected_fill_handles().expect("handles");
+        assert_eq!(
+            (h.start, h.end, h.side),
+            ((180.0, 140.0), (436.0, 140.0), (180.0, -116.0))
+        );
+    }
+
+    #[test]
+    fn editing_a_dither_colour_makes_the_source_their_average() {
+        // Fireworks MX: #000033 and #ffffff gave a fill colour of #808099.
+        let (mut d, o) = doc_with_rect();
+        d.set_fill_category(WEB_DITHER, &o);
+        let (a, b) = (Rgba::new(0, 0, 0x33, 255), Rgba::WHITE);
+        d.set_web_dither([a, b, b, a]);
+        let f = d.selected_fill().flatten().expect("a fill");
+        assert_eq!(f.color, Rgba::new(0x80, 0x80, 0x99, 255));
+    }
+
+    #[test]
+    fn a_new_pattern_starts_at_the_objects_centre_one_tile_long() {
+        // Fireworks MX: a 128 x 128 pattern on 60,80 240 x 120 gave 180,140 308,140 180,12.
+        let p = new_pattern(
+            "Berber Rug",
+            RgbaImage::new(128, 128, Rgba::WHITE),
+            (60.0, 80.0, 240.0, 120.0),
+        );
+        assert_eq!(
+            (p.start, p.end, p.side),
+            ((180.0, 140.0), (308.0, 140.0), (180.0, 12.0))
+        );
+    }
+
+    #[test]
+    fn pattern_and_web_dither_survive_a_save() {
+        let (mut d, mut o) = doc_with_rect();
+        o.fill_pattern = Some(new_pattern(
+            "Tiny",
+            RgbaImage::new(3, 2, Rgba::new(10, 20, 30, 255)),
+            (0.0, 0.0, 1.0, 1.0),
+        ));
+        d.set_fill_category(PATTERN, &o);
+        let bytes = firecraft_io::save_fireworks_png(&d.doc).expect("saves");
+        let saved = firecraft_io::open(&bytes, None).expect("opens");
+        let ElementKind::Path(p) = &saved.layers[0].elements(0)[0].kind else {
+            panic!("a path")
+        };
+        let f = p.fill.as_ref().expect("a fill");
+        let q = f.pattern.as_ref().expect("a pattern");
+        assert_eq!(
+            (q.name.as_str(), q.image.width(), q.image.height()),
+            ("Tiny", 3, 2)
+        );
+
+        d.set_fill_category(WEB_DITHER, &o);
+        d.set_web_dither_transparent(true);
+        let bytes = firecraft_io::save_fireworks_png(&d.doc).expect("saves");
+        let saved = firecraft_io::open(&bytes, None).expect("opens");
+        let el = &saved.layers[0].elements(0)[0];
+        let ElementKind::Path(p) = &el.kind else {
+            panic!("a path")
+        };
+        let f = p.fill.as_ref().expect("a fill");
+        assert!(f.pattern.is_none() && f.dither.is_some() && f.dither_transparent);
+        assert_eq!(f.category, WEB_DITHER);
     }
 
     #[test]

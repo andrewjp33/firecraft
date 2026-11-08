@@ -8,6 +8,7 @@ use firecraft_doc::{
 };
 use firecraft_fwpng::{FwPng, Node, Tile};
 use firecraft_raster::gradient::{Gradient, GradientKind};
+use firecraft_raster::pattern::PatternFill;
 use firecraft_raster::transform::Affine;
 use firecraft_raster::{ColorMath, Rgba, RgbaImage};
 
@@ -473,6 +474,13 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
             color: argb(a.u32_of("FCL").unwrap_or(0xFF00_0000)),
             anti_alias: preset.int_of("FET").unwrap_or(1) != 0,
             feather: preset.int_of("FEF").unwrap_or(0).clamp(0, 1024) as u16,
+            pattern: (category == "fc_Pattern")
+                .then(|| read_pattern(preset, n, ctx))
+                .flatten(),
+            dither: (category == "fc_WebDither")
+                .then(|| read_web_dither(preset))
+                .flatten(),
+            dither_transparent: preset.bool_of("FDT").unwrap_or(false),
             gradient: read_gradient(&category, preset, n, ctx),
             category,
             texture: a.child("TXF").and_then(|t| read_texture(t, ctx)),
@@ -659,6 +667,32 @@ fn read_gradient(category: &str, preset: &Node, path: &Node, ctx: &Ctx) -> Optio
         end: pt("PEX", "PEY"),
         side: pt("PFX", "PFY"),
     })
+}
+
+/// A pattern fill: its image is stored in the file (`FPTv`), with the handles on the path.
+fn read_pattern(preset: &Node, path: &Node, ctx: &Ctx) -> Option<PatternFill> {
+    let fpt = preset.child("FPT")?;
+    let image = read_bitmap(fpt.child("IMG")?, ctx)?.image;
+    let (ox, oy) = ctx.origin;
+    let pt = |x: &str, y: &str| {
+        (
+            path.float_of(x).unwrap_or(0.0) - ox,
+            path.float_of(y).unwrap_or(0.0) - oy,
+        )
+    };
+    Some(PatternFill {
+        name: fpt.str_of("INM").unwrap_or_default().to_owned(),
+        image,
+        start: pt("PSX", "PSY"),
+        end: pt("PEX", "PEY"),
+        side: pt("PFX", "PFY"),
+    })
+}
+
+/// A Web Dither fill's 2 x 2 tile.
+fn read_web_dither(preset: &Node) -> Option<[Rgba; 4]> {
+    let c = |t: &str| preset.u32_of(t).map(argb);
+    Some([c("FD1")?, c("FD2")?, c("FD3")?, c("FD4")?])
 }
 
 fn read_text(n: &Node, ctx: &Ctx) -> Text {

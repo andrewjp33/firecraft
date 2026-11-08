@@ -16,8 +16,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
   Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
-- Fills: Fill Options, Edit Gradient (stops, opacity, presets), handles on the canvas, Gradient tool,
-  Hard/Anti-Alias/Feather edges ([behavior/gradients.md](behavior/gradients.md))
+- Fills: Fill Options, Edit Gradient (stops, opacity, presets), Web Dither, Pattern, handles on the
+  canvas, Gradient tool, Hard/Anti-Alias/Feather edges ([behavior/gradients.md](behavior/gradients.md))
 - Objects: clipboard (shared with Fireworks), Duplicate/Clone, Group/Ungroup, Arrange, Align,
   Rotate/Flip, Numeric Transform, names, per-object show/hide and lock, Layers panel reordering,
   Superselect/Subselect, live dragging
@@ -40,16 +40,14 @@ Working order (user's priority, 2026-11-08): Text (item 5) next. Other items kee
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
 5. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
-6. **Fills**: Web Dither; the Gradient tool's exact behaviour against Fireworks MX
+6. **Fills**: the Gradient tool's exact behaviour against Fireworks MX
 7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
    Instances; button symbol states
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu (Adjust Color, Blur, Sharpen)
-12. **Pattern fills**: the Fill pop-up's Pattern category, read from the Patterns folder set in
-    Preferences (already stored, nothing reads it yet); needs a JPEG decoder, as 43 of MX's 46
-    patterns are JPG
+12. (Pattern fills: done.)
 13. JavaScript API compatibility for `.jsf` commands (Commands menu)
 14. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas

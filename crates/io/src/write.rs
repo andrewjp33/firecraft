@@ -789,12 +789,15 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
                 if let Some(g) = &f.gradient {
                     gradient_handles = Some((g.start, g.end, g.side));
                 }
+                if let Some(q) = &f.pattern {
+                    gradient_handles = Some((q.start, q.end, q.side));
+                }
                 put(attrs, Node::int("FCL", to_argb(f.color)));
                 if attrs.child("FPL").is_none() {
                     attrs.children.push(fill_preset());
                 }
                 if let Some(fpl) = attrs.child_mut("FPL") {
-                    write_fill_kind(fpl, f);
+                    write_fill_kind(fpl, f, w);
                     put(fpl, Node::int("FTB", f.texture_amount.min(1000) as i64));
                     put(fpl, Node::int("FSM", if f.texture_transparent { 1 } else { 2 }));
                 }
@@ -1016,17 +1019,19 @@ fn fill_shape(category: &str) -> i64 {
         "fc_Bars" => 12,
         "fc_Ripple" => 13,
         "fc_Waves" => 14,
+        "fc_Pattern" => 15,
+        "fc_WebDither" => 16,
         _ => 0,
     }
 }
 
 /// Write what kind of fill this is into its preset (`FPLv`): category, edge, gradient ramp.
-fn write_fill_kind(fpl: &mut Node, f: &firecraft_doc::Fill) {
+fn write_fill_kind(fpl: &mut Node, f: &firecraft_doc::Fill, w: &mut Writer) {
     let changed = fpl.str_of("CAT") != Some(f.category.as_str());
     put(fpl, Node::string("CAT", &f.category));
     if changed {
         // Fireworks' names when the category is changed.
-        let name = if f.gradient.is_some() {
+        let name = if f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some() {
             "Solid"
         } else {
             "fn_Normal"
@@ -1036,9 +1041,36 @@ fn write_fill_kind(fpl: &mut Node, f: &firecraft_doc::Fill) {
     }
     put(fpl, Node::int("FEF", f.feather as i64));
     put(fpl, Node::int("FET", i64::from(f.anti_alias || f.feather > 0)));
+    put(fpl, Node::int("FSH", fill_shape(&f.category)));
+    if let Some(q) = &f.pattern {
+        let image = write_bitmap(
+            &Bitmap {
+                x: -(w.origin.0 as i64),
+                y: -(w.origin.1 as i64),
+                image: q.image.clone(),
+            },
+            None,
+            w,
+        );
+        put(
+            fpl,
+            Node::vector("FPT", vec![Node::string("INM", &q.name), image]),
+        );
+    } else {
+        fpl.children.retain(|c| !c.is("FPT"));
+    }
+    const DITHER_TAGS: [&str; 4] = ["FD1", "FD2", "FD3", "FD4"];
+    match f.dither {
+        Some(tile) => {
+            for (tag, c) in DITHER_TAGS.iter().zip(tile) {
+                put(fpl, Node::int(tag, to_argb(c)));
+            }
+            put(fpl, Node::bool("FDT", f.dither_transparent));
+        }
+        None => fpl.children.retain(|c| !DITHER_TAGS.iter().any(|t| c.is(t))),
+    }
     match &f.gradient {
         Some(g) => {
-            put(fpl, Node::int("FSH", fill_shape(&f.category)));
             let ramp = |tag: &str, stops: &[(f32, i64)]| {
                 let mut kids = vec![Node::int("FNC", stops.len() as i64)];
                 kids.extend(stops.iter().map(|(p, c)| {
@@ -1080,10 +1112,7 @@ fn write_fill_kind(fpl: &mut Node, f: &firecraft_doc::Fill) {
                 ),
             );
         }
-        None => {
-            put(fpl, Node::int("FSH", 0));
-            fpl.children.retain(|c| !c.is("FGL"));
-        }
+        None => fpl.children.retain(|c| !c.is("FGL")),
     }
 }
 
@@ -1131,6 +1160,9 @@ mod tests {
                 category: "fc_Solid".into(),
                 anti_alias: true,
                 feather: 0,
+                pattern: None,
+                dither: None,
+                dither_transparent: false,
                 gradient: None,
                 texture: None,
                 texture_amount: 0,

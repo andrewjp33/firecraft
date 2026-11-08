@@ -217,6 +217,10 @@ pub struct ToolOptions {
     pub fill_category: String,
     /// New objects' gradient, when the category is one (its handles are set per object).
     pub fill_gradient: Option<firecraft_raster::gradient::Gradient>,
+    /// The pattern new objects get when `fill_category` is Pattern.
+    pub fill_pattern: Option<firecraft_raster::pattern::PatternFill>,
+    /// Web Dither's Transparent option for new objects.
+    pub fill_dither_transparent: bool,
     pub fill_anti_alias: bool,
     /// New objects' feathered edge, pixels (0: none).
     pub fill_feather: u16,
@@ -260,6 +264,8 @@ impl Default for ToolOptions {
             fill_texture: None,
             fill_category: "fc_Solid".into(),
             fill_gradient: None,
+            fill_pattern: None,
+            fill_dither_transparent: false,
             fill_anti_alias: true,
             fill_feather: 0,
             gradient_category: "fc_Linear".into(),

@@ -20,6 +20,7 @@ mod canvas;
 pub mod cursors;
 mod dialogs;
 pub mod effects_ui;
+mod fill_ui;
 mod fpui;
 mod gradient_ui;
 mod icons;
@@ -324,6 +325,11 @@ pub struct FireCraftApp {
     transform: Option<transform_tool::TransformEdit>,
     path_edit: path_tool::PathEdit,
     gradient_popup: Option<gradient_ui::Popup>,
+    fill_window: Option<fill_ui::Window>,
+    /// Where a pattern file chosen with Other... goes, once the browser delivers it.
+    awaiting_pattern: Option<gradient_ui::Target>,
+    patterns: firecraft_io::textures::PatternLibrary,
+    patterns_for: Option<(String, u64)>,
     fill_drag: Option<gradient_ui::FillDrag>,
     effects_ui: effects_ui::EffectsUi,
     /// Edit > Copy/Cut: the objects, and the note put on the system clipboard (pasting the
@@ -360,6 +366,10 @@ impl FireCraftApp {
             transform: None,
             path_edit: path_tool::PathEdit::default(),
             gradient_popup: None,
+            fill_window: None,
+            awaiting_pattern: None,
+            patterns: Default::default(),
+            patterns_for: None,
             fill_drag: None,
             effects_ui: effects_ui::EffectsUi::default(),
             clipboard: None,
@@ -370,6 +380,25 @@ impl FireCraftApp {
             textures: Default::default(),
             textures_for: None,
         }
+    }
+
+    /// The pattern list, read again when the Patterns folder setting changes.
+    pub(crate) fn pattern_library(&mut self) -> &firecraft_io::textures::PatternLibrary {
+        self.patterns_mut()
+    }
+
+    pub(crate) fn patterns_mut(&mut self) -> &mut firecraft_io::textures::PatternLibrary {
+        let source = (self.prefs.patterns_dir.clone(), self.platform.folder_revision());
+        if self.patterns_for.as_ref() != Some(&source) {
+            let dir = self.prefs.patterns_dir.trim();
+            let configured = (!dir.is_empty()).then(|| std::path::Path::new(dir));
+            let files = self.platform.folder_files(FolderKind::Patterns);
+            let mut lib = firecraft_io::textures::PatternLibrary::scan(configured, files);
+            lib.keep_added(std::mem::take(&mut self.patterns));
+            self.patterns = lib;
+            self.patterns_for = Some(source);
+        }
+        &mut self.patterns
     }
 
     /// The texture list, read again when the Fireworks folder setting changes; new strokes get
@@ -630,6 +659,7 @@ impl FireCraftApp {
             .show(ui, |ui| canvas::workspace(self, ui));
         dialogs::show(self, &ctx);
         gradient_ui::popup(self, &ctx);
+        fill_ui::window(self, &ctx);
         effects_ui::editor(self, &ctx);
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {

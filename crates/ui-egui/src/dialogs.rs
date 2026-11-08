@@ -553,7 +553,6 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             &mut prefs.patterns_dir,
             "The Configuration/Patterns folder of an installed Fireworks (MX to CS6).",
         );
-        ui.weak("Pattern fills aren't available yet; this folder will supply them.");
         ui.separator();
         close = ui.button("OK").clicked();
     });

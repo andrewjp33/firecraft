@@ -55,6 +55,8 @@ pub enum ColorChoice {
     Color(Argb),
     /// No colour ("None" button).
     None,
+    /// Tools panel fill: Fireworks MX's "Fill Options" button.
+    FillOptions,
     /// Tools panel fill: "Gradient" button.
     Gradient,
     /// Tools panel fill: "Pattern" button.
@@ -104,6 +106,8 @@ pub enum Footer {
     /// Werkzeugleiste Füllung: Ohne, Einfarbig, Verlauf, Muster + Farbkreis. `kinds`: Verlauf und
     /// Muster bedienbar (es gibt eine Auswahl).
     Fill { kinds: bool },
+    /// Fireworks MX's Tools panel fill: None and a Fill Options button.
+    FillOptions,
     /// Kontur (Werkzeugleiste, Inspektor): Ohne, Strich innen/mittig/außen + Farbkreis.
     /// `placement`: gedrückte Lage (0 innen, 1 mittig, 2 außen), `enabled`: Lage-Knöpfe bedienbar.
     Stroke { placement: Option<u8>, enabled: bool },
@@ -119,7 +123,10 @@ impl Footer {
     /// the user in CS6), which have their own opacity setting, nor for the canvas or dialogs.
     /// FirePixel showed it everywhere but the canvas, where it snapped back to 100%.
     fn has_opacity(self) -> bool {
-        matches!(self, Footer::Fill { .. } | Footer::Stroke { .. })
+        matches!(
+            self,
+            Footer::Fill { .. } | Footer::FillOptions | Footer::Stroke { .. }
+        )
     }
 }
 
@@ -1136,6 +1143,13 @@ fn body(
                         &texts::t("pi-fill-pattern"),
                     ) {
                         out = Some(ColorChoice::Pattern);
+                        close = true;
+                    }
+                }
+                Footer::FillOptions => {
+                    let r = Rect::from_min_size(btn(40.5).min, vec2(90.0, btn(40.5).height()));
+                    if ui.put(r, egui::Button::new("Fill Options...")).clicked() {
+                        out = Some(ColorChoice::FillOptions);
                         close = true;
                     }
                 }
