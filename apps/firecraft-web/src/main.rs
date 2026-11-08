@@ -10,7 +10,7 @@ mod web {
     use std::collections::HashMap;
     use std::rc::Rc;
 
-    use firecraft_ui_egui::{FireCraftApp, Platform, SaveStatus};
+    use firecraft_ui_egui::{FireCraftApp, FolderKind, Platform, SaveStatus};
     use js_sys::{Promise, Reflect, Uint8Array};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::{JsFuture, spawn_local};
@@ -69,6 +69,65 @@ export async function pickAndRead(images) {
   return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), handle };
 }
 
+function chooseFolder() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.webkitdirectory = true;
+    input.onchange = () => resolve(Array.from(input.files));
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
+const storedFolder = async (kind, create) =>
+  (await navigator.storage.getDirectory()).getDirectoryHandle(kind, { create });
+
+// Keep a private copy in the browser's storage so the folder survives a reload. Best effort:
+// without it (e.g. plain http) the folder lasts until the page closes.
+async function store(kind, files) {
+  try {
+    const root = await navigator.storage.getDirectory();
+    await root.removeEntry(kind, { recursive: true }).catch(() => {});
+    const dir = await storedFolder(kind, true);
+    for (const { name, bytes } of files) {
+      const out = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await out.write(bytes);
+      await out.close();
+    }
+  } catch (e) {
+    console.warn("Could not keep the folder in browser storage", e);
+  }
+}
+
+const IMAGE_FILE = /\.(png|gif|jpe?g)$/i;
+const readAll = (files) =>
+  Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
+
+// The images directly inside a chosen folder: { folder, files: [{ name, bytes }] }; null when
+// cancelled.
+export async function pickFolder(kind) {
+  const chosen = await chooseFolder();
+  if (!chosen) return null;
+  // webkitRelativePath is "Folder/file": two parts for files directly inside it.
+  const direct = chosen.filter((f) => f.webkitRelativePath.split("/").length === 2 && IMAGE_FILE.test(f.name));
+  if (direct.length === 0) throw new Error("That folder has no images in it.");
+  const files = await readAll(direct);
+  await store(kind, files);
+  return { folder: direct[0].webkitRelativePath.split("/")[0], files };
+}
+
+// The stored copy of a folder: [{ name, bytes }], empty if there is none.
+export async function storedFiles(kind) {
+  try {
+    const files = [];
+    for await (const handle of (await storedFolder(kind, false)).values()) files.push(await handle.getFile());
+    return await readAll(files);
+  } catch {
+    return [];
+  }
+}
+
 export function canPickSave() {
   return !!window.showSaveFilePicker;
 }
@@ -95,12 +154,22 @@ export async function writeTo(handle, bytes) {
         fn can_pick_save() -> bool;
         #[wasm_bindgen(js_name = pickAndWrite)]
         fn pick_and_write(suggested: &str, bytes: &Uint8Array) -> Promise;
+        #[wasm_bindgen(js_name = pickFolder)]
+        fn pick_folder(kind: &str) -> Promise;
+        #[wasm_bindgen(js_name = storedFiles)]
+        fn stored_files(kind: &str) -> Promise;
         #[wasm_bindgen(js_name = writeTo)]
         fn write_to(handle: &JsValue, bytes: &Uint8Array) -> Promise;
     }
 
     /// (document path or name, bytes), or why the file could not be read.
     type OpenedFile = Result<(String, Vec<u8>), String>;
+
+    /// (file name, contents) of the images in a folder.
+    type FolderFiles = Vec<(String, Vec<u8>)>;
+
+    /// Which folder setting was browsed for, and the folder's name or why it could not be read.
+    type PickedFolder = (FolderKind, Result<String, String>);
 
     /// Prefix of the document path of a file we hold a handle for. Browsers don't reveal real
     /// paths; this one is unique (two files can share a name) and still ends in the file name.
@@ -114,6 +183,9 @@ export async function writeTo(handle, bytes) {
         saved: RefCell<Option<SaveStatus>>,
         handles: RefCell<HashMap<String, JsValue>>,
         next_handle: Cell<u64>,
+        folders: RefCell<HashMap<FolderKind, FolderFiles>>,
+        folder_revision: Cell<u64>,
+        picked_folder: RefCell<Option<PickedFolder>>,
     }
 
     impl Shared {
@@ -136,6 +208,17 @@ export async function writeTo(handle, bytes) {
             self.ctx.request_repaint();
         }
 
+        fn set_folder(&self, kind: FolderKind, files: FolderFiles) {
+            self.folders.borrow_mut().insert(kind, files);
+            self.folder_revision.set(self.folder_revision.get() + 1);
+            self.ctx.request_repaint();
+        }
+
+        fn finish_folder(&self, kind: FolderKind, folder: Result<String, String>) {
+            *self.picked_folder.borrow_mut() = Some((kind, folder));
+            self.ctx.request_repaint();
+        }
+
         fn finish_save(&self, status: SaveStatus) {
             *self.saved.borrow_mut() = Some(status);
             self.ctx.request_repaint();
@@ -148,7 +231,7 @@ export async function writeTo(handle, bytes) {
 
     impl Browser {
         fn new(ctx: egui::Context) -> Self {
-            Self {
+            let browser = Self {
                 shared: Rc::new(Shared {
                     ctx,
                     opened: RefCell::default(),
@@ -156,8 +239,24 @@ export async function writeTo(handle, bytes) {
                     saved: RefCell::default(),
                     handles: RefCell::default(),
                     next_handle: Cell::new(0),
+                    folders: RefCell::default(),
+                    folder_revision: Cell::new(0),
+                    picked_folder: RefCell::default(),
                 }),
+            };
+            // Folders chosen in earlier visits.
+            for kind in [FolderKind::Textures, FolderKind::Patterns] {
+                let shared = browser.shared.clone();
+                spawn_local(async move {
+                    if let Ok(files) = JsFuture::from(stored_files(storage_name(kind))).await {
+                        let files = folder_entries(&files);
+                        if !files.is_empty() {
+                            shared.set_folder(kind, files);
+                        }
+                    }
+                });
             }
+            browser
         }
 
         /// Report `writing` when it finishes. It resolves to the file handle, or null when
@@ -233,6 +332,39 @@ export async function writeTo(handle, bytes) {
             None
         }
 
+        fn pick_folder(&mut self, kind: FolderKind) -> Option<String> {
+            let picking = pick_folder(storage_name(kind));
+            let shared = self.shared.clone();
+            spawn_local(async move {
+                match JsFuture::from(picking).await {
+                    Ok(picked) if picked.is_null() => {}
+                    Ok(picked) => {
+                        shared.set_folder(kind, folder_entries(&field(&picked, "files")));
+                        shared.finish_folder(kind, Ok(text_field(&picked, "folder")));
+                    }
+                    Err(e) => shared.finish_folder(kind, Err(error_text(&e))),
+                }
+            });
+            None
+        }
+
+        fn take_folder(&mut self) -> Option<PickedFolder> {
+            self.shared.picked_folder.borrow_mut().take()
+        }
+
+        fn folder_files(&self, kind: FolderKind) -> FolderFiles {
+            self.shared
+                .folders
+                .borrow()
+                .get(&kind)
+                .cloned()
+                .unwrap_or_default()
+        }
+
+        fn folder_revision(&self) -> u64 {
+            self.shared.folder_revision.get()
+        }
+
         fn take_image(&mut self) -> Option<OpenedFile> {
             self.shared.image.borrow_mut().take()
         }
@@ -286,6 +418,27 @@ export async function writeTo(handle, bytes) {
             bytes: Uint8Array::new(&field(&picked, "bytes")).to_vec(),
             handle: field(&picked, "handle"),
         }))
+    }
+
+    /// The browser-storage folder that holds the copy of a Fireworks folder.
+    fn storage_name(kind: FolderKind) -> &'static str {
+        match kind {
+            FolderKind::Textures => "fireworks-textures",
+            FolderKind::Patterns => "fireworks-patterns",
+        }
+    }
+
+    /// (file name, contents) from a JS array of `{ name, bytes }`.
+    fn folder_entries(files: &JsValue) -> FolderFiles {
+        js_sys::Array::from(files)
+            .iter()
+            .map(|f| {
+                (
+                    text_field(&f, "name"),
+                    Uint8Array::new(&field(&f, "bytes")).to_vec(),
+                )
+            })
+            .collect()
     }
 
     fn field(object: &JsValue, name: &str) -> JsValue {

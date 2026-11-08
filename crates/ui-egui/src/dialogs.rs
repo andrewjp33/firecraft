@@ -4,7 +4,7 @@ use egui::{Color32, DragValue};
 use firecraft_engine::DocState;
 use firecraft_raster::Rgba;
 
-use crate::FireCraftApp;
+use crate::{FireCraftApp, FolderKind, Platform};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CanvasChoice {
@@ -469,6 +469,29 @@ pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raste
     changed
 }
 
+/// A folder setting: its path and a Browse button.
+fn folder_row(
+    ui: &mut egui::Ui,
+    platform: &mut dyn Platform,
+    kind: FolderKind,
+    label: &str,
+    dir: &mut String,
+    hint: &str,
+) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        // A browser can only read a folder chosen with Browse, so its name isn't editable there.
+        let field = egui::TextEdit::singleline(dir).desired_width(260.0);
+        ui.add_enabled(!cfg!(target_arch = "wasm32"), field)
+            .on_hover_text(hint);
+        if ui.button("Browse...").clicked()
+            && let Some(picked) = platform.pick_folder(kind)
+        {
+            *dir = picked;
+        }
+    });
+}
+
 /// Edit > Preferences.
 fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     let mut close = false;
@@ -509,21 +532,28 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         ui.weak("FireCraft: Fireworks' formulas in double precision (no byte rounding of hue, saturation, lightness).\nFireworks MX: bit-exact Fireworks results. Files from Fireworks always open with Fireworks MX math.");
         ui.separator();
         ui.strong("Folders");
-        ui.horizontal(|ui| {
-            ui.label("Fireworks folder:");
-            ui.add(egui::TextEdit::singleline(&mut prefs.fireworks_dir).desired_width(260.0))
-                .on_hover_text("An installed Fireworks (MX to CS6), for its textures. Empty: FireCraft looks in the usual install folders.");
-            if ui.button("Browse...").clicked()
-                && let Some(dir) = platform.pick_folder()
-            {
-                prefs.fireworks_dir = dir;
-            }
-        });
+        folder_row(
+            ui,
+            platform.as_mut(),
+            FolderKind::Textures,
+            "Textures folder:",
+            &mut prefs.textures_dir,
+            "The Configuration/Textures folder of an installed Fireworks (MX to CS6). Empty: FireCraft looks in the usual install folders.",
+        );
         ui.weak(if found {
             "Fireworks' textures found."
         } else {
             "Fireworks' textures not found: FireCraft's built-in textures and those in documents are offered."
         });
+        folder_row(
+            ui,
+            platform.as_mut(),
+            FolderKind::Patterns,
+            "Patterns folder:",
+            &mut prefs.patterns_dir,
+            "The Configuration/Patterns folder of an installed Fireworks (MX to CS6).",
+        );
+        ui.weak("Pattern fills aren't available yet; this folder will supply them.");
         ui.separator();
         close = ui.button("OK").clicked();
     });

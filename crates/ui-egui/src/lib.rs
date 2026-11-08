@@ -51,6 +51,13 @@ pub enum SaveStatus {
     Pending,
 }
 
+/// The Fireworks folders set in Edit > Preferences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FolderKind {
+    Textures,
+    Patterns,
+}
+
 /// What a save in progress is for.
 #[derive(Clone, Copy, Debug)]
 enum SaveTarget {
@@ -95,9 +102,23 @@ pub trait Platform {
     fn take_image(&mut self) -> Option<Result<(String, Vec<u8>), String>> {
         None
     }
-    /// Ask for a folder (desktop only).
-    fn pick_folder(&mut self) -> Option<String> {
+    /// Ask for a folder. `None` when cancelled, or when the answer arrives later through
+    /// [`Platform::take_folder`].
+    fn pick_folder(&mut self, _kind: FolderKind) -> Option<String> {
         None
+    }
+    /// The answer to an earlier [`Platform::pick_folder`], once its files are read.
+    fn take_folder(&mut self) -> Option<(FolderKind, Result<String, String>)> {
+        None
+    }
+    /// The (file name, contents) of a folder only the host can read (a browser can't open a
+    /// path); empty when the folder setting is an ordinary path.
+    fn folder_files(&self, _kind: FolderKind) -> Vec<(String, Vec<u8>)> {
+        Vec::new()
+    }
+    /// Changes whenever [`Platform::folder_files`] may give something new.
+    fn folder_revision(&self) -> u64 {
+        0
     }
 }
 
@@ -128,7 +149,9 @@ pub struct Prefs {
     pub mouse_highlight: bool,
     /// Fireworks' install folder (or a folder of textures), for its textures; empty: look in
     /// the usual places.
-    pub fireworks_dir: String,
+    pub textures_dir: String,
+    /// Fireworks' Patterns folder (for pattern fills, once they exist).
+    pub patterns_dir: String,
 }
 
 impl Prefs {
@@ -146,7 +169,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\nfireworks_dir={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -161,7 +184,8 @@ impl Prefs {
             self.cursor_style.key(),
             self.live_drag,
             self.mouse_highlight,
-            self.fireworks_dir.replace(['\n', '\r'], ""),
+            self.textures_dir.replace(['\n', '\r'], ""),
+            self.patterns_dir.replace(['\n', '\r'], ""),
         )
     }
 
@@ -196,7 +220,9 @@ impl Prefs {
                 "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
                 "live_drag" => p.live_drag = flag,
                 "mouse_highlight" => p.mouse_highlight = flag,
-                "fireworks_dir" => p.fireworks_dir = v.trim().to_owned(),
+                // `fireworks_dir` is the older name; an install folder still finds its textures.
+                "textures_dir" | "fireworks_dir" => p.textures_dir = v.trim().to_owned(),
+                "patterns_dir" => p.patterns_dir = v.trim().to_owned(),
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -243,7 +269,8 @@ impl Default for Prefs {
             cursor_style: cursors::CursorStyle::Fireworks,
             live_drag: true,
             mouse_highlight: true,
-            fireworks_dir: String::new(),
+            textures_dir: String::new(),
+            patterns_dir: String::new(),
         }
     }
 }
@@ -310,7 +337,7 @@ pub struct FireCraftApp {
     quit_prompt: bool,
     /// Textures offered for strokes, and the Fireworks folder setting they were read for.
     textures: firecraft_io::textures::TextureLibrary,
-    textures_for: Option<String>,
+    textures_for: Option<(String, u64)>,
 }
 
 impl FireCraftApp {
@@ -343,16 +370,18 @@ impl FireCraftApp {
     /// The texture list, read again when the Fireworks folder setting changes; new strokes get
     /// its default texture (Fireworks' "Grain" when found).
     pub(crate) fn texture_library(&mut self) -> &mut firecraft_io::textures::TextureLibrary {
-        if self.textures_for.as_deref() != Some(self.prefs.fireworks_dir.as_str()) {
-            let dir = self.prefs.fireworks_dir.trim();
+        let source = (self.prefs.textures_dir.clone(), self.platform.folder_revision());
+        if self.textures_for.as_ref() != Some(&source) {
+            let dir = self.prefs.textures_dir.trim();
             let dirs =
                 firecraft_io::textures::fireworks_dirs((!dir.is_empty()).then(|| std::path::Path::new(dir)));
-            let mut lib = firecraft_io::textures::TextureLibrary::scan(&dirs);
+            let files = self.platform.folder_files(FolderKind::Textures);
+            let mut lib = firecraft_io::textures::TextureLibrary::scan(&dirs, files);
             for t in std::mem::take(&mut self.textures).loaded() {
                 lib.add(t);
             }
             self.textures = lib;
-            self.textures_for = Some(self.prefs.fireworks_dir.clone());
+            self.textures_for = Some(source);
             let default = self.textures.default_texture();
             let o = &mut self.session.options;
             let builtin = |t: &Option<firecraft_doc::Texture>| {
@@ -521,6 +550,13 @@ impl FireCraftApp {
                 Err(e) => self.error(e),
             }
         }
+        if let Some((kind, folder)) = self.platform.take_folder() {
+            match (folder, kind) {
+                (Ok(dir), FolderKind::Textures) => self.prefs.textures_dir = dir,
+                (Ok(dir), FolderKind::Patterns) => self.prefs.patterns_dir = dir,
+                (Err(e), _) => self.error(e),
+            }
+        }
         if let Some(status) = self.platform.take_saved()
             && let Some(target) = self.pending_save.take()
         {
@@ -614,5 +650,17 @@ mod prefs_tests {
         // Files from before the setting existed keep live dragging on.
         assert!(Prefs::parse("tabs=true").live_drag);
         assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());
+    }
+
+    #[test]
+    fn folder_prefs() {
+        let p = Prefs {
+            textures_dir: "/fw/Textures".into(),
+            patterns_dir: "/fw/Patterns".into(),
+            ..Prefs::default()
+        };
+        assert_eq!(Prefs::parse(&p.serialize()), p);
+        // The older single setting carries over as the textures folder.
+        assert_eq!(Prefs::parse("fireworks_dir=/fw").textures_dir, "/fw");
     }
 }

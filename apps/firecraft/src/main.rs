@@ -7,7 +7,7 @@ mod splash;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use firecraft_ui_egui::{FireCraftApp, Platform, SaveStatus};
+use firecraft_ui_egui::{FireCraftApp, FolderKind, Platform, SaveStatus};
 
 /// The splash process, closed once the main window has drawn.
 type SplashHandle = Arc<Mutex<Option<std::process::Child>>>;
@@ -57,7 +57,7 @@ impl Platform for Desktop {
         Some((path.display().to_string(), bytes))
     }
 
-    fn pick_folder(&mut self) -> Option<String> {
+    fn pick_folder(&mut self, _kind: FolderKind) -> Option<String> {
         rfd::FileDialog::new()
             .pick_folder()
             .map(|p| p.display().to_string())

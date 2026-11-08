@@ -46,9 +46,23 @@ pub fn decode_image(bytes: &[u8]) -> Result<RgbaImage> {
 
 /// A texture from an image file, named after the file.
 pub fn texture_from_file(path: &Path) -> Option<Texture> {
-    let img = decode_image(&std::fs::read(path).ok()?).ok()?;
     let name = path.file_stem()?.to_string_lossy().to_string();
+    texture_from_bytes(name, &std::fs::read(path).ok()?)
+}
+
+/// A texture from the contents of an image file.
+fn texture_from_bytes(name: String, bytes: &[u8]) -> Option<Texture> {
+    let img = decode_image(bytes).ok()?;
     Texture::new(name, img.width(), img.height(), mask_from_image(&img))
+}
+
+/// The texture name for an image file's path; `None` if it isn't a texture image.
+fn texture_name(path: &Path) -> Option<String> {
+    let ext = path.extension()?;
+    if !EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        return None;
+    }
+    Some(path.file_stem()?.to_string_lossy().to_string())
 }
 
 /// A built-in texture by name.
@@ -143,12 +157,8 @@ pub fn files_in(dir: &Path) -> Vec<(String, PathBuf)> {
     let mut v: Vec<(String, PathBuf)> = rd
         .flatten()
         .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.extension()
-                    .is_some_and(|x| EXTENSIONS.iter().any(|e| x.eq_ignore_ascii_case(e)))
-        })
-        .filter_map(|p| Some((p.file_stem()?.to_string_lossy().to_string(), p)))
+        .filter(|p| p.is_file())
+        .filter_map(|p| Some((texture_name(&p)?, p)))
         .collect();
     v.sort_by_key(|(n, _)| n.to_lowercase());
     v
@@ -157,6 +167,8 @@ pub fn files_in(dir: &Path) -> Vec<(String, PathBuf)> {
 #[derive(Clone, Debug)]
 enum Source {
     File(PathBuf),
+    /// An image file's contents (a folder the browser read for us).
+    Image(Vec<u8>),
     Builtin,
     Loaded(Texture),
 }
@@ -169,9 +181,20 @@ pub struct TextureLibrary {
 }
 
 impl TextureLibrary {
-    /// Fireworks' textures (from `dirs`, first folder wins per name) and the built-in ones.
-    pub fn scan(dirs: &[PathBuf]) -> TextureLibrary {
+    /// Fireworks' textures (from `files`, the (file name, contents) of a folder already read,
+    /// then `dirs`; the first of a name wins) and the built-in ones.
+    pub fn scan(dirs: &[PathBuf], files: Vec<(String, Vec<u8>)>) -> TextureLibrary {
         let mut lib = TextureLibrary::default();
+        let mut files: Vec<(String, Vec<u8>)> = files
+            .into_iter()
+            .filter_map(|(file, bytes)| Some((texture_name(Path::new(&file))?, bytes)))
+            .collect();
+        files.sort_by_key(|(n, _)| n.to_lowercase());
+        for (name, bytes) in files {
+            if !lib.contains(&name) {
+                lib.entries.push((name, Source::Image(bytes)));
+            }
+        }
         for d in dirs {
             for (name, path) in files_in(d) {
                 if !lib.contains(&name) {
@@ -196,7 +219,9 @@ impl TextureLibrary {
 
     /// Whether Fireworks' own textures were found.
     pub fn has_fireworks(&self) -> bool {
-        self.entries.iter().any(|(_, s)| matches!(s, Source::File(_)))
+        self.entries
+            .iter()
+            .any(|(_, s)| matches!(s, Source::File(_) | Source::Image(_)))
     }
 
     /// Add a texture (one from a document or a picked file), replacing one of the same name
@@ -233,6 +258,7 @@ impl TextureLibrary {
         let t = match src {
             Source::Loaded(t) => return Some(t.clone()),
             Source::File(p) => texture_from_file(p)?,
+            Source::Image(bytes) => texture_from_bytes(name.to_owned(), bytes)?,
             Source::Builtin => builtin(name)?,
         };
         *src = Source::Loaded(t.clone());
