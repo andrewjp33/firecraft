@@ -38,7 +38,7 @@ Rendering parity on real files is tracked in [parity.md](parity.md).
    [behavior/strokes.md](behavior/strokes.md)); write `PCLv` for new paths so random brushes
    scatter the same in Fireworks
 5. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
-6. **Fills and strokes in the Property inspector**: gradient editing, patterns, textures, edge
+6. **Fills and strokes in the Property inspector**: gradient editing, textures, edge
    and stroke settings (`FPLv`/`GLDv`/`TXFv`/`BPLv`)
 7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
@@ -46,8 +46,11 @@ Rendering parity on real files is tracked in [parity.md](parity.md).
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu (Adjust Color, Blur, Sharpen)
-12. JavaScript API compatibility for `.jsf` commands (Commands menu)
-13. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
+12. **Pattern fills**: the Fill pop-up's Pattern category, read from the Patterns folder set in
+    Preferences (already stored, nothing reads it yet); needs a JPEG decoder, as 43 of MX's 46
+    patterns are JPG
+13. JavaScript API compatibility for `.jsf` commands (Commands menu)
+14. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
 
 ## Lowest priority
