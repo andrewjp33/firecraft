@@ -18,8 +18,6 @@
 //!    der Maske = Pinsel-AA (0 nur bei simple ohne AA), nicht `FETi`.
 //! 7. **Farbe**: Strichfarbe `BCLi`, Puffer-Alpha × Farb-Alpha.
 
-use std::collections::HashMap;
-
 use crate::attrs::{BrushType, Feedback, Stroke, StrokePlacement, VectorPath};
 use crate::brush::{Dash, SimpleStep, Tip, shift_tip, tip_mask, walk_simple_steps};
 use crate::coverage::{Coverage, fill_coverage};
@@ -234,9 +232,41 @@ pub(crate) fn simple_ink(
     placement: StrokePlacement,
     rect: IRect,
 ) -> InkBufferOut {
+    let mut ink = InkBuffer::new(rect);
+    let mut rgb_ink =
+        crate::natural::simple_needs_rgb(&stroke.brush).then(|| crate::natural::ArgbInk::new(rect));
+    simple_run(path, stroke, placement, rect, &mut ink, &mut rgb_ink, None);
+    if let Some(r) = rgb_ink {
+        return r.into_out();
+    }
+    ink.clip_to_bounds();
+    InkBufferOut {
+        data: ink.data,
+        rgb: None,
+    }
+}
+
+/// What a simple brush's walk carries from one piece of a live stroke to the next.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SimpleResume {
+    acc: Option<i64>,
+    dash: Option<Dash>,
+    dash_ready: bool,
+}
+
+/// Stamp `path` into the buffers. With `resume`, `path` is the next piece of one open contour.
+fn simple_run<'a>(
+    path: &VectorPath,
+    stroke: &'a Stroke,
+    placement: StrokePlacement,
+    rect: IRect,
+    ink: &mut InkBuffer<'a>,
+    rgb_ink: &mut Option<crate::natural::ArgbInk<'a>>,
+    resume: Option<&mut SimpleResume>,
+) {
     use crate::attrs::{SenseTarget as Tgt, TipShape};
     use crate::brush::{Minstd, TipTransform, transformed_tip};
-    use crate::natural::{PenState, sensitivity_speed, simple_needs_rgb, simple_stamp};
+    use crate::natural::{PenState, sensitivity_speed, simple_stamp};
     let b = &stroke.brush;
     let aa = b.antialiased;
     let dp = effective_diameter(stroke, placement);
@@ -265,13 +295,11 @@ pub(crate) fn simple_ink(
     let o_base =
         crate::support::color::brush_stamp_opacity(b.concentration, feedback_code(b.feedback), b.spacing, dp);
     let cap = b.feedback != Feedback::Brush;
-    let mut ink = InkBuffer::new(rect);
     let tex = stroke
         .texture
         .as_ref()
         .filter(|_| b.texture_blend > 0 || b.texture_edge > 0)
         .map(|t| crate::natural::TexLookup::new(&t.mask, path.texture_offset));
-    let mut rgb_ink = simple_needs_rgb(b).then(|| crate::natural::ArgbInk::new(rect));
     ink.tex = tex.map(|t| (t, b.texture_blend, b.texture_edge));
     let tex_rgb = stroke
         .texture
@@ -299,7 +327,23 @@ pub(crate) fn simple_ink(
             })
             .clone()
     };
-    let walks = simple_walks(path, stroke, placement, rect, n_tip);
+    let walks = match (resume, path.contours.first()) {
+        (Some(r), Some(c)) => {
+            if !r.dash_ready {
+                r.dash = Dash::new(b.diameter, &b.dashes);
+                r.dash_ready = true;
+            }
+            vec![crate::brush::walk_simple_from(
+                &c.points,
+                false,
+                n_tip,
+                b.antialiased,
+                r.dash.as_mut(),
+                Some(&mut r.acc),
+            )]
+        }
+        _ => simple_walks(path, stroke, placement, rect, n_tip),
+    };
     let tipw = (tip.n - 1) as f64;
     let half = (n_tip as f64 * 0.5 * 16.0) as i64;
     let edge_mode = !aa && b.kind == BrushType::Simple && placement != StrokePlacement::Center;
@@ -346,7 +390,7 @@ pub(crate) fn simple_ink(
             let k = if staged { sv.stage } else { 0 };
             let o = sv.opacity;
             let (mut px16, mut py16) = (s.x + sv.ox * 16 - half, s.y + sv.oy * 16 - half);
-            match &mut rgb_ink {
+            match rgb_ink.as_mut() {
                 Some(r) => {
                     r.set_black(sv.black);
                     r.base.note_bounds(px16, py16, tipw);
@@ -381,7 +425,7 @@ pub(crate) fn simple_ink(
                     &staged_tip
                 }
             };
-            match &mut rgb_ink {
+            match rgb_ink.as_mut() {
                 Some(r) => r.stamp(
                     x,
                     y,
@@ -402,13 +446,153 @@ pub(crate) fn simple_ink(
             shifted: cache,
         },
     );
-    if let Some(r) = rgb_ink {
-        return r.into_out();
+}
+
+/// A stroke being drawn, kept between updates: its ink so far and where each walker has got to,
+/// so that adding points stamps only the new dabs, however long the stroke already is. The
+/// result is the same as drawing the whole stroke with [`stroke_layer`].
+#[derive(Clone, Debug)]
+pub struct LiveInk {
+    rect: IRect,
+    data: Vec<u8>,
+    rgb: Option<Vec<[u8; 3]>>,
+    bounds: Option<(i64, i64, i64, i64)>,
+    simple: SimpleResume,
+    natural: Option<crate::natural::NaturalResume>,
+}
+
+impl LiveInk {
+    /// An empty stroke over `rect`.
+    pub fn new(rect: IRect) -> Self {
+        let (w, h) = (rect.width() as usize, rect.height() as usize);
+        Self {
+            rect,
+            data: vec![0; w * h],
+            rgb: None,
+            bounds: None,
+            simple: SimpleResume::default(),
+            natural: None,
+        }
     }
-    ink.clip_to_bounds();
-    InkBufferOut {
-        data: ink.data,
-        rgb: None,
+
+    /// Back to an empty stroke.
+    pub fn reset(&mut self) {
+        self.data.iter_mut().for_each(|v| *v = 0);
+        self.rgb = None;
+        self.bounds = None;
+        self.simple = SimpleResume::default();
+        self.natural = None;
+    }
+
+    /// Stamp the next piece of the stroke (`path` has one open contour, starting at the previous
+    /// piece's last point). Returns the area that may have changed.
+    pub fn feed(&mut self, path: &VectorPath, stroke: &Stroke) -> Option<IRect> {
+        let b = &stroke.brush;
+        if b.feedback == Feedback::Background {
+            return None;
+        }
+        let (w, h) = (self.rect.width() as usize, self.rect.height() as usize);
+        let placement = StrokePlacement::Center;
+        let mut base = InkBuffer::new(IRect::new(0, 0, 0, 0));
+        base.rect = self.rect;
+        base.w = w;
+        base.h = h;
+        base.data = std::mem::take(&mut self.data);
+        let natural = b.kind == BrushType::Natural;
+        let piece;
+        if natural || crate::natural::simple_needs_rgb(b) {
+            let rgb = self.rgb.take().unwrap_or_else(|| vec![[255; 3]; w * h]);
+            let mut wrapped = Some(crate::natural::ArgbInk::from_parts(base, rgb));
+            if natural {
+                if let Some(ink) = wrapped.as_mut() {
+                    crate::natural::natural_run(path, stroke, placement, ink, Some(&mut self.natural));
+                }
+            } else {
+                let mut unused = InkBuffer::new(IRect::new(0, 0, 0, 0));
+                simple_run(
+                    path,
+                    stroke,
+                    placement,
+                    self.rect,
+                    &mut unused,
+                    &mut wrapped,
+                    Some(&mut self.simple),
+                );
+            }
+            let ink = wrapped?;
+            let (b, rgb) = ink.into_parts();
+            piece = b.bounds;
+            self.data = b.data;
+            self.rgb = Some(rgb);
+        } else {
+            simple_run(
+                path,
+                stroke,
+                placement,
+                self.rect,
+                &mut base,
+                &mut None,
+                Some(&mut self.simple),
+            );
+            piece = base.bounds;
+            self.data = base.data;
+        }
+        let p = piece?;
+        self.bounds = Some(match self.bounds {
+            None => p,
+            Some(o) => (o.0.min(p.0), o.1.min(p.1), o.2.max(p.2), o.3.max(p.3)),
+        });
+        // A stamp reaches one cell past its noted rectangle.
+        let r = self.rect;
+        let area = IRect::new(
+            (p.0 - 2).max(r.left as i64) as i32,
+            (p.1 - 2).max(r.top as i64) as i32,
+            (p.2 + 2).min(r.right as i64) as i32,
+            (p.3 + 2).min(r.bottom as i64) as i32,
+        );
+        (area.right > area.left && area.bottom > area.top).then_some(area)
+    }
+
+    /// The stroke as RGBA over `area` (inside the stroke's rectangle), as [`stroke_layer`].
+    pub fn layer(&self, stroke: &Stroke, area: IRect) -> Vec<[u8; 4]> {
+        let (aw, ah) = (area.width() as usize, area.height() as usize);
+        let mut out = vec![[0u8; 4]; aw * ah];
+        let Some((bx0, by0, bx1, by1)) = self.bounds else {
+            return out;
+        };
+        let b = &stroke.brush;
+        let table =
+            (b.alpha_remap != 0).then(|| crate::natural::alpha_remap_table(b.alpha_remap, b.concentration));
+        let col = stroke.color;
+        let ca = col.a();
+        let w = self.rect.width() as usize;
+        for j in 0..ah {
+            let y = area.top as i64 + j as i64;
+            if y < by0 || y >= by1 {
+                continue;
+            }
+            let row = (y - self.rect.top as i64) as usize * w;
+            for i in 0..aw {
+                let x = area.left as i64 + i as i64;
+                if x < bx0 || x >= bx1 {
+                    continue;
+                }
+                let k = row + (x - self.rect.left as i64) as usize;
+                let mut a = self.data[k];
+                if let Some(t) = &table {
+                    a = t[a as usize];
+                }
+                if a != 0 {
+                    let a = if ca != 255 { mul(a, ca) } else { a };
+                    let rgb = match &self.rgb {
+                        Some(v) => v[k],
+                        None => [col.r(), col.g(), col.b()],
+                    };
+                    out[j * aw + i] = [rgb[0], rgb[1], rgb[2], a];
+                }
+            }
+        }
+        out
     }
 }
 

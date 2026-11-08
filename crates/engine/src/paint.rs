@@ -7,8 +7,12 @@
 //! How the stroke is composed and the Eraser's dabs follow FirePixel's measurements
 //! (`fp-engine/src/paint.rs` and `commands/bitmap.rs`, Apache-2.0; see ATTRIBUTION.md).
 
-use firecraft_doc::element::{PolyLine, PolyPoint, StoredPolyline};
-use firecraft_doc::{BezierPoint, Bitmap, Contour, Element, ElementKind, Path, Stroke, stroke_fw};
+use firecraft_doc::element::PolyPoint;
+#[cfg(test)]
+use firecraft_doc::element::{PolyLine, StoredPolyline};
+#[cfg(test)]
+use firecraft_doc::{BezierPoint, Contour, Path};
+use firecraft_doc::{Bitmap, Element, ElementKind, Stroke, stroke_fw};
 use firecraft_raster::blend::BlendMode;
 use firecraft_raster::mask::Combine;
 use firecraft_raster::wand::magic_wand;
@@ -117,29 +121,6 @@ impl Dab {
     }
 }
 
-/// Dab positions along `points`, one per pixel (the first point always).
-fn dab_points(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
-    let Some(first) = points.first() else {
-        return Vec::new();
-    };
-    let mut stamps = vec![*first];
-    let mut carry = 0.0;
-    for (&(ax, ay), &(bx, by)) in points.iter().zip(points.iter().skip(1)) {
-        let len = (bx - ax).hypot(by - ay);
-        if len <= 0.0 {
-            continue;
-        }
-        let mut t = 1.0 - carry;
-        while t <= len {
-            let f = t / len;
-            stamps.push((ax + (bx - ax) * f, ay + (by - ay) * f));
-            t += 1.0;
-        }
-        carry = (carry + len) % 1.0;
-    }
-    stamps
-}
-
 /// The end of a Shift-constrained line from `a` towards `b`: horizontal, vertical or diagonal.
 fn constrained(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
@@ -177,14 +158,24 @@ pub struct LivePaint {
     keep_alpha: bool,
     opacity: u8,
     blend: BlendMode,
+    #[cfg(test)]
     stroke: Option<Stroke>,
     erase: Option<Erase>,
     seed: u32,
     /// Canvas coordinates.
     points: Vec<(f64, f64)>,
     painted: Option<Area>,
-    /// What the points added since the last update can change.
+    /// An area to redraw at the next update (what a restarted stroke covered).
     pending: Option<Area>,
+    /// The stroke's ink so far (Brush, Pencil).
+    ink: Option<stroke_fw::LiveDraw>,
+    /// Eraser: what's left of each buffer pixel so far, and the dab spacing carried over.
+    keep: Vec<f32>,
+    carry: f64,
+    /// How many `points` have been drawn.
+    fed: usize,
+    /// Start again from the first point at the next update.
+    restart: bool,
 }
 
 impl LivePaint {
@@ -192,30 +183,117 @@ impl LivePaint {
         (0, 0, self.base.width() as i64, self.base.height() as i64)
     }
 
-    fn margin(&self) -> i64 {
-        match (&self.stroke, &self.erase) {
-            (Some(s), _) => stroke_fw::margin(s).ceil() as i64 + 2,
-            (_, Some(e)) => e.dab.cells + 2,
-            _ => 2,
+    /// Draw the points not yet drawn; the buffer area that changed.
+    fn advance(&mut self) -> Option<Area> {
+        let mut area = self.pending.take();
+        // A lone click drew a dab that a drag's first dab replaces.
+        if self.ink.is_some() && self.fed == 1 && self.points.len() > 1 && !self.restart {
+            self.restart = true;
+            area = self.painted.map(|p| union(area, p)).or(area);
+        }
+        if self.restart {
+            self.restart = false;
+            self.fed = 0;
+            self.carry = 0.0;
+            self.keep.iter_mut().for_each(|k| *k = 1.0);
+            if let Some(ink) = &mut self.ink {
+                ink.reset();
+            }
+        }
+        if self.fed >= self.points.len() {
+            return area;
+        }
+        let new = if self.ink.is_some() {
+            self.feed_stroke()
+        } else {
+            self.feed_eraser()
+        };
+        self.fed = self.points.len();
+        match (area, new) {
+            (Some(a), Some(n)) => Some(union(Some(a), n)),
+            (a, n) => a.or(n),
         }
     }
 
-    /// The buffer area the points `from..` can change.
-    fn reach(&self, from: usize) -> Option<Area> {
-        let m = self.margin();
-        let (ox, oy) = self.origin;
-        let pts = self.points.get(from..)?;
-        let mut a = None;
-        for &(x, y) in pts {
-            let (px, py) = (x.floor() as i64 - ox, y.floor() as i64 - oy);
-            a = Some(union(a, (px - m, py - m, px + m + 1, py + m + 1)));
+    fn feed_stroke(&mut self) -> Option<Area> {
+        let (ox, oy) = (self.origin.0 as f64, self.origin.1 as f64);
+        let from = self.fed.saturating_sub(1);
+        let seed = self.seed;
+        let mut pts: Vec<PolyPoint> = self
+            .points
+            .iter()
+            .enumerate()
+            .skip(from)
+            .map(|(i, p)| PolyPoint {
+                // Through the middle of the pixels under the mouse (measured in Fireworks MX).
+                x: p.0.floor() + 0.5 - ox,
+                y: p.1.floor() + 0.5 - oy,
+                pressure: 1.0,
+                velocity: PAINT_VELOCITY,
+                seed: point_seed(seed, i),
+            })
+            .collect();
+        // A lone click is a zero-length line.
+        if let [only] = pts[..] {
+            pts.push(PolyPoint {
+                seed: point_seed(seed, 1),
+                ..only
+            });
         }
-        let (l, t, r, b) = a?;
+        self.ink.as_mut()?.feed(&pts)
+    }
+
+    fn feed_eraser(&mut self) -> Option<Area> {
+        let e = self.erase.clone()?;
+        let (ox, oy) = (self.origin.0 as f64, self.origin.1 as f64);
+        let centres: Vec<(f64, f64)> = self
+            .points
+            .iter()
+            .skip(self.fed.saturating_sub(1))
+            .map(|p| (p.0.floor() - ox, p.1.floor() - oy))
+            .collect();
+        let mut stamps = Vec::new();
+        if self.fed == 0 {
+            stamps.extend(centres.first().copied());
+        }
+        // One dab per pixel along the stroke.
+        for (&(ax, ay), &(bx, by)) in centres.iter().zip(centres.iter().skip(1)) {
+            let len = (bx - ax).hypot(by - ay);
+            if len <= 0.0 {
+                continue;
+            }
+            let mut t = 1.0 - self.carry;
+            while t <= len {
+                let f = t / len;
+                stamps.push((ax + (bx - ax) * f, ay + (by - ay) * f));
+                t += 1.0;
+            }
+            self.carry = (self.carry + len) % 1.0;
+        }
         let (w, h) = (self.base.width() as i64, self.base.height() as i64);
-        let c = (l.max(0), t.max(0), r.min(w), b.min(h));
-        (c.2 > c.0 && c.3 > c.1).then_some(c)
+        let mut area = None;
+        for s in stamps {
+            let (l, t, r, b) = e.dab.bounds(s);
+            let clipped = (l.max(0), t.max(0), r.min(w), b.min(h));
+            if clipped.2 > clipped.0 && clipped.3 > clipped.1 {
+                area = Some(union(area, clipped));
+            }
+            let keep = &mut self.keep;
+            e.dab.each(s, |x, y, c| {
+                if x >= 0
+                    && y >= 0
+                    && x < w
+                    && y < h
+                    && let Some(k) = keep.get_mut((y * w + x) as usize)
+                {
+                    *k *= 1.0 - c as f32;
+                }
+            });
+        }
+        area
     }
 
+    #[cfg(test)]
     /// The stroke points as drawn: a lone click is a zero-length line, and a stroke runs through
     /// the middle of the pixels under the mouse (measured in Fireworks MX: a level line stays
     /// one full row).
@@ -231,6 +309,7 @@ impl LivePaint {
     }
 
     /// `stroke` as a path whose stored outline is exactly the stroke's points.
+    #[cfg(test)]
     fn path(&self, stroke: &Stroke) -> Path {
         let pts = self.drawn_points();
         let contours = vec![Contour {
@@ -275,11 +354,9 @@ impl LivePaint {
             self.erase_into(&mut out, area, e);
             return out;
         }
-        let Some(stroke) = &self.stroke else { return out };
+        let Some(ink) = &self.ink else { return out };
         let before = self.keep_alpha.then(|| out.clone());
-        let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-        let off = (-((self.origin.0 + l) as f64), -((self.origin.1 + t) as f64));
-        stroke_fw::draw(&mut layer, &self.path(stroke), stroke, None, off);
+        let mut layer = ink.layer(area);
         if let Some(clip) = &self.clip {
             for (i, px) in layer.pixels_mut().iter_mut().enumerate() {
                 if px.a != 0 {
@@ -298,34 +375,17 @@ impl LivePaint {
     }
 
     fn erase_into(&self, out: &mut RgbaImage, area: Area, e: &Erase) {
-        let (l, t, r, b) = area;
-        let (ox, oy) = self.origin;
-        let w = (r - l) as usize;
-        let mut keep = vec![1.0f64; w * (b - t) as usize];
-        let centres: Vec<(f64, f64)> = self.points.iter().map(|p| (p.0.floor(), p.1.floor())).collect();
-        for s in dab_points(&centres) {
-            let p = (s.0 - ox as f64, s.1 - oy as f64);
-            let d = e.dab.bounds(p);
-            if d.2 <= l || d.3 <= t || d.0 >= r || d.1 >= b {
-                continue;
-            }
-            e.dab.each(p, |x, y, c| {
-                if x >= l
-                    && y >= t
-                    && x < r
-                    && y < b
-                    && let Some(k) = keep.get_mut((y - t) as usize * w + (x - l) as usize)
-                {
-                    *k *= 1.0 - c;
-                }
-            });
-        }
+        let (l, t, r, _) = area;
+        let (aw, bw) = ((r - l) as usize, self.base.width() as usize);
         // Opacity applies to the whole stroke: overlapping dabs don't add up past it.
         for (i, px) in out.pixels_mut().iter_mut().enumerate() {
-            let inside = self.clip.as_ref().map_or(1.0, |m| {
-                m.get(l + (i % w) as i64, t + (i / w) as i64) as f64 / 255.0
-            });
-            let cover = (1.0 - keep.get(i).copied().unwrap_or(1.0)) * e.opacity * inside;
+            let (x, y) = (l as usize + i % aw, t as usize + i / aw);
+            let inside = self
+                .clip
+                .as_ref()
+                .map_or(1.0, |m| m.get(x as i64, y as i64) as f64 / 255.0);
+            let left = self.keep.get(y * bw + x).copied().unwrap_or(1.0) as f64;
+            let cover = (1.0 - left) * e.opacity * inside;
             if cover > 0.0 {
                 px.a = (px.a as f64 * (1.0 - cover)).round() as u8;
             }
@@ -471,6 +531,15 @@ impl DocState {
             (self.revision as u32) ^ ((x * 16.0) as u32).rotate_left(11) ^ (y * 16.0) as u32,
             0,
         );
+        let (bw, bh) = (base.width(), base.height());
+        let ink = stroke
+            .as_ref()
+            .map(|s| stroke_fw::LiveDraw::new(s, bw, bh, (-(origin.0 as f64), -(origin.1 as f64))));
+        let keep = if erase.is_some() {
+            vec![1.0; bw as usize * bh as usize]
+        } else {
+            Vec::new()
+        };
         self.live_paint = Some(LivePaint {
             target,
             new_bitmap,
@@ -485,14 +554,19 @@ impl DocState {
                 percent(paint.opacity)
             },
             blend: paint.blend,
+            #[cfg(test)]
             stroke,
             erase,
             seed,
             points: vec![(x, y)],
             painted: None,
             pending: None,
+            ink,
+            keep,
+            carry: 0.0,
+            fed: 0,
+            restart: false,
         });
-        self.mark_from(0);
         self.flush_paint();
         true
     }
@@ -523,30 +597,17 @@ impl DocState {
             let end = constrained(start, (x, y));
             live.points = vec![start, end];
             // The old stroke goes too.
-            if let Some(old) = live.painted {
-                live.pending = Some(union(live.pending, old));
-            }
-            self.mark_from(0);
+            live.pending = live.painted.map(|p| union(live.pending, p)).or(live.pending);
+            live.restart = true;
             return;
         }
         live.points.push((x, y));
-        // From two points back: the previous end point wasn't final.
-        let from = live.points.len().saturating_sub(3);
-        self.mark_from(from);
-    }
-
-    fn mark_from(&mut self, from: usize) {
-        if let Some(live) = self.live_paint.as_mut()
-            && let Some(area) = live.reach(from)
-        {
-            live.pending = Some(union(live.pending, area));
-        }
     }
 
     /// Bring the bitmap up to date with the points given so far (once per screen update: a
     /// fast mouse delivers several points per frame).
     pub fn flush_paint(&mut self) {
-        if let Some(area) = self.live_paint.as_mut().and_then(|l| l.pending.take()) {
+        if let Some(area) = self.live_paint.as_mut().and_then(LivePaint::advance) {
             self.repaint(area);
         }
     }
@@ -822,35 +883,94 @@ mod tests {
         assert_eq!(b.image.get(0, 0), Some(Rgba::new(0, 255, 0, 255)));
     }
 
+    /// A wandering path that doubles back over itself.
+    fn scribble() -> Vec<(f64, f64)> {
+        (0..60)
+            .map(|i| {
+                let t = i as f64 * 0.37;
+                (
+                    120.0 + t.sin() * 70.0 * (t * 0.31).cos(),
+                    90.0 + (t * 1.7).cos() * 50.0,
+                )
+            })
+            .collect()
+    }
+
     #[test]
-    fn live_preview_equals_one_piece() {
-        // Painted point by point against everything at once, for every preset: the area each
-        // update redraws must reach all that the new points can change (scatter, multiple tips).
-        let pts = [
-            (90.0, 60.0),
-            (97.3, 65.1),
-            (108.7, 80.9),
-            (120.1, 75.5),
-            (131.0, 93.0),
-        ];
+    fn live_strokes_equal_drawing_the_whole_stroke() {
+        // Added a few points at a time against one full render, for every preset.
+        let pts = scribble();
         for (i, p) in firecraft_doc::brush_presets::BRUSH_PRESETS.iter().enumerate() {
             let o = ToolOptions {
-                stroke_size: 40,
+                stroke_size: 30,
                 stroke_preset: i,
                 ..options()
             };
             let mut a = DocState::new(Document::new(240, 180, 72.0, Some(Rgba::WHITE)));
             a.begin_paint(PaintTool::Brush, pts[0].0, pts[0].1, &o);
-            for q in &pts[1..] {
+            for (n, q) in pts.iter().enumerate().skip(1) {
                 a.extend_paint(q.0, q.1, false);
-                a.flush_paint();
+                if n % 3 == 0 {
+                    a.flush_paint();
+                }
             }
-            let shown = bitmap(&a, a.selection[0]).image;
+            a.flush_paint();
             let live = a.live_paint.as_ref().expect("painting");
-            let whole = live.render(live.buffer_area(), a.doc.color_math);
-            assert!(shown == whole, "{} / {}", p.category, p.name);
+            let area = live.buffer_area();
+            let shown = live.ink.as_ref().expect("ink").layer(area);
+            let stroke = live.stroke.as_ref().expect("stroke");
+            let mut whole = RgbaImage::new(240, 180, Rgba::TRANSPARENT);
+            stroke_fw::draw(&mut whole, &live.path(stroke), stroke, None, (0.0, 0.0));
+            let differ = shown
+                .pixels()
+                .iter()
+                .zip(whole.pixels())
+                .filter(|(a, b)| a.a != b.a || (a.a != 0 && a != b))
+                .count();
+            assert_eq!(differ, 0, "{} / {}", p.category, p.name);
             a.end_paint();
         }
+    }
+
+    #[test]
+    fn a_click_then_drag_equals_a_drag() {
+        let o = ToolOptions {
+            stroke_size: 20,
+            ..options()
+        };
+        let image = |flush_first: bool| {
+            let mut d = doc();
+            d.begin_paint(PaintTool::Brush, 20.0, 20.0, &o);
+            if flush_first {
+                d.flush_paint();
+            }
+            d.extend_paint(60.0, 40.0, false);
+            d.end_paint();
+            bitmap(&d, d.selection[0]).image
+        };
+        assert_eq!(image(true), image(false));
+    }
+
+    #[test]
+    fn live_eraser_does_not_depend_on_how_it_is_updated() {
+        let pts = scribble();
+        let run = |every: usize| {
+            let mut o = options();
+            o.paint.eraser_size = 21;
+            o.paint.eraser_edge = 40;
+            let mut d = DocState::new(Document::new(240, 180, 72.0, Some(Rgba::WHITE)));
+            let r = add_bitmap(&mut d, 0, 0, 240, 180, RED);
+            d.begin_paint(PaintTool::Eraser, pts[0].0, pts[0].1, &o);
+            for (n, q) in pts.iter().enumerate().skip(1) {
+                d.extend_paint(q.0, q.1, false);
+                if n % every == 0 {
+                    d.flush_paint();
+                }
+            }
+            d.end_paint();
+            bitmap(&d, r).image
+        };
+        assert_eq!(run(1), run(1000));
     }
 
     #[test]

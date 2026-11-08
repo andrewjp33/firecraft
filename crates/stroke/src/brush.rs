@@ -455,7 +455,20 @@ pub fn walk_simple_steps(
     closed: bool,
     n_tip: i64,
     aa: bool,
+    dash: Option<&mut Dash>,
+) -> Vec<SimpleStep> {
+    walk_simple_from(pts, closed, n_tip, aa, dash, None)
+}
+
+/// [`walk_simple_steps`] continuing an earlier walk of the same contour: `resume` holds the
+/// spacing accumulator after the previous points (`None` inside: this is the contour's start).
+pub(crate) fn walk_simple_from(
+    pts: &[Vec2],
+    closed: bool,
+    n_tip: i64,
+    aa: bool,
     mut dash: Option<&mut Dash>,
+    mut resume: Option<&mut Option<i64>>,
 ) -> Vec<SimpleStep> {
     let mut out = Vec::new();
     if pts.is_empty() {
@@ -470,9 +483,10 @@ pub fn walk_simple_steps(
     } else {
         vec![(seq[0], seq[0])]
     };
-    let mut acc: i64 = 0;
+    let continued = resume.as_deref().copied().flatten();
+    let mut acc: i64 = continued.unwrap_or(0);
     for (si, (p, q)) in segs.iter().enumerate() {
-        let first = si == 0;
+        let first = si == 0 && continued.is_none();
         if first {
             acc = 0x10000;
         }
@@ -559,6 +573,9 @@ pub fn walk_simple_steps(
             acc += inc;
             mj += step_major;
         }
+    }
+    if let Some(r) = resume.as_deref_mut() {
+        *r = Some(acc);
     }
     out
 }

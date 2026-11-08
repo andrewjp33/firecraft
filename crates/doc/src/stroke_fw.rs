@@ -16,7 +16,7 @@ use firecraft_stroke::attrs::{
 use firecraft_stroke::support::color::Argb;
 use firecraft_stroke::support::geom::{BezierContour, BezierNode, IRect, Point, Vec2};
 
-use crate::element::{Contour, Path, Stroke};
+use crate::element::{Contour, Path, PolyPoint, Stroke};
 
 /// The brush preset FireCraft writes for new strokes: Fireworks' "1-Pixel Anti-Aliased" pencil
 /// with the stroke's diameter, softness and anti-aliasing.
@@ -258,6 +258,89 @@ pub fn texture_origin(path: &Path) -> (f64, f64) {
     })
 }
 
+/// The engine's stroke for a FireCraft stroke.
+fn engine_stroke(stroke: &Stroke, raw: Option<&Node>) -> FwStroke {
+    let c = stroke.color;
+    let mut fw = FwStroke::new(
+        brush_for(stroke, raw),
+        Argb(((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | c.b as u32),
+    );
+    fw.texture = stroke.texture.as_ref().and_then(|t| {
+        let r = IRect::new(0, 0, t.width as i32, t.height as i32);
+        firecraft_stroke::support::raster::Mask::from_raw(r, t.mask.to_vec())
+            .ok()
+            .map(|m| StrokeTexture {
+                mask: std::sync::Arc::new(m),
+            })
+    });
+    fw
+}
+
+/// A brush stroke drawn point by point: only new points cost anything, however long it is.
+#[derive(Clone, Debug)]
+pub struct LiveDraw {
+    ink: firecraft_stroke::stroke::LiveInk,
+    fw: FwStroke,
+    /// Where the texture is anchored, in the stroke's pixels.
+    texture_offset: Vec2,
+}
+
+impl LiveDraw {
+    /// A stroke over a `width` x `height` buffer, with its texture anchored at the buffer's
+    /// pixel `anchor`.
+    pub fn new(stroke: &Stroke, width: u32, height: u32, anchor: (f64, f64)) -> Self {
+        Self {
+            ink: firecraft_stroke::stroke::LiveInk::new(IRect::new(0, 0, width as i32, height as i32)),
+            fw: engine_stroke(stroke, None),
+            texture_offset: Vec2::new(anchor.0, anchor.1),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.ink.reset();
+    }
+
+    /// Add the next points, buffer coordinates; `points` starts at the previous call's last
+    /// point. Returns the buffer area (left, top, right, bottom) that may have changed.
+    pub fn feed(&mut self, points: &[PolyPoint]) -> Option<(i64, i64, i64, i64)> {
+        let path = VectorPath {
+            contours: vec![PathContour {
+                points: points.iter().map(|q| Vec2::new(q.x, q.y)).collect(),
+                closed: false,
+                dynamics: points
+                    .iter()
+                    .map(|q| PointDynamics {
+                        pressure: q.pressure,
+                        velocity: q.velocity,
+                        seed: q.seed,
+                    })
+                    .collect(),
+            }],
+            even_odd: true,
+            agm: false,
+            fill: None,
+            stroke: None,
+            fill_over_stroke: false,
+            placement: StrokePlacement::Center,
+            ptt: false,
+            texture_offset: self.texture_offset,
+            random_seed: 0,
+        };
+        let r = self.ink.feed(&path, &self.fw)?;
+        Some((r.left as i64, r.top as i64, r.right as i64, r.bottom as i64))
+    }
+
+    /// The stroke so far over the buffer area (left, top, right, bottom).
+    pub fn layer(&self, area: (i64, i64, i64, i64)) -> RgbaImage {
+        let (l, t, r, b) = area;
+        let rect = IRect::new(l as i32, t as i32, r as i32, b as i32);
+        let px = self.ink.layer(&self.fw, rect);
+        let flat: Vec<u8> = px.iter().flatten().copied().collect();
+        RgbaImage::from_rgba_bytes((r - l) as u32, (b - t) as u32, &flat)
+            .unwrap_or_else(|| RgbaImage::new(0, 0, Rgba::TRANSPARENT))
+    }
+}
+
 /// Draw `path`'s stroke onto `layer` (whose pixel (0, 0) is canvas point -`off`), as Fireworks
 /// does. `raw` is the path's original Fireworks node, if any.
 pub fn draw(layer: &mut RgbaImage, path: &Path, stroke: &Stroke, raw: Option<&Node>, off: (f64, f64)) {
@@ -281,19 +364,7 @@ pub fn draw(layer: &mut RgbaImage, path: &Path, stroke: &Stroke, raw: Option<&No
         },
         random_seed: flag("RND").unwrap_or(0) as u32,
     };
-    let c = stroke.color;
-    let mut fw = FwStroke::new(
-        brush_for(stroke, raw),
-        Argb(((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | c.b as u32),
-    );
-    fw.texture = stroke.texture.as_ref().and_then(|t| {
-        let r = IRect::new(0, 0, t.width as i32, t.height as i32);
-        firecraft_stroke::support::raster::Mask::from_raw(r, t.mask.to_vec())
-            .ok()
-            .map(|m| StrokeTexture {
-                mask: std::sync::Arc::new(m),
-            })
-    });
+    let fw = engine_stroke(stroke, raw);
     let rect = IRect::new(0, 0, w as i32, h as i32);
     let px = firecraft_stroke::stroke::stroke_layer(&vp, &fw, rect);
     for (k, p) in px.iter().enumerate() {

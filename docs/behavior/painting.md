@@ -59,6 +59,13 @@ eraser's soft edge with a green seed at tolerance 32:
 
 The same rule held for the wand at tolerance 102 (alpha 114 at distance 156: mask 201).
 
+## Live strokes
+
+Each update stamps only the new dabs into the stroke's kept ink (`LiveInk`; the Eraser keeps what
+is left of each pixel), so the time per update doesn't depend on the stroke's length. A test
+compares this with drawing the whole stroke at once, for every preset. `examples/paint_bench` and
+`examples/paint_long` measure it.
+
 ## Results
 
 Same gestures, flattened result compared with Fireworks MX's:

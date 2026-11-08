@@ -404,6 +404,22 @@ pub(crate) struct Blackness {
 /// Jeder Stempel wird auf sein eigenes Rechteck `[(p16)/16, p16/16 + w)` begrenzt (A, T2 „Dashed“).
 const PER_STAMP_CLIP: bool = true;
 
+impl<'a> ArgbInk<'a> {
+    /// An ink made of a kept stroke's buffers (a live stroke).
+    pub(crate) fn from_parts(base: InkBuffer<'a>, rgb: Vec<[u8; 3]>) -> Self {
+        Self {
+            base,
+            rgb,
+            clip: None,
+            black: None,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (InkBuffer<'a>, Vec<[u8; 3]>) {
+        (self.base, self.rgb)
+    }
+}
+
 impl ArgbInk<'_> {
     /// Leerer Puffer über `rect` (Farbe weiß, Alpha 0).
     pub(crate) fn new(rect: IRect) -> Self {
@@ -783,6 +799,37 @@ pub(crate) fn natural_ink(
     placement: StrokePlacement,
     rect: IRect,
 ) -> InkBufferOut {
+    let mut ink = ArgbInk {
+        base: InkBuffer::new(rect),
+        rgb: vec![[255; 3]; rect.width() as usize * rect.height() as usize],
+        clip: None,
+        black: None,
+    };
+    natural_run(path, stroke, placement, &mut ink, None);
+    ink.base.clip_to_bounds();
+    InkBufferOut {
+        data: ink.base.data,
+        rgb: Some(ink.rgb),
+    }
+}
+
+/// What a natural brush's walk carries from one piece of a live stroke to the next.
+#[derive(Clone, Debug)]
+pub(crate) struct NaturalResume {
+    acc: i64,
+    flow: i64,
+    st: PenState,
+    dash: NaturalDash,
+}
+
+/// Stamp `path` into `ink`. With `resume`, `path` is the next piece of one open contour.
+pub(crate) fn natural_run(
+    path: &VectorPath,
+    stroke: &Stroke,
+    placement: StrokePlacement,
+    ink: &mut ArgbInk<'_>,
+    mut resume: Option<&mut Option<NaturalResume>>,
+) {
     let b = &stroke.brush;
     let dp = effective_diameter(stroke, placement);
     let aa = b.antialiased;
@@ -819,12 +866,6 @@ pub(crate) fn natural_ink(
             as i64;
     let cap = b.feedback != Feedback::Brush;
     let k_black = (b.blackness.min(1000) * 255 / 1000) as i64;
-    let mut ink = ArgbInk {
-        base: InkBuffer::new(rect),
-        rgb: vec![[255; 3]; rect.width() as usize * rect.height() as usize],
-        clip: None,
-        black: None,
-    };
     // Überlappungszahl n wie die Überlappungstabelle (07 §6.5)
     let n_overlap = {
         let nov = if b.spacing as f64 * dp > 1000.0 {
@@ -869,16 +910,18 @@ pub(crate) fn natural_ink(
         if seq.len() == 1 {
             seq.push(seq[0]);
         }
-        let mut acc = spacing16;
-        let mut flow = 0i64;
-        let mut st = PenState::default();
-        let mut dash = NaturalDash::new(b);
+        let continued = resume.as_deref_mut().and_then(Option::take);
+        let resumed = continued.is_some();
+        let (mut acc, mut flow, mut st, mut dash) = match continued {
+            Some(r) => (r.acc, r.flow, r.st, r.dash),
+            None => (spacing16, 0i64, PenState::default(), NaturalDash::new(b)),
+        };
         for (si, w) in seq.windows(2).enumerate() {
             let ((p, dp0), (q, dp1)) = (w[0], w[1]);
             // Der Läufer arbeitet je Segment mit eigener Folge ab RNDi + 1 des Startpunkts
             // (Laufzeit phase5 `p_zufall`: Farbton-Zufall 26/26 Stempel)
             rng = Minstd::new(dp0.seed.wrapping_add(1));
-            let first = si == 0;
+            let first = si == 0 && !resumed;
             let a = ((p.x * 16.0).trunc() as i64, (p.y * 16.0).trunc() as i64);
             let bb = ((q.x * 16.0).trunc() as i64, (q.y * 16.0).trunc() as i64);
             let (dx, dy) = ((bb.0 - a.0).abs(), (bb.1 - a.1).abs());
@@ -1047,16 +1090,22 @@ pub(crate) fn natural_ink(
                 mj += smj;
             }
         }
+        if let Some(r) = resume.as_deref_mut() {
+            *r = Some(NaturalResume { acc, flow, st, dash });
+        }
     }
-    ink.base.clip_to_bounds();
-    InkBufferOut {
-        data: ink.base.data,
-        rgb: Some(ink.rgb),
-    }
+    crate::tipcache::keep(
+        tip_key,
+        crate::tipcache::Tips {
+            stages: tips.tips,
+            shifted,
+        },
+    );
 }
 
 /// Strichmuster der natürlichen Pinsel (07 §6.7): an, solange Zähler < DO + 1; Aus-Schwelle
 /// `(D + DF)·10`, im Aus-Zustand zählt jeder 1/16-Schritt.
+#[derive(Clone, Debug)]
 struct NaturalDash {
     d: i64,
     pairs: Vec<(i64, i64)>,
