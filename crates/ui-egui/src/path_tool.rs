@@ -373,6 +373,8 @@ pub fn canvas(
             }
             _ => {}
         }
+        // Whatever the drag was, its History state appears now (a discarded one is already gone).
+        d.commit_live_edit();
     }
 
     // Cursor: the Subselection arrow; the Pen a crosshair (set by the canvas).

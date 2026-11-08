@@ -188,13 +188,20 @@ pub struct DocState {
     /// edited here and written back with the content.
     pub symbol_nine: Option<(f64, f64, f64, f64)>,
     /// `dirty` when the live edit in progress began (restored if it's cancelled).
-    live_dirty: bool,
+    /// The live edit in progress: its undo step is recorded when it is committed.
+    live_edit: Option<LiveEdit>,
     /// The Brush, Pencil or Eraser stroke being drawn.
     live_paint: Option<paint::LivePaint>,
-    /// The document when a value drag began (see `begin_value_drag`).
-    value_drag: Option<Document>,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
+}
+
+/// A live edit in progress (see [`DocState::begin_live_edit`]).
+#[derive(Clone, Debug)]
+struct LiveEdit {
+    label: String,
+    before: Document,
+    dirty: bool,
 }
 
 impl DocState {
@@ -212,9 +219,8 @@ impl DocState {
             symbol_link: None,
             view_focus: None,
             symbol_nine: None,
-            live_dirty: false,
+            live_edit: None,
             live_paint: None,
-            value_drag: None,
             revision: 0,
         }
     }
@@ -269,6 +275,7 @@ impl DocState {
 
     /// Record an undo step, then apply `f`.
     pub fn edit(&mut self, label: &str, f: impl FnOnce(&mut DocState)) {
+        self.commit_live_edit();
         self.history.push(label, &self.doc);
         f(self);
         self.touch();
@@ -285,6 +292,7 @@ impl DocState {
     }
 
     pub fn undo(&mut self) {
+        self.commit_live_edit();
         if let Some(d) = self.history.undo(&self.doc) {
             self.doc = d;
             self.after_history();
@@ -292,6 +300,7 @@ impl DocState {
     }
 
     pub fn redo(&mut self) {
+        self.commit_live_edit();
         if let Some(d) = self.history.redo(&self.doc) {
             self.doc = d;
             self.after_history();
@@ -821,45 +830,40 @@ impl DocState {
         });
     }
 
-    /// Start a live edit (an effect's settings popup): records one undo step now; later
-    /// [`set_effects_live`](Self::set_effects_live) calls change the document without more.
+    /// Start a live edit (a drag, an effect's settings popup): later `..._live` changes apply
+    /// at once, and [`commit_live_edit`](Self::commit_live_edit) records the undo step when it
+    /// ends. As in Fireworks, the state appears in History on mouse up.
     pub fn begin_live_edit(&mut self, label: &str) {
-        self.history.push(label, &self.doc);
-        self.live_dirty = self.dirty;
+        self.commit_live_edit();
+        self.live_edit = Some(LiveEdit {
+            label: label.to_owned(),
+            before: self.doc.clone(),
+            dirty: self.dirty,
+        });
     }
 
-    /// Start dragging a value: changes made with `live` apply at once, and the undo step is
-    /// recorded by [`end_value_drag`](Self::end_value_drag) when the mouse is released.
-    pub fn begin_value_drag(&mut self) {
-        self.value_drag = Some(self.doc.clone());
-        self.live_dirty = self.dirty;
-    }
-
-    /// End a value drag: one undo step, or none (and Redo kept) if the value ended where it began.
-    pub fn end_value_drag(&mut self, label: &str) {
-        let Some(before) = self.value_drag.take() else {
-            return;
-        };
-        if before == self.doc {
-            self.dirty = self.live_dirty;
-        } else {
-            self.history.push(label, &before);
+    /// End the live edit in progress: one undo step, even if the value ended where it began (as
+    /// in Fireworks, which records the gesture).
+    pub fn commit_live_edit(&mut self) {
+        if let Some(e) = self.live_edit.take() {
+            self.history.push(&e.label, &e.before);
+            self.dirty = true;
         }
     }
 
     /// Cancel the live edit in progress: the document returns to how it was when it began, with
     /// no undo step left behind.
     pub fn cancel_live_edit(&mut self) {
-        if let Some(doc) = self.history.take_last() {
-            self.doc = doc;
+        if let Some(e) = self.live_edit.take() {
+            self.doc = e.before;
             self.after_history();
-            self.dirty = self.live_dirty;
+            self.dirty = e.dirty;
         }
     }
 
-    /// End a live edit that changed nothing: remove its undo step.
+    /// End a live edit that changed nothing, with no undo step.
     pub fn discard_live_edit(&mut self) {
-        self.history.discard_last();
+        self.live_edit = None;
     }
 
     pub fn set_effects_live(&mut self, list: Vec<firecraft_doc::EffectEntry>) {
@@ -1323,39 +1327,60 @@ impl Session {
 mod tests {
     use super::*;
 
+    fn undo_steps(d: &DocState) -> usize {
+        d.history.labels().count()
+    }
+
     #[test]
-    fn an_opacity_drag_is_one_undo_step_on_release() {
+    fn a_dragged_value_is_one_undo_step_on_release() {
         let mut d = DocState::new(Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
         d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
         let opacity = |d: &DocState| d.element(d.selection[0]).map(|e| e.opacity);
-        let steps = d.history.labels().count();
-        d.begin_value_drag();
+        let steps = undo_steps(&d);
+        d.begin_live_edit("Opacity");
         for v in [90.0, 80.0, 70.0, 60.0] {
             d.set_opacity(v, true);
         }
         assert_eq!(opacity(&d), Some(60.0));
-        assert_eq!(
-            d.history.labels().count(),
-            steps,
-            "nothing recorded while dragging"
-        );
-        d.end_value_drag("Opacity");
-        assert_eq!(d.history.labels().count(), steps + 1);
+        assert_eq!(undo_steps(&d), steps, "nothing is recorded while dragging");
+        d.commit_live_edit();
+        assert_eq!(undo_steps(&d), steps + 1);
         d.undo();
         assert_eq!(opacity(&d), Some(100.0));
-        // Dragged away and back: no step, the document stays as it was, Redo survives.
-        d.dirty = false;
-        assert!(d.history.can_redo());
-        d.begin_value_drag();
+        // Typing a value is one step too.
+        d.set_opacity(40.0, false);
+        assert_eq!(undo_steps(&d), steps + 1);
+    }
+
+    #[test]
+    fn a_drag_back_to_the_same_value_still_records_a_step() {
+        // As in Fireworks MX: the gesture is recorded.
+        let mut d = DocState::new(Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        let steps = undo_steps(&d);
+        d.begin_live_edit("Opacity");
         d.set_opacity(50.0, true);
         d.set_opacity(100.0, true);
-        d.end_value_drag("Opacity");
-        assert_eq!(d.history.labels().count(), steps);
-        assert!(!d.dirty);
-        assert!(d.history.can_redo());
-        // Typing a value is still one step.
-        d.set_opacity(40.0, false);
-        assert_eq!(d.history.labels().count(), steps + 1);
+        d.commit_live_edit();
+        assert_eq!(undo_steps(&d), steps + 1);
+    }
+
+    #[test]
+    fn undo_or_another_edit_during_a_live_edit_commits_it_first() {
+        let mut d = DocState::new(Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        let opacity = |d: &DocState| d.element(d.selection[0]).map(|e| e.opacity);
+        d.begin_live_edit("Opacity");
+        d.set_opacity(60.0, true);
+        d.undo();
+        assert_eq!(opacity(&d), Some(100.0));
+        d.begin_live_edit("Opacity");
+        d.set_opacity(60.0, true);
+        d.set_opacity(30.0, false);
+        let labels: Vec<&str> = d.history.labels().collect();
+        assert_eq!(labels.iter().filter(|l| **l == "Opacity").count(), 2);
+        d.undo();
+        assert_eq!(opacity(&d), Some(60.0));
     }
 
     #[test]

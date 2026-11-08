@@ -148,6 +148,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
             } else if resp.drag_started() {
                 begin(app, target, "Stroke Size");
             }
+            finish(app, target, &resp);
             category_menu(app, ui, target, &s);
         });
         // Row 2: placement, edge preview, softness.
@@ -197,6 +198,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
             } else if resp.drag_started() {
                 begin(app, target, "Stroke Edge");
             }
+            finish(app, target, &resp);
         });
         // Row 3: texture and its amount (Fireworks: "Texture: Grain  0%").
         ui.horizontal(|ui| {
@@ -235,6 +237,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
             } else if resp.drag_started() {
                 begin(app, target, "Stroke Texture");
             }
+            finish(app, target, &resp);
         });
     });
 }
@@ -405,12 +408,22 @@ fn begin(app: &mut FireCraftApp, target: Target, label: &str) {
 
 /// Change the selected strokes: live while the value is dragged, else one undo step.
 fn edit(app: &mut FireCraftApp, label: &str, resp: &egui::Response, f: impl Fn(&mut Stroke)) {
-    let dragging = resp.dragged();
+    let dragging = resp.dragged() || resp.drag_stopped();
     if let Some(d) = app.session.active_doc_mut() {
         if resp.drag_started() {
             d.begin_live_edit(label);
         }
         d.edit_stroke(label, dragging, f);
+    }
+}
+
+/// A dragged value's undo step is recorded when the mouse is released.
+fn finish(app: &mut FireCraftApp, target: Target, resp: &egui::Response) {
+    if target == Target::Selection
+        && resp.drag_stopped()
+        && let Some(d) = app.session.active_doc_mut()
+    {
+        d.commit_live_edit();
     }
 }
 

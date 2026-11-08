@@ -998,6 +998,7 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
         if !ed.added && d.selected_effects().as_ref() == Some(&ed.original) {
             d.discard_live_edit();
         }
+        d.commit_live_edit();
         app.effects_ui.editing = None;
     }
 }

@@ -1008,6 +1008,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 Tool::Pointer | Tool::SelectBehind if view.live_move.is_some() => {
                     if view.live_move == Some((0.0, 0.0)) {
                         d.cancel_live_edit();
+                    } else {
+                        d.commit_live_edit();
                     }
                 }
                 Tool::Pointer | Tool::SelectBehind => {

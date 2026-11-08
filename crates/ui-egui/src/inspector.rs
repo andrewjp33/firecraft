@@ -298,6 +298,25 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     crate::stroke_panel::show(app, ui, crate::stroke_panel::Target::Tool);
 }
 
+/// A value field in the Property inspector: changes apply as it's dragged and one History state
+/// is recorded on mouse up, as in Fireworks. `apply` gets whether this is part of a drag.
+fn value_drag(
+    d: &mut firecraft_engine::DocState,
+    resp: &egui::Response,
+    label: &str,
+    apply: impl FnOnce(&mut firecraft_engine::DocState, bool),
+) {
+    if resp.drag_started() {
+        d.begin_live_edit(label);
+    }
+    if resp.changed() {
+        apply(d, resp.dragged() || resp.drag_stopped());
+    }
+    if resp.drag_stopped() {
+        d.commit_live_edit();
+    }
+}
+
 fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
     let count = d.selection.len();
@@ -316,7 +335,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         Some(ElementKind::Other { kind, .. }) => (kind.clone(), Some(Tool::Slice)),
         None => ("".into(), None),
     };
-    let mut move_to: Option<(f64, f64)> = None;
+    let mut moved: Vec<(f64, f64, egui::Response)> = Vec::new();
     // In the Symbol Editor positions are the symbol's own (0,0 = its origin), as in Fireworks.
     let origin = d.symbol_link.map_or((0.0, 0.0), |l| l.offset);
     identity(ui, &title, tool, |ui| {
@@ -327,24 +346,28 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 ui.label("W:");
                 ui.add_enabled(false, DragValue::new(&mut w.round()));
                 ui.label("X:");
-                if ui.add(DragValue::new(&mut nx)).changed() {
-                    move_to = Some((nx - x, 0.0));
-                }
+                let resp = ui.add(DragValue::new(&mut nx));
+                moved.push((nx - x, 0.0, resp));
                 ui.end_row();
                 ui.label("H:");
                 ui.add_enabled(false, DragValue::new(&mut h.round()));
                 ui.label("Y:");
-                if ui.add(DragValue::new(&mut ny)).changed() {
-                    move_to = Some((0.0, ny - y));
-                }
+                let resp = ui.add(DragValue::new(&mut ny));
+                moved.push((0.0, ny - y, resp));
                 ui.end_row();
             });
         }
     });
-    if let Some((dx, dy)) = move_to
-        && let Some(d) = app.session.active_doc_mut()
-    {
-        d.move_selection(dx, dy, "Move");
+    if let Some(d) = app.session.active_doc_mut() {
+        for (dx, dy, resp) in &moved {
+            value_drag(d, resp, "Move", |d, live| {
+                if live {
+                    d.move_selection_live(*dx, *dy);
+                } else {
+                    d.move_selection(*dx, *dy, "Move");
+                }
+            });
+        }
     }
     // A symbol instance: edit its symbol, or turn it back into objects.
     if count == 1
@@ -423,13 +446,10 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         .suffix("%"),
                 );
                 if let Some(d) = app.session.active_doc_mut() {
-                    if resp.drag_started() {
-                        d.begin_live_edit("Fill Texture");
-                    }
-                    if resp.changed() {
-                        let v = (pct.round() as u16).min(100) * 10;
-                        d.edit_fill("Fill Texture", resp.dragged(), move |f| f.texture_amount = v);
-                    }
+                    let v = (pct.round() as u16).min(100) * 10;
+                    value_drag(d, &resp, "Fill Texture", |d, live| {
+                        d.edit_fill("Fill Texture", live, move |f| f.texture_amount = v);
+                    });
                 }
                 let mut tr = transparent;
                 if ui
@@ -453,12 +473,9 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                             .suffix("%"),
                     );
                     if let Some(d) = app.session.active_doc_mut() {
-                        if resp.drag_started() {
-                            d.begin_live_edit("Rectangle Roundness");
-                        }
-                        if resp.changed() {
-                            d.set_roundness(pct / 100.0, resp.dragged());
-                        }
+                        value_drag(d, &resp, "Rectangle Roundness", |d, live| {
+                            d.set_roundness(pct / 100.0, live);
+                        });
                     }
                 });
             }
@@ -487,15 +504,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     .suffix("%"),
             );
             if let Some(d) = app.session.active_doc_mut() {
-                if resp.drag_started() {
-                    d.begin_value_drag();
-                }
-                if resp.changed() {
-                    d.set_opacity(opacity, resp.dragged() || resp.drag_stopped());
-                }
-                if resp.drag_stopped() {
-                    d.end_value_drag("Opacity");
-                }
+                value_drag(d, &resp, "Opacity", |d, live| d.set_opacity(opacity, live));
             }
             let current = first.as_ref().map(|e| e.blend).unwrap_or_default();
             let mut chosen = None;

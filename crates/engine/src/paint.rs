@@ -669,6 +669,7 @@ impl DocState {
             self.set_paint_buffer(live.target, (live.origin.0 + l, live.origin.1 + t), &crop);
         }
         self.touch();
+        self.commit_live_edit();
     }
 
     /// Abandon the stroke (Esc): the document returns to how it was.
