@@ -39,23 +39,50 @@ use std::collections::HashMap;
 use egui::{Color32, Pos2, TextureHandle, Vec2};
 use firecraft_engine::Session;
 
+/// How a save went, as far as the host knows when it returns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SaveStatus {
+    /// Written; the path or name to remember for the document.
+    Saved(String),
+    Cancelled,
+    Failed(String),
+    /// Still running (browser file pickers are asynchronous); [`Platform::take_saved`] gives the
+    /// outcome later.
+    Pending,
+}
+
+/// What a save in progress is for.
+#[derive(Clone, Copy, Debug)]
+enum SaveTarget {
+    /// The document with this id.
+    Doc(u64),
+    Export,
+}
+
 /// Host services the shell needs (file dialogs differ between desktop and browser).
 pub trait Platform {
-    /// Ask the user for a file to open: (display name, bytes).
+    /// Ask the user for a file to open: (display name, bytes). `None` when cancelled, or when the
+    /// file arrives later through [`Platform::take_opened`].
     fn open_file(&mut self) -> Option<(String, Vec<u8>)>;
-    /// Ask where to save `bytes`; returns the chosen path/name. `suggested` is a file name.
-    fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> Option<String>;
+    /// Ask where to save `bytes` and write them. `suggested` is a file name.
+    fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus;
     /// Write to a known path (Save on an already-saved document). Default: ask.
-    fn write_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+    fn write_file(&mut self, path: &str, bytes: &[u8]) -> SaveStatus {
         self.save_file(path, bytes)
-            .map(|_| ())
-            .ok_or_else(|| "cancelled".into())
+    }
+    /// The outcome of the save that returned [`SaveStatus::Pending`], once it has finished.
+    fn take_saved(&mut self) -> Option<SaveStatus> {
+        None
+    }
+    /// A saved path as the user should see it.
+    fn display_path(&self, path: &str) -> String {
+        path.to_owned()
     }
     /// Begin reading a dropped file (browsers read files asynchronously); results are returned
     /// later by [`Platform::take_opened`].
     fn read_dropped(&mut self, _file: egui::DroppedFileHandle) {}
-    /// Files read since the last call, ready to open.
-    fn take_opened(&mut self) -> Vec<(String, Vec<u8>)> {
+    /// Files read since the last call, ready to open, or why one could not be read.
+    fn take_opened(&mut self) -> Vec<Result<(String, Vec<u8>), String>> {
         Vec::new()
     }
     /// Ask for an image to use as a texture (PNG or GIF): (display name, bytes).
@@ -253,6 +280,8 @@ pub struct FireCraftApp {
     views: HashMap<u64, View>,
     dialogs: dialogs::Dialogs,
     status: Option<(String, bool)>,
+    /// The save still in progress in the host, if any.
+    pending_save: Option<SaveTarget>,
     pi_open: bool,
     styled: bool,
     nine: Option<nine::NineEdit>,
@@ -285,6 +314,7 @@ impl FireCraftApp {
             views: HashMap::new(),
             dialogs: dialogs::Dialogs::default(),
             status: None,
+            pending_save: None,
             pi_open: true,
             styled: false,
             nine: None,
@@ -334,7 +364,29 @@ impl FireCraftApp {
     pub fn open_bytes(&mut self, name: String, bytes: &[u8]) {
         match self.session.open_bytes(bytes, name.clone()) {
             Ok(()) => self.status = None,
-            Err(e) => self.error(format!("Could not open {name}: {e}")),
+            Err(e) => self.error(format!(
+                "Could not open {}: {e}",
+                self.platform.display_path(&name)
+            )),
+        }
+    }
+
+    /// Apply how a save went, or remember it if the host is still working on it.
+    fn save_status(&mut self, target: SaveTarget, status: SaveStatus) {
+        match (status, target) {
+            (SaveStatus::Pending, _) => self.pending_save = Some(target),
+            (SaveStatus::Cancelled, _) => {}
+            (SaveStatus::Failed(e), SaveTarget::Doc(_)) => self.error(format!("Save failed: {e}")),
+            (SaveStatus::Failed(e), SaveTarget::Export) => self.error(format!("Export failed: {e}")),
+            (SaveStatus::Saved(path), SaveTarget::Doc(id)) => {
+                if let Some(d) = self.session.docs.iter_mut().find(|d| d.id == id) {
+                    d.doc.path = Some(path);
+                    d.dirty = false;
+                }
+            }
+            (SaveStatus::Saved(path), SaveTarget::Export) => {
+                self.info(format!("Exported {}", self.platform.display_path(&path)));
+            }
         }
     }
 
@@ -454,8 +506,16 @@ impl FireCraftApp {
             #[cfg(target_arch = "wasm32")]
             self.platform.read_dropped(f);
         }
-        for (name, bytes) in self.platform.take_opened() {
-            self.open_bytes(name, &bytes);
+        for opened in self.platform.take_opened() {
+            match opened {
+                Ok((name, bytes)) => self.open_bytes(name, &bytes),
+                Err(e) => self.error(e),
+            }
+        }
+        if let Some(status) = self.platform.take_saved()
+            && let Some(target) = self.pending_save.take()
+        {
+            self.save_status(target, status);
         }
 
         // Closing the window (Exit, Ctrl+Q, the title bar's close button) with unsaved work asks first.

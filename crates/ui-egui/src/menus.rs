@@ -8,6 +8,7 @@ use egui::{Button, Key, KeyboardShortcut, Modifiers};
 use firecraft_engine::{Align, Arrange, Tool, Turn};
 
 use crate::FireCraftApp;
+use crate::SaveTarget;
 
 fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
     let clicked = ui
@@ -408,6 +409,9 @@ pub fn open(app: &mut FireCraftApp) {
 }
 
 pub fn save(app: &mut FireCraftApp, save_as: bool) {
+    if app.pending_save.is_some() {
+        return;
+    }
     // In the Symbol Editor, Save saves the document the symbol belongs to (Fireworks doesn't
     // save from its Symbol Editor; FireCraft updates the document live, so saving it is the
     // useful meaning here).
@@ -431,30 +435,24 @@ pub fn save(app: &mut FireCraftApp, save_as: bool) {
         .path
         .clone()
         .filter(|p| !save_as && (p.contains('/') || p.contains('\\')));
-    let result = match existing {
-        Some(path) => app.platform.write_file(&path, &bytes).map(|_| Some(path)),
-        None => Ok(app.platform.save_file(&d.doc.title(), &bytes)),
+    let id = d.id;
+    let status = match existing {
+        Some(path) => app.platform.write_file(&path, &bytes),
+        None => app.platform.save_file(&d.doc.title(), &bytes),
     };
-    match result {
-        Ok(Some(path)) => {
-            if let Some(d) = app.session.active_doc_mut() {
-                d.doc.path = Some(path.clone());
-                d.dirty = false;
-            }
-        }
-        Ok(None) => {}
-        Err(e) => app.error(format!("Save failed: {e}")),
-    }
+    app.save_status(SaveTarget::Doc(id), status);
 }
 
 pub fn export(app: &mut FireCraftApp) {
+    if app.pending_save.is_some() {
+        return;
+    }
     let Some(d) = app.session.active_doc() else { return };
     let name = d.doc.title().trim_end_matches(".png").to_owned() + "-export.png";
     match firecraft_io::export_png(&d.doc) {
         Ok(bytes) => {
-            if let Some(p) = app.platform.save_file(&name, &bytes) {
-                app.info(format!("Exported {p}"));
-            }
+            let status = app.platform.save_file(&name, &bytes);
+            app.save_status(SaveTarget::Export, status);
         }
         Err(e) => app.error(format!("Export failed: {e}")),
     }

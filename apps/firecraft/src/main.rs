@@ -7,7 +7,7 @@ mod splash;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use firecraft_ui_egui::{FireCraftApp, Platform};
+use firecraft_ui_egui::{FireCraftApp, Platform, SaveStatus};
 
 /// The splash process, closed once the main window has drawn.
 type SplashHandle = Arc<Mutex<Option<std::process::Child>>>;
@@ -30,17 +30,22 @@ impl Platform for Desktop {
         Some((path.display().to_string(), bytes))
     }
 
-    fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> Option<String> {
+    fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus {
         let name = std::path::Path::new(suggested)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let path = rfd::FileDialog::new()
+        let Some(path) = rfd::FileDialog::new()
             .set_file_name(name)
             .add_filter("Fireworks PNG", &["png"])
-            .save_file()?;
-        std::fs::write(&path, bytes).ok()?;
-        Some(path.display().to_string())
+            .save_file()
+        else {
+            return SaveStatus::Cancelled;
+        };
+        match std::fs::write(&path, bytes) {
+            Ok(()) => SaveStatus::Saved(path.display().to_string()),
+            Err(e) => SaveStatus::Failed(e.to_string()),
+        }
     }
 
     fn open_image(&mut self) -> Option<(String, Vec<u8>)> {
@@ -58,11 +63,13 @@ impl Platform for Desktop {
             .map(|p| p.display().to_string())
     }
 
-    fn write_file(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+    fn write_file(&mut self, path: &str, bytes: &[u8]) -> SaveStatus {
         // Write to a sibling temp file and rename, so a failed save never truncates the document.
         let tmp = format!("{path}.firecraft-tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        match std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path)) {
+            Ok(()) => SaveStatus::Saved(path.to_owned()),
+            Err(e) => SaveStatus::Failed(e.to_string()),
+        }
     }
 }
 
