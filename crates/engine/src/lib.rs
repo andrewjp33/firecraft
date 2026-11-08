@@ -191,6 +191,8 @@ pub struct DocState {
     live_dirty: bool,
     /// The Brush, Pencil or Eraser stroke being drawn.
     live_paint: Option<paint::LivePaint>,
+    /// The document when a value drag began (see `begin_value_drag`).
+    value_drag: Option<Document>,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
 }
@@ -212,6 +214,7 @@ impl DocState {
             symbol_nine: None,
             live_dirty: false,
             live_paint: None,
+            value_drag: None,
             revision: 0,
         }
     }
@@ -825,6 +828,25 @@ impl DocState {
         self.live_dirty = self.dirty;
     }
 
+    /// Start dragging a value: changes made with `live` apply at once, and the undo step is
+    /// recorded by [`end_value_drag`](Self::end_value_drag) when the mouse is released.
+    pub fn begin_value_drag(&mut self) {
+        self.value_drag = Some(self.doc.clone());
+        self.live_dirty = self.dirty;
+    }
+
+    /// End a value drag: one undo step, or none (and Redo kept) if the value ended where it began.
+    pub fn end_value_drag(&mut self, label: &str) {
+        let Some(before) = self.value_drag.take() else {
+            return;
+        };
+        if before == self.doc {
+            self.dirty = self.live_dirty;
+        } else {
+            self.history.push(label, &before);
+        }
+    }
+
     /// Cancel the live edit in progress: the document returns to how it was when it began, with
     /// no undo step left behind.
     pub fn cancel_live_edit(&mut self) {
@@ -1178,15 +1200,21 @@ impl DocState {
     }
 
     /// Set opacity (0..=100) on selected objects.
-    pub fn set_opacity(&mut self, opacity: f32) {
-        let refs = self.selection.clone();
-        self.edit("Opacity", |s| {
-            for r in refs {
+    /// The selected objects' opacity. `live`: part of a value drag (no undo step of its own).
+    pub fn set_opacity(&mut self, opacity: f32, live: bool) {
+        let apply = |s: &mut DocState| {
+            for r in s.selection.clone() {
                 if let Some(e) = s.element_mut(r) {
                     e.opacity = opacity.clamp(0.0, 100.0);
                 }
             }
-        });
+        };
+        if live {
+            apply(self);
+            self.touch();
+        } else {
+            self.edit("Opacity", apply);
+        }
     }
 
     /// Property inspector "Rectangle roundness" (0..=1) of the selected rectangles. `live`: part
@@ -1294,6 +1322,41 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_opacity_drag_is_one_undo_step_on_release() {
+        let mut d = DocState::new(Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        let opacity = |d: &DocState| d.element(d.selection[0]).map(|e| e.opacity);
+        let steps = d.history.labels().count();
+        d.begin_value_drag();
+        for v in [90.0, 80.0, 70.0, 60.0] {
+            d.set_opacity(v, true);
+        }
+        assert_eq!(opacity(&d), Some(60.0));
+        assert_eq!(
+            d.history.labels().count(),
+            steps,
+            "nothing recorded while dragging"
+        );
+        d.end_value_drag("Opacity");
+        assert_eq!(d.history.labels().count(), steps + 1);
+        d.undo();
+        assert_eq!(opacity(&d), Some(100.0));
+        // Dragged away and back: no step, the document stays as it was, Redo survives.
+        d.dirty = false;
+        assert!(d.history.can_redo());
+        d.begin_value_drag();
+        d.set_opacity(50.0, true);
+        d.set_opacity(100.0, true);
+        d.end_value_drag("Opacity");
+        assert_eq!(d.history.labels().count(), steps);
+        assert!(!d.dirty);
+        assert!(d.history.can_redo());
+        // Typing a value is still one step.
+        d.set_opacity(40.0, false);
+        assert_eq!(d.history.labels().count(), steps + 1);
+    }
 
     #[test]
     fn cancelling_a_live_edit_restores_the_document_without_an_undo_step() {

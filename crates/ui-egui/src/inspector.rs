@@ -480,17 +480,22 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             icons::glyph(ui, icons::Glyph::Opacity, 16.0);
-            if ui
-                .add(
-                    DragValue::new(&mut opacity)
-                        .range(0.0..=100.0)
-                        .max_decimals(1)
-                        .suffix("%"),
-                )
-                .changed()
-                && let Some(d) = app.session.active_doc_mut()
-            {
-                d.set_opacity(opacity);
+            let resp = ui.add(
+                DragValue::new(&mut opacity)
+                    .range(0.0..=100.0)
+                    .max_decimals(1)
+                    .suffix("%"),
+            );
+            if let Some(d) = app.session.active_doc_mut() {
+                if resp.drag_started() {
+                    d.begin_value_drag();
+                }
+                if resp.changed() {
+                    d.set_opacity(opacity, resp.dragged() || resp.drag_stopped());
+                }
+                if resp.drag_stopped() {
+                    d.end_value_drag("Opacity");
+                }
             }
             let current = first.as_ref().map(|e| e.blend).unwrap_or_default();
             let mut chosen = None;
