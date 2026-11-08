@@ -294,9 +294,12 @@ pub fn canvas(
         edit.pen = None;
     }
 
+    // Where the button went down: the pointer may already be elsewhere by the time this frame
+    // is drawn, and a thin stroke is easy to miss.
+    let press_at = ctx.input(|i| i.pointer.press_origin()).or(pointer);
     if pressed
         && edit.drag.is_none()
-        && let Some(s) = pointer
+        && let Some(s) = press_at
     {
         let at = to_doc(s);
         if subselecting {
