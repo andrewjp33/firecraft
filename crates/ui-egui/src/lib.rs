@@ -517,8 +517,23 @@ impl FireCraftApp {
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();
-        // Choosing another tool finishes the path the Pen is drawing (as in Fireworks).
-        if self.session.tool != firecraft_engine::Tool::Pen {
+        // Selection and vector tools leave the Pen's path open, to resume on returning; any
+        // other tool finishes it (Fireworks MX).
+        if !matches!(
+            self.session.tool,
+            firecraft_engine::Tool::Pen
+                | firecraft_engine::Tool::Pointer
+                | firecraft_engine::Tool::SelectBehind
+                | firecraft_engine::Tool::Subselect
+                | firecraft_engine::Tool::Scale
+                | firecraft_engine::Tool::Skew
+                | firecraft_engine::Tool::Distort
+                | firecraft_engine::Tool::Line
+                | firecraft_engine::Tool::Rectangle
+                | firecraft_engine::Tool::Ellipse
+                | firecraft_engine::Tool::Freeform
+                | firecraft_engine::Tool::Knife
+        ) {
             self.path_edit.end_pen();
         }
         if let Some((doc, id)) =

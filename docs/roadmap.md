@@ -27,9 +27,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 
 Rendering parity on real files is tracked in [parity.md](parity.md).
 
-Working order (user's priority, 2026-11-08): the Pen tool (Bezier curves, editing anchor points);
-then gradient editing and the fill/stroke controls of item 6; then Text (item 5). Other items
-keep their numbers.
+Working order (user's priority, 2026-11-08): gradient editing and the fill/stroke controls of
+item 6; then Text (item 5). Other items keep their numbers.
 
 1. **Paths, stage 2**: Modify > Combine Path (Join, Split, Union, Intersect, Punch, Crop), Alter
    Path (Simplify, Expand Stroke, Inset Path), Freeform and Reshape Area, Knife, Redraw Path,

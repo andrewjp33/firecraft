@@ -212,14 +212,25 @@ impl DocState {
             pcl: None,
             texture_origin: None,
         };
-        self.add_element(Element::new(ElementKind::Path(path)), "Pen");
-        self.selection.first().copied()
+        // Its History state appears on mouse up, with the drag that shapes the point.
+        self.begin_live_edit("Pen");
+        let layer = self.writable_layer();
+        let f = self.frame();
+        let cell = self.doc.layers.get_mut(layer)?.elements_mut(f)?;
+        cell.push(Element::new(ElementKind::Path(path)));
+        let r = ElementRef::new(layer, cell.len() - 1);
+        self.selection = vec![r];
+        self.pixels = None;
+        self.touch();
+        Some(r)
     }
 
-    /// Pen tool: add a corner point at the end of open contour `contour`; its reference.
+    /// Pen tool: add a corner point at the end of open contour `contour`; its reference. Part of
+    /// a live edit (the click or drag that places it).
     pub fn pen_append(&mut self, r: ElementRef, contour: usize, x: f64, y: f64) -> Option<PointRef> {
         let n = self.path(r)?.contours.get(contour)?.points.len();
-        self.path_edit(r, "Pen", |p| {
+        self.begin_live_edit("Pen");
+        self.path_live(r, |p| {
             if let Some(c) = p.contours.get_mut(contour) {
                 c.points.push(BezierPoint::corner(x, y));
             }
@@ -228,25 +239,118 @@ impl DocState {
         Some(PointRef { contour, index: n })
     }
 
-    /// Pen tool: close open contour `contour` (clicking its first point).
+    /// Pen tool: close open contour `contour` (clicking its first point). Part of a live edit.
     pub fn pen_close(&mut self, r: ElementRef, contour: usize) {
-        self.path_edit(r, "Close Path", |p| {
+        self.begin_live_edit("Close Path");
+        self.path_live(r, |p| {
             if let Some(c) = p.contours.get_mut(contour) {
                 c.closed = true;
             }
         });
     }
 
-    /// Pen tool on a path: add a point on segment `seg` of `contour` at `t`.
+    /// Pen tool on a path: add a point on segment `seg` of `contour` at `t`. Part of a live edit.
     pub fn insert_point(&mut self, r: ElementRef, contour: usize, seg: usize, t: f64) -> Option<PointRef> {
         let mut out = None;
-        self.path_edit(r, "Add Point", |p| {
+        self.begin_live_edit("Add Point");
+        self.path_live(r, |p| {
             if let Some(c) = p.contours.get_mut(contour) {
                 out = split_segment(c, seg, t).map(|index| PointRef { contour, index });
             }
             p.rect = None;
         });
         out
+    }
+
+    /// An end point of an open path other than `except`, that `near` accepts, on a shown and
+    /// unlocked layer: (object, contour, whether it's the contour's first point).
+    pub fn open_end_at(
+        &self,
+        near: impl Fn(f64, f64) -> bool,
+        except: ElementRef,
+    ) -> Option<(ElementRef, usize, bool)> {
+        let f = self.frame();
+        for (li, l) in self.doc.layers.iter().enumerate().rev() {
+            if !l.visible_in(f) || l.locked || l.web {
+                continue;
+            }
+            for (ei, e) in l.elements(f).iter().enumerate().rev() {
+                let r = ElementRef::new(li, ei);
+                let ElementKind::Path(p) = &e.kind else { continue };
+                if r == except || !e.visible {
+                    continue;
+                }
+                for (ci, c) in p.contours.iter().enumerate().filter(|(_, c)| !c.closed) {
+                    match (c.points.first(), c.points.last()) {
+                        (Some(a), _) if near(a.x, a.y) => return Some((r, ci, true)),
+                        (_, Some(b)) if near(b.x, b.y) => return Some((r, ci, false)),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Pen tool: join open contour `contour` of `r` to another open path, from the end clicked
+    /// (`at_start`: its first point). The joined path keeps the topmost path's stroke, fill and
+    /// effects, as in Fireworks; drawing goes on from its far end. The result's reference and
+    /// the joined contour.
+    pub fn pen_merge(
+        &mut self,
+        r: ElementRef,
+        contour: usize,
+        other: ElementRef,
+        other_contour: usize,
+        at_start: bool,
+    ) -> Option<(ElementRef, usize)> {
+        if r.is_nested() || other.is_nested() || r == other {
+            return None;
+        }
+        let mut joined = self.path(r)?.contours.get(contour)?.clone();
+        let mut tail = self.path(other)?.contours.get(other_contour)?.clone();
+        if !at_start {
+            reverse(&mut tail);
+        }
+        joined.points.append(&mut tail.points);
+        let r_on_top = (r.layer, r.index) > (other.layer, other.index);
+        let (top, top_contour, bottom, bottom_contour) = if r_on_top {
+            (r, contour, other, other_contour)
+        } else {
+            (other, other_contour, r, contour)
+        };
+        let rest: Vec<Contour> = self
+            .path(bottom)?
+            .contours
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != bottom_contour)
+            .map(|(_, c)| c.clone())
+            .collect();
+        let f = self.frame();
+        let mut result = top;
+        self.edit("Pen", |s| {
+            if let Some(Element {
+                kind: ElementKind::Path(p),
+                ..
+            }) = s.element_mut(top)
+            {
+                if let Some(c) = p.contours.get_mut(top_contour) {
+                    *c = joined;
+                }
+                p.contours.extend(rest);
+                p.rect = None;
+            }
+            if let Some(cell) = s.doc.layers.get_mut(bottom.layer).and_then(|l| l.elements_mut(f)) {
+                cell.remove(bottom.index);
+            }
+            if bottom.layer == top.layer && bottom.index < top.index {
+                result = ElementRef::new(top.layer, top.index - 1);
+            }
+            s.selection = vec![result];
+            s.pixels = None;
+        });
+        Some((result, top_contour))
     }
 
     /// Pen tool on a curve point: make it a corner (no handles).
@@ -371,6 +475,7 @@ mod tests {
         d.pen_append(r, 0, 60.0, 10.0);
         d.pen_append(r, 0, 60.0, 60.0);
         d.pen_close(r, 0);
+        d.commit_live_edit();
         let p = d.path(r).expect("a path");
         assert!(p.contours[0].closed && p.contours[0].points.len() == 3);
         // Each step is its own undo step.
