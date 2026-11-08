@@ -201,7 +201,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
         // Row 3: texture and its amount (Fireworks: "Texture: Grain  0%").
         ui.horizontal(|ui| {
             ui.add_enabled(s.has, egui::Label::new("Texture:"));
-            if let Some(t) = texture_picker(app, ui, &s.texture, s.has) {
+            if let Some(t) = texture_picker(app, ui, TextureSlot::Stroke, &s.texture, s.has) {
                 match target {
                     Target::Tool => app.session.options.stroke_texture = Some(t),
                     Target::Selection => {
@@ -284,11 +284,19 @@ fn document_textures(app: &FireCraftApp) -> Vec<firecraft_doc::Texture> {
     out
 }
 
+/// Which texture menu is asking for an image file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextureSlot {
+    Stroke,
+    Fill,
+}
+
 /// The texture menu (strokes and fills): Fireworks' textures (when found), FireCraft's built-in
 /// ones, those in the document, and Other... (an image file). Returns the texture chosen.
 pub(crate) fn texture_picker(
     app: &mut FireCraftApp,
     ui: &mut egui::Ui,
+    slot: TextureSlot,
     current: &str,
     enabled: bool,
 ) -> Option<firecraft_doc::Texture> {
@@ -334,35 +342,56 @@ pub(crate) fn texture_picker(
         arrow,
         Color32::from_gray(if enabled { 40 } else { 150 }),
     );
-    let texture = if other {
-        let Some((name, bytes)) = app.platform.open_image() else {
-            return None;
-        };
-        let stem = std::path::Path::new(&name)
-            .file_stem()
-            .map_or_else(|| name.clone(), |n| n.to_string_lossy().to_string());
-        match firecraft_io::textures::decode_image(&bytes) {
-            Ok(img) => {
-                let t = firecraft_doc::Texture::new(
-                    stem,
-                    img.width(),
-                    img.height(),
-                    firecraft_io::textures::mask_from_image(&img),
-                );
-                if let Some(t) = &t {
-                    app.texture_library().add(t.clone());
-                }
-                t
-            }
-            Err(e) => {
-                app.dialogs.message = Some(("Texture".into(), format!("Could not read {name}: {e}")));
-                None
-            }
+    let file = if other {
+        let file = app.platform.open_image();
+        if file.is_none() {
+            // The browser delivers the file on a later frame.
+            app.awaiting_texture = Some(slot);
         }
+        file.map(Ok)
+    } else if app.awaiting_texture == Some(slot) {
+        let file = app.platform.take_image();
+        if file.is_some() {
+            app.awaiting_texture = None;
+        }
+        file
     } else {
-        pick.and_then(|n| app.texture_library().get(&n))
+        None
     };
-    texture
+    match file {
+        Some(file) => load_texture(app, file),
+        None => pick.and_then(|n| app.texture_library().get(&n)),
+    }
+}
+
+/// Make a texture from an image file (Other...) and add it to the library.
+fn load_texture(
+    app: &mut FireCraftApp,
+    file: Result<(String, Vec<u8>), String>,
+) -> Option<firecraft_doc::Texture> {
+    let decoded = file.and_then(|(name, bytes)| {
+        firecraft_io::textures::decode_image(&bytes)
+            .map(|img| (name.clone(), img))
+            .map_err(|e| format!("Could not read {name}: {e}"))
+    });
+    let (name, img) = match decoded {
+        Ok(ok) => ok,
+        Err(message) => {
+            app.dialogs.message = Some(("Texture".into(), message));
+            return None;
+        }
+    };
+    let stem = std::path::Path::new(&name)
+        .file_stem()
+        .map_or_else(|| name.clone(), |n| n.to_string_lossy().to_string());
+    let texture = firecraft_doc::Texture::new(
+        stem,
+        img.width(),
+        img.height(),
+        firecraft_io::textures::mask_from_image(&img),
+    )?;
+    app.texture_library().add(texture.clone());
+    Some(texture)
 }
 
 /// Start a live edit for a dragged value (one undo step for the drag).

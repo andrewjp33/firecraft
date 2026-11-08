@@ -85,9 +85,15 @@ pub trait Platform {
     fn take_opened(&mut self) -> Vec<Result<(String, Vec<u8>), String>> {
         Vec::new()
     }
-    /// Ask for an image to use as a texture (PNG or GIF): (display name, bytes).
+    /// Ask for an image to use as a texture (PNG or GIF): (display name, bytes). `None` when
+    /// cancelled, or when the file arrives later through [`Platform::take_image`].
     fn open_image(&mut self) -> Option<(String, Vec<u8>)> {
         self.open_file()
+    }
+    /// The image asked for by an earlier [`Platform::open_image`], once read, or why it could
+    /// not be read.
+    fn take_image(&mut self) -> Option<Result<(String, Vec<u8>), String>> {
+        None
     }
     /// Ask for a folder (desktop only).
     fn pick_folder(&mut self) -> Option<String> {
@@ -282,6 +288,8 @@ pub struct FireCraftApp {
     status: Option<(String, bool)>,
     /// The save still in progress in the host, if any.
     pending_save: Option<SaveTarget>,
+    /// The texture menu whose Other... was last used; a file arriving later goes to it.
+    awaiting_texture: Option<stroke_panel::TextureSlot>,
     pi_open: bool,
     styled: bool,
     nine: Option<nine::NineEdit>,
@@ -315,6 +323,7 @@ impl FireCraftApp {
             dialogs: dialogs::Dialogs::default(),
             status: None,
             pending_save: None,
+            awaiting_texture: None,
             pi_open: true,
             styled: false,
             nine: None,

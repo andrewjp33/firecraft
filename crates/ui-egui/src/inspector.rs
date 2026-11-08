@@ -301,8 +301,13 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             });
             ui.horizontal(|ui| {
                 ui.add_enabled(has, egui::Label::new("Texture:"));
-                if let Some(t) = crate::stroke_panel::texture_picker(app, ui, &name, has)
-                    && let Some(d) = app.session.active_doc_mut()
+                if let Some(t) = crate::stroke_panel::texture_picker(
+                    app,
+                    ui,
+                    crate::stroke_panel::TextureSlot::Fill,
+                    &name,
+                    has,
+                ) && let Some(d) = app.session.active_doc_mut()
                 {
                     d.edit_fill("Fill Texture", false, move |f| f.texture = Some(t.clone()));
                 }

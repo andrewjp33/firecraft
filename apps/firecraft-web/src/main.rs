@@ -19,6 +19,7 @@ mod web {
     // click or key press that asked for it.
     #[wasm_bindgen(inline_js = r#"
 const TYPES = [{ description: "Fireworks PNG", accept: { "image/png": [".png"] } }];
+const IMAGE_TYPES = [{ description: "Images", accept: { "image/png": [".png"], "image/gif": [".gif"] } }];
 
 // null when the user cancelled.
 async function orCancelled(picker) {
@@ -30,11 +31,11 @@ async function orCancelled(picker) {
   }
 }
 
-function chooseUpload() {
+function chooseUpload(types) {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".png,image/png";
+    input.accept = Object.entries(types[0].accept).flatMap(([mime, exts]) => [mime, ...exts]).join(",");
     input.onchange = () => resolve(input.files[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();
@@ -53,15 +54,16 @@ async function write(handle, bytes) {
 }
 
 // { name, bytes, handle? }, or null when cancelled.
-export async function pickAndRead() {
+export async function pickAndRead(images) {
+  const types = images ? IMAGE_TYPES : TYPES;
   let handle, file;
   if (window.showOpenFilePicker) {
-    const picked = await orCancelled(window.showOpenFilePicker({ types: TYPES }));
+    const picked = await orCancelled(window.showOpenFilePicker({ types }));
     if (!picked) return null;
     handle = picked[0];
     file = await handle.getFile();
   } else {
-    file = await chooseUpload();
+    file = await chooseUpload(types);
     if (!file) return null;
   }
   return { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), handle };
@@ -88,7 +90,7 @@ export async function writeTo(handle, bytes) {
 "#)]
     extern "C" {
         #[wasm_bindgen(js_name = pickAndRead)]
-        fn pick_and_read() -> Promise;
+        fn pick_and_read(images: bool) -> Promise;
         #[wasm_bindgen(js_name = canPickSave)]
         fn can_pick_save() -> bool;
         #[wasm_bindgen(js_name = pickAndWrite)]
@@ -108,6 +110,7 @@ export async function writeTo(handle, bytes) {
     struct Shared {
         ctx: egui::Context,
         opened: RefCell<Vec<OpenedFile>>,
+        image: RefCell<Option<OpenedFile>>,
         saved: RefCell<Option<SaveStatus>>,
         handles: RefCell<HashMap<String, JsValue>>,
         next_handle: Cell<u64>,
@@ -128,6 +131,11 @@ export async function writeTo(handle, bytes) {
             self.ctx.request_repaint();
         }
 
+        fn finish_image(&self, file: OpenedFile) {
+            *self.image.borrow_mut() = Some(file);
+            self.ctx.request_repaint();
+        }
+
         fn finish_save(&self, status: SaveStatus) {
             *self.saved.borrow_mut() = Some(status);
             self.ctx.request_repaint();
@@ -144,6 +152,7 @@ export async function writeTo(handle, bytes) {
                 shared: Rc::new(Shared {
                     ctx,
                     opened: RefCell::default(),
+                    image: RefCell::default(),
                     saved: RefCell::default(),
                     handles: RefCell::default(),
                     next_handle: Cell::new(0),
@@ -192,31 +201,40 @@ export async function writeTo(handle, bytes) {
         }
 
         fn open_file(&mut self) -> Option<(String, Vec<u8>)> {
-            let picking = pick_and_read();
+            let picking = pick_and_read(false);
             let shared = self.shared.clone();
             spawn_local(async move {
-                match JsFuture::from(picking).await {
-                    Ok(picked) if picked.is_null() => {}
-                    Ok(picked) => {
-                        let name = text_field(&picked, "name");
-                        let bytes = field(&picked, "bytes");
-                        let handle = field(&picked, "handle");
-                        let path = if handle.is_undefined() {
-                            name
+                match picked_file(picking).await {
+                    Ok(None) => {}
+                    Ok(Some(file)) => {
+                        let path = if file.handle.is_undefined() {
+                            file.name
                         } else {
-                            shared.remember(handle, &name)
+                            shared.remember(file.handle, &file.name)
                         };
-                        shared.finish_open(Ok((path, Uint8Array::new(&bytes).to_vec())));
+                        shared.finish_open(Ok((path, file.bytes)));
                     }
-                    Err(e) => shared.finish_open(Err(format!("Could not open the file: {}", error_text(&e)))),
+                    Err(e) => shared.finish_open(Err(e)),
                 }
             });
             None
         }
 
         fn open_image(&mut self) -> Option<(String, Vec<u8>)> {
-            // Texture files are not supported in the browser yet; `open_file` would open a document.
+            let picking = pick_and_read(true);
+            let shared = self.shared.clone();
+            spawn_local(async move {
+                match picked_file(picking).await {
+                    Ok(None) => {}
+                    Ok(Some(file)) => shared.finish_image(Ok((file.name, file.bytes))),
+                    Err(e) => shared.finish_image(Err(e)),
+                }
+            });
             None
+        }
+
+        fn take_image(&mut self) -> Option<OpenedFile> {
+            self.shared.image.borrow_mut().take()
         }
 
         fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus {
@@ -245,6 +263,29 @@ export async function writeTo(handle, bytes) {
                 None => path.to_owned(),
             }
         }
+    }
+
+    /// A file the user chose.
+    struct PickedFile {
+        name: String,
+        bytes: Vec<u8>,
+        /// The file's handle, or undefined if the browser has no file pickers.
+        handle: JsValue,
+    }
+
+    /// Wait for `picking` (from `pick_and_read`); `None` when the user cancelled.
+    async fn picked_file(picking: Promise) -> Result<Option<PickedFile>, String> {
+        let picked = JsFuture::from(picking)
+            .await
+            .map_err(|e| format!("Could not open the file: {}", error_text(&e)))?;
+        if picked.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(PickedFile {
+            name: text_field(&picked, "name"),
+            bytes: Uint8Array::new(&field(&picked, "bytes")).to_vec(),
+            handle: field(&picked, "handle"),
+        }))
     }
 
     fn field(object: &JsValue, name: &str) -> JsValue {
