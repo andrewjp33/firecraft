@@ -70,10 +70,13 @@ impl Default for WandOptions {
 
 /// Fireworks' colour distance (see module docs).
 pub fn distance(seed: Rgba, p: Rgba) -> u32 {
+    // Alpha counts like a colour channel (measured with the Paint Bucket and the wand on soft
+    // edges in Fireworks MX: docs/behavior/painting.md).
     let d = [
         p.r as i32 - seed.r as i32,
         p.g as i32 - seed.g as i32,
         p.b as i32 - seed.b as i32,
+        p.a as i32 - seed.a as i32,
     ];
     let up = d.iter().copied().max().unwrap_or(0).max(0);
     let down = (-d.iter().copied().min().unwrap_or(0)).max(0);

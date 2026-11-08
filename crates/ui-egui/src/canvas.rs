@@ -1,7 +1,7 @@
 //! Document windows (or tabs) and the canvas: rendering, tool input and selection overlays.
 
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2, pos2, vec2};
-use firecraft_engine::{DocState, ElementRef, Tool};
+use firecraft_engine::{DocState, ElementRef, PaintTool, Tool};
 use firecraft_raster::Mask;
 use firecraft_raster::mask::Combine;
 
@@ -594,6 +594,68 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
     canvas(app, ui, index, rect, &resp);
 }
 
+/// The stroke a tool paints by dragging, if it is one of those.
+fn paint_tool(tool: Tool) -> Option<PaintTool> {
+    match tool {
+        Tool::Brush => Some(PaintTool::Brush),
+        Tool::Pencil => Some(PaintTool::Pencil),
+        Tool::Eraser => Some(PaintTool::Eraser),
+        _ => None,
+    }
+}
+
+/// Mouse input for a stroke. It starts at the press, not after egui's drag threshold, and takes
+/// every pointer position of the frame, so a quick stroke doesn't turn into straight segments.
+fn paint_input(
+    d: &mut firecraft_engine::DocState,
+    kind: PaintTool,
+    resp: &egui::Response,
+    ctx: &egui::Context,
+    options: &firecraft_engine::ToolOptions,
+    constrain: bool,
+    to_doc: &impl Fn(Pos2) -> (f64, f64),
+) {
+    let (pressed, down, cancel) = ctx.input(|i| {
+        (
+            i.pointer.primary_pressed(),
+            i.pointer.primary_down(),
+            i.key_pressed(egui::Key::Escape),
+        )
+    });
+    if pressed
+        && resp.hovered()
+        && let Some(pos) = ctx.input(|i| i.pointer.press_origin()).or(resp.hover_pos())
+    {
+        let (x, y) = to_doc(pos);
+        d.begin_paint(kind, x, y, options);
+    }
+    if !d.is_painting() {
+        return;
+    }
+    if cancel {
+        d.cancel_paint();
+        return;
+    }
+    let moved: Vec<Pos2> = ctx.input(|i| {
+        i.events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::PointerMoved(p) => Some(*p),
+                _ => None,
+            })
+            .collect()
+    });
+    for pos in moved {
+        let (x, y) = to_doc(pos);
+        d.extend_paint(x, y, constrain);
+    }
+    if !down {
+        d.end_paint();
+    }
+    // The canvas texture was drawn earlier this frame: show the stroke in the next one.
+    ctx.request_repaint();
+}
+
 // One flat input-dispatch function per tool is easier to follow than splitting it; revisit when
 // tools move into their own modules (roadmap: Pen/Subselection).
 #[allow(clippy::cognitive_complexity)]
@@ -808,6 +870,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             | Tool::Line
             | Tool::Pen
             | Tool::Eyedropper
+            | Tool::Brush
+            | Tool::Pencil
+            | Tool::Eraser
+            | Tool::PaintBucket
             | Tool::Slice
             | Tool::Hotspot
             | Tool::Crop
@@ -881,6 +947,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         _ => Combine::Replace,
     };
     let hover = resp.hover_pos();
+    if let Some(kind) = paint_tool(tool) {
+        paint_input(d, kind, resp, &ctx, &options, mods.shift, &to_doc);
+    }
     if resp.drag_started() {
         // The press position, not the current one (which is already past the drag threshold).
         view.drag_start = ctx
@@ -1027,6 +1096,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             },
             Tool::SelectBehind => d.select_behind(x, y),
             Tool::MagicWand => d.magic_wand(x, y, &options, combine),
+            Tool::PaintBucket => d.paint_bucket(x, y, &options),
             Tool::Marquee | Tool::OvalMarquee => {
                 if combine == Combine::Replace {
                     d.pixels = None;
@@ -1050,7 +1120,31 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     }
 
     // ---- Overlays ----------------------------------------------------------------------
-    if !view.preview {
+    // The Brush and Eraser pointer shows the size of the tip.
+    let tip = match tool {
+        Tool::Brush if options.stroke.is_some() => Some((options.stroke_size as f32, true)),
+        Tool::Eraser => Some((options.paint.eraser_size as f32, options.paint.eraser_round)),
+        _ => None,
+    };
+    if let (Some((size, round)), Some(pos)) = (tip, hover) {
+        let screen = size * z;
+        if screen >= 4.0 {
+            let tip_rect = Rect::from_center_size(pos, vec2(screen, screen));
+            let radius = if round { screen / 2.0 } else { 0.0 };
+            let line = |c: Color32, grow: f32| {
+                p.rect_stroke(
+                    tip_rect.expand(grow),
+                    radius + grow,
+                    Stroke::new(1.0, c),
+                    egui::StrokeKind::Middle,
+                );
+            };
+            line(Color32::WHITE, 1.0);
+            line(Color32::BLACK, 0.0);
+        }
+    }
+    // Fireworks shows no selection box while a painting tool is active.
+    if !view.preview && paint_tool(tool).is_none() {
         // Object selection: light-blue bounds with corner handles.
         let drag_offset = match (tool, dragging, view.drag_start, drag_now) {
             (Tool::Pointer, true, Some(a), Some(b)) if view.live_move.is_none() => b - a,

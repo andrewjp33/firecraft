@@ -15,7 +15,7 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 - Tools: Pointer, Select Behind, Subselection (path points; members inside groups), Scale /
   Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
   Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
-  Eyedropper, Hand, Zoom
+  Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
 - Objects: clipboard (shared with Fireworks), Duplicate/Clone, Group/Ungroup, Arrange, Align,
   Rotate/Flip, Numeric Transform, names, per-object show/hide and lock, Layers panel reordering,
   Superselect/Subselect, live dragging
@@ -27,16 +27,18 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 
 Rendering parity on real files is tracked in [parity.md](parity.md).
 
+Working order (user's priority, 2026-11-08): the Pen tool (Bezier curves, editing anchor points);
+then gradient editing and the fill/stroke controls of item 6; then Text (item 5). Other items
+keep their numbers.
+
 1. **Paths, stage 2**: Modify > Combine Path (Join, Split, Union, Intersect, Punch, Crop), Alter
    Path (Simplify, Expand Stroke, Inset Path), Freeform and Reshape Area, Knife, Redraw Path,
    Polygon/Star tool
 2. **Group members, the rest**: Group, Ungroup, Break Apart and Convert to Symbol for members
    selected with the Subselection tool (they do nothing yet); Layers panel rows for members
 3. **Crop tool**; Lasso and Polygon Lasso
-4. **Brush, Pencil, Eraser, Paint Bucket**, Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp
-   (strokes already draw with Fireworks' brush engine and textures:
-   [behavior/strokes.md](behavior/strokes.md)); write `PCLv` for new paths so random brushes
-   scatter the same in Fireworks
+4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
+   write `PCLv` for new paths so random brushes scatter the same in Fireworks
 5. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
 6. **Fills and strokes in the Property inspector**: gradient editing, textures, edge
    and stroke settings (`FPLv`/`GLDv`/`TXFv`/`BPLv`)

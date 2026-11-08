@@ -5,15 +5,17 @@
 
 mod history;
 mod objects;
+mod paint;
 pub mod paths;
 mod symbols;
 mod tools;
 
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
+pub use paint::PaintTool;
 pub use paths::PointRef;
 pub use symbols::SymbolLink;
-pub use tools::{Tool, ToolOptions};
+pub use tools::{PaintOptions, Tool, ToolOptions};
 
 use firecraft_doc::{
     BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Layer, Path, RectShape, Stroke,
@@ -187,6 +189,8 @@ pub struct DocState {
     pub symbol_nine: Option<(f64, f64, f64, f64)>,
     /// `dirty` when the live edit in progress began (restored if it's cancelled).
     live_dirty: bool,
+    /// The Brush, Pencil or Eraser stroke being drawn.
+    live_paint: Option<paint::LivePaint>,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
 }
@@ -207,6 +211,7 @@ impl DocState {
             view_focus: None,
             symbol_nine: None,
             live_dirty: false,
+            live_paint: None,
             revision: 0,
         }
     }

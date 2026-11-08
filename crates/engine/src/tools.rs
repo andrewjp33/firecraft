@@ -1,5 +1,6 @@
 //! Tools and their options (what the Property inspector edits when a tool is active).
 
+use firecraft_raster::blend::BlendMode;
 use firecraft_raster::{AntiAliasStyle, Edge, Rgba, WandOptions};
 
 /// The Tools panel, in Fireworks MX's sections.
@@ -121,6 +122,10 @@ impl Tool {
                 | Tool::SelectBehind
                 | Tool::Subselect
                 | Tool::Pen
+                | Tool::Brush
+                | Tool::Pencil
+                | Tool::Eraser
+                | Tool::PaintBucket
                 | Tool::Scale
                 | Tool::Skew
                 | Tool::Distort
@@ -135,6 +140,49 @@ impl Tool {
                 | Tool::Zoom
                 | Tool::Eyedropper
         )
+    }
+}
+
+/// The bitmap painting tools' settings (Property inspector).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaintOptions {
+    /// Brush, Pencil, Paint Bucket: percent.
+    pub opacity: u8,
+    pub blend: BlendMode,
+    /// Only change pixels that already have some opacity, keeping that opacity.
+    pub preserve_transparency: bool,
+    pub pencil_anti_alias: bool,
+    /// Pencil pressed on a pixel of the stroke colour draws in the fill colour.
+    pub pencil_auto_erase: bool,
+    pub eraser_size: u32,
+    pub eraser_round: bool,
+    /// Softness of the Eraser's edge, percent.
+    pub eraser_edge: u8,
+    /// Percent.
+    pub eraser_opacity: u8,
+    pub bucket_tolerance: u8,
+    pub bucket_edge: Edge,
+    /// Paint Bucket fills the whole pixel selection instead of the similar pixels in it.
+    pub bucket_fill_selection: bool,
+}
+
+impl Default for PaintOptions {
+    fn default() -> Self {
+        Self {
+            opacity: 100,
+            blend: BlendMode::Normal,
+            preserve_transparency: false,
+            pencil_anti_alias: false,
+            pencil_auto_erase: false,
+            // Fireworks MX's defaults (its preferences file; the Edge is stored in tenths).
+            eraser_size: 13,
+            eraser_round: true,
+            eraser_edge: 2,
+            eraser_opacity: 100,
+            bucket_tolerance: 32,
+            bucket_edge: Edge::AntiAlias,
+            bucket_fill_selection: false,
+        }
     }
 }
 
@@ -161,6 +209,7 @@ pub struct ToolOptions {
     pub stroke_texture: Option<firecraft_doc::Texture>,
     /// The texture new fills get (at 0%, as Fireworks keeps one on every fill).
     pub fill_texture: Option<firecraft_doc::Texture>,
+    pub paint: PaintOptions,
 }
 
 impl ToolOptions {
@@ -195,6 +244,7 @@ impl Default for ToolOptions {
             stroke_brush: None,
             stroke_texture: None,
             fill_texture: None,
+            paint: PaintOptions::default(),
         }
     }
 }

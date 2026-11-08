@@ -80,6 +80,10 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let has_selection = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
         match tool {
             Tool::MagicWand => wand(app, ui),
+            Tool::Brush => brush(app, ui),
+            Tool::Pencil => pencil(app, ui),
+            Tool::Eraser => eraser(app, ui),
+            Tool::PaintBucket => paint_bucket(app, ui),
             Tool::NineSlice => crate::nine::inspector(app, ui),
             t @ (Tool::Scale | Tool::Skew | Tool::Distort) => crate::transform_tool::inspector(app, ui, t),
             Tool::Marquee | Tool::OvalMarquee | Tool::Lasso => marquee(app, ui, tool),
@@ -120,6 +124,105 @@ fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 });
         });
     });
+}
+
+/// Opacity, blend mode and Preserve Transparency, shared by the painting tools.
+fn paint_mix(ui: &mut egui::Ui, o: &mut firecraft_engine::PaintOptions) {
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            ui.add(DragValue::new(&mut o.opacity).range(0..=100).suffix("%"));
+            ComboBox::from_id_salt("paint_blend")
+                .width(90.0)
+                .selected_text(o.blend.label())
+                .show_ui(ui, |ui| {
+                    for m in firecraft_raster::BlendMode::ALL {
+                        ui.selectable_value(&mut o.blend, m, m.label());
+                    }
+                });
+        });
+        ui.checkbox(&mut o.preserve_transparency, "Preserve Transparency");
+    });
+}
+
+fn brush(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    identity(ui, Tool::Brush.label(), Some(Tool::Brush), |_| {});
+    crate::stroke_panel::show(app, ui, crate::stroke_panel::Target::Tool);
+    ui.separator();
+    paint_mix(ui, &mut app.session.options.paint);
+}
+
+fn pencil(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    identity(ui, Tool::Pencil.label(), Some(Tool::Pencil), |_| {});
+    let o = &mut app.session.options;
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            icons::glyph(ui, icons::Glyph::Pencil, 16.0);
+            let footer = Footer::Stroke {
+                placement: None,
+                enabled: false,
+            };
+            match cp::color_box(ui, "pencil_color", vec2(22.0, 14.0), o.stroke, footer) {
+                Some(ColorChoice::Color(c)) => o.stroke = Some(cp::to_rgba(c)),
+                Some(ColorChoice::None) => o.stroke = None,
+                _ => {}
+            }
+        });
+        ui.checkbox(&mut o.paint.pencil_anti_alias, "Anti-Aliased")
+            .on_hover_text("Smooths the edges of the lines you draw");
+        ui.checkbox(&mut o.paint.pencil_auto_erase, "Auto Erase")
+            .on_hover_text("Pressing on a pixel of the stroke colour draws in the fill colour");
+    });
+    ui.separator();
+    paint_mix(ui, &mut o.paint);
+}
+
+fn eraser(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    identity(ui, Tool::Eraser.label(), Some(Tool::Eraser), |_| {});
+    let o = &mut app.session.options.paint;
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            ui.label("Size:");
+            ui.add(DragValue::new(&mut o.eraser_size).range(1..=200));
+            ui.selectable_value(&mut o.eraser_round, true, "Round");
+            ui.selectable_value(&mut o.eraser_round, false, "Square");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Edge:");
+            ui.add(DragValue::new(&mut o.eraser_edge).range(0..=100).suffix("%"));
+            ui.label("Opacity:");
+            ui.add(DragValue::new(&mut o.eraser_opacity).range(0..=100).suffix("%"));
+        });
+    });
+}
+
+fn paint_bucket(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    identity(ui, Tool::PaintBucket.label(), Some(Tool::PaintBucket), |_| {});
+    let o = &mut app.session.options;
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            icons::glyph(ui, icons::Glyph::Bucket, 16.0);
+            match cp::color_box(
+                ui,
+                "bucket_color",
+                vec2(22.0, 14.0),
+                o.fill,
+                Footer::Fill { kinds: false },
+            ) {
+                Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
+                Some(ColorChoice::None) => o.fill = None,
+                _ => {}
+            }
+            ui.label("Tolerance:");
+            ui.add(Slider::new(&mut o.paint.bucket_tolerance, 0..=255));
+        });
+        ui.horizontal(|ui| {
+            edge_combo(ui, "bucket_edge", &mut o.paint.bucket_edge);
+            ui.checkbox(&mut o.paint.bucket_fill_selection, "Fill Selection")
+                .on_hover_text("Fill the whole pixel selection instead of the similar pixels in it");
+        });
+    });
+    ui.separator();
+    paint_mix(ui, &mut o.paint);
 }
 
 fn marquee(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {

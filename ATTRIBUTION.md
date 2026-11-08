@@ -16,6 +16,10 @@ Adapted:
   `inspector/fields.rs`, `widgets.rs`, `dialogs/mod.rs`), its default theme colours (`theme.rs`)
   and English texts (`texts.rs`, from `fp-i18n`'s en locale). FireCraft's changes are listed at
   the top of `color_picker.rs`.
+- `crates/engine/src/paint.rs`: how a painted stroke is composed and the Eraser's tip and dab
+  spacing, from FirePixel's `crates/fp-engine/src/paint.rs` and `commands/bitmap.rs`. FireCraft
+  re-measured the tip's position and constants against Fireworks MX
+  (`docs/behavior/painting.md`).
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in
   FirePixel's `crates/fp-raster/src/filters/gauss.rs` (kernel in single precision, separable
   passes rounding down to 8 bits, colour over non-transparent pixels, output margin).
