@@ -39,6 +39,9 @@ scripting API; `path_tool.rs`'s tests replay them with the same values.
   length); Alt moves just the one handle.
 * Alt+drag a **selected** point to pull out its outgoing handle; on an unselected point Alt
   changes nothing.
+* Pressing inside the selection and dragging moves the selection, even where another object lies
+  on top of it; a click there without a drag selects the object on top. Repeated clicks don't
+  cycle through overlapping objects (measured in Fireworks MX on `tworect.png`).
 * Click an object to select it **inside groups**: the innermost member under the pointer (a
   group's members, a masked group's content), as Fireworks' Subselection tool does; a path's
   points show. Drag the body to move it. Members can be transformed, given effects, reordered,

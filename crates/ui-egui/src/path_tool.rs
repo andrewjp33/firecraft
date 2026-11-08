@@ -81,8 +81,14 @@ enum Drag {
     },
     /// A press whose edit is already made; its History state appears on release.
     Done,
-    /// Subselection on a path's body: moving the object.
-    Object { start: Pt, applied: Pt },
+    /// Subselection on a path's body: moving the object. `on_click`: a press inside the selection
+    /// keeps it for dragging, and if the mouse doesn't move the click selects this instead
+    /// (what's under the pointer, none on empty canvas).
+    Object {
+        start: Pt,
+        applied: Pt,
+        on_click: Option<Option<ElementRef>>,
+    },
     /// Subselection on empty canvas: a box selecting points.
     Marquee { start: Pt },
 }
@@ -454,7 +460,7 @@ fn drag_to(edit: &mut PathEdit, d: &mut DocState, cur: Pt, mods: egui::Modifiers
                 });
             }
         }
-        Some(Drag::Object { start, applied }) => {
+        Some(Drag::Object { start, applied, .. }) => {
             let target = ((cur.0 - start.0).round(), (cur.1 - start.1).round());
             if target != *applied {
                 d.move_selection_live(target.0 - applied.0, target.1 - applied.1);
@@ -477,8 +483,15 @@ fn release(
     match drag {
         Drag::Points { moved: false, .. } | Drag::Handle { moved: false, .. } => d.discard_live_edit(),
         Drag::Object {
-            applied: (0.0, 0.0), ..
-        } => d.cancel_live_edit(),
+            applied: (0.0, 0.0),
+            on_click,
+            ..
+        } => {
+            d.cancel_live_edit();
+            if let Some(hit) = on_click {
+                click_select(edit, d, hit, mods.shift);
+            }
+        }
         Drag::Pull {
             moved: false,
             on_click,
@@ -775,28 +788,56 @@ fn subselect_press(
         return;
     }
     // An object, inside groups down to the innermost member (Fireworks: the Subselection tool
-    // selects group members): select it (a path shows its points) and drag to move it.
-    if let Some(hit) = d.hit_deep(at.0, at.1) {
-        if !d.selection.contains(&hit) {
-            d.selection = if mods.shift {
-                [d.selection.clone(), vec![hit]].concat()
-            } else {
-                vec![hit]
-            };
-            d.pixels = None;
-        }
-        if edit.target != Some(hit) {
-            edit.points.clear();
-            edit.target = d.path(hit).is_some().then_some(hit);
-        }
+    // selects group members): select it (a path shows its points) and drag to move it. Pressing
+    // inside the selection drags the selection, even under another object; a click there
+    // without a drag selects what's on top (Fireworks MX).
+    let hit = d.hit_deep(at.0, at.1);
+    if d.selection_contains(at.0, at.1) {
         d.begin_live_edit("Move");
         edit.drag = Some(Drag::Object {
             start: at,
             applied: (0.0, 0.0),
+            on_click: Some(hit),
+        });
+        return;
+    }
+    if let Some(hit) = hit {
+        click_select(edit, d, Some(hit), mods.shift);
+        d.begin_live_edit("Move");
+        edit.drag = Some(Drag::Object {
+            start: at,
+            applied: (0.0, 0.0),
+            on_click: None,
         });
         return;
     }
     edit.drag = Some(Drag::Marquee { start: at });
+}
+
+/// Select `hit` (Shift: add it; a selected one is removed by a click); `None` deselects.
+fn click_select(edit: &mut PathEdit, d: &mut DocState, hit: Option<ElementRef>, shift: bool) {
+    let Some(hit) = hit else {
+        if !shift {
+            edit.points.clear();
+            edit.target = None;
+            d.deselect();
+        }
+        return;
+    };
+    if !d.selection.contains(&hit) {
+        d.selection = if shift {
+            [d.selection.clone(), vec![hit]].concat()
+        } else {
+            vec![hit]
+        };
+        d.pixels = None;
+    } else if !shift && d.selection.len() > 1 {
+        d.selection = vec![hit];
+    }
+    if edit.target != Some(hit) {
+        edit.points.clear();
+        edit.target = d.path(hit).is_some().then_some(hit);
+    }
 }
 
 /// The selected paths' outlines and points; handles of the selected points; the Pen's next
@@ -1214,6 +1255,60 @@ mod tests {
         s.edit.points.clear();
         s.drag(Tool::Subselect, (320.0, 200.0), (350.0, 230.0), ALT);
         assert_eq!(s.nodes()[3], corner(350.0, 230.0));
+    }
+
+    /// tworect.png: blue over red, as recorded in Fireworks MX.
+    fn two_rects() -> (Sim, ElementRef, ElementRef) {
+        let mut s = Sim::new();
+        s.d.add_shape((48.0, 135.0, 302.0, 344.0), false, &s.opts.clone());
+        let red = s.d.selection[0];
+        s.d.add_shape((221.0, 161.0, 639.0, 413.0), false, &s.opts.clone());
+        let blue = s.d.selection[0];
+        s.d.deselect();
+        (s, red, blue)
+    }
+
+    const OVERLAP: Pt = (260.0, 250.0);
+    const RED_ONLY: Pt = (100.0, 200.0);
+
+    fn left(s: &Sim, r: ElementRef) -> f64 {
+        s.nodes_of(r).iter().map(|n| n.0).fold(f64::MAX, f64::min)
+    }
+
+    #[test]
+    fn clicking_the_overlap_always_selects_what_is_on_top() {
+        let (mut s, _, blue) = two_rects();
+        for _ in 0..3 {
+            s.click(Tool::Subselect, OVERLAP, NONE);
+            assert_eq!(s.d.selection, [blue]);
+        }
+    }
+
+    #[test]
+    fn dragging_the_overlap_moves_the_selected_object_even_under_another() {
+        let (mut s, red, blue) = two_rects();
+        s.click(Tool::Subselect, RED_ONLY, NONE);
+        assert_eq!(s.d.selection, [red]);
+        s.drag(Tool::Subselect, OVERLAP, (275.0, 260.0), NONE);
+        assert_eq!(s.d.selection, [red]);
+        assert_eq!((left(&s, red), left(&s, blue)), (63.0, 221.0));
+    }
+
+    #[test]
+    fn a_click_on_the_overlap_without_a_drag_selects_the_top_object() {
+        let (mut s, red, blue) = two_rects();
+        s.click(Tool::Subselect, RED_ONLY, NONE);
+        s.click(Tool::Subselect, OVERLAP, NONE);
+        assert_eq!(s.d.selection, [blue]);
+        assert_eq!((left(&s, red), left(&s, blue)), (48.0, 221.0));
+        assert_eq!(s.d.history.labels().count(), 2, "the click records nothing");
+    }
+
+    #[test]
+    fn dragging_with_nothing_selected_moves_what_is_on_top() {
+        let (mut s, red, blue) = two_rects();
+        s.drag(Tool::Subselect, OVERLAP, (275.0, 260.0), NONE);
+        assert_eq!((left(&s, red), left(&s, blue)), (48.0, 236.0));
     }
 
     #[test]
