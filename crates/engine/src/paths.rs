@@ -202,6 +202,7 @@ impl DocState {
                 color,
                 category: "fc_Solid".into(),
                 anti_alias: true,
+                feather: 0,
                 gradient: None,
                 texture: opts.fill_texture.clone(),
                 texture_amount: 0,

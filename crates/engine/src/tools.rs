@@ -31,6 +31,8 @@ pub enum Tool {
     RubberStamp,
     Eyedropper,
     PaintBucket,
+    /// Fireworks MX's Gradient tool (the Paint Bucket's flyout).
+    Gradient,
     // Vector
     Line,
     Pen,
@@ -70,6 +72,7 @@ impl Tool {
             Tool::RubberStamp => "Rubber Stamp tool",
             Tool::Eyedropper => "Eyedropper tool",
             Tool::PaintBucket => "Paint Bucket tool",
+            Tool::Gradient => "Gradient tool",
             Tool::Line => "Line tool",
             Tool::Pen => "Pen tool",
             Tool::Rectangle => "Rectangle tool",
@@ -100,7 +103,7 @@ impl Tool {
             Tool::Blur => 'R',
             Tool::RubberStamp => 'S',
             Tool::Eyedropper => 'I',
-            Tool::PaintBucket => 'K',
+            Tool::PaintBucket | Tool::Gradient => 'K',
             Tool::Line => 'N',
             Tool::Pen => 'P',
             Tool::Rectangle | Tool::Ellipse => 'U',
@@ -126,6 +129,7 @@ impl Tool {
                 | Tool::Pencil
                 | Tool::Eraser
                 | Tool::PaintBucket
+                | Tool::Gradient
                 | Tool::Scale
                 | Tool::Skew
                 | Tool::Distort
@@ -209,6 +213,16 @@ pub struct ToolOptions {
     pub stroke_texture: Option<firecraft_doc::Texture>,
     /// The texture new fills get (at 0%, as Fireworks keeps one on every fill).
     pub fill_texture: Option<firecraft_doc::Texture>,
+    /// The fill category new objects get (`fc_Solid`, `fc_Linear`, ...).
+    pub fill_category: String,
+    /// New objects' gradient, when the category is one (its handles are set per object).
+    pub fill_gradient: Option<firecraft_raster::gradient::Gradient>,
+    pub fill_anti_alias: bool,
+    /// New objects' feathered edge, pixels (0: none).
+    pub fill_feather: u16,
+    /// The Gradient tool's own fill: its category and gradient (its last-used one).
+    pub gradient_category: String,
+    pub gradient_tool: firecraft_raster::gradient::Gradient,
     pub paint: PaintOptions,
 }
 
@@ -244,6 +258,17 @@ impl Default for ToolOptions {
             stroke_brush: None,
             stroke_texture: None,
             fill_texture: None,
+            fill_category: "fc_Solid".into(),
+            fill_gradient: None,
+            fill_anti_alias: true,
+            fill_feather: 0,
+            gradient_category: "fc_Linear".into(),
+            gradient_tool: crate::fills::new_gradient(
+                firecraft_raster::gradient::GradientKind::Linear,
+                vec![(0.0, Rgba::BLACK), (1.0, Rgba::WHITE)],
+                crate::fills::opaque_ramp(),
+                (0.0, 0.0, 1.0, 1.0),
+            ),
             paint: PaintOptions::default(),
         }
     }

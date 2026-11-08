@@ -47,6 +47,7 @@ fn slot_alternatives(t: Tool) -> &'static [Tool] {
         Tool::Marquee => &[Tool::OvalMarquee],
         Tool::Scale => &[Tool::Skew, Tool::Distort, Tool::NineSlice],
         Tool::Rectangle => &[Tool::Ellipse],
+        Tool::PaintBucket => &[Tool::Gradient],
         _ => &[],
     }
 }

@@ -19,6 +19,8 @@ Adapted:
 - `crates/engine/src/paint.rs`: how a painted stroke is composed and the Eraser's dab spacing,
   from FirePixel's `crates/fp-engine/src/paint.rs` and `commands/bitmap.rs`. The Eraser's tip was
   measured against Fireworks MX (`docs/behavior/painting.md`).
+- `crates/raster/src/path.rs` (`fill_polygons_feathered`): Fireworks' feathered fill edge as
+  reconstructed in FirePixel's `crates/fp-vector/src/feather.rs`.
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in
   FirePixel's `crates/fp-raster/src/filters/gauss.rs` (kernel in single precision, separable
   passes rounding down to 8 bits, colour over non-transparent pixels, output margin).

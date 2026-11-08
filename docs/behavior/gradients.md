@@ -71,3 +71,35 @@ in that probe: not modelled yet. Parity: spectrum_wave.png 33.6% -> 95.9%, mechs
 floor (rectangular gradient + "Line-Horiz 1" at 50%) 68.2% -> 79.1%. The Property inspector's
 fill section has Texture (the same menu as strokes), its amount and Transparent; new fills get
 the default texture at 0%, as Fireworks keeps one on every fill.
+
+## Making and editing gradients
+
+Measured in Fireworks MX by choosing each fill in its Fill Options panel and reading the fill back
+through the scripting API (`fillHandle1`..`3`, `fill.gradient.nodes`).
+
+The Fill Options menu: None, Solid, Web Dither, Pattern, then Linear, Radial, Ellipse, Rectangle,
+Cone, Starburst (`fc_Pinch`), Bars, Ripples, Waves, Satin, Folds.
+
+**A first gradient runs from the stroke colour to the fill colour.** Changing to another gradient
+keeps the stops and resets the handles. Default handles for an object with bounds x, y, w, h
+(c = its centre):
+
+| Fill | Round handle | Square handle | Third handle |
+|---|---|---|---|
+| Linear | left middle | right middle | round + (0, w) |
+| Radial, Ellipse, Rectangle, Cone, Ripples | c | right middle | top middle |
+| Starburst | c | c + (w/4, h/4) | c + (w/4, -h/4) |
+| Bars | c | right middle | c + (0, w/2) |
+| Waves | c | c + (w/4, h/4) | top middle |
+| Satin, Folds | c | bottom right | top middle |
+
+On the canvas: the round handle moves the whole fill; a square handle moves only itself; dragging a
+connecting line rotates the fill about the round handle. The third handle only exists where the
+type uses it (Ellipse, Rectangle, Ripples, Starburst); the others are shaped by two.
+
+In the file (`FPLv`): `CATs` category, `FSHi` the type number above, `FETi` anti-aliased, `FEFi` the
+feather radius (Fireworks has no separate "feather" flag: radius > 0), and `FGLv` the ramp: `FGVv`
+and `FGYv.FG0v` the colour stops, `FGYv.FG1v` the opacity stops in each stop's alpha byte.
+
+Feather is Fireworks' triangle filter (FirePixel's reconstruction); a newly feathered edge is 10
+pixels. The Gradient tool's drag and its bitmap fill follow the manual and weren't measured.

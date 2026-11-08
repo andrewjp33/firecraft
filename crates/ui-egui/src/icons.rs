@@ -166,6 +166,11 @@ pub fn paint(p: &Painter, r: Rect, tool: Tool, enabled: bool) {
             p.add(Shape::convex_polygon(pts, Color32::from_gray(220), s));
             p.circle_filled(at(0.15, 0.75), 2.5, Color32::from_rgb(40, 120, 220));
         }
+        Tool::Gradient => {
+            let pts = vec![at(0.2, 0.45), at(0.55, 0.15), at(0.85, 0.5), at(0.5, 0.85)];
+            p.add(Shape::convex_polygon(pts, Color32::from_gray(150), s));
+            p.line_segment([at(0.3, 0.5), at(0.75, 0.5)], Stroke::new(2.0, Color32::WHITE));
+        }
         Tool::Line => {
             p.line_segment([at(0.1, 0.9), at(0.9, 0.1)], s);
         }

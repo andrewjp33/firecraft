@@ -794,6 +794,7 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
                     attrs.children.push(fill_preset());
                 }
                 if let Some(fpl) = attrs.child_mut("FPL") {
+                    write_fill_kind(fpl, f);
                     put(fpl, Node::int("FTB", f.texture_amount.min(1000) as i64));
                     put(fpl, Node::int("FSM", if f.texture_transparent { 1 } else { 2 }));
                 }
@@ -865,15 +866,25 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
     // Gradient handles follow the object when it is moved or scaled.
     if let Some((s, e, f)) = gradient_handles {
         let (ox, oy) = w.origin;
-        for (tag, v) in [
+        let handles = [
             ("PSX", s.0 + ox),
             ("PSY", s.1 + oy),
             ("PEX", e.0 + ox),
             ("PEY", e.1 + oy),
             ("PFX", f.0 + ox),
             ("PFY", f.1 + oy),
-        ] {
+        ];
+        for (tag, v) in handles {
             put(&mut n, Node::float(tag, v));
+        }
+        // Fireworks MX ignores the handles without this flag.
+        put(&mut n, Node::bool("PCF", true));
+        // A rectangle repeats them in its primitive record, which is the one MX uses.
+        if let Some(pri) = n.child_mut("PRI") {
+            for (tag, v) in handles {
+                put(pri, Node::float(tag, v));
+            }
+            put(pri, Node::bool("PCF", true));
         }
     }
     n
@@ -991,6 +1002,91 @@ fn same_geometry(old: &Node, new: &Node) -> bool {
 }
 
 /// Solid fill preset as Fireworks MX writes it.
+/// A gradient type's Fireworks number (`FSHi`), solid fills 0.
+fn fill_shape(category: &str) -> i64 {
+    match category {
+        "fc_Linear" => 2,
+        "fc_Circular" => 3,
+        "fc_Conical" => 4,
+        "fc_Satin" => 5,
+        "fc_Pinch" => 7,
+        "fc_Folds" => 8,
+        "fc_Elliptical" => 9,
+        "fc_Rectangular" => 10,
+        "fc_Bars" => 12,
+        "fc_Ripple" => 13,
+        "fc_Waves" => 14,
+        _ => 0,
+    }
+}
+
+/// Write what kind of fill this is into its preset (`FPLv`): category, edge, gradient ramp.
+fn write_fill_kind(fpl: &mut Node, f: &firecraft_doc::Fill) {
+    let changed = fpl.str_of("CAT") != Some(f.category.as_str());
+    put(fpl, Node::string("CAT", &f.category));
+    if changed {
+        // Fireworks' names when the category is changed.
+        let name = if f.gradient.is_some() {
+            "Solid"
+        } else {
+            "fn_Normal"
+        };
+        put(fpl, Node::string("INM", name));
+        put(fpl, Node::string("UNM", name));
+    }
+    put(fpl, Node::int("FEF", f.feather as i64));
+    put(fpl, Node::int("FET", i64::from(f.anti_alias || f.feather > 0)));
+    match &f.gradient {
+        Some(g) => {
+            put(fpl, Node::int("FSH", fill_shape(&f.category)));
+            let ramp = |tag: &str, stops: &[(f32, i64)]| {
+                let mut kids = vec![Node::int("FNC", stops.len() as i64)];
+                kids.extend(stops.iter().map(|(p, c)| {
+                    Node::vector("FGI", vec![Node::float("FGP", *p as f64), Node::int("FGC", *c)])
+                }));
+                Node::vector(tag, kids)
+            };
+            let colors: Vec<(f32, i64)> = g
+                .colors
+                .iter()
+                .map(|(p, c)| (*p, to_argb(Rgba { a: 255, ..*c })))
+                .collect();
+            let default_opacity = [(0.0, 255), (1.0, 255)];
+            let stops: &[(f32, u8)] = if g.opacity.is_empty() {
+                &default_opacity
+            } else {
+                &g.opacity
+            };
+            // The opacity ramp keeps opacity in each stop's alpha byte.
+            let opacity: Vec<(f32, i64)> = stops
+                .iter()
+                .map(|(p, a)| (*p, to_argb(Rgba::new(0, 0, 0, *a))))
+                .collect();
+            let name = fpl
+                .child("FGL")
+                .and_then(|l| l.str_of("INM"))
+                .unwrap_or("cn_BlackWhite")
+                .to_owned();
+            put(
+                fpl,
+                Node::vector(
+                    "FGL",
+                    vec![
+                        Node::string("CAT", "cc_GradientColors"),
+                        Node::string("INM", &name),
+                        ramp("FGV", &colors),
+                        Node::vector("FGY", vec![ramp("FG0", &colors), ramp("FG1", &opacity)]),
+                    ],
+                ),
+            );
+        }
+        None => {
+            put(fpl, Node::int("FSH", 0));
+            fpl.children.retain(|c| !c.is("FGL"));
+        }
+    }
+}
+
 fn fill_preset() -> Node {
     Node::vector(
         "FPL",
@@ -1034,6 +1130,7 @@ mod tests {
                 color: Rgba::new(0, 102, 153, 255),
                 category: "fc_Solid".into(),
                 anti_alias: true,
+                feather: 0,
                 gradient: None,
                 texture: None,
                 texture_amount: 0,

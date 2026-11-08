@@ -50,6 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 color: col,
                 category: "fc_Solid".into(),
                 anti_alias: false,
+                feather: 0,
                 gradient: None,
                 texture: None,
                 texture_amount: 0,

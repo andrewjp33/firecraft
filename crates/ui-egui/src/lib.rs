@@ -21,6 +21,7 @@ pub mod cursors;
 mod dialogs;
 pub mod effects_ui;
 mod fpui;
+mod gradient_ui;
 mod icons;
 mod inspector;
 mod library;
@@ -322,6 +323,8 @@ pub struct FireCraftApp {
     nine: Option<nine::NineEdit>,
     transform: Option<transform_tool::TransformEdit>,
     path_edit: path_tool::PathEdit,
+    gradient_popup: Option<gradient_ui::Popup>,
+    fill_drag: Option<gradient_ui::FillDrag>,
     effects_ui: effects_ui::EffectsUi,
     /// Edit > Copy/Cut: the objects, and the note put on the system clipboard (pasting the
     /// note back pastes them).
@@ -356,6 +359,8 @@ impl FireCraftApp {
             nine: None,
             transform: None,
             path_edit: path_tool::PathEdit::default(),
+            gradient_popup: None,
+            fill_drag: None,
             effects_ui: effects_ui::EffectsUi::default(),
             clipboard: None,
             clipboard_keys: false,
@@ -624,6 +629,7 @@ impl FireCraftApp {
             .frame(theme::workspace_frame())
             .show(ui, |ui| canvas::workspace(self, ui));
         dialogs::show(self, &ctx);
+        gradient_ui::popup(self, &ctx);
         effects_ui::editor(self, &ctx);
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {

@@ -693,11 +693,33 @@ impl DocState {
             self.set_fill_color(Some(color));
             return;
         }
-        let Some(target) = self.paint_target(x, y) else {
+        let Some((target, mask)) = self.bucket_mask(x, y, opts) else {
             return;
         };
-        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
+        self.fill_bitmap("Paint Bucket", target, &mask, opts, &|_, _| color);
+    }
+
+    /// Gradient tool on a bitmap, dragged from `a` to `b`: fills as the Paint Bucket does, with
+    /// the tool's gradient.
+    pub fn gradient_bitmap(&mut self, a: (f64, f64), b: (f64, f64), opts: &ToolOptions) {
+        let Some((target, mask)) = self.bucket_mask(a.0, a.1, opts) else {
             return;
+        };
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let gradient = firecraft_raster::gradient::Gradient {
+            start: a,
+            end: b,
+            side: (a.0 - dy, a.1 + dx),
+            ..opts.gradient_tool.clone()
+        };
+        self.fill_bitmap("Gradient", target, &mask, opts, &|x, y| gradient.color_at(x, y));
+    }
+
+    /// The bitmap a fill pressed at this point applies to, and which of its pixels.
+    fn bucket_mask(&self, x: f64, y: f64, opts: &ToolOptions) -> Option<(ElementRef, Mask)> {
+        let target = self.paint_target(x, y)?;
+        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
+            return None;
         };
         let paint = &opts.paint;
         let selected = self
@@ -713,7 +735,7 @@ impl DocState {
             _ => {
                 let inside = extent.is_some_and(|(l, t, r, bb)| px >= l && py >= t && px < r && py < bb);
                 if !inside {
-                    return;
+                    return None;
                 }
                 let mut m = magic_wand(
                     &b.image,
@@ -741,38 +763,61 @@ impl DocState {
                 m
             }
         };
-        if mask.is_empty() {
-            return;
-        }
+        (!mask.is_empty()).then_some((target, mask))
+    }
+
+    fn fill_bitmap(
+        &mut self,
+        label: &str,
+        target: ElementRef,
+        mask: &Mask,
+        opts: &ToolOptions,
+        shade: &dyn Fn(f64, f64) -> Rgba,
+    ) {
         let math = self.doc.color_math;
+        let paint = &opts.paint;
         let opacity = percent(paint.opacity);
         let (blend, keep_alpha) = (paint.blend, paint.preserve_transparency);
-        self.edit("Paint Bucket", |s| {
+        self.edit(label, |s| {
             if let Some(Element {
                 kind: ElementKind::Bitmap(b),
                 ..
             }) = s.element_mut(target)
             {
-                fill_masked(&mut b.image, &mask, color, opacity, blend, keep_alpha, math);
+                let (ox, oy) = (b.x as f64, b.y as f64);
+                fill_masked(
+                    &mut b.image,
+                    mask,
+                    (ox, oy),
+                    shade,
+                    opacity,
+                    blend,
+                    keep_alpha,
+                    math,
+                );
             }
         });
     }
 }
 
-/// Paint `color` through `mask` (bitmap-sized).
+/// Paint `shade(canvas x, canvas y)` through `mask` (bitmap-sized).
+#[allow(clippy::too_many_arguments)]
 fn fill_masked(
     image: &mut RgbaImage,
     mask: &Mask,
-    color: Rgba,
+    (ox, oy): (f64, f64),
+    shade: &dyn Fn(f64, f64) -> Rgba,
     opacity: u8,
     blend: BlendMode,
     keep_alpha: bool,
     math: firecraft_raster::ColorMath,
 ) {
-    for (px, &m) in image.pixels_mut().iter_mut().zip(mask.data()) {
+    let w = image.width() as usize;
+    for (i, (px, &m)) in image.pixels_mut().iter_mut().zip(mask.data()).enumerate() {
         if m == 0 {
             continue;
         }
+        let color = shade(ox + (i % w.max(1)) as f64, oy + (i / w.max(1)) as f64);
         let src = Rgba::new(
             color.r,
             color.g,

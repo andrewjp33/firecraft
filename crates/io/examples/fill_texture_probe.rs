@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 color: *color,
                 category: "fc_Solid".into(),
                 anti_alias: true,
+                feather: 0,
                 gradient: None,
                 texture: Some((*tex).clone()),
                 texture_amount: *amount,

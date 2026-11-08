@@ -84,6 +84,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             Tool::Pencil => pencil(app, ui),
             Tool::Eraser => eraser(app, ui),
             Tool::PaintBucket => paint_bucket(app, ui),
+            Tool::Gradient => gradient_tool(app, ui),
             Tool::NineSlice => crate::nine::inspector(app, ui),
             t @ (Tool::Scale | Tool::Skew | Tool::Distort) => crate::transform_tool::inspector(app, ui, t),
             Tool::Marquee | Tool::OvalMarquee | Tool::Lasso => marquee(app, ui, tool),
@@ -245,11 +246,155 @@ fn marquee(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     });
 }
 
+/// What a Fill Options menu chose.
+enum FillPick {
+    None,
+    Category(&'static str),
+}
+
+/// Fireworks MX's Fill Options menu.
+fn fill_options(ui: &mut egui::Ui, id: &str, label: &str, gradients_only: bool) -> Option<FillPick> {
+    let mut pick = None;
+    ComboBox::from_id_salt(id)
+        .width(90.0)
+        .height(400.0)
+        .selected_text(label)
+        .show_ui(ui, |ui| {
+            if !gradients_only {
+                if ui.selectable_label(label == "None", "None").clicked() {
+                    pick = Some(FillPick::None);
+                }
+                if ui.selectable_label(label == "Solid", "Solid").clicked() {
+                    pick = Some(FillPick::Category("fc_Solid"));
+                }
+                ui.add_enabled(false, egui::Button::new("Web Dither"));
+                ui.add_enabled(false, egui::Button::new("Pattern"));
+                ui.separator();
+            }
+            for (category, name) in firecraft_engine::GRADIENT_FILLS {
+                if ui.selectable_label(label == name, name).clicked() {
+                    pick = Some(FillPick::Category(category));
+                }
+            }
+        });
+    pick
+}
+
+/// The fill row of the tools that draw shapes: colour or gradient, and Fill Options.
+fn tool_fill_row(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        icons::glyph(ui, icons::Glyph::Bucket, 16.0);
+        let gradient = app.session.options.fill_gradient.clone();
+        match &gradient {
+            Some(g) => {
+                let resp = crate::gradient_ui::swatch(ui, vec2(22.0, 14.0), g);
+                if resp.clicked() {
+                    crate::gradient_ui::open(app, crate::gradient_ui::Target::ToolFill, &resp);
+                }
+            }
+            None => {
+                let o = &mut app.session.options;
+                match cp::color_box(
+                    ui,
+                    "tool_fill",
+                    vec2(22.0, 14.0),
+                    o.fill,
+                    Footer::Fill { kinds: false },
+                ) {
+                    Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
+                    Some(ColorChoice::None) => o.fill = None,
+                    _ => {}
+                }
+            }
+        }
+        let o = &mut app.session.options;
+        let label = if o.fill.is_none() {
+            "None"
+        } else {
+            firecraft_engine::fill_label(&o.fill_category)
+        };
+        match fill_options(ui, "fill_kind", label, false) {
+            Some(FillPick::None) => {
+                o.fill = None;
+                o.set_fill_category("fc_Solid");
+            }
+            Some(FillPick::Category(c)) => {
+                o.fill
+                    .get_or_insert(firecraft_raster::Rgba::new(0x99, 0x99, 0x99, 255));
+                o.set_fill_category(c);
+            }
+            None => {}
+        }
+    });
+}
+
+fn gradient_tool(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    identity(ui, Tool::Gradient.label(), Some(Tool::Gradient), |_| {});
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            icons::glyph(ui, icons::Glyph::Bucket, 16.0);
+            let g = app.session.options.gradient_tool.clone();
+            let resp = crate::gradient_ui::swatch(ui, vec2(22.0, 14.0), &g);
+            if resp.clicked() {
+                crate::gradient_ui::open(app, crate::gradient_ui::Target::GradientTool, &resp);
+            }
+            let o = &mut app.session.options;
+            let label = firecraft_engine::fill_label(&o.gradient_category);
+            if let Some(FillPick::Category(c)) = fill_options(ui, "gradient_tool_kind", label, true)
+                && let Some(kind) = firecraft_raster::gradient::GradientKind::from_category(c)
+            {
+                o.gradient_category = c.to_owned();
+                o.gradient_tool.kind = kind;
+            }
+        });
+        ui.weak("Drag across an object to set the gradient's start and direction.");
+    });
+    ui.separator();
+    paint_mix(ui, &mut app.session.options.paint);
+}
+
+/// A selected fill's Edge: Hard Edge, Anti-Alias or Feather and its amount.
+fn fill_edge_row(ui: &mut egui::Ui, d: &mut firecraft_engine::DocState, anti_alias: bool, feather: u16) {
+    ui.horizontal(|ui| {
+        ui.label("Edge:");
+        let label = if feather > 0 {
+            "Feather"
+        } else if anti_alias {
+            "Anti-Alias"
+        } else {
+            "Hard Edge"
+        };
+        ComboBox::from_id_salt("fill_edge")
+            .width(90.0)
+            .selected_text(label)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(label == "Hard Edge", "Hard Edge").clicked() {
+                    d.set_fill_edge(false, 0, false);
+                }
+                if ui.selectable_label(label == "Anti-Alias", "Anti-Alias").clicked() {
+                    d.set_fill_edge(true, 0, false);
+                }
+                // A newly feathered edge is 10 pixels wide (Fireworks MX).
+                if ui.selectable_label(label == "Feather", "Feather").clicked() && feather == 0 {
+                    d.set_fill_edge(true, 10, false);
+                }
+            });
+        let mut amount = feather as f32;
+        let resp = ui.add_enabled(
+            feather > 0,
+            DragValue::new(&mut amount).range(0.0..=100.0).max_decimals(0),
+        );
+        value_drag(d, &resp, "Fill Edge", |d, live| {
+            d.set_fill_edge(true, amount as u16, live)
+        });
+    });
+}
+
 fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     identity(ui, tool.label(), Some(tool), |_| {});
-    let o = &mut app.session.options;
     ui.vertical(|ui| {
         if tool == Tool::Rectangle {
+            let o = &mut app.session.options;
             ui.horizontal(|ui| {
                 ui.label("Rectangle roundness:");
                 let mut pct = o.roundness * 100.0;
@@ -266,32 +411,7 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
                 }
             });
         }
-        ui.horizontal(|ui| {
-            icons::glyph(ui, icons::Glyph::Bucket, 16.0);
-            match cp::color_box(
-                ui,
-                "tool_fill",
-                vec2(22.0, 14.0),
-                o.fill,
-                Footer::Fill { kinds: false },
-            ) {
-                Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
-                Some(ColorChoice::None) => o.fill = None,
-                _ => {}
-            }
-            ComboBox::from_id_salt("fill_kind")
-                .width(80.0)
-                .selected_text(if o.fill.is_some() { "Solid" } else { "None" })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(o.fill.is_none(), "None").clicked() {
-                        o.fill = None;
-                    }
-                    if ui.selectable_label(o.fill.is_some(), "Solid").clicked() && o.fill.is_none() {
-                        o.fill = Some(firecraft_raster::Rgba::new(0x99, 0x99, 0x99, 255));
-                    }
-                    ui.add_enabled(false, egui::Button::new("Linear (soon)"));
-                });
-        });
+        tool_fill_row(app, ui);
     });
     // Fireworks CS's stroke controls (FirePixel's layout).
     ui.separator();
@@ -401,20 +521,45 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 icons::glyph(ui, icons::Glyph::Bucket, 16.0);
-                let fill = cp::color_box(
-                    ui,
-                    "sel_fill",
-                    vec2(22.0, 14.0),
-                    p.fill.as_ref().map(|f| f.color),
-                    Footer::Fill { kinds: false },
-                );
-                match fill {
-                    Some(ColorChoice::Color(c)) => fill_choice = Some(Some(cp::to_rgba(c))),
-                    Some(ColorChoice::None) => fill_choice = Some(None),
-                    _ => {}
+                match p.fill.as_ref().and_then(|f| f.gradient.as_ref()) {
+                    Some(g) => {
+                        let resp = crate::gradient_ui::swatch(ui, vec2(22.0, 14.0), g);
+                        if resp.clicked() {
+                            crate::gradient_ui::open(app, crate::gradient_ui::Target::Selection, &resp);
+                        }
+                    }
+                    None => {
+                        let fill = cp::color_box(
+                            ui,
+                            "sel_fill",
+                            vec2(22.0, 14.0),
+                            p.fill.as_ref().map(|f| f.color),
+                            Footer::Fill { kinds: false },
+                        );
+                        match fill {
+                            Some(ColorChoice::Color(c)) => fill_choice = Some(Some(cp::to_rgba(c))),
+                            Some(ColorChoice::None) => fill_choice = Some(None),
+                            _ => {}
+                        }
+                    }
                 }
-                ui.label(if p.fill.is_some() { "Solid" } else { "None" });
+                let label = p
+                    .fill
+                    .as_ref()
+                    .map_or("None", |f| firecraft_engine::fill_label(&f.category));
+                let pick = fill_options(ui, "sel_fill_kind", label, false);
+                let options = app.session.options.clone();
+                if let Some(d) = app.session.active_doc_mut() {
+                    match pick {
+                        Some(FillPick::None) => d.set_fill_color(None),
+                        Some(FillPick::Category(c)) => d.set_fill_category(c, &options),
+                        None => {}
+                    }
+                }
             });
+            if let (Some(f), Some(d)) = (p.fill.as_ref(), app.session.active_doc_mut()) {
+                fill_edge_row(ui, d, f.anti_alias, f.feather);
+            }
             // Texture, its amount and Transparent (Fireworks' fill section).
             let f = p.fill.as_ref();
             let has = f.is_some();

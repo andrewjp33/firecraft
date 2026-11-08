@@ -428,6 +428,7 @@ mod tests {
             color: Rgba::new(200, 0, 0, 255),
             category: "fc_Solid".into(),
             anti_alias: true,
+            feather: 0,
             gradient: None,
             texture: tex,
             texture_amount: 1000,

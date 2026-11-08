@@ -161,7 +161,11 @@ impl Gradient {
     }
 
     pub fn color_at(&self, x: f64, y: f64) -> Rgba {
-        let t = self.position(x, y);
+        self.color_on_ramp(self.position(x, y))
+    }
+
+    /// The colour at ramp position `t` (0..=1).
+    pub fn color_on_ramp(&self, t: f32) -> Rgba {
         let lerp_c = |a: Rgba, b: Rgba, f: f32| {
             let m = |p: u8, q: u8| (p as f32 + (q as f32 - p as f32) * f).round() as u8;
             Rgba::new(m(a.r, b.r), m(a.g, b.g), m(a.b, b.b), m(a.a, b.a))
@@ -177,6 +181,17 @@ impl Gradient {
             a: (c.a as u32 * a as u32 / 255) as u8,
             ..c
         }
+    }
+
+    /// Whether this type uses the third handle (the others are shaped by the first two).
+    pub fn uses_side(&self) -> bool {
+        matches!(
+            self.kind,
+            GradientKind::Elliptical
+                | GradientKind::Ripples
+                | GradientKind::Rectangular
+                | GradientKind::Pinch
+        )
     }
 
     /// Move all handles.

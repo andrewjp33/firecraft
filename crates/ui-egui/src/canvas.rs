@@ -875,6 +875,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             | Tool::Pencil
             | Tool::Eraser
             | Tool::PaintBucket
+            | Tool::Gradient
             | Tool::Slice
             | Tool::Hotspot
             | Tool::Crop
@@ -936,6 +937,13 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             (origin, z),
             (app.prefs.cursor_style, app.prefs.live_drag),
         );
+        return;
+    }
+
+    // Fill handles of a selected gradient (over the tool underneath).
+    if matches!(tool, Tool::Pointer | Tool::SelectBehind | Tool::Gradient)
+        && crate::gradient_ui::handles(&mut app.fill_drag, d, &p, resp, (origin, z))
+    {
         return;
     }
 
@@ -1022,6 +1030,11 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     d.add_shape((ax, ay, bx, by), tool == Tool::Ellipse, &options)
                 }
                 Tool::Line => d.add_line((ax, ay), (bx, by), &options),
+                Tool::Gradient => {
+                    if !d.gradient_drag((ax, ay), (bx, by), &options) {
+                        d.gradient_bitmap((ax, ay), (bx, by), &options);
+                    }
+                }
                 // Drag a box with the Zoom tool: zoom so the box fills the view (Alt/right-drag: out).
                 Tool::Zoom => {
                     let (w, h) = ((bx - ax).abs() as f32, (by - ay).abs() as f32);
@@ -1100,6 +1113,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::SelectBehind => d.select_behind(x, y),
             Tool::MagicWand => d.magic_wand(x, y, &options, combine),
             Tool::PaintBucket => d.paint_bucket(x, y, &options),
+            // A click moves the selected gradient's round handle there.
+            Tool::Gradient => {
+                if let Some((sx, sy)) = d.selected_gradient().map(|(_, g)| g.start) {
+                    d.edit_gradient("Move Fill Handle", false, |g| g.translate(x - sx, y - sy));
+                }
+            }
             Tool::Marquee | Tool::OvalMarquee => {
                 if combine == Combine::Replace {
                     d.pixels = None;
@@ -1244,7 +1263,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 Tool::Rectangle => {
                     p.rect_stroke(r, 0.0, Stroke::new(1.0, theme::HANDLE_BLUE), StrokeKind::Middle);
                 }
-                Tool::Line => {
+                Tool::Line | Tool::Gradient => {
                     p.line_segment([a, b], Stroke::new(1.0, theme::HANDLE_BLUE));
                 }
                 Tool::Zoom => {

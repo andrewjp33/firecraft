@@ -472,6 +472,7 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
         Some(Fill {
             color: argb(a.u32_of("FCL").unwrap_or(0xFF00_0000)),
             anti_alias: preset.int_of("FET").unwrap_or(1) != 0,
+            feather: preset.int_of("FEF").unwrap_or(0).clamp(0, 1024) as u16,
             gradient: read_gradient(&category, preset, n, ctx),
             category,
             texture: a.child("TXF").and_then(|t| read_texture(t, ctx)),

@@ -3,6 +3,7 @@
 //!
 //! The UI is a thin shell over this crate: it renders state and turns input into calls here.
 
+mod fills;
 mod history;
 mod objects;
 mod paint;
@@ -10,6 +11,9 @@ pub mod paths;
 mod symbols;
 mod tools;
 
+pub use fills::{
+    GRADIENT_FILLS, GRADIENT_PRESETS, default_handles, fill_label, new_gradient, opaque_ramp, preset_colors,
+};
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
 pub use paint::PaintTool;
@@ -935,15 +939,7 @@ impl DocState {
             pcl: None,
             texture_origin: None,
             contours: vec![Contour { points, closed: true }],
-            fill: opts.fill.map(|color| Fill {
-                color,
-                category: "fc_Solid".into(),
-                anti_alias: true,
-                gradient: None,
-                texture: opts.fill_texture.clone(),
-                texture_amount: 0,
-                texture_transparent: false,
-            }),
+            fill: opts.new_fill((x0, y0, x1 - x0, y1 - y0)),
             stroke: opts.stroke.map(|color| opts.new_stroke(color)),
         };
         self.add_element(
@@ -1081,6 +1077,7 @@ impl DocState {
                                 color: c,
                                 category: "fc_Solid".into(),
                                 anti_alias: true,
+                                feather: 0,
                                 gradient: None,
                                 texture: None,
                                 texture_amount: 0,

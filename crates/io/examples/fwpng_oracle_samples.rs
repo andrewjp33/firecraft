@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             color: Rgba::new(0, 102, 153, 255),
             category: "fc_Solid".into(),
             anti_alias: true,
+            feather: 0,
             gradient: None,
             texture: None,
             texture_amount: 0,

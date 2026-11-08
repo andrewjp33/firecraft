@@ -4,7 +4,7 @@ use firecraft_fwpng::Node;
 use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{AxisMap, resample};
-use firecraft_raster::path::{Pt, fill_polygons, fill_polygons_with, flatten_cubic};
+use firecraft_raster::path::{Pt, fill_polygons, fill_polygons_feathered, fill_polygons_with, flatten_cubic};
 use firecraft_raster::transform::{Affine, sample, transform_image};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
@@ -77,6 +77,8 @@ pub struct Fill {
     /// Fireworks fill category, e.g. "fc_Solid", "fc_Linear".
     pub category: String,
     pub anti_alias: bool,
+    /// Feathered edge: its radius in pixels (`FEFi`), 0 for none.
+    pub feather: u16,
     /// Gradient fills (handles in canvas coordinates); `None` for solid fills.
     pub gradient: Option<Gradient>,
     /// The fill's texture (`TXFv`; Fireworks keeps one on every path, "Grain" by default).
@@ -856,7 +858,12 @@ impl Element {
             ElementKind::Path(p) => {
                 // Render only the path's bounds (plus stroke), clipped to the output.
                 let (bx, by, bw, bh) = self.bounds()?;
-                let pad = p.stroke.as_ref().map_or(2.0, crate::stroke_fw::margin);
+                let feather = p.fill.as_ref().map_or(0.0, |f| f.feather as f64 + 2.0);
+                let pad = p
+                    .stroke
+                    .as_ref()
+                    .map_or(2.0, crate::stroke_fw::margin)
+                    .max(feather);
                 let x0 = ((bx - pad).floor() as i64 - ox).max(0);
                 let y0 = ((by - pad).floor() as i64 - oy).max(0);
                 let x1 = ((bx + bw + pad).ceil() as i64 - ox).min(w as i64);
@@ -872,9 +879,17 @@ impl Element {
                         // Shade in canvas coordinates (the layer's pixel + its canvas offset).
                         // Fireworks samples gradients at the pixel's integer coordinate (its
                         // top-left corner), not its centre (measured on Folds/Pinch/Waves).
-                        Some(g) => fill_polygons_with(&mut layer, &polys, f.anti_alias, &|x, y| {
-                            g.color_at(x - 0.5 - fx, y - 0.5 - fy)
-                        }),
+                        Some(g) => {
+                            let shade = |x: f64, y: f64| g.color_at(x - 0.5 - fx, y - 0.5 - fy);
+                            if f.feather > 0 {
+                                fill_polygons_feathered(&mut layer, &polys, f.feather as usize, &shade);
+                            } else {
+                                fill_polygons_with(&mut layer, &polys, f.anti_alias, &shade);
+                            }
+                        }
+                        None if f.feather > 0 => {
+                            fill_polygons_feathered(&mut layer, &polys, f.feather as usize, &|_, _| f.color);
+                        }
                         None => fill_polygons(&mut layer, &polys, f.color, f.anti_alias),
                     }
                     apply_fill_texture(
@@ -1074,7 +1089,11 @@ impl Element {
     /// Half the widest stroke in the object (strokes reach beyond the geometry's bounds).
     fn max_stroke(&self) -> f64 {
         match &self.kind {
-            ElementKind::Path(p) => p.stroke.as_ref().map_or(0.0, crate::stroke_fw::margin),
+            ElementKind::Path(p) => p
+                .stroke
+                .as_ref()
+                .map_or(0.0, crate::stroke_fw::margin)
+                .max(p.fill.as_ref().map_or(0.0, |f| f.feather as f64 + 1.0)),
             ElementKind::Group(children) => children.iter().map(Element::max_stroke).fold(0.0, f64::max),
             ElementKind::Masked { content, mask, .. } => content
                 .iter()
@@ -1137,6 +1156,7 @@ fn mask_coverage(
                     color: Rgba::WHITE,
                     category: "fc_Solid".into(),
                     anti_alias: true,
+                    feather: 0,
                     gradient: None,
                     texture: None,
                     texture_amount: 0,

@@ -149,3 +149,87 @@ mod tests {
         assert_eq!(img.get(0, 0), Some(Rgba::WHITE));
     }
 }
+
+/// A fill with a feathered edge of radius `r`: the anti-aliased coverage filtered with Fireworks'
+/// triangle filter, then shaded. Adapted from FirePixel's `fp-vector/src/feather.rs` (Apache-2.0;
+/// see ATTRIBUTION.md): width `2r + 1`, weights `1, 2, .. r + 1, .. 1`, horizontal then vertical,
+/// each pass dividing by `(r + 1)^2` and truncating; the last row that has coverage comes out as
+/// `screen(v, v)`.
+pub fn fill_polygons_feathered(
+    img: &mut RgbaImage,
+    polys: &[Vec<Pt>],
+    r: usize,
+    shade: &dyn Fn(f64, f64) -> Rgba,
+) {
+    let r = r.min(1024);
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let (mw, mh) = (w + 2 * r, h + 2 * r);
+    let mut big = RgbaImage::new(mw as u32, mh as u32, Rgba::TRANSPARENT);
+    let moved: Vec<Vec<Pt>> = polys
+        .iter()
+        .map(|p| p.iter().map(|q| (q.0 + r as f64, q.1 + r as f64)).collect())
+        .collect();
+    fill_polygons(&mut big, &moved, Rgba::WHITE, true);
+    let cover: Vec<u32> = big.pixels().iter().map(|p| p.a as u32).collect();
+    let den = ((r + 1) * (r + 1)) as u64;
+    let mut sums = Vec::new();
+    let mut across = vec![0u32; w * mh];
+    let mut last_row = None;
+    for (j, row) in cover.chunks_exact(mw).enumerate() {
+        if row.iter().all(|&v| v == 0) {
+            continue;
+        }
+        last_row = Some(j);
+        triangle_sums(row, r, w, &mut sums);
+        for (d, s) in across[j * w..(j + 1) * w].iter_mut().zip(&sums) {
+            *d = (s / den) as u32;
+        }
+    }
+    let mut column = vec![0u32; mh];
+    for i in 0..w {
+        for (j, c) in column.iter_mut().enumerate() {
+            *c = across.get(j * w + i).copied().unwrap_or(0);
+        }
+        triangle_sums(&column, r, h, &mut sums);
+        for (j, s) in sums.iter().enumerate().take(h) {
+            let mut v = (s / den) as u32;
+            if Some(j) == last_row {
+                let t = (255 - v) * (255 - v) + 0x80;
+                v = 255 - (((t >> 8) + t) >> 8);
+            }
+            if v != 0 {
+                let (x, y) = (i as i64, j as i64);
+                if let Some(d) = img.get(x, y) {
+                    img.set(
+                        x,
+                        y,
+                        d.over(shade(i as f64 + 0.5, j as f64 + 0.5), v.min(255) as u8),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// `out[i] = sum over k of a[i + k] * w[k]`, `k` in `0..=2r`, for `i < n_out`, the triangle being
+/// two box filters of width `r + 1` (missing values count as 0).
+fn triangle_sums(a: &[u32], r: usize, n_out: usize, out: &mut Vec<u64>) {
+    let n = a.len();
+    let mut pre = vec![0u64; n + 1];
+    let mut total = 0;
+    for (p, &v) in pre.iter_mut().skip(1).zip(a) {
+        total += v as u64;
+        *p = total;
+    }
+    let at = |i: usize| pre.get(i.min(n)).copied().unwrap_or(0);
+    let nb = n_out + r;
+    let mut box_pre = vec![0u64; nb + 1];
+    let mut total = 0;
+    for (i, p) in box_pre.iter_mut().skip(1).enumerate() {
+        total += at(i + r + 1) - at(i);
+        *p = total;
+    }
+    let boxed = |i: usize| box_pre.get(i.min(nb)).copied().unwrap_or(0);
+    out.clear();
+    out.extend((0..n_out).map(|i| boxed(i + r + 1) - boxed(i)));
+}
