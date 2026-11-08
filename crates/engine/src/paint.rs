@@ -52,9 +52,10 @@ struct Erase {
     opacity: f64,
 }
 
-/// The Eraser's tip, as FirePixel measured it on strokes of the original: a hard square or
-/// edgeless tip covers exactly `size` cells; otherwise full cover up to a core radius, then an
-/// exponential fall-off.
+/// The Eraser's tip. Square (measured in Fireworks MX, single dabs at sizes 13 and 30): exactly
+/// `size` cells, the cover rising linearly from the outer edge over `Edge`% of the half width.
+/// Round (FirePixel's measurements on strokes): an edgeless tip is hard; otherwise full cover up
+/// to a core radius, then an exponential fall-off.
 #[derive(Clone, Copy, Debug)]
 struct Dab {
     cells: i64,
@@ -62,7 +63,10 @@ struct Dab {
     round: bool,
     core: f64,
     width: f64,
+    /// Round with no Edge.
     hard: bool,
+    /// Square: how far in from the outer edge the cover reaches 100%.
+    ramp: f64,
 }
 
 impl Dab {
@@ -86,7 +90,8 @@ impl Dab {
             // stroke (size 13, Edge 2: the two soft rows beside it keep alpha 49 and 223).
             core: (r - (0.88116 + 0.020826 * e + 0.000_047_83 * e * e) * scale).max(0.0),
             width: ((0.40113 + 0.003_605_8 * e + 0.000_019_961 * e * e) * scale).max(0.05),
-            hard: !round || e <= 0.0,
+            hard: round && e <= 0.0,
+            ramp: r * e / 100.0,
         }
     }
 
@@ -106,11 +111,27 @@ impl Dab {
     /// Call `f(x, y, cover)` for each cell the dab at `p` visibly covers.
     fn each(&self, p: (f64, f64), mut f: impl FnMut(i64, i64, f64)) {
         let (sx, sy, cx, cy) = self.origin(p);
+        if !self.round {
+            for y in sy..sy + self.cells {
+                for x in sx..sx + self.cells {
+                    let d = (x as f64 + 0.5 - cx).abs().max((y as f64 + 0.5 - cy).abs());
+                    let cover = if self.ramp > 0.0 {
+                        ((self.half - d) / self.ramp).min(1.0)
+                    } else {
+                        1.0
+                    };
+                    if cover > 0.0 {
+                        f(x, y, cover);
+                    }
+                }
+            }
+            return;
+        }
         if self.hard {
             for y in sy..sy + self.cells {
                 for x in sx..sx + self.cells {
                     let (dx, dy) = (x as f64 + 0.5 - cx, y as f64 + 0.5 - cy);
-                    if !self.round || dx.hypot(dy) <= self.half + 1e-4 {
+                    if dx.hypot(dy) <= self.half + 1e-4 {
                         f(x, y, 1.0);
                     }
                 }
@@ -920,6 +941,75 @@ mod tests {
         });
         assert_eq!(rows.first(), Some(&144));
         assert_eq!(rows.last(), Some(&156));
+    }
+
+    /// What a single click leaves of an opaque bitmap, along the row through the dab.
+    fn dab_row(size: u32, edge: u8, from: i64, to: i64) -> Vec<u8> {
+        let mut d = doc();
+        let mut o = options();
+        o.paint.eraser_size = size;
+        o.paint.eraser_round = false;
+        o.paint.eraser_edge = edge;
+        let r = add_bitmap(&mut d, 0, 0, 100, 80, RED);
+        d.begin_paint(PaintTool::Eraser, 53.0, 40.0, &o);
+        d.end_paint();
+        let b = bitmap(&d, r);
+        (from..to)
+            .map(|x| b.image.get(x, 40).map_or(0, |p| p.a))
+            .collect()
+    }
+
+    fn assert_close(got: &[u8], want: &[u8], tolerance: i32) {
+        assert_eq!(got.len(), want.len());
+        for (g, w) in got.iter().zip(want) {
+            assert!(
+                (*g as i32 - *w as i32).abs() <= tolerance,
+                "{got:02X?} vs {want:02X?}"
+            );
+        }
+    }
+
+    #[test]
+    fn square_eraser_edge_matches_fireworks_mx() {
+        // Single dabs measured in Fireworks MX: alpha left along the centre row, x = 46..=53.
+        assert_close(&dab_row(13, 50, 46, 54), &[0xFF, 0xD7, 0x89, 0x3A, 0, 0, 0, 0], 3);
+        assert_close(
+            &dab_row(13, 100, 46, 54),
+            &[0xFF, 0xEB, 0xC4, 0x9C, 0x75, 0x4E, 0x27, 0],
+            3,
+        );
+        assert_close(
+            &dab_row(13, 75, 46, 54),
+            &[0xFF, 0xE4, 0xB0, 0x7C, 0x47, 0x13, 0, 0],
+            3,
+        );
+        assert_close(&dab_row(13, 25, 46, 49), &[0xFF, 0xB0, 0x13], 3);
+        // Size 30 (centred between columns 53 and 54).
+        assert_close(&dab_row(30, 50, 38, 42), &[0xFF, 0xEE, 0xCC, 0xAA], 3);
+        assert_close(&dab_row(30, 100, 38, 41), &[0xFF, 0xF6, 0xE5], 3);
+        assert_close(&dab_row(30, 100, 52, 56), &[0x19, 0x08, 0x08, 0x19], 3);
+        // No Edge: hard.
+        assert_close(&dab_row(13, 0, 46, 49), &[0xFF, 0, 0], 0);
+    }
+
+    #[test]
+    fn square_eraser_stroke_matches_fireworks_mx() {
+        // A stroke along row 40, measured rows above it: 13 dabs build up at the outer row.
+        let rows = |edge: u8| {
+            let mut d = doc();
+            let mut o = options();
+            o.paint.eraser_round = false;
+            o.paint.eraser_edge = edge;
+            let r = add_bitmap(&mut d, 0, 0, 100, 80, RED);
+            line(&mut d, PaintTool::Eraser, (20.0, 40.0), (80.0, 40.0), &o);
+            let b = bitmap(&d, r);
+            (33..37)
+                .map(|y| b.image.get(50, y).map_or(0, |p| p.a))
+                .collect::<Vec<u8>>()
+        };
+        assert_close(&rows(100), &[0xFF, 0x58, 0x0C, 0x02], 3);
+        assert_close(&rows(50), &[0xFF, 0x1D, 0x01, 0], 3);
+        assert_close(&rows(0), &[0xFF, 0, 0, 0], 0);
     }
 
     #[test]

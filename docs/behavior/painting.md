@@ -36,7 +36,11 @@ opacity 100%.
   Size 13 at row 126 centres on the middle of that row and covers rows 120..=133.
 * One dab per pixel along the stroke; each removes its cover from what's left; the opacity
   applies once to the whole stroke, so overlapping dabs never exceed it.
-* FirePixel's cover curve over the Edge, with its two constants solved from a Fireworks MX stroke
+* **Square tips** cover exactly `size` cells, and the Edge softens them: a dab's cover is
+  `min(1, (size/2 - d) / (size/2 * Edge/100))`, where `d` is the larger of the horizontal and
+  vertical distance from the centre (single dabs at sizes 13 and 30, Edge 25 to 100, match to
+  within 3 levels; at Edge 10 the outer row is 10 levels off).
+* Round tips: FirePixel's cover curve over the Edge, with its two constants solved from a Fireworks MX stroke
   (size 13, Edge 2: the soft rows beside the stroke keep alpha 49 and 223).
 
 ## Paint Bucket
