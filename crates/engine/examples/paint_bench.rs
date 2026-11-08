@@ -21,6 +21,9 @@ fn main() {
         ("bc_Air Brush", "bn_Basic"),
         ("bc_Charcoal", "bn_Soft"),
         ("bc_Oil", "bn_Strands"),
+        ("bc_Unnatural", "bn_3D Glow"),
+        ("bc_Unnatural", "bn_3D"),
+        ("bc_Random", "bn_Confetti"),
     ] {
         let Some(preset) = brush_presets::find(category, name) else {
             println!("{category}/{name}: no such preset");

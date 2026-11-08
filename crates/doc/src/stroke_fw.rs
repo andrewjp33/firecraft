@@ -155,7 +155,7 @@ pub fn brush_params(bpl: &Node) -> BrushParams {
 }
 
 /// How far a stroke can reach beyond the path's outline, in pixels (FirePixel's
-/// `stroke_margin`: conservative; natural brushes scatter their tips far, about 10 diameters).
+/// `stroke_margin`: conservative; a natural brush with scatter throws tips about 10 diameters).
 pub fn margin(stroke: &Stroke) -> f64 {
     let b = brush_for(stroke, None);
     let fw = FwStroke::new(b.clone(), Argb(0));
@@ -164,7 +164,12 @@ pub fn margin(stroke: &Stroke) -> f64 {
     let w = firecraft_stroke::brush::tip_width(dp, b.shape == TipShape::Circle);
     let mut m = w / 2.0 + 3.0;
     if b.kind == BrushType::Natural {
-        m += 10.0 * dp + b.tip_spacing as f64 * dp / 1000.0 + 2.0;
+        // Multiple tips spread over `BTSi` percent of the diameter.
+        m += b.tip_spacing as f64 * dp / 100.0 + 2.0;
+        // Only a brush with scatter throws dabs far from the line.
+        if b.row_active(firecraft_stroke::attrs::SenseTarget::Scatter) {
+            m += 10.0 * dp;
+        }
     }
     if placement == StrokePlacement::Inside {
         m = m.min(w + 3.0);

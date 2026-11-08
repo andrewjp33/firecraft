@@ -824,30 +824,33 @@ mod tests {
 
     #[test]
     fn live_preview_equals_one_piece() {
-        // Painted point by point against everything at once.
+        // Painted point by point against everything at once, for every preset: the area each
+        // update redraws must reach all that the new points can change (scatter, multiple tips).
         let pts = [
-            (10.0, 10.0),
-            (14.3, 12.1),
-            (22.7, 18.9),
-            (30.1, 15.5),
-            (41.0, 33.0),
+            (90.0, 60.0),
+            (97.3, 65.1),
+            (108.7, 80.9),
+            (120.1, 75.5),
+            (131.0, 93.0),
         ];
-        let mut o = options();
-        o.stroke_size = 7;
-        o.stroke_preset = firecraft_doc::brush_presets::find("bc_Air Brush", "bn_Basic")
-            .or_else(|| firecraft_doc::brush_presets::find("bc_Basic", "bn_Soft Rounded"))
-            .unwrap_or(0);
-        let mut a = doc();
-        a.begin_paint(PaintTool::Brush, pts[0].0, pts[0].1, &o);
-        for p in &pts[1..] {
-            a.extend_paint(p.0, p.1, false);
-            a.flush_paint();
+        for (i, p) in firecraft_doc::brush_presets::BRUSH_PRESETS.iter().enumerate() {
+            let o = ToolOptions {
+                stroke_size: 40,
+                stroke_preset: i,
+                ..options()
+            };
+            let mut a = DocState::new(Document::new(240, 180, 72.0, Some(Rgba::WHITE)));
+            a.begin_paint(PaintTool::Brush, pts[0].0, pts[0].1, &o);
+            for q in &pts[1..] {
+                a.extend_paint(q.0, q.1, false);
+                a.flush_paint();
+            }
+            let shown = bitmap(&a, a.selection[0]).image;
+            let live = a.live_paint.as_ref().expect("painting");
+            let whole = live.render(live.buffer_area(), a.doc.color_math);
+            assert!(shown == whole, "{} / {}", p.category, p.name);
+            a.end_paint();
         }
-        let img_a = bitmap(&a, a.selection[0]).image;
-        let live = a.live_paint.as_ref().expect("painting");
-        let whole = live.render(live.buffer_area(), a.doc.color_math);
-        assert_eq!(img_a, whole);
-        a.end_paint();
     }
 
     #[test]
