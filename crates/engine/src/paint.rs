@@ -13,6 +13,7 @@ use firecraft_raster::blend::BlendMode;
 use firecraft_raster::mask::Combine;
 use firecraft_raster::wand::magic_wand;
 use firecraft_raster::{Mask, Rgba, RgbaImage, WandOptions};
+use firecraft_stroke::brush;
 
 use crate::{DocState, ElementRef, ToolOptions};
 
@@ -45,111 +46,72 @@ fn union(a: Option<Area>, b: Area) -> Area {
 }
 
 /// The Eraser's settings for one stroke.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Erase {
     dab: Dab,
     /// 0..=1.
     opacity: f64,
 }
 
-/// The Eraser's tip. Square (measured in Fireworks MX, single dabs at sizes 13 and 30): exactly
-/// `size` cells, the cover rising linearly from the outer edge over `Edge`% of the half width.
-/// Round (FirePixel's measurements on strokes): an edgeless tip is hard; otherwise full cover up
-/// to a core radius, then an exponential fall-off.
-#[derive(Clone, Copy, Debug)]
+/// The Eraser's tip: Fireworks' brush tip with the Edge as its softness, with the bell curve when
+/// round (single dabs of sizes 7 to 60 at Edge 2 to 100, measured in Fireworks MX, match exactly).
+/// Computed once per stroke.
+#[derive(Clone, Debug)]
 struct Dab {
+    /// Cells per side.
     cells: i64,
     half: f64,
     round: bool,
-    core: f64,
-    width: f64,
-    /// Round with no Edge.
-    hard: bool,
-    /// Square: how far in from the outer edge the cover reaches 100%.
-    ramp: f64,
+    /// Cover of each cell, row by row.
+    cover: std::sync::Arc<Vec<f64>>,
 }
 
 impl Dab {
     fn new(size: f64, round: bool, edge: f64) -> Dab {
-        let size = size.max(1.0);
-        let e = edge.clamp(0.0, 100.0);
-        let r = size / 2.0;
-        // Measured at diameters 13 and 16; smaller and larger tips scale.
-        let scale = if r < 6.5 {
-            r / 6.5
-        } else if r > 8.0 {
-            r / 8.0
-        } else {
-            1.0
-        };
+        let dp = size.max(1.0).round();
+        // A round tip has one more row and column, on its far side.
+        let cells = dp as i64 + i64::from(round);
+        let rr = (dp * 8.0) as i64;
+        let s = brush::softness_byte(dp, (edge.clamp(0.0, 100.0) * 10.0) as u32) as i64;
+        let bell = brush::bell_table();
+        let at = |i: i64| (2 * i + 1 - dp as i64) * 8;
+        let cover = (0..cells)
+            .flat_map(|y| (0..cells).map(move |x| (x, y)))
+            .map(|(x, y)| brush::tip_value(at(x), at(y), rr, s, round, round, &bell) as f64 / 255.0)
+            .collect();
         Dab {
-            cells: size.ceil() as i64,
-            half: r,
+            cells,
+            half: dp / 2.0,
             round,
-            // FirePixel's curves over the Edge, with the constants solved from a Fireworks MX
-            // stroke (size 13, Edge 2: the two soft rows beside it keep alpha 49 and 223).
-            core: (r - (0.88116 + 0.020826 * e + 0.000_047_83 * e * e) * scale).max(0.0),
-            width: ((0.40113 + 0.003_605_8 * e + 0.000_019_961 * e * e) * scale).max(0.05),
-            hard: round && e <= 0.0,
-            ramp: r * e / 100.0,
+            cover: std::sync::Arc::new(cover),
         }
     }
 
-    /// The top-left cell of the dab at mouse pixel `p`, and its centre: size 13 at row 126
-    /// centres on the middle of that row and covers rows 120..=133 (measured in Fireworks MX).
-    fn origin(&self, p: (f64, f64)) -> (i64, i64, f64, f64) {
-        let sx = (p.0 - self.half).floor() as i64 + 1;
-        let sy = (p.1 - self.half).floor() as i64 + 1;
-        (sx, sy, sx as f64 + self.half, sy as f64 + self.half)
+    /// The top-left cell of the dab at mouse pixel `p`. Odd sizes centre on that pixel; even
+    /// ones on its left/top edge when round, on its right/bottom edge when square (measured).
+    fn origin(&self, p: (f64, f64)) -> (i64, i64) {
+        let start = |v: f64| {
+            if self.round {
+                (v - self.half).ceil() as i64
+            } else {
+                (v - self.half).floor() as i64 + 1
+            }
+        };
+        (start(p.0), start(p.1))
     }
 
     fn bounds(&self, p: (f64, f64)) -> Area {
-        let (sx, sy, _, _) = self.origin(p);
-        (sx, sy, sx + self.cells + 1, sy + self.cells + 1)
+        let (sx, sy) = self.origin(p);
+        (sx, sy, sx + self.cells, sy + self.cells)
     }
 
-    /// Call `f(x, y, cover)` for each cell the dab at `p` visibly covers.
+    /// Call `f(x, y, cover)` for each cell the dab at `p` covers.
     fn each(&self, p: (f64, f64), mut f: impl FnMut(i64, i64, f64)) {
-        let (sx, sy, cx, cy) = self.origin(p);
-        if !self.round {
-            for y in sy..sy + self.cells {
-                for x in sx..sx + self.cells {
-                    let d = (x as f64 + 0.5 - cx).abs().max((y as f64 + 0.5 - cy).abs());
-                    let cover = if self.ramp > 0.0 {
-                        ((self.half - d) / self.ramp).min(1.0)
-                    } else {
-                        1.0
-                    };
-                    if cover > 0.0 {
-                        f(x, y, cover);
-                    }
-                }
-            }
-            return;
-        }
-        if self.hard {
-            for y in sy..sy + self.cells {
-                for x in sx..sx + self.cells {
-                    let (dx, dy) = (x as f64 + 0.5 - cx, y as f64 + 0.5 - cy);
-                    if dx.hypot(dy) <= self.half + 1e-4 {
-                        f(x, y, 1.0);
-                    }
-                }
-            }
-            return;
-        }
-        for y in sy..=sy + self.cells {
-            for x in sx..=sx + self.cells {
-                let (dx, dy) = (x as f64 + 0.5 - cx, y as f64 + 0.5 - cy);
-                let d = dx.hypot(dy);
-                let w = if d <= self.core {
-                    1.0
-                } else {
-                    (-(d - self.core) / self.width).exp()
-                };
-                if w >= 0.5 / 255.0 {
-                    f(x, y, w);
-                }
+        let (sx, sy) = self.origin(p);
+        for (i, &c) in self.cover.iter().enumerate() {
+            if c > 0.0 {
+                let i = i as i64;
+                f(sx + i % self.cells, sy + i / self.cells, c);
             }
         }
     }
@@ -221,6 +183,8 @@ pub struct LivePaint {
     /// Canvas coordinates.
     points: Vec<(f64, f64)>,
     painted: Option<Area>,
+    /// What the points added since the last update can change.
+    pending: Option<Area>,
 }
 
 impl LivePaint {
@@ -526,8 +490,10 @@ impl DocState {
             seed,
             points: vec![(x, y)],
             painted: None,
+            pending: None,
         });
-        self.repaint_from(0);
+        self.mark_from(0);
+        self.flush_paint();
         true
     }
 
@@ -557,24 +523,30 @@ impl DocState {
             let end = constrained(start, (x, y));
             live.points = vec![start, end];
             // The old stroke goes too.
-            let old = live.painted;
-            let new = live.reach(0);
-            if let Some(area) = match (old, new) {
-                (Some(o), Some(n)) => Some(union(Some(o), n)),
-                (o, n) => o.or(n),
-            } {
-                self.repaint(area);
+            if let Some(old) = live.painted {
+                live.pending = Some(union(live.pending, old));
             }
+            self.mark_from(0);
             return;
         }
         live.points.push((x, y));
         // From two points back: the previous end point wasn't final.
         let from = live.points.len().saturating_sub(3);
-        self.repaint_from(from);
+        self.mark_from(from);
     }
 
-    fn repaint_from(&mut self, from: usize) {
-        if let Some(area) = self.live_paint.as_ref().and_then(|l| l.reach(from)) {
+    fn mark_from(&mut self, from: usize) {
+        if let Some(live) = self.live_paint.as_mut()
+            && let Some(area) = live.reach(from)
+        {
+            live.pending = Some(union(live.pending, area));
+        }
+    }
+
+    /// Bring the bitmap up to date with the points given so far (once per screen update: a
+    /// fast mouse delivers several points per frame).
+    pub fn flush_paint(&mut self) {
+        if let Some(area) = self.live_paint.as_mut().and_then(|l| l.pending.take()) {
             self.repaint(area);
         }
     }
@@ -600,6 +572,7 @@ impl DocState {
 
     /// Finish the stroke: one undo step; the bitmap shrinks to what it holds.
     pub fn end_paint(&mut self) {
+        self.flush_paint();
         let Some(live) = self.live_paint.take() else {
             return;
         };
@@ -868,6 +841,7 @@ mod tests {
         a.begin_paint(PaintTool::Brush, pts[0].0, pts[0].1, &o);
         for p in &pts[1..] {
             a.extend_paint(p.0, p.1, false);
+            a.flush_paint();
         }
         let img_a = bitmap(&a, a.selection[0]).image;
         let live = a.live_paint.as_ref().expect("painting");
@@ -943,12 +917,12 @@ mod tests {
         assert_eq!(rows.last(), Some(&156));
     }
 
-    /// What a single click leaves of an opaque bitmap, along the row through the dab.
-    fn dab_row(size: u32, edge: u8, from: i64, to: i64) -> Vec<u8> {
+    /// What a single click at x = 53 leaves of an opaque bitmap, along the row through the dab.
+    fn dab_row(round: bool, size: u32, edge: u8, from: i64, to: i64) -> Vec<u8> {
         let mut d = doc();
         let mut o = options();
         o.paint.eraser_size = size;
-        o.paint.eraser_round = false;
+        o.paint.eraser_round = round;
         o.paint.eraser_edge = edge;
         let r = add_bitmap(&mut d, 0, 0, 100, 80, RED);
         d.begin_paint(PaintTool::Eraser, 53.0, 40.0, &o);
@@ -956,6 +930,20 @@ mod tests {
         let b = bitmap(&d, r);
         (from..to)
             .map(|x| b.image.get(x, 40).map_or(0, |p| p.a))
+            .collect()
+    }
+
+    /// What a stroke along row 40 leaves in the rows from `from`.
+    fn stroke_rows(round: bool, edge: u8, from: i64, to: i64) -> Vec<u8> {
+        let mut d = doc();
+        let mut o = options();
+        o.paint.eraser_round = round;
+        o.paint.eraser_edge = edge;
+        let r = add_bitmap(&mut d, 0, 0, 100, 80, RED);
+        line(&mut d, PaintTool::Eraser, (20.0, 40.0), (80.0, 40.0), &o);
+        let b = bitmap(&d, r);
+        (from..to)
+            .map(|y| b.image.get(50, y).map_or(0, |p| p.a))
             .collect()
     }
 
@@ -970,46 +958,69 @@ mod tests {
     }
 
     #[test]
-    fn square_eraser_edge_matches_fireworks_mx() {
-        // Single dabs measured in Fireworks MX: alpha left along the centre row, x = 46..=53.
-        assert_close(&dab_row(13, 50, 46, 54), &[0xFF, 0xD7, 0x89, 0x3A, 0, 0, 0, 0], 3);
-        assert_close(
-            &dab_row(13, 100, 46, 54),
-            &[0xFF, 0xEB, 0xC4, 0x9C, 0x75, 0x4E, 0x27, 0],
-            3,
-        );
-        assert_close(
-            &dab_row(13, 75, 46, 54),
-            &[0xFF, 0xE4, 0xB0, 0x7C, 0x47, 0x13, 0, 0],
-            3,
-        );
-        assert_close(&dab_row(13, 25, 46, 49), &[0xFF, 0xB0, 0x13], 3);
-        // Size 30 (centred between columns 53 and 54).
-        assert_close(&dab_row(30, 50, 38, 42), &[0xFF, 0xEE, 0xCC, 0xAA], 3);
-        assert_close(&dab_row(30, 100, 38, 41), &[0xFF, 0xF6, 0xE5], 3);
-        assert_close(&dab_row(30, 100, 52, 56), &[0x19, 0x08, 0x08, 0x19], 3);
-        // No Edge: hard.
-        assert_close(&dab_row(13, 0, 46, 49), &[0xFF, 0, 0], 0);
+    fn square_eraser_dab_matches_fireworks_mx() {
+        // Alpha left along the centre row, measured in Fireworks MX, from x = 46.
+        let row = |size, edge, n: usize, want: &[u8]| {
+            assert_close(&dab_row(false, size, edge, 46, 46 + n as i64), want, 1);
+        };
+        row(13, 10, 3, &[0xFF, 0x45, 0]);
+        row(13, 25, 3, &[0xFF, 0xB0, 0x13]);
+        row(13, 50, 5, &[0xFF, 0xD7, 0x89, 0x3A, 0]);
+        row(13, 75, 7, &[0xFF, 0xE4, 0xB0, 0x7C, 0x47, 0x13, 0]);
+        row(13, 100, 8, &[0xFF, 0xEB, 0xC4, 0x9C, 0x75, 0x4E, 0x27, 0]);
+        row(13, 0, 3, &[0xFF, 0, 0]);
+        // Size 30, centred between columns 53 and 54.
+        assert_close(&dab_row(false, 30, 50, 38, 42), &[0xFF, 0xEE, 0xCC, 0xAA], 1);
+        assert_close(&dab_row(false, 30, 100, 52, 56), &[0x19, 0x08, 0x08, 0x19], 1);
     }
 
     #[test]
-    fn square_eraser_stroke_matches_fireworks_mx() {
-        // A stroke along row 40, measured rows above it: 13 dabs build up at the outer row.
-        let rows = |edge: u8| {
-            let mut d = doc();
-            let mut o = options();
-            o.paint.eraser_round = false;
-            o.paint.eraser_edge = edge;
-            let r = add_bitmap(&mut d, 0, 0, 100, 80, RED);
-            line(&mut d, PaintTool::Eraser, (20.0, 40.0), (80.0, 40.0), &o);
-            let b = bitmap(&d, r);
-            (33..37)
-                .map(|y| b.image.get(50, y).map_or(0, |p| p.a))
-                .collect::<Vec<u8>>()
+    fn round_eraser_dab_matches_fireworks_mx() {
+        // The far side has one more cell (x = 60 for size 13).
+        let row = |edge, want: &[u8]| {
+            assert_close(&dab_row(true, 13, edge, 46, 54), want, 1);
+            assert_close(&dab_row(true, 13, edge, 60, 61), &[tail(edge)], 1);
         };
-        assert_close(&rows(100), &[0xFF, 0x58, 0x0C, 0x02], 3);
-        assert_close(&rows(50), &[0xFF, 0x1D, 0x01, 0], 3);
-        assert_close(&rows(0), &[0xFF, 0, 0, 0], 0);
+        fn tail(edge: u8) -> u8 {
+            match edge {
+                2 => 0xF6,
+                10 => 0xF7,
+                25 => 0xF8,
+                50 => 0xF9,
+                _ => 0xFA,
+            }
+        }
+        row(2, &[0xFF, 0xA9, 0, 0, 0, 0, 0, 0]);
+        row(10, &[0xFF, 0xBE, 0, 0, 0, 0, 0, 0]);
+        row(25, &[0xFF, 0xD5, 0x43, 0, 0, 0, 0, 0]);
+        row(50, &[0xFF, 0xE5, 0xA9, 0x16, 0, 0, 0, 0]);
+        row(75, &[0xFF, 0xED, 0xCC, 0x8A, 0x1E, 0, 0, 0]);
+        row(100, &[0xFF, 0xF1, 0xDD, 0xB8, 0x82, 0x46, 0x12, 0]);
+        // Even sizes centre between columns 52 and 53.
+        assert_close(
+            &dab_row(true, 30, 100, 50, 56),
+            &[0x1A, 0x09, 0, 0, 0x09, 0x1A],
+            1,
+        );
+        assert_close(&dab_row(true, 7, 50, 49, 53), &[0xFF, 0xC9, 0x35, 0], 1);
+        assert_close(&dab_row(true, 60, 100, 47, 52), &[0x22, 0x16, 0x0E, 0x05, 0], 1);
+    }
+
+    #[test]
+    fn eraser_strokes_match_fireworks_mx() {
+        // Rows above and below a stroke along row 40 (size 13), measured in Fireworks MX.
+        assert_close(&stroke_rows(false, 100, 33, 37), &[0xFF, 0x58, 0x0C, 0x02], 3);
+        assert_close(&stroke_rows(false, 50, 33, 36), &[0xFF, 0x1D, 0x01], 3);
+        assert_close(&stroke_rows(false, 0, 33, 36), &[0xFF, 0, 0], 0);
+        assert_close(&stroke_rows(true, 2, 33, 36), &[0xFF, 0x31, 0], 3);
+        assert_close(&stroke_rows(true, 2, 46, 49), &[0x31, 0xDF, 0xFF], 3);
+        assert_close(&stroke_rows(true, 50, 33, 36), &[0xFF, 0x96, 0x20], 3);
+        assert_close(&stroke_rows(true, 50, 45, 48), &[0x20, 0x96, 0xE7], 3);
+        assert_close(
+            &stroke_rows(true, 100, 34, 39),
+            &[0xB8, 0x6D, 0x25, 0x07, 0x01],
+            3,
+        );
     }
 
     #[test]

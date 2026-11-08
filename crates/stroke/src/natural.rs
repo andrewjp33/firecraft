@@ -446,20 +446,18 @@ impl ArgbInk<'_> {
         if x >= x0 + w || y >= y0 + h || x + m.n as i64 <= x0 || y + m.n as i64 <= y0 {
             return;
         }
-        for j in 0..m.n {
+        // Only the part of the tip inside the window.
+        let n = m.n as i64;
+        let (j0, j1) = ((y0 - y).max(0), (y0 + h - y).min(n));
+        let (i0, i1) = ((x0 - x).max(0), (x0 + w - x).min(n));
+        for j in j0 as usize..j1 as usize {
             let yy = y + j as i64 - y0;
-            if yy < 0 || yy >= h {
-                continue;
-            }
-            for i in 0..m.n {
+            for i in i0 as usize..i1 as usize {
                 let mut v = m.data[j * m.n + i];
                 if v == 0 {
                     continue;
                 }
                 let xx = x + i as i64 - x0;
-                if xx < 0 || xx >= w {
-                    continue;
-                }
                 if let Some((cx0, cy0, cx1, cy1)) = self.clip {
                     let (dx, dy) = (x0 + xx, y0 + yy);
                     if dx < cx0 || dx >= cx1 || dy < cy0 || dy >= cy1 {
@@ -789,6 +787,19 @@ pub(crate) fn natural_ink(
     let dp = effective_diameter(stroke, placement);
     let aa = b.antialiased;
     let m = b.max_count.min(64) as usize;
+    let tip_key = crate::tipcache::TipKey {
+        natural: true,
+        dp,
+        round: b.shape == TipShape::Circle,
+        soft: b.softness,
+        bell: b.bell_curve,
+        aspect: b.aspect,
+        angle: b.angle,
+        min_size: b.min_size,
+        m,
+        angle_mode: b.row_active(Tgt::Angle),
+    };
+    let crate::tipcache::Tips { stages, mut shifted } = crate::tipcache::take(tip_key);
     let mut tips = TipSet {
         dp,
         round: b.shape == TipShape::Circle,
@@ -799,7 +810,7 @@ pub(crate) fn natural_ink(
         min_size: b.min_size,
         m,
         angle_mode: b.row_active(Tgt::Angle),
-        tips: HashMap::new(),
+        tips: stages,
     };
     let n_tip = tips.get(0).n as i64 - 1;
     let tipw = n_tip as f64;
@@ -835,7 +846,6 @@ pub(crate) fn natural_ink(
         .as_ref()
         .filter(|_| b.texture_blend > 0 || b.texture_edge > 0)
         .map(|t| TexLookup::new(&t.mask, path.texture_offset));
-    let mut shifted: HashMap<(usize, usize, usize), Tip> = HashMap::new();
     let half = (n_tip as f64 * 0.5 * 16.0) as i64;
     let scatter_c = (10.0 * dp) as i64;
     for c in &path.contours {

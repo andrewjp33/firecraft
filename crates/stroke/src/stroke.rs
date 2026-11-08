@@ -115,21 +115,19 @@ impl InkBuffer<'_> {
         {
             return;
         }
-        for j in 0..m.n {
+        // Only the part of the tip inside the window.
+        let n = m.n as i64;
+        let (j0, j1) = ((y0 - y).max(0), (y0 + self.h as i64 - y).min(n));
+        let (i0, i1) = ((x0 - x).max(0), (x0 + self.w as i64 - x).min(n));
+        for j in j0 as usize..j1 as usize {
             let yy = y + j as i64 - y0;
-            if yy < 0 || yy >= self.h as i64 {
-                continue;
-            }
             let row = yy as usize * self.w;
-            for i in 0..m.n {
+            for i in i0 as usize..i1 as usize {
                 let mut v = m.data[j * m.n + i];
                 if v == 0 {
                     continue;
                 }
                 let xx = x + i as i64 - x0;
-                if xx < 0 || xx >= self.w as i64 {
-                    continue;
-                }
                 if let Some((t, btb, bte)) = &self.tex {
                     v = crate::natural::textured_mask(
                         v,
@@ -243,7 +241,26 @@ pub(crate) fn simple_ink(
     let aa = b.antialiased;
     let dp = effective_diameter(stroke, placement);
     let round = b.shape == TipShape::Circle;
-    let tip = tip_mask(dp, round, b.softness, b.bell_curve);
+    let tip_key = crate::tipcache::TipKey {
+        natural: false,
+        dp,
+        round,
+        soft: b.softness,
+        bell: b.bell_curve,
+        aspect: b.aspect,
+        angle: b.angle,
+        min_size: b.min_size,
+        m: b.max_count.min(64) as usize,
+        angle_mode: b.row_active(Tgt::Angle),
+    };
+    let crate::tipcache::Tips {
+        mut stages,
+        shifted: mut cache,
+    } = crate::tipcache::take(tip_key);
+    let tip = stages
+        .entry(0)
+        .or_insert_with(|| tip_mask(dp, round, b.softness, b.bell_curve))
+        .clone();
     let n_tip = tip.n as i64 - 1;
     let o_base =
         crate::support::color::brush_stamp_opacity(b.concentration, feedback_code(b.feedback), b.spacing, dp);
@@ -265,12 +282,11 @@ pub(crate) fn simple_ink(
     let angle_mode = b.row_active(Tgt::Angle);
     let staged = m > 0 && (angle_mode || b.row_active(Tgt::Size));
     let color = [stroke.color.r(), stroke.color.g(), stroke.color.b()];
-    let mut stage_tips: HashMap<usize, Tip> = HashMap::new();
     let mut tip_for = |k: usize| -> Tip {
         if k == 0 {
             return tip.clone();
         }
-        stage_tips
+        stages
             .entry(k)
             .or_insert_with(|| {
                 let t = TipTransform {
@@ -285,7 +301,6 @@ pub(crate) fn simple_ink(
     };
     let walks = simple_walks(path, stroke, placement, rect, n_tip);
     let tipw = (tip.n - 1) as f64;
-    let mut cache: HashMap<(usize, usize, usize), Tip> = HashMap::new();
     let half = (n_tip as f64 * 0.5 * 16.0) as i64;
     let edge_mode = !aa && b.kind == BrushType::Simple && placement != StrokePlacement::Center;
     for (ci, walk) in walks.iter().enumerate() {
@@ -380,6 +395,13 @@ pub(crate) fn simple_ink(
             }
         }
     }
+    crate::tipcache::keep(
+        tip_key,
+        crate::tipcache::Tips {
+            stages,
+            shifted: cache,
+        },
+    );
     if let Some(r) = rgb_ink {
         return r.into_out();
     }

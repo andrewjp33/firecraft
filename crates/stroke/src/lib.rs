@@ -18,5 +18,6 @@ pub mod natural;
 pub mod paint;
 pub mod stroke;
 pub mod support;
+mod tipcache;
 
 pub use attrs::{BrushParams, BrushType, PathContour, PointDynamics, Stroke, StrokePlacement, VectorPath};

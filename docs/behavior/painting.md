@@ -32,16 +32,14 @@ an existing one keeps at least its old rectangle.
 Defaults from the preferences file: size 13, round, Edge 2 (`EraserToolSoftEdge` is in tenths: 20),
 opacity 100%.
 
-* The dab at mouse pixel `p` starts at `floor(p - size/2) + 1` and is centred at start + size/2.
-  Size 13 at row 126 centres on the middle of that row and covers rows 120..=133.
+* **The tip is Fireworks' own brush tip** (`tip_value`, [strokes.md](strokes.md)): round with the
+  bell curve, square with a linear ramp; the Edge is its softness. Single dabs of sizes 7 to 60 at
+  Edge 2 to 100 match Fireworks MX to within one level.
+* A round tip has `size + 1` cells per side (the extra one on the far side), a square one `size`.
+  Odd sizes centre on the mouse's pixel; even round ones on its left/top edge, even square ones
+  on its right/bottom edge.
 * One dab per pixel along the stroke; each removes its cover from what's left; the opacity
   applies once to the whole stroke, so overlapping dabs never exceed it.
-* **Square tips** cover exactly `size` cells, and the Edge softens them: a dab's cover is
-  `min(1, (size/2 - d) / (size/2 * Edge/100))`, where `d` is the larger of the horizontal and
-  vertical distance from the centre (single dabs at sizes 13 and 30, Edge 25 to 100, match to
-  within 3 levels; at Edge 10 the outer row is 10 levels off).
-* Round tips: FirePixel's cover curve over the Edge, with its two constants solved from a Fireworks MX stroke
-  (size 13, Edge 2: the soft rows beside the stroke keep alpha 49 and 223).
 
 ## Paint Bucket
 

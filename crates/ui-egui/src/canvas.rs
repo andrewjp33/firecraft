@@ -649,6 +649,7 @@ fn paint_input(
         let (x, y) = to_doc(pos);
         d.extend_paint(x, y, constrain);
     }
+    d.flush_paint();
     if !down {
         d.end_paint();
     }
