@@ -451,10 +451,13 @@ impl Effect {
                 // strength at the edge (FirePixel's measurement), but aren't painted: glow under
                 // a semi-transparent object measured worse against Fireworks MX files.
                 let filled = !*inner && *offset == 0.0;
+                // A softened glow of width 0 acts as a 2-pixel band (best fit against Fireworks
+                // MX on gym.png, at softness 7; widening other glows made files worse).
+                let reach = if *width <= 0.0 && !*inner { 2.0 } else { *width };
                 let band: Vec<f32> = dist
                     .iter()
                     .map(|&d| {
-                        if (d > *offset && d <= offset + width) || (filled && d == 0.0) {
+                        if (d > *offset && d <= offset + reach) || (filled && d == 0.0) {
                             255.0
                         } else {
                             0.0
