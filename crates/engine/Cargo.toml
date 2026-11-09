@@ -10,6 +10,7 @@ description = "FireCraft session: open documents, tools, selection, history and 
 workspace = true
 
 [dependencies]
+firecraft-text = { workspace = true }
 firecraft-raster = { workspace = true }
 firecraft-doc = { workspace = true }
 firecraft-stroke = { workspace = true }

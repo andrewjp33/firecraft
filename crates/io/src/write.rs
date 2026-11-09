@@ -415,13 +415,8 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             );
             g
         }
-        // Text and other elements are re-emitted as read. A text element created in FireCraft (no
-        // raw node yet) is saved as its rendered bitmap until the text engine lands.
-        ElementKind::Text(t) => match (&el.raw, &t.cached) {
-            (Some(raw), _) => raw.clone(),
-            (None, Some(b)) => write_bitmap(b, None, w),
-            (None, None) => Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])]),
-        },
+        ElementKind::Text(t) => write_text(t, el.raw.as_ref().filter(|r| r.is("TXT")), w),
+        // Other elements are re-emitted as read.
         ElementKind::Other { cached, .. } => match (&el.raw, cached) {
             (Some(raw), _) => raw.clone(),
             (None, Some(b)) => write_bitmap(b, None, w),
@@ -644,6 +639,172 @@ fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
     }
     put(&mut n, Node::vector("TIL", ids));
     n
+}
+
+/// A text object: its position and stored image always, the rest when it has been edited or made
+/// here. Unedited text keeps the record Fireworks wrote.
+fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> Node {
+    let mut n = raw.cloned().unwrap_or_else(|| Node::vector("TXT", vec![]));
+    let (ox, oy) = w.origin;
+    for (tag, v) in [
+        ("LFT", t.rect.0 + ox),
+        ("TOP", t.rect.1 + oy),
+        ("RIT", t.rect.2 + ox),
+        ("BOT", t.rect.3 + oy),
+    ] {
+        put(&mut n, Node::float(tag, v));
+    }
+    if t.edited || raw.is_none() {
+        let first = t.runs.first();
+        let color = to_argb(first.map_or(t.color, |r| r.color));
+        match n.children.iter_mut().find(|c| c.is("PAT")) {
+            Some(pat) => put(pat, Node::int("FCL", color)),
+            None => n.children.push(Node::vector(
+                "PAT",
+                vec![
+                    Node::int("BCL", 0xff00_0000),
+                    Node::int("FCL", color),
+                    Node::vector(
+                        "FPL",
+                        vec![
+                            Node::string("CAT", "fc_Solid"),
+                            Node::string("INM", "fn_Normal"),
+                            Node::string("UNM", "fn_Normal"),
+                            Node::bool("RDO", false),
+                            Node::int("FTB", 0),
+                            Node::int("FEF", 0),
+                            Node::int("FSM", 2),
+                            Node::int("FET", 1),
+                            Node::int("FRD", 0),
+                            Node::int("FRR", 0),
+                            Node::int("FSH", 0),
+                        ],
+                    ),
+                ],
+            )),
+        }
+        for (tag, v) in [("BRP", 2), ("PTT", 1), ("RND", 0)] {
+            if n.child(tag).is_none() {
+                put(&mut n, Node::int(tag, v));
+            }
+        }
+        if n.child("FOT").is_none() {
+            put(&mut n, Node::bool("FOT", false));
+        }
+        for tag in ["TOX", "TOY"] {
+            if n.child(tag).is_none() {
+                put(&mut n, Node::float(tag, 0.0));
+            }
+        }
+        put(&mut n, Node::int("ORI", 0));
+        put(&mut n, Node::int("XFM", 0));
+        put(&mut n, Node::int("TAA", i64::from(t.anti_alias)));
+        put(&mut n, Node::bool("ATE", false));
+        put(&mut n, Node::bool("ATK", t.auto_kern));
+        if t.auto_width {
+            put(&mut n, Node::int("FAW", 1));
+        } else {
+            n.children.retain(|c| !c.is("FAW"));
+        }
+        let start = first.cloned().unwrap_or_else(|| default_run(t));
+        for a in run_nodes(&start, None) {
+            put(&mut n, a);
+        }
+        let mut stream = Vec::new();
+        let mut before = start;
+        for run in &t.runs {
+            stream.extend(run_nodes(run, Some(&before)));
+            stream.push(Node::string("TRN", &run.text));
+            before = run.clone();
+        }
+        // The text and image come last, as Fireworks writes them.
+        n.children.retain(|c| !c.is("TFS") && !c.is("IMG"));
+        n.children.push(Node::vector("TFS", stream));
+    }
+    match &t.cached {
+        Some(b) => {
+            let image = write_bitmap(b, n.child("IMG"), w);
+            put(&mut n, image);
+        }
+        None => n.children.retain(|c| !c.is("IMG")),
+    }
+    n
+}
+
+fn default_run(t: &firecraft_doc::Text) -> firecraft_doc::TextRun {
+    firecraft_doc::TextRun {
+        text: String::new(),
+        font: t.font.clone(),
+        size: t.size,
+        color: t.color,
+        bold: t.bold,
+        italic: t.italic,
+        underline: t.underline,
+        h_scale: 1.0,
+        tracking: 0.0,
+        baseline_shift: 0.0,
+        leading: 1.0,
+        leading_px: false,
+        align: 0,
+        indent: 0.0,
+        space_before: 0.0,
+        space_after: 0.0,
+    }
+}
+
+/// A run's attribute nodes: all of them, or those differing from `before`.
+fn run_nodes(r: &firecraft_doc::TextRun, before: Option<&firecraft_doc::TextRun>) -> Vec<Node> {
+    let mut out = Vec::new();
+    let changed = |f: &dyn Fn(&firecraft_doc::TextRun) -> bool| before.is_none_or(f);
+    if changed(&|b| b.font != r.font) {
+        out.push(Node::string("FON", &r.font));
+    }
+    if changed(&|b| b.size != r.size) {
+        out.push(Node::float("PTS", r.size));
+    }
+    if changed(&|b| b.bold != r.bold) {
+        out.push(Node::bool("BOL", r.bold));
+    }
+    if changed(&|b| b.italic != r.italic) {
+        out.push(Node::bool("ITL", r.italic));
+    }
+    if changed(&|b| b.underline != r.underline) {
+        out.push(Node::bool("UND", r.underline));
+    }
+    if changed(&|b| b.h_scale != r.h_scale) {
+        out.push(Node::float("HSC", r.h_scale));
+    }
+    if before.is_none() {
+        out.push(Node::float("KRN", 0.0));
+    }
+    if changed(&|b| b.tracking != r.tracking) {
+        out.push(Node::float("RKN", r.tracking));
+    }
+    if changed(&|b| b.baseline_shift != r.baseline_shift) {
+        out.push(Node::float("BLS", r.baseline_shift));
+    }
+    if changed(&|b| b.leading != r.leading) {
+        out.push(Node::float("LED", r.leading));
+    }
+    if changed(&|b| b.leading_px != r.leading_px) {
+        out.push(Node::int("LDM", i64::from(r.leading_px)));
+    }
+    if changed(&|b| b.align != r.align) {
+        out.push(Node::int("JST", i64::from(r.align)));
+    }
+    if changed(&|b| b.indent != r.indent) {
+        out.push(Node::float("PIN", r.indent));
+    }
+    if changed(&|b| b.space_before != r.space_before) {
+        out.push(Node::float("PSB", r.space_before));
+    }
+    if changed(&|b| b.space_after != r.space_after) {
+        out.push(Node::float("PSA", r.space_after));
+    }
+    if before.is_some_and(|b| b.color != r.color) {
+        out.push(Node::int("FCL", to_argb(r.color)));
+    }
+    out
 }
 
 /// A texture node (`TXBv`/`TXFv { INMs MSKv { WPXi HPXi TSZi{100} TILv } }`): mask tiles of

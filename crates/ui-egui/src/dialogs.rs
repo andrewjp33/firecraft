@@ -19,6 +19,8 @@ pub struct Dialogs {
     pub edit_stroke: Option<crate::stroke_dialog::EditStroke>,
     /// A message box: title and text.
     pub message: Option<(String, String)>,
+    /// Fonts a document needs that aren't here: (missing, replacement chosen).
+    pub missing_fonts: Option<Vec<(String, String)>>,
     pub new_doc: bool,
     pub new_w: u32,
     pub new_h: u32,
@@ -206,6 +208,7 @@ impl Default for Dialogs {
         Self {
             edit_stroke: None,
             message: None,
+            missing_fonts: None,
             new_doc: false,
             new_w: 660,
             new_h: 440,
@@ -271,7 +274,52 @@ fn rgba_edit(ui: &mut egui::Ui, c: &mut Rgba) -> bool {
     changed
 }
 
+/// Fireworks MX's Missing Fonts choice: keep the look until the text is edited, or replace now.
+fn missing_fonts(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(mut rows) = app.dialogs.missing_fonts.take() else {
+        return;
+    };
+    let names = app.font_names();
+    let (mut close, mut replace) = (false, false);
+    egui::Window::new("Missing Fonts")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.label("This document uses fonts that aren't on this computer.");
+            ui.add_space(4.0);
+            egui::Grid::new("missing_fonts").show(ui, |ui| {
+                for (i, (font, to)) in rows.iter_mut().enumerate() {
+                    ui.label(font.as_str());
+                    egui::ComboBox::from_id_salt(("missing_font", i))
+                        .width(200.0)
+                        .height(300.0)
+                        .selected_text(to.as_str())
+                        .show_ui(ui, |ui| {
+                            for name in names.iter() {
+                                ui.selectable_value(to, name.clone(), name);
+                            }
+                        });
+                    ui.end_row();
+                }
+            });
+            ui.add_space(4.0);
+            ui.weak("Maintain Appearance keeps the text as saved. Text you edit uses a replacement font.");
+            ui.horizontal(|ui| {
+                close = ui.button("Maintain Appearance").clicked();
+                replace = ui.button("Replace Fonts").clicked();
+            });
+        });
+    if replace && let Some(d) = app.session.active_doc_mut() {
+        d.replace_fonts(&rows);
+    }
+    if !(close || replace) {
+        app.dialogs.missing_fonts = Some(rows);
+    }
+}
+
 pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
+    missing_fonts(app, ctx);
     crate::stroke_dialog::show(app, ctx);
     if let Some((title, text)) = app.dialogs.message.clone() {
         let mut close = false;
@@ -572,6 +620,14 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             "Patterns folder:",
             &mut prefs.patterns_dir,
             "The Configuration/Patterns folder of an installed Fireworks (MX to CS6).",
+        );
+        folder_row(
+            ui,
+            platform.as_mut(),
+            FolderKind::Fonts,
+            "Fonts folder:",
+            &mut prefs.fonts_dir,
+            "A folder of .ttf or .otf fonts to use besides the installed ones, such as fonts from backups.",
         );
         ui.separator();
         close = ui.button("OK").clicked();

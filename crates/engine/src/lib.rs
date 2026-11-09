@@ -9,6 +9,7 @@ mod objects;
 mod paint;
 pub mod paths;
 mod symbols;
+pub mod text;
 mod tools;
 
 pub use fills::{

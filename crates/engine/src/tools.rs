@@ -218,6 +218,11 @@ pub struct ToolOptions {
     /// New fills' texture amount (tenths of a percent) and Transparent option.
     pub fill_texture_amount: u16,
     pub fill_texture_transparent: bool,
+    /// New text's formatting (its colour comes from the fill colour, as in Fireworks).
+    pub text_style: firecraft_doc::TextRun,
+    /// New text's anti-alias mode and auto-kerning.
+    pub text_anti_alias: u8,
+    pub text_auto_kern: bool,
     /// The fill category new objects get (`fc_Solid`, `fc_Linear`, ...).
     pub fill_category: String,
     /// New objects' gradient, when the category is one (its handles are set per object).
@@ -269,6 +274,9 @@ impl Default for ToolOptions {
             stroke_texture: None,
             fill_texture: None,
             stroke_placement: 1,
+            text_style: crate::text::default_style(),
+            text_anti_alias: 0,
+            text_auto_kern: true,
             fill_texture_amount: 0,
             fill_texture_transparent: false,
             fill_category: "fc_Solid".into(),

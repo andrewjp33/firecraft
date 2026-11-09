@@ -14,6 +14,7 @@ firecraft-raster = { workspace = true }
 firecraft-doc = { workspace = true }
 firecraft-fwpng = { workspace = true }
 firecraft-io = { workspace = true }
+firecraft-text = { workspace = true }
 firecraft-engine = { workspace = true }
 firecraft-sysclip = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }

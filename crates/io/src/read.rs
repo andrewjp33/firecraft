@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use firecraft_doc::{
     BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Frame, Layer, MaskMode, Path,
-    PolyLine, PolyPoint, RectShape, StoredPolyline, Stroke, Symbol, Text,
+    PolyLine, PolyPoint, RectShape, StoredPolyline, Stroke, Symbol, Text, TextRun,
 };
 use firecraft_fwpng::{FwPng, Node, Tile};
 use firecraft_raster::gradient::{Gradient, GradientKind};
@@ -697,29 +697,103 @@ fn read_web_dither(preset: &Node) -> Option<[Rgba; 4]> {
     Some([c("FD1")?, c("FD2")?, c("FD3")?, c("FD4")?])
 }
 
+/// A run's attributes: `base`, changed by whatever `n` (or a run's preceding nodes) sets.
+fn text_attrs(nodes: &[&Node], base: &TextRun) -> TextRun {
+    let mut r = base.clone();
+    for n in nodes {
+        let t = String::from_utf8_lossy(&n.tag).to_string();
+        match t.as_str() {
+            "FON" => r.font = n.as_str().unwrap_or(&r.font).to_owned(),
+            "PTS" => r.size = n.as_float().unwrap_or(r.size),
+            "BOL" => r.bold = n.as_bool().unwrap_or(r.bold),
+            "ITL" => r.italic = n.as_bool().unwrap_or(r.italic),
+            "UND" => r.underline = n.as_bool().unwrap_or(r.underline),
+            "HSC" => r.h_scale = n.as_float().unwrap_or(r.h_scale),
+            "RKN" => r.tracking = n.as_float().unwrap_or(r.tracking),
+            "BLS" => r.baseline_shift = n.as_float().unwrap_or(r.baseline_shift),
+            "LED" => r.leading = n.as_float().unwrap_or(r.leading),
+            "LDM" => r.leading_px = n.as_int().unwrap_or(0) != 0,
+            "JST" => {
+                let v = n.as_int().unwrap_or(0);
+                r.align = if v & 0x0f >= 4 {
+                    (v & 0x10) as u8
+                } else {
+                    v.clamp(0, 4) as u8
+                };
+            }
+            "PIN" => r.indent = n.as_float().unwrap_or(r.indent),
+            "PSB" => r.space_before = n.as_float().unwrap_or(r.space_before),
+            "PSA" => r.space_after = n.as_float().unwrap_or(r.space_after),
+            "FCL" => r.color = n.as_u32().map_or(r.color, argb),
+            _ => {}
+        }
+    }
+    r
+}
+
 fn read_text(n: &Node, ctx: &Ctx) -> Text {
-    let text: String = n
-        .child("TFS")
-        .map(|t| {
-            t.children
-                .iter()
-                .filter_map(Node::as_str)
-                .collect::<Vec<_>>()
-                .join("")
-        })
-        .unwrap_or_default();
-    Text {
-        text,
-        font: n.str_of("FON").unwrap_or("Arial").to_owned(),
-        size: n.float_of("PTS").unwrap_or(12.0),
+    let base = TextRun {
+        text: String::new(),
+        font: "Arial".into(),
+        size: 12.0,
         color: n
             .child("PAT")
             .and_then(|a| a.u32_of("FCL"))
             .map(argb)
             .unwrap_or(Rgba::BLACK),
-        bold: n.bool_of("BOL").unwrap_or(false),
-        italic: n.bool_of("ITL").unwrap_or(false),
-        underline: n.bool_of("UND").unwrap_or(false),
+        bold: false,
+        italic: false,
+        underline: false,
+        h_scale: 1.0,
+        tracking: 0.0,
+        baseline_shift: 0.0,
+        leading: 1.0,
+        leading_px: false,
+        align: 0,
+        indent: 0.0,
+        space_before: 0.0,
+        space_after: 0.0,
+    };
+    let own: Vec<&Node> = n.children.iter().collect();
+    let initial = text_attrs(&own, &base);
+    // `TFSv`: attribute changes, then the characters they apply to.
+    let mut runs = Vec::new();
+    let mut current = initial.clone();
+    let mut pending: Vec<&Node> = Vec::new();
+    for c in n.child("TFS").map_or(&[][..], |t| &t.children) {
+        if c.is("TRN") {
+            current = text_attrs(&pending, &current);
+            pending.clear();
+            runs.push(TextRun {
+                text: c.as_str().unwrap_or_default().to_owned(),
+                ..current.clone()
+            });
+        } else {
+            pending.push(c);
+        }
+    }
+    let (ox, oy) = ctx.origin;
+    let edge = |t: &str| n.float_of(t).unwrap_or(0.0);
+    Text {
+        text: runs.iter().map(|r| r.text.as_str()).collect(),
+        font: initial.font.clone(),
+        size: initial.size,
+        color: initial.color,
+        bold: initial.bold,
+        italic: initial.italic,
+        underline: initial.underline,
+        runs,
+        rect: (
+            edge("LFT") - ox,
+            edge("TOP") - oy,
+            edge("RIT") - ox,
+            edge("BOT") - oy,
+        ),
+        auto_kern: n.bool_of("ATK").unwrap_or(true),
+        anti_alias: n.int_of("TAA").unwrap_or(0).clamp(0, 2) as u8,
+        // FireCraft extension (Fireworks MX ignores unknown nodes).
+        auto_width: n.int_of("FAW") == Some(1),
+        edited: false,
         cached: n.child("IMG").and_then(|i| read_bitmap(i, ctx)),
     }
 }

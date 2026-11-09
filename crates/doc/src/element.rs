@@ -542,6 +542,19 @@ impl Path {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
+    /// The characters with their formatting, in order (`TFSv`).
+    pub runs: Vec<TextRun>,
+    /// The text block, canvas coordinates: left, top, right, bottom (`LFT`..`BOT`).
+    pub rect: (f64, f64, f64, f64),
+    /// Auto-kerning (`ATKb`).
+    pub auto_kern: bool,
+    /// Anti-alias mode (`TAAi`): 0 smooth, 1 crisp, 2 strong.
+    pub anti_alias: u8,
+    /// The block grows with its text instead of wrapping (a click, not a drag, made it).
+    pub auto_width: bool,
+    /// Its characters or formatting have changed since the file was read, so the record and its
+    /// stored image are rewritten on save.
+    pub edited: bool,
     pub text: String,
     pub font: String,
     pub size: f64,
@@ -552,6 +565,33 @@ pub struct Text {
     /// Fireworks stores a pre-rendered image of the text; used until FireCraft's own text
     /// engine renders it (a text engine is on the roadmap).
     pub cached: Option<Bitmap>,
+}
+
+/// A stretch of text with one set of attributes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextRun {
+    pub text: String,
+    pub font: String,
+    pub size: f64,
+    pub color: Rgba,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    /// Horizontal scale, 1 = 100% (`HSCf`).
+    pub h_scale: f64,
+    /// Range kerning, tenths of the size (`RKNf`).
+    pub tracking: f64,
+    /// Baseline shift in pixels (`BLSf`).
+    pub baseline_shift: f64,
+    /// Leading (`LEDf`): a multiple of the size, or pixels if `leading_px`.
+    pub leading: f64,
+    pub leading_px: bool,
+    /// Paragraph alignment (`JSTi`): 0 left, 1 center, 2 right, 3 justify, 4 stretch.
+    pub align: u8,
+    /// First-line indent and space before and after a paragraph, pixels (`PINf`, `PSBf`, `PSAf`).
+    pub indent: f64,
+    pub space_before: f64,
+    pub space_after: f64,
 }
 
 /// How a mask hides its content (Fireworks MX element masks).
@@ -691,6 +731,13 @@ impl Element {
     /// Move by (`dx`, `dy`) canvas pixels.
     pub fn translate(&mut self, dx: f64, dy: f64) {
         match &mut self.kind {
+            ElementKind::Text(t) => {
+                t.rect = (t.rect.0 + dx, t.rect.1 + dy, t.rect.2 + dx, t.rect.3 + dy);
+                if let Some(b) = &mut t.cached {
+                    b.x = (b.x as f64 + dx).round() as i64;
+                    b.y = (b.y as f64 + dy).round() as i64;
+                }
+            }
             ElementKind::Bitmap(b) => {
                 b.x += dx.round() as i64;
                 b.y += dy.round() as i64;
@@ -715,7 +762,7 @@ impl Element {
                     *o = (o.0 + dx, o.1 + dy);
                 }
             }
-            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
+            ElementKind::Other { cached: Some(b), .. } => {
                 b.x += dx.round() as i64;
                 b.y += dy.round() as i64;
             }
@@ -749,6 +796,33 @@ impl Element {
             }
         };
         match &mut self.kind {
+            ElementKind::Text(t) => {
+                if let Some(b) = &mut t.cached {
+                    map_bitmap(b);
+                }
+                let (l, top, r, bottom) = t.rect;
+                let (x, y, w, h) = m.map_rect(l, top, r - l, bottom - top);
+                t.rect = (x, y, x + w, y + h);
+                // A plain scale carries into the formatting, so editing keeps the size.
+                if m.is_affine() && m.b.abs() < 1e-9 && m.c.abs() < 1e-9 {
+                    let (sx, sy) = ((m.a / m.i).abs(), (m.d / m.i).abs());
+                    if (sx - 1.0).abs() > 1e-9 || (sy - 1.0).abs() > 1e-9 {
+                        for run in &mut t.runs {
+                            run.size *= sy;
+                            run.h_scale *= sx / sy;
+                            run.baseline_shift *= sy;
+                            run.indent *= sx;
+                            run.space_before *= sy;
+                            run.space_after *= sy;
+                            if run.leading_px {
+                                run.leading *= sy;
+                            }
+                        }
+                        t.size *= sy;
+                        t.edited = true;
+                    }
+                }
+            }
             ElementKind::Bitmap(b) => map_bitmap(b),
             ElementKind::Path(p) => {
                 for pt in p.contours.iter_mut().flat_map(|c| c.points.iter_mut()) {
@@ -782,9 +856,7 @@ impl Element {
                     *o = m.apply(o.0, o.1);
                 }
             }
-            ElementKind::Text(Text { cached: Some(b), .. }) | ElementKind::Other { cached: Some(b), .. } => {
-                map_bitmap(b)
-            }
+            ElementKind::Other { cached: Some(b), .. } => map_bitmap(b),
             ElementKind::Group(children) => children.iter_mut().for_each(|c| c.transform(m)),
             ElementKind::Masked {
                 content, mask, cache, ..

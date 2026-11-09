@@ -32,6 +32,7 @@ mod panels;
 mod path_tool;
 mod stroke_dialog;
 mod stroke_panel;
+mod text_tool;
 mod theme;
 mod tools_panel;
 mod transform_tool;
@@ -58,6 +59,7 @@ pub enum SaveStatus {
 pub enum FolderKind {
     Textures,
     Patterns,
+    Fonts,
 }
 
 /// What a save in progress is for.
@@ -156,6 +158,8 @@ pub struct Prefs {
     pub textures_dir: String,
     /// Fireworks' Patterns folder (for pattern fills, once they exist).
     pub patterns_dir: String,
+    /// A folder of fonts to use besides the installed ones.
+    pub fonts_dir: String,
 }
 
 impl Prefs {
@@ -173,7 +177,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -191,6 +195,7 @@ impl Prefs {
             self.textures_dir.replace(['\n', '\r'], ""),
             self.patterns_dir.replace(['\n', '\r'], ""),
             self.mx_perspective,
+            self.fonts_dir.replace(['\n', '\r'], ""),
         )
     }
 
@@ -229,6 +234,7 @@ impl Prefs {
                 // `fireworks_dir` is the older name; an install folder still finds its textures.
                 "textures_dir" | "fireworks_dir" => p.textures_dir = v.trim().to_owned(),
                 "patterns_dir" => p.patterns_dir = v.trim().to_owned(),
+                "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -278,6 +284,7 @@ impl Default for Prefs {
             mouse_highlight: true,
             textures_dir: String::new(),
             patterns_dir: String::new(),
+            fonts_dir: String::new(),
         }
     }
 }
@@ -331,6 +338,11 @@ pub struct FireCraftApp {
     path_edit: path_tool::PathEdit,
     gradient_popup: Option<gradient_ui::Popup>,
     fill_window: Option<fill_ui::Window>,
+    text_tool: text_tool::TextTool,
+    fonts: std::sync::Arc<Vec<String>>,
+    fonts_for: Option<(String, u64)>,
+    /// Documents whose fonts have been checked when first shown.
+    fonts_checked: std::collections::HashSet<u64>,
     stroke_window: Option<fill_ui::StrokeWindow>,
     /// The fill and stroke of the selected object the tools last took on.
     adopted: Option<(Option<firecraft_doc::Fill>, Option<firecraft_doc::Stroke>)>,
@@ -375,6 +387,10 @@ impl FireCraftApp {
             path_edit: path_tool::PathEdit::default(),
             gradient_popup: None,
             fill_window: None,
+            text_tool: Default::default(),
+            fonts: Default::default(),
+            fonts_for: None,
+            fonts_checked: Default::default(),
             stroke_window: None,
             adopted: None,
             awaiting_pattern: None,
@@ -413,6 +429,70 @@ impl FireCraftApp {
         self.session.options.adopt_fill(owned.0.as_ref());
         self.session.options.adopt_stroke(owned.1.as_ref());
         self.adopted = Some(owned);
+    }
+
+    /// Pick up the Fonts folder when it changes. The browser has no system fonts, so there
+    /// egui's own stand in until a folder is chosen.
+    fn refresh_fonts(&mut self) {
+        use firecraft_text::{Font, FontDb};
+        let source = (self.prefs.fonts_dir.clone(), self.platform.folder_revision());
+        if self.fonts_for.as_ref() == Some(&source) {
+            return;
+        }
+        self.fonts_for = Some(source);
+        let dir = self.prefs.fonts_dir.trim().to_owned();
+        let files = self.platform.folder_files(FolderKind::Fonts);
+        let web = cfg!(target_arch = "wasm32");
+        if dir.is_empty() && files.is_empty() && !web {
+            return;
+        }
+        let mut db = FontDb::system();
+        if !dir.is_empty() {
+            db.add_dir(std::path::Path::new(&dir));
+        }
+        for (_, bytes) in files {
+            if let Ok(font) = Font::from_data(bytes, 0) {
+                db.add_font(font);
+            }
+        }
+        if db.is_empty() {
+            for data in egui::FontDefinitions::default().font_data.values() {
+                if let Ok(font) = Font::from_data((*data.font).as_ref().to_vec(), 0) {
+                    db.add_font(font);
+                }
+            }
+        }
+        FontDb::set_shared(db);
+        self.fonts = Default::default();
+    }
+
+    /// When a document first shows, offer a choice about any fonts it needs that aren't here.
+    fn check_missing_fonts(&mut self) {
+        let Some(d) = self.session.active_doc() else {
+            return;
+        };
+        if !self.fonts_checked.insert(d.id) {
+            return;
+        }
+        let missing = firecraft_engine::text::missing_fonts(d);
+        if !missing.is_empty() {
+            let names = self.font_names();
+            let fallback = ["Arial", "Liberation Sans", "Helvetica", "DejaVu Sans"]
+                .iter()
+                .find_map(|n| names.iter().find(|f| f.as_str() == *n))
+                .or_else(|| names.first())
+                .cloned()
+                .unwrap_or_default();
+            self.dialogs.missing_fonts = Some(missing.into_iter().map(|f| (f, fallback.clone())).collect());
+        }
+    }
+
+    /// The installed font families, read once.
+    pub(crate) fn font_names(&mut self) -> std::sync::Arc<Vec<String>> {
+        if self.fonts.is_empty() {
+            self.fonts = std::sync::Arc::new(firecraft_text::FontDb::shared().families());
+        }
+        self.fonts.clone()
     }
 
     /// The pattern list, read again when the Patterns folder setting changes.
@@ -582,6 +662,8 @@ impl FireCraftApp {
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
         self.adopt_selected_attributes();
+        self.refresh_fonts();
+        self.check_missing_fonts();
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();
@@ -637,6 +719,7 @@ impl FireCraftApp {
             match (folder, kind) {
                 (Ok(dir), FolderKind::Textures) => self.prefs.textures_dir = dir,
                 (Ok(dir), FolderKind::Patterns) => self.prefs.patterns_dir = dir,
+                (Ok(dir), FolderKind::Fonts) => self.prefs.fonts_dir = dir,
                 (Err(e), _) => self.error(e),
             }
         }
@@ -743,6 +826,7 @@ mod prefs_tests {
         let p = Prefs {
             textures_dir: "/fw/Textures".into(),
             patterns_dir: "/fw/Patterns".into(),
+            fonts_dir: String::new(),
             ..Prefs::default()
         };
         assert_eq!(Prefs::parse(&p.serialize()), p);

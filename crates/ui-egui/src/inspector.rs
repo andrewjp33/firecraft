@@ -82,6 +82,10 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let has_selection = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
         match tool {
             Tool::MagicWand => wand(app, ui),
+            Tool::Text => {
+                identity(ui, Tool::Text.label(), Some(Tool::Text), |_| {});
+                crate::text_tool::inspector(app, ui);
+            }
             Tool::Brush => brush(app, ui),
             Tool::Pencil => pencil(app, ui),
             Tool::Eraser => eraser(app, ui),
@@ -482,6 +486,9 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         });
         ui.separator();
+    }
+    if matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_))) {
+        crate::text_tool::inspector(app, ui);
     }
     // Fill/stroke of a single path.
     let mut fill_choice: Option<Option<firecraft_raster::Rgba>> = None;

@@ -940,6 +940,11 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         return;
     }
 
+    // The Text tool takes the canvas while it's active (and finishes when another tool is chosen).
+    if crate::text_tool::canvas(&mut app.text_tool, d, tool, &options, resp, &p, (origin, z)) {
+        return;
+    }
+
     // Fill handles of a selected gradient (over the tool underneath).
     if matches!(tool, Tool::Pointer | Tool::SelectBehind | Tool::Gradient)
         && crate::gradient_ui::handles(
@@ -1080,6 +1085,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         && let Some(pos) = resp.interact_pointer_pos()
     {
         let (x, y) = to_doc(pos);
+        // Double-clicking text edits it, with all of it selected.
+        if let Some(r) = d.hit_test(x, y).filter(|r| d.text_at(*r).is_some()) {
+            app.session.tool = Tool::Text;
+            app.text_tool.edit_all(d, r);
+            return;
+        }
         if let Some(id) = d.hit_test(x, y).and_then(|r| d.instance_symbol(r)) {
             ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
         }

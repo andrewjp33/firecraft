@@ -245,7 +245,7 @@ export async function writeTo(handle, bytes) {
                 }),
             };
             // Folders chosen in earlier visits.
-            for kind in [FolderKind::Textures, FolderKind::Patterns] {
+            for kind in [FolderKind::Textures, FolderKind::Patterns, FolderKind::Fonts] {
                 let shared = browser.shared.clone();
                 spawn_local(async move {
                     if let Ok(files) = JsFuture::from(stored_files(storage_name(kind))).await {
@@ -425,6 +425,7 @@ export async function writeTo(handle, bytes) {
         match kind {
             FolderKind::Textures => "fireworks-textures",
             FolderKind::Patterns => "fireworks-patterns",
+            FolderKind::Fonts => "firecraft-fonts",
         }
     }
 

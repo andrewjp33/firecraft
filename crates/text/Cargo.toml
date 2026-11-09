@@ -1,0 +1,17 @@
+[package]
+name = "firecraft-text"
+description = "Text: fonts, layout and rasterising, adapted from FirePixel's fp-text"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+firecraft-stroke = { workspace = true }
+thiserror = { workspace = true }
+ttf-parser = "0.25"
+rustybuzz = "0.20"
+skrifa = "0.46"

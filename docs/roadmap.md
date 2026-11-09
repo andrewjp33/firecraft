@@ -16,6 +16,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
   Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
+- Text tool: click or drag to make text, in-place editing, per-character formatting, Property inspector,
+  Missing Fonts, Fonts folder, saving text Fireworks MX opens ([behavior/text.md](behavior/text.md))
 - Fills: Fill Options, Edit Gradient (stops, opacity, presets), Web Dither, Pattern, handles on the
   canvas, Gradient tool, Hard/Anti-Alias/Feather edges ([behavior/gradients.md](behavior/gradients.md))
 - Objects: clipboard (shared with Fireworks), Duplicate/Clone, Group/Ungroup, Arrange, Align,
@@ -29,7 +31,7 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 
 Rendering parity on real files is tracked in [parity.md](parity.md).
 
-Working order (user's priority, 2026-11-08): Text (item 5) next. Other items keep their numbers.
+Other items keep their numbers.
 
 1. **Paths, stage 2**: Modify > Combine Path (Join, Split, Union, Intersect, Punch, Crop), Alter
    Path (Simplify, Expand Stroke, Inset Path), Freeform and Reshape Area, Knife, Redraw Path,
@@ -39,7 +41,7 @@ Working order (user's priority, 2026-11-08): Text (item 5) next. Other items kee
 3. **Crop tool**; Lasso and Polygon Lasso
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
-5. **Text** tool and engine (render instead of using the cached bitmap; keep `TXTv` round trip)
+5. **Text**: Text menu (Editor..., Attach to Path, Convert to Paths), vertical text, rotated text re-editing
 6. **Fills**: the Gradient tool's exact behaviour against Fireworks MX
 7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
