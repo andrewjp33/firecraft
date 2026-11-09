@@ -83,12 +83,11 @@ Preferences for new documents, like Color math. Files from Fireworks open as *Fi
 saved; FireCraft files keep what they were saved with (`FCPi` 1 = Pixel-correct).
 
 *Pixel-correct* warps the symbol as a whole, in true perspective. Symbols of plain paths are drawn at the size
-they're seen (up to 8x) and averaged over each pixel where the perspective compresses them, so an enlarged symbol
-resolves detail. Colour effects (Hue/Saturation, Levels, Color Fill and the like) don't depend on scale and are
-included. Blurs, shadows, glows, bevels, textures, natural brushes and bitmaps change with scale, so those symbols
-warp at their own resolution.
+they're seen (up to 32x, within a pixel budget) and averaged over each pixel where the perspective compresses them, so an enlarged symbol
+resolves detail. Their effects are enlarged with them, including blurs, shadows, glows and bevels, so a 10-pixel
+bevel on a 20-pixel symbol still covers it at any size. Textures, natural brushes, bitmaps and the plug-in effects
+change with scale, so those symbols warp at their own resolution.
 
-*Fireworks MX* transforms each path and its fill handles and fills as usual, so a gradient's bands tighten
-towards the far side. Measured on a Ripple gradient: nothing differs from Fireworks MX by more than 2 levels on a
-file it re-saved. Paths under a colour effect are drawn the same way. Symbols with bitmaps, effects sized in
-pixels, nested instances or 9-slice guides still warp.
+*Fireworks MX* transforms each object and its fill handles and fills as usual, then applies effects at canvas
+size, so a gradient's bands tighten towards the far side and a 10-pixel bevel stays 10 pixels. Measured on Ripple
+and Folds gradients, with Color Fill and Inner Bevel. Only 9-slice guides, not a Fireworks MX feature, keep the warp.

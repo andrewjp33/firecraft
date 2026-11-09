@@ -108,16 +108,9 @@ impl Fill {
     }
 }
 
-/// Whether all an element's effects look the same at any drawing scale.
-fn effects_are_scale_free(e: &Element) -> bool {
-    e.effects
-        .iter()
-        .all(|x| x.effect.as_ref().is_none_or(Effect::is_scale_free))
-}
-
 /// Whether an element redraws faithfully at a larger scale: plain paths, whose fills, simple
-/// strokes and colour effects are resolution-free. Blurs and other effects sized in pixels,
-/// textures and natural brushes change with scale.
+/// strokes and resizable effects (colour adjustments, blurs, shadows, glows, bevels) can all be
+/// drawn bigger. Textures, natural brushes and the plug-in effects change with scale.
 fn redraws_at_any_scale(e: &Element) -> bool {
     let ElementKind::Path(p) = &e.kind else {
         return false;
@@ -128,12 +121,15 @@ fn redraws_at_any_scale(e: &Element) -> bool {
             .as_ref()
             .is_none_or(|b| b.int_of("BRT") != Some(0) && b.int_of("BTB").unwrap_or(0) == 0)
     });
-    effects_are_scale_free(e) && fill_ok && stroke_ok
+    let effects_ok = e
+        .effects
+        .iter()
+        .all(|x| x.effect.as_ref().is_none_or(|fx| fx.scaled(1.0).is_some()));
+    effects_ok && fill_ok && stroke_ok
 }
 
-/// How much larger than symbol space to draw so the most enlarged part of the instance has a
-/// pixel for each pixel on screen (a whole number, 1 to 8, kept to a sensible image size).
-fn warp_detail(matrix: &Affine, (x0, y0, x1, y1): (f64, f64, f64, f64)) -> f64 {
+/// The most a perspective matrix enlarges at the corners of a rectangle in front of its horizon.
+fn max_stretch(matrix: &Affine, (x0, y0, x1, y1): (f64, f64, f64, f64)) -> f64 {
     let side = matrix.i.signum();
     let in_front = |x: f64, y: f64| (matrix.g * x + matrix.h * y + matrix.i) * side > 0.0;
     let stretch = |x: f64, y: f64| {
@@ -141,13 +137,20 @@ fn warp_detail(matrix: &Affine, (x0, y0, x1, y1): (f64, f64, f64, f64)) -> f64 {
         let (right, down) = (matrix.apply(x + 1.0, y), matrix.apply(x, y + 1.0));
         ((right.0 - p.0).hypot(right.1 - p.1)).max((down.0 - p.0).hypot(down.1 - p.1))
     };
-    let most = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
         .into_iter()
         .filter(|(x, y)| in_front(*x, *y))
         .map(|(x, y)| stretch(x, y))
         .filter(|s| s.is_finite())
-        .fold(1.0, f64::max);
-    let mut detail = most.ceil().clamp(1.0, 8.0);
+        .fold(1.0, f64::max)
+}
+
+/// How much larger than symbol space to draw so the most enlarged part of the instance has a
+/// pixel for each pixel on screen: a whole number up to 32, within a budget of pixels, so a small
+/// symbol can go as far as it needs and a large one at least as far as memory allows.
+fn warp_detail(matrix: &Affine, (x0, y0, x1, y1): (f64, f64, f64, f64)) -> f64 {
+    let most = max_stretch(matrix, (x0, y0, x1, y1));
+    let mut detail = most.ceil().clamp(1.0, 32.0);
     while detail > 1.0 && (x1 - x0) * (y1 - y0) * detail * detail > (1 << 24) as f64 {
         detail -= 1.0;
     }
@@ -804,18 +807,11 @@ impl Element {
         Some((mx, my, matrix.then(&unstretch)))
     }
 
-    /// Under the Fireworks MX preference, a perspective instance of plain paths has them mapped,
-    /// fill handles included, instead of its pixels warped. Measured for gradient-filled paths,
-    /// also under a colour effect; symbols with bitmaps, effects sized in pixels, nested
-    /// instances or 9-slice guides still warp.
+    /// In Fireworks MX mode a perspective instance's contents are mapped one by one (paths and
+    /// fill handles) with their effects applied afterwards at canvas size, as Fireworks MX draws
+    /// them. 9-slice guides aren't a Fireworks MX feature and keep the warp.
     fn mapped_in_perspective(&self, ctx: &RenderCtx) -> bool {
-        ctx.mx_perspective
-            && self.nine_split(ctx).is_none()
-            && self.symbol_elements(ctx).is_some_and(|children| {
-                children
-                    .iter()
-                    .all(|e| matches!(e.kind, ElementKind::Path(_)) && effects_are_scale_free(e))
-            })
+        ctx.mx_perspective && self.nine_split(ctx).is_none()
     }
 
     fn instance_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
@@ -1044,15 +1040,14 @@ impl Element {
                 let matrix = nine.map_or(*matrix, |(_, _, rest)| rest);
                 let matrix = &matrix;
                 let inner = ctx.deeper(self);
+                // What the contents reach, effects and strokes included.
                 let extent = |children: &[Element]| {
                     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-                    for c in children {
-                        if let Some((bx, by, bw, bh)) = c.deep_bounds(&inner) {
-                            x0 = x0.min(bx);
-                            y0 = y0.min(by);
-                            x1 = x1.max(bx + bw);
-                            y1 = y1.max(by + bh);
-                        }
+                    for (rx, ry, rw, rh) in children.iter().filter_map(|c| c.full_region(&inner)) {
+                        x0 = x0.min(rx as f64);
+                        y0 = y0.min(ry as f64);
+                        x1 = x1.max((rx + i64::from(rw)) as f64);
+                        y1 = y1.max((ry + i64::from(rh)) as f64);
                     }
                     (x0 <= x1).then_some((x0, y0, x1, y1))
                 };
@@ -1070,7 +1065,12 @@ impl Element {
                         d: detail,
                         ..Affine::IDENTITY
                     };
-                    children.iter_mut().for_each(|c| c.transform(&up));
+                    children.iter_mut().for_each(|c| {
+                        c.transform(&up);
+                        for x in &mut c.effects {
+                            x.effect = x.effect.as_ref().and_then(|e| e.scaled(detail as f32));
+                        }
+                    });
                     extent(&children)?
                 } else {
                     (x0, y0, x1, y1)
@@ -1221,10 +1221,67 @@ impl Element {
         if !(bx.is_finite() && by.is_finite() && bw.is_finite() && bh.is_finite()) {
             return None;
         }
+        if let Some(reach) = self.perspective_reach(ctx) {
+            return Some(reach);
+        }
         let stroke = self.max_stroke().ceil() as i64;
         let m = self.effect_margin() + stroke + 2;
         let (x, y) = (bx.floor() as i64 - m, by.floor() as i64 - m);
         let (w, h) = ((bx + bw).ceil() as i64 + m - x, (by + bh).ceil() as i64 + m - y);
+        (w > 0 && h > 0 && w * h <= MAX_PIXELS).then_some((x, y, w as u32, h as u32))
+    }
+
+    /// The region of a perspective instance whose contents have strokes or effects, which reach
+    /// past the bounds stored for it. Warped reach is mapped through the instance's matrix.
+    fn perspective_reach(&self, ctx: &RenderCtx) -> Option<(i64, i64, u32, u32)> {
+        const MAX_PIXELS: i64 = 40_000_000;
+        let ElementKind::Instance { matrix, .. } = &self.kind else {
+            return None;
+        };
+        if matrix.is_affine() || !self.effects.is_empty() {
+            return None;
+        }
+        let children = self.symbol_elements(ctx)?;
+        if children
+            .iter()
+            .all(|c| c.effect_margin() == 0 && c.max_stroke() == 0.0)
+        {
+            return None;
+        }
+        let inner = ctx.deeper(self);
+        let (bx, by, bw, bh) = self.deep_bounds(ctx)?;
+        let (mut x0, mut y0, mut x1, mut y1) = (bx, by, bx + bw, by + bh);
+        if self.mapped_in_perspective(ctx) {
+            for c in &children {
+                let mut moved = c.clone();
+                moved.transform(matrix);
+                if let Some((rx, ry, rw, rh)) = moved.full_region(&inner) {
+                    x0 = x0.min(rx as f64);
+                    y0 = y0.min(ry as f64);
+                    x1 = x1.max((rx + i64::from(rw)) as f64);
+                    y1 = y1.max((ry + i64::from(rh)) as f64);
+                }
+            }
+        } else {
+            // Warped: what reaches past the contents is enlarged as much as they are. (Mapping the
+            // reach itself isn't safe: it can land behind the perspective's horizon.)
+            let reach = children
+                .iter()
+                .map(|c| c.effect_margin() as f64 + c.max_stroke())
+                .fold(0.0, f64::max);
+            let content = children
+                .iter()
+                .filter_map(|c| c.deep_bounds(&inner))
+                .map(|(x, y, w, h)| (x, y, x + w, y + h))
+                .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))?;
+            let grow = reach * max_stretch(matrix, content).min(64.0);
+            (x0, y0, x1, y1) = (x0 - grow, y0 - grow, x1 + grow, y1 + grow);
+        }
+        if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) || x0 > x1 {
+            return None;
+        }
+        let (x, y) = (x0.floor() as i64 - 2, y0.floor() as i64 - 2);
+        let (w, h) = (x1.ceil() as i64 + 2 - x, y1.ceil() as i64 + 2 - y);
         (w > 0 && h > 0 && w * h <= MAX_PIXELS).then_some((x, y, w as u32, h as u32))
     }
 

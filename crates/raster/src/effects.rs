@@ -91,6 +91,41 @@ const INNER_GLOW: &str = "{2ba87123-8220-11d3-baad0000861f4d01}";
 const INNER_SHADOW: &str = "{5600f702-774c-11d3-baad0000861f4d01}";
 
 impl Effect {
+    /// The effect as it would look on an object drawn `factor` times larger: its pixel sizes grown
+    /// to match. `None` for effects that can't be resized this way.
+    pub fn scaled(&self, factor: f32) -> Option<Effect> {
+        if self.is_scale_free() {
+            return Some(self.clone());
+        }
+        let mut e = self.clone();
+        match &mut e {
+            Effect::GaussianBlur { radius } => *radius *= factor,
+            Effect::MotionBlur { distance, .. } => *distance *= factor,
+            Effect::Shadow {
+                distance, softness, ..
+            } => {
+                *distance *= factor;
+                *softness *= factor;
+            }
+            Effect::Glow {
+                width,
+                softness,
+                offset,
+                ..
+            } => {
+                *width *= factor;
+                *softness *= factor;
+                *offset *= factor;
+            }
+            Effect::Bevel(b) => {
+                b.width *= factor;
+                b.softness *= factor;
+            }
+            _ => return None,
+        }
+        Some(e)
+    }
+
     /// Whether the effect works on each pixel by itself, so it looks the same at any drawing
     /// scale (colour adjustments), unlike blurs, shadows, glows and bevels, sized in pixels.
     pub fn is_scale_free(&self) -> bool {
@@ -924,6 +959,10 @@ mod tests {
     fn only_effects_that_ignore_neighbouring_pixels_are_scale_free() {
         assert!(Effect::Invert.is_scale_free());
         assert!(!Effect::GaussianBlur { radius: 2.0 }.is_scale_free());
+        assert_eq!(
+            Effect::GaussianBlur { radius: 2.0 }.scaled(4.0),
+            Some(Effect::GaussianBlur { radius: 8.0 })
+        );
     }
 
     fn params(kv: &[(&str, &str)]) -> HashMap<String, String> {
