@@ -552,6 +552,11 @@ pub struct Text {
     pub anti_alias: u8,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
+    /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates
+    /// (`LFAf`, `TOAf`). `rect` is then just the area it covers.
+    pub anchor: Option<(f64, f64)>,
+    /// Text attached to a path (`TFTi` 2 or 3): shown from its stored image, not editable yet.
+    pub on_path: bool,
     /// Its characters or formatting have changed since the file was read, so the record and its
     /// stored image are rewritten on save.
     pub edited: bool,
@@ -733,6 +738,7 @@ impl Element {
         match &mut self.kind {
             ElementKind::Text(t) => {
                 t.rect = (t.rect.0 + dx, t.rect.1 + dy, t.rect.2 + dx, t.rect.3 + dy);
+                t.anchor = t.anchor.map(|(x, y)| (x + dx, y + dy));
                 if let Some(b) = &mut t.cached {
                     b.x = (b.x as f64 + dx).round() as i64;
                     b.y = (b.y as f64 + dy).round() as i64;
@@ -803,6 +809,7 @@ impl Element {
                 let (l, top, r, bottom) = t.rect;
                 let (x, y, w, h) = m.map_rect(l, top, r - l, bottom - top);
                 t.rect = (x, y, x + w, y + h);
+                t.anchor = t.anchor.map(|(ax, ay)| m.apply(ax, ay));
                 // A plain scale carries into the formatting, so editing keeps the size.
                 if m.is_affine() && m.b.abs() < 1e-9 && m.c.abs() < 1e-9 {
                     let (sx, sy) = ((m.a / m.i).abs(), (m.d / m.i).abs());

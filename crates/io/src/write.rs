@@ -654,7 +654,19 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
     ] {
         put(&mut n, Node::float(tag, v));
     }
+    // Fireworks CS's own record of where the block is.
+    if n.child("LFA").is_some() {
+        let (x, y, r, b) = match t.anchor {
+            Some((ax, ay)) => (ax, ay, -ox, -oy),
+            None => t.rect,
+        };
+        for (tag, v) in [("LFA", x + ox), ("TOA", y + oy), ("RIA", r + ox), ("BOA", b + oy)] {
+            put(&mut n, Node::float(tag, v));
+        }
+    }
     if t.edited || raw.is_none() {
+        // Fireworks CS would prefer its own stored story and font name to the edited text.
+        n.children.retain(|c| !c.is("DTA") && !c.is("CFT"));
         let first = t.runs.first();
         let color = to_argb(first.map_or(t.color, |r| r.color));
         match n.children.iter_mut().find(|c| c.is("PAT")) {

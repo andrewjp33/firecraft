@@ -4,6 +4,11 @@ The engine is `crates/text`, adapted from FirePixel's `fp-text` (fonts, layout, 
 stored as Fireworks' `TXTv`: the block (`LFT`..`BOT`), the first run's attributes, then `TFSv` with attribute changes
 before each `TRN` string.
 
+Files saved by Fireworks CS differ: `TFTi` gives the kind of block (0 point text, anchored at its first baseline by
+`LFAf`/`TOAf`; 1 a wrapping block given by `LFAf`..`BOAf`; 2 and 3 text on or in a path, shown but not editable yet),
+`FONs` is the family and `CFTs` and the runs the PostScript name, and `DTAv` holds its own copy of the story, dropped
+when the text is edited. With the same font, point text re-renders to within 0.1% of Fireworks CS's stored image.
+
 ## Stored image first
 
 A text object shows the image saved with it (`IMGv`) until it is edited, so a file looks as it was saved whatever

@@ -46,9 +46,19 @@ fn char_attrs(r: &TextRun) -> CharAttrs {
 /// The engine's description of a text object.
 pub fn text_block(t: &Text) -> TextBlock {
     let (l, top, r, b) = t.rect;
+    let (kind, bounds) = match t.anchor {
+        Some((x, y)) => (
+            FrameKind::Point,
+            Rect::new(x as f32, y as f32, x as f32, y as f32),
+        ),
+        None => (
+            FrameKind::FixedWidth,
+            Rect::new(l as f32, top as f32, r as f32, b as f32),
+        ),
+    };
     TextBlock {
-        kind: FrameKind::FixedWidth,
-        bounds: Rect::new(l as f32, top as f32, r as f32, b as f32),
+        kind,
+        bounds,
         runs: t
             .runs
             .iter()
@@ -73,6 +83,10 @@ pub fn rasterize(t: &Text) -> Option<Bitmap> {
     let img = firecraft_text::render::render(&layout, None);
     let b = img.bounds();
     let (w, h) = (img.width() as u32, img.height() as u32);
+    // Spaces alone have no pixels.
+    if w == 0 || h == 0 {
+        return None;
+    }
     let mut image = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     for (i, p) in img.data().iter().enumerate() {
         image.set(
@@ -108,6 +122,17 @@ pub fn default_style() -> TextRun {
         space_before: 0.0,
         space_after: 0.0,
     }
+}
+
+/// The name to show and save for a font: its family, where `name` is a regular face's PostScript
+/// name (`ArialMT` is Arial). Bold and italic faces keep theirs, which also says the style.
+pub fn family_of(name: &str) -> String {
+    let fonts = FontDb::shared();
+    fonts
+        .find_ps(name)
+        .and_then(|id| fonts.faces().get(id))
+        .filter(|f| !f.bold && !f.italic && !f.names.family.is_empty())
+        .map_or_else(|| name.to_owned(), |f| f.names.family.clone())
 }
 
 /// How many characters the text has.
@@ -226,8 +251,24 @@ pub fn format(t: &mut Text, range: std::ops::Range<usize>, f: &dyn Fn(&mut TextR
 
 /// Redraw a text object after a change, and size its block to it.
 pub fn refresh(t: &mut Text) {
+    for run in &mut t.runs {
+        run.font = family_of(&run.font);
+    }
     normalize(t);
     t.edited = true;
+    if t.anchor.is_some() {
+        let f = layout_of(t).frame;
+        if !t.text.is_empty() {
+            t.rect = (
+                f64::from(f.left),
+                f64::from(f.top),
+                f64::from(f.right),
+                f64::from(f.bottom),
+            );
+        }
+        t.cached = if t.text.is_empty() { None } else { rasterize(t) };
+        return;
+    }
     if t.auto_width {
         let mut wide = t.clone();
         wide.rect.2 = wide.rect.0 + 1e6;
@@ -293,6 +334,8 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         auto_kern: opts.text_auto_kern,
         anti_alias: opts.text_anti_alias,
         auto_width: auto,
+        anchor: None,
+        on_path: false,
         edited: true,
         text: String::new(),
         font: style.font,
@@ -345,6 +388,11 @@ impl DocState {
             Some(ElementKind::Text(t)) => Some(t),
             _ => None,
         }
+    }
+
+    /// The text object at `r`, if the Text tool can edit it.
+    pub fn editable_text_at(&self, r: ElementRef) -> Option<&Text> {
+        self.text_at(r).filter(|t| !t.on_path)
     }
 
     /// Start a new text object, selected, as one History step ending with
@@ -452,7 +500,7 @@ impl DocState {
         let refs = self.selection.clone();
         self.edit(label, |s| {
             for r in refs {
-                if s.text_at(r).is_some() {
+                if s.editable_text_at(r).is_some() {
                     s.change_text(r, f);
                 }
             }
@@ -465,7 +513,7 @@ impl DocState {
             .selection
             .iter()
             .copied()
-            .filter(|r| self.text_at(*r).is_some())
+            .filter(|r| self.editable_text_at(*r).is_some())
             .collect();
         let apply = |s: &mut DocState| {
             for r in &refs {
@@ -532,6 +580,33 @@ mod tests {
         delete(&mut t, 1..9);
         refresh(&mut t);
         assert_eq!(t.text, "Hld");
+    }
+
+    #[test]
+    fn point_text_stays_on_its_baseline_when_edited() {
+        // Fireworks CS point text: a one-glyph object must not take the area it covers for a block.
+        let mut t = sample();
+        t.auto_width = false;
+        t.anchor = Some((170.0, 120.0));
+        t.rect = (170.0, 53.0, 213.0, 146.0);
+        format(&mut t, 0..11, &|r| r.size = 78.0);
+        refresh(&mut t);
+        let image = t.cached.as_ref().expect("an image");
+        assert!(t.rect.0 <= 171.0 && t.rect.2 > 400.0, "no wrapping: {:?}", t.rect);
+        assert!((image.y as f64) < 120.0 && image.y as f64 + f64::from(image.image.height()) > 120.0);
+    }
+
+    #[test]
+    fn text_with_nothing_to_draw_has_no_image() {
+        let mut t = new_text((0.0, 0.0, 100.0, 20.0), true, &ToolOptions::default());
+        insert(&mut t, 0, "   ", None);
+        refresh(&mut t);
+        assert_eq!(t.text, "   ");
+        assert!(
+            t.cached
+                .as_ref()
+                .is_none_or(|b| b.image.width() > 0 && b.image.height() > 0)
+        );
     }
 
     #[test]

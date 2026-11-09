@@ -140,6 +140,10 @@ pub fn resample(
     size: (u32, u32),
 ) -> RgbaImage {
     let mut out = RgbaImage::new(size.0, size.1, Rgba::TRANSPARENT);
+    // Nothing to sample, as with text that draws no pixels.
+    if img.width() == 0 || img.height() == 0 {
+        return out;
+    }
     for ty in 0..size.1 {
         for tx in 0..size.0 {
             let (cx, cy) = (
@@ -196,6 +200,20 @@ fn bilinear(img: &RgbaImage, x: f64, y: f64) -> Rgba {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resampling_an_empty_image_gives_an_empty_result() {
+        let map = AxisMap::new(0.0, 10.0, 2.0, 8.0, 0.0, 20.0);
+        let out = resample(
+            &RgbaImage::new(0, 0, Rgba::TRANSPARENT),
+            (0.0, 0.0),
+            &map,
+            &map,
+            (0, 0),
+            (4, 4),
+        );
+        assert!(out.pixels().iter().all(|p| p.a == 0));
+    }
 
     #[test]
     fn corners_keep_size_and_centre_stretches() {

@@ -1086,7 +1086,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     {
         let (x, y) = to_doc(pos);
         // Double-clicking text edits it, with all of it selected.
-        if let Some(r) = d.hit_test(x, y).filter(|r| d.text_at(*r).is_some()) {
+        if let Some(r) = d.hit_test(x, y).filter(|r| d.editable_text_at(*r).is_some()) {
             app.session.tool = Tool::Text;
             app.text_tool.edit_all(d, r);
             return;

@@ -772,8 +772,27 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
             pending.push(c);
         }
     }
+    // Fireworks CS: the runs name the PostScript font (`CFTs`), the object its family (`FONs`).
+    if let (Some(ps), Some(family)) = (n.str_of("CFT"), n.str_of("FON")) {
+        for r in &mut runs {
+            if r.font == ps {
+                r.font = family.to_owned();
+            }
+        }
+    }
     let (ox, oy) = ctx.origin;
     let edge = |t: &str| n.float_of(t).unwrap_or(0.0);
+    // Fireworks CS: `TFTi` says what kind of block it is, and `LFAf`.. where.
+    let kind = n.int_of("TFT");
+    let anchor = (kind == Some(0)).then(|| (edge("LFA") - ox, edge("TOA") - oy));
+    let frame = (kind == Some(1)).then(|| {
+        (
+            edge("LFA") - ox,
+            edge("TOA") - oy,
+            edge("RIA") - ox,
+            edge("BOA") - oy,
+        )
+    });
     Text {
         text: runs.iter().map(|r| r.text.as_str()).collect(),
         font: initial.font.clone(),
@@ -783,12 +802,14 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         italic: initial.italic,
         underline: initial.underline,
         runs,
-        rect: (
+        rect: frame.unwrap_or((
             edge("LFT") - ox,
             edge("TOP") - oy,
             edge("RIT") - ox,
             edge("BOT") - oy,
-        ),
+        )),
+        anchor,
+        on_path: matches!(kind, Some(2 | 3)),
         auto_kern: n.bool_of("ATK").unwrap_or(true),
         anti_alias: n.int_of("TAA").unwrap_or(0).clamp(0, 2) as u8,
         // FireCraft extension (Fireworks MX ignores unknown nodes).

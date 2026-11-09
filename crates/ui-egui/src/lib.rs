@@ -663,6 +663,7 @@ impl FireCraftApp {
         self.texture_library();
         self.adopt_selected_attributes();
         self.refresh_fonts();
+        text_tool::tidy(self);
         self.check_missing_fonts();
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).

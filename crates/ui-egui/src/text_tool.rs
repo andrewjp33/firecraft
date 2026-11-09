@@ -11,6 +11,8 @@ use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
 
 /// A text object being edited.
 pub struct Editing {
+    /// The document it belongs to: several canvases share this tool.
+    doc: u64,
     pub r: ElementRef,
     pub caret: usize,
     pub anchor: usize,
@@ -31,8 +33,8 @@ impl Editing {
 #[derive(Default)]
 pub struct TextTool {
     pub editing: Option<Editing>,
-    /// Where a press that may become a new text block started.
-    new_at: Option<(f64, f64)>,
+    /// Where a press that may become a new text block started, and in which document.
+    new_at: Option<(u64, f64, f64)>,
 }
 
 impl TextTool {
@@ -47,6 +49,7 @@ impl TextTool {
         d.begin_live_edit("Edit Text");
         d.selection = vec![r];
         self.editing = Some(Editing {
+            doc: d.id,
             r,
             caret,
             anchor: caret,
@@ -220,6 +223,24 @@ fn keyboard(d: &mut DocState, e: &mut Editing, ctx: &egui::Context) -> bool {
     done
 }
 
+/// End editing in a document that is no longer the active one, or has closed.
+pub fn tidy(app: &mut FireCraftApp) {
+    let Some(id) = app.text_tool.editing.as_ref().map(|e| e.doc) else {
+        return;
+    };
+    let active = app.session.active_doc().map(|d| d.id);
+    if active == Some(id) {
+        return;
+    }
+    let FireCraftApp {
+        session, text_tool, ..
+    } = app;
+    match session.docs.iter_mut().find(|d| d.id == id) {
+        Some(d) => text_tool.finish(d),
+        None => text_tool.editing = None,
+    }
+}
+
 /// The tool on the canvas. `true`: it took the input (the rest of the canvas leaves it alone).
 #[allow(clippy::too_many_arguments)]
 pub fn canvas(
@@ -232,11 +253,35 @@ pub fn canvas(
     (origin, z): (Pos2, f32),
 ) -> bool {
     let ctx = resp.ctx.clone();
+    // Every open document's canvas comes through here: only the one being edited may act on it.
+    let busy_elsewhere = state
+        .editing
+        .as_ref()
+        .map(|e| e.doc)
+        .or(state.new_at.map(|n| n.0));
+    if busy_elsewhere.is_some_and(|id| id != d.id) {
+        return tool == Tool::Text;
+    }
     if state.editing.is_some() && tool != Tool::Text {
         state.finish(d);
     }
     if tool != Tool::Text {
         return false;
+    }
+    // Undo can take the object away, or end the edit under way.
+    if let Some(e) = &mut state.editing {
+        match d.editable_text_at(e.r).map(char_count) {
+            Some(n) => {
+                e.caret = e.caret.min(n);
+                e.anchor = e.anchor.min(n);
+                if !d.in_live_edit() {
+                    d.begin_live_edit("Edit Text");
+                    e.is_new = false;
+                    e.changed = false;
+                }
+            }
+            None => state.editing = None,
+        }
     }
     let to_doc = |p: Pos2| (((p.x - origin.x) / z) as f64, ((p.y - origin.y) / z) as f64);
     let to_screen = |x: f64, y: f64| pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
@@ -268,7 +313,7 @@ pub fn canvas(
             }
         } else {
             state.finish(d);
-            match d.hit_test(x, y).filter(|r| d.text_at(*r).is_some()) {
+            match d.hit_test(x, y).filter(|r| d.editable_text_at(*r).is_some()) {
                 Some(r) => {
                     let at = caret_at(d, r, x, y);
                     state.begin(d, r, at);
@@ -276,7 +321,7 @@ pub fn canvas(
                         e.selecting = true;
                     }
                 }
-                None => state.new_at = Some((x, y)),
+                None => state.new_at = Some((d.id, x, y)),
             }
         }
     }
@@ -293,7 +338,7 @@ pub fn canvas(
         }
     }
     // A press on empty canvas: a click starts a growing block, a drag sets the width.
-    if let Some((x0, y0)) = state.new_at {
+    if let Some((_, x0, y0)) = state.new_at {
         let now = pointer.map_or((x0, y0), to_doc);
         if down {
             let (a, b) = (to_screen(x0, y0), to_screen(now.0, now.1));
@@ -315,6 +360,7 @@ pub fn canvas(
             let text = engine::new_text((left, top, right, top + size), !wide, options);
             let r = d.start_new_text(text);
             state.editing = Some(Editing {
+                doc: d.id,
                 r,
                 caret: 0,
                 anchor: 0,
@@ -400,13 +446,16 @@ fn current_style(app: &FireCraftApp) -> (TextRun, u8, bool) {
     {
         let at = e.range().start + usize::from(!e.range().is_empty());
         let style = e.typing.clone().unwrap_or_else(|| engine::style_at(t, at));
-        return (style, t.anti_alias, t.auto_kern);
+        let font = engine::family_of(&style.font);
+        return (TextRun { font, ..style }, t.anti_alias, t.auto_kern);
     }
     d.selection
         .iter()
         .find_map(|r| d.text_at(*r))
         .map_or(tool_style, |t| {
-            (engine::style_at(t, 0), t.anti_alias, t.auto_kern)
+            let style = engine::style_at(t, 0);
+            let font = engine::family_of(&style.font);
+            (TextRun { font, ..style }, t.anti_alias, t.auto_kern)
         })
 }
 
@@ -444,7 +493,7 @@ fn apply(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut TextRun)) {
         }
         return;
     }
-    if d.selection.iter().any(|r| d.text_at(*r).is_some()) {
+    if d.selection.iter().any(|r| d.editable_text_at(*r).is_some()) {
         d.format_selected_text(label, false, f);
     } else {
         f(&mut session.options.text_style);
@@ -456,7 +505,7 @@ fn set_object(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut firecraft_doc
     let Some(d) = session.active_doc_mut() else {
         return;
     };
-    if d.selection.iter().any(|r| d.text_at(*r).is_some()) {
+    if d.selection.iter().any(|r| d.editable_text_at(*r).is_some()) {
         d.change_selected_text_objects(label, f);
     }
 }

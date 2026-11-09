@@ -849,6 +849,11 @@ impl DocState {
     /// Start a live edit (a drag, an effect's settings popup): later `..._live` changes apply
     /// at once, and [`commit_live_edit`](Self::commit_live_edit) records the undo step when it
     /// ends. As in Fireworks, the state appears in History on mouse up.
+    /// Whether a live edit is under way.
+    pub fn in_live_edit(&self) -> bool {
+        self.live_edit.is_some()
+    }
+
     pub fn begin_live_edit(&mut self, label: &str) {
         self.commit_live_edit();
         self.live_edit = Some(LiveEdit {
