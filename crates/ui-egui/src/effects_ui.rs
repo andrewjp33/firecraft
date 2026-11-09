@@ -229,6 +229,15 @@ const GLOW_FIELDS: &[Field] = &[
     num("GlowStartDistance", "Offset", 0.0, 50.0, 0),
 ];
 
+/// Fireworks MX puts Inner Glow's width back to 2 when set to 0 or 1 (not Glow's or Inner Shadow's).
+const INNER_GLOW_FIELDS: &[Field] = &[
+    num("GlowWidth", "Width", 2.0, 100.0, 0),
+    field("OuterBevelColor", "Color", Kind::Color),
+    num("BevelContrast", "Opacity", 0.0, 100.0, 0),
+    num("MaskSoftness", "Softness", 0.0, 50.0, 0),
+    num("GlowStartDistance", "Offset", 0.0, 50.0, 0),
+];
+
 const EC: &str = " Eye Candy 4000 LE";
 
 const DEFS: &[EffectDef] = &[
@@ -389,7 +398,7 @@ const DEFS: &[EffectDef] = &[
             ("MaskSoftness", "4"),
             ("OuterBevelColor", "#000000"),
         ],
-        fields: GLOW_FIELDS,
+        fields: INNER_GLOW_FIELDS,
         filter: false,
         plugin_category: None,
     },

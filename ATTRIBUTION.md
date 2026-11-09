@@ -21,6 +21,8 @@ Adapted:
   measured against Fireworks MX (`docs/behavior/painting.md`).
 - `crates/raster/src/path.rs` (`fill_polygons_feathered`): Fireworks' feathered fill edge as
   reconstructed in FirePixel's `crates/fp-vector/src/feather.rs`.
+- `crates/raster/src/effects.rs` (`tent_plane`, shadow and glow softness): the triangle filter and
+  truncating shadow offset as measured in FirePixel's `fp-raster/src/mask.rs` and `fp-effects/src/shadow.rs`.
 - `crates/raster/src/pattern.rs`: how Pattern and Web Dither fills map to pixels, as measured in
   FirePixel's `crates/fp-vector/src/paint.rs`.
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in

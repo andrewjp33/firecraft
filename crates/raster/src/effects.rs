@@ -402,23 +402,17 @@ impl Effect {
             } => {
                 let a = angle.to_radians();
                 // Fireworks measures the angle counter-clockwise with y up.
+                // The offset is truncated, not rounded (FirePixel's measurement).
                 let (dx, dy) = (
-                    (a.cos() * distance).round() as i64,
-                    (-a.sin() * distance).round() as i64,
+                    (a.cos() * distance).trunc() as i64,
+                    (-a.sin() * distance).trunc() as i64,
                 );
-                let mut alpha = alpha_plane(img);
+                let radius = softness.round().max(0.0) as usize;
+                let blurred = tent_plane(&alpha_plane(img), img.width(), img.height(), radius);
+                let mut soft = shift_plane(&blurred, img.width(), img.height(), dx, dy, 0.0);
                 if *inner {
-                    alpha.iter_mut().for_each(|v| *v = 255.0 - *v);
+                    soft.iter_mut().for_each(|x| *x = 255.0 - *x);
                 }
-                let shifted = shift_plane(
-                    &alpha,
-                    img.width(),
-                    img.height(),
-                    dx,
-                    dy,
-                    if *inner { 255.0 } else { 0.0 },
-                );
-                let soft = blur_plane(&shifted, img.width(), img.height(), *softness * SOFTNESS_SIGMA);
                 if *inner {
                     paint_inside(img, &soft, *color);
                 } else {
@@ -464,7 +458,7 @@ impl Effect {
                         }
                     })
                     .collect();
-                let mut soft = blur_plane(&band, w, h, *softness * SOFTNESS_SIGMA);
+                let mut soft = tent_plane(&band, w, h, softness.round().max(0.0) as usize);
                 if filled {
                     soft.iter_mut().zip(&dist).for_each(|(v, d)| {
                         if *d == 0.0 {
@@ -507,10 +501,6 @@ impl Effect {
         m.clamp(0.0, 500.0).ceil() as u32 + 2
     }
 }
-
-/// Measured in Fireworks MX for Drop Shadow and Glow softness: a Gaussian with this sigma per
-/// unit of softness (fit RMS 0.006 on a softness-8 shadow edge).
-const SOFTNESS_SIGMA: f32 = 0.475;
 
 /// Euclidean distance from each pixel to the nearest `true` pixel (0 on them). Exact squared
 /// distance transform (Felzenszwalb & Huttenlocher), separable, O(pixels).
@@ -822,40 +812,46 @@ fn shift_plane(a: &[f32], w: u32, h: u32, dx: i64, dy: i64, fill: f32) -> Vec<f3
 
 /// Gaussian blur of a single plane with standard deviation `sigma`, as three box passes (box
 /// radius r gives sigma ~ r + 0.5).
-fn blur_plane(a: &[f32], w: u32, h: u32, sigma: f32) -> Vec<f32> {
-    let mut v = a.to_vec();
-    if sigma < 0.5 || w == 0 || h == 0 {
-        return v;
+/// Fireworks' softness: a triangle filter of radius `r` along each axis, each pass truncating to
+/// whole levels (FirePixel's measurement, `fp-raster/src/mask.rs`). Outside the image counts as 0.
+fn tent_plane(a: &[f32], w: u32, h: u32, r: usize) -> Vec<f32> {
+    let (w, h) = (w as usize, h as usize);
+    if r == 0 || w == 0 || h == 0 {
+        return a.to_vec();
     }
-    let r = (sigma.min(400.0) - 0.5).round().max(1.0) as i64;
-    for _ in 0..3 {
-        box_pass(&mut v, w as i64, h as i64, r, true);
-        box_pass(&mut v, w as i64, h as i64, r, false);
-    }
-    v
-}
-
-fn box_pass(v: &mut [f32], w: i64, h: i64, r: i64, horizontal: bool) {
-    let src = v.to_vec();
-    let (outer, inner) = if horizontal { (h, w) } else { (w, h) };
-    let at = |o: i64, i: i64| -> f32 {
-        if i < 0 || i >= inner {
-            return 0.0;
+    let along = |line: &[u64], out: &mut [u64]| {
+        let n = line.len();
+        let mut first = vec![0u64; n + 1];
+        for i in 0..n {
+            first[i + 1] = first[i] + line[i];
         }
-        let idx = if horizontal { o * w + i } else { i * w + o };
-        src.get(idx as usize).copied().unwrap_or(0.0)
+        let mut second = vec![0u64; n + 1];
+        for i in 0..n {
+            let boxed = first[i + 1] - first[i.saturating_sub(r)];
+            second[i + 1] = second[i] + boxed;
+        }
+        let denominator = ((r + 1) * (r + 1)) as u64;
+        for i in 0..n {
+            out[i] = (second[(i + r + 1).min(n)] - second[i]) / denominator;
+        }
     };
-    let n = (2 * r + 1) as f32;
-    for o in 0..outer {
-        let mut sum: f32 = (-r..=r).map(|k| at(o, k)).sum();
-        for i in 0..inner {
-            let idx = if horizontal { o * w + i } else { i * w + o };
-            if let Some(d) = v.get_mut(idx as usize) {
-                *d = sum / n;
-            }
-            sum += at(o, i + r + 1) - at(o, i - r);
+    let mut v: Vec<u64> = a.iter().map(|x| x.round().clamp(0.0, 255.0) as u64).collect();
+    let mut out = vec![0u64; w.max(h)];
+    for row in v.chunks_mut(w) {
+        along(row, &mut out[..w]);
+        row.copy_from_slice(&out[..w]);
+    }
+    let mut column = vec![0u64; h];
+    for x in 0..w {
+        for y in 0..h {
+            column[y] = v[y * w + x];
+        }
+        along(&column, &mut out[..h]);
+        for y in 0..h {
+            v[y * w + x] = out[y];
         }
     }
+    v.into_iter().map(|x| x as f32).collect()
 }
 
 /// Composite a coloured plane underneath the object's pixels.
@@ -971,6 +967,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn inner_shadow_softness_matches_fireworks_mx_exactly() {
+        // innerShadowZero.png: #33FFFF, black at 65%, distance 0, softness 4: green along the edge.
+        let mut img = RgbaImage::new(60, 40, Rgba::TRANSPARENT);
+        for y in 10..30 {
+            for x in 10..50 {
+                img.set(x, y, Rgba::new(51, 255, 255, 255));
+            }
+        }
+        Effect::Shadow {
+            color: Rgba::new(0, 0, 0, 166),
+            distance: 0.0,
+            angle: 315.0,
+            softness: 4.0,
+            inner: true,
+            knock_out: false,
+        }
+        .apply(&mut img);
+        let green: Vec<u8> = (10..15).filter_map(|x| img.get(x, 20)).map(|p| p.g).collect();
+        assert_eq!(green, [189, 215, 235, 248, 255]);
+    }
+
+    #[test]
     fn a_zero_width_glow_still_shows_its_softness() {
         let square = || {
             let mut img = RgbaImage::new(80, 80, Rgba::TRANSPARENT);
@@ -1084,7 +1102,7 @@ mod tests {
             knock_out: false,
         }
         .apply(&mut s);
-        assert!(s.get(28, 28).is_some_and(|p| p.a > 50), "shadow down-right");
+        assert!(s.get(26, 26).is_some_and(|p| p.a > 50), "shadow down-right");
         assert_eq!(s.get(20, 20), Some(Rgba::new(255, 0, 0, 255)), "object on top");
         let mut g = img.clone();
         Effect::Glow {
