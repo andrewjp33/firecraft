@@ -45,9 +45,10 @@ light angle, colour and softness).
    ShowObject.
 6. **Button states** (`ButtonState`): 1 Over = HitBlendColor (`#ffffff3f`) over the result,
    2 Down = DownBlendColor (`#0000003f`), 3 Over While Down = HitBlendColor; 2 and 3 also invert.
-7. **AngleSoftness** (capped at 10) smooths the signed tilt field `s * normal` with a Gaussian of
-   sigma ~0.26 x softness: the shading fades near the band's edges and where the shape changes
-   sign (Frame transitions). Fitted on straight edges (softness 3 and 10) to +-1 level.
+7. **AngleSoftness** (capped at 10) averages each band pixel's direction with its neighbours' in a window of
+   that radius (weights falling off from the centre, ignoring neighbours facing away by more than 90 degrees),
+   so a stair-stepped edge reads as a straight one. Inner and Outer Bevel then soften the highlight and shadow
+   maps with a triangle filter of half that radius. (FirePixel's measurement; see `fp-effects/src/bevel.rs`.)
 
 ## Accuracy
 

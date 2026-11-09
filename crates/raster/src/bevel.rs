@@ -12,8 +12,8 @@
 //! - lighting (`0x5dcbc0`): `a = LightAngle + n` (minus 180 when s < 0) in (-180, 180];
 //!   highlight = 255 * max(0, 1 - |a|/90), shadow = 255 * max(0, |a|/120 - 1/2) (Emboss:
 //!   max(0, |a|/90 - 1)), each rounded and then scaled by |s| * contrast (truncated);
-//! - AngleSoftness blurs the highlight and shadow maps (sigma ~0.26 x softness, capped at 10),
-//!   kept inside the band; shadow colour then highlight colour are composited over the band;
+//! - AngleSoftness (capped at 10) averages each pixel's direction over a window of that radius
+//!   and softens the highlight and shadow maps by a triangle filter of half that radius; shadow colour then highlight colour are composited over the band;
 //! - button states: Over adds HitBlendColor over the result, Down inverts and adds
 //!   DownBlendColor, Over While Down inverts and adds HitBlendColor.
 
@@ -183,6 +183,11 @@ impl Bevel {
 
     /// Apply to the object's pixels in `img` (with room around the object for outer bands).
     pub fn apply(&self, img: &mut RgbaImage) {
+        self.apply_with(img, crate::ColorMath::Classic);
+    }
+
+    /// Apply the bevel with a choice of colour-math precision.
+    pub fn apply_with(&self, img: &mut RgbaImage, math: crate::ColorMath) {
         let (w, h) = (img.width() as usize, img.height() as usize);
         if w == 0 || h == 0 || self.width <= 0.0 {
             return;
@@ -192,7 +197,7 @@ impl Bevel {
             return;
         }
         let band = self.band(&inside, w, h);
-        let (hi, sh) = self.shading(&band, w, h);
+        let (hi, sh) = self.shading(&band, w, h, math);
         let src = img.clone();
         for (i, p) in img.pixels_mut().iter_mut().enumerate() {
             let px = BandPixel {
@@ -264,10 +269,10 @@ impl Bevel {
     }
 
     /// Highlight and shadow alpha maps. The tilt field is s * unit normal (a negative edge
-    /// shape faces the other way); AngleSoftness smooths it with a Gaussian (sigma ~0.26 x
-    /// softness, softness capped at 10), so corners round off and the tilt fades near the band's
-    /// edges and where the shape changes sign.
-    fn shading(&self, b: &Band, w: usize, h: usize) -> (Vec<f32>, Vec<f32>) {
+    /// shape faces the other way). AngleSoftness (capped at 10) averages each pixel's direction
+    /// with its neighbours', so a stair-stepped edge reads as a straight one (FirePixel's
+    /// measurement, `fp-effects/src/bevel.rs`).
+    fn shading(&self, b: &Band, w: usize, h: usize, math: crate::ColorMath) -> (Vec<f32>, Vec<f32>) {
         let (mut vx, mut vy) = (vec![0f64; w * h], vec![0f64; w * h]);
         for i in 0..w * h {
             if b.on.get(i).copied().unwrap_or(false) {
@@ -280,10 +285,54 @@ impl Bevel {
             }
         }
         let soft = self.softness.min(10.0);
-        if soft > 0.0 {
-            let sigma = 0.26 * soft as f64;
-            vx = gaussian_plane(&vx, w, h, sigma);
-            vy = gaussian_plane(&vy, w, h, sigma);
+        let window = soft > 0.0;
+        if window {
+            // FirePixel's measured form: the directions of nearby band pixels, averaged with
+            // weights falling off from the centre, ignoring those facing away by over 90 degrees.
+            let r = soft.round() as i64;
+            let (wi, hi_) = (w as i64, h as i64);
+            for y in 0..hi_ {
+                for x in 0..wi {
+                    let i = (y * wi + x) as usize;
+                    if !b.on.get(i).copied().unwrap_or(false) {
+                        continue;
+                    }
+                    let own = (b.normal.get(i).copied().unwrap_or(0) as f64).to_radians();
+                    let (ox, oy) = (own.cos(), own.sin());
+                    let (mut sx, mut sy) = (0.0f64, 0.0f64);
+                    for dy in -r..=r {
+                        let yy = y + dy;
+                        if yy < 0 || yy >= hi_ {
+                            continue;
+                        }
+                        for dx in -r..=r {
+                            let xx = x + dx;
+                            if xx < 0 || xx >= wi {
+                                continue;
+                            }
+                            let k = (yy * wi + xx) as usize;
+                            if !b.on.get(k).copied().unwrap_or(false) {
+                                continue;
+                            }
+                            let a = (b.normal.get(k).copied().unwrap_or(0) as f64).to_radians();
+                            let (nx, ny) = (a.cos(), a.sin());
+                            if nx * ox + ny * oy < 0.0 {
+                                continue;
+                            }
+                            let dist = b.dist.get(k).copied().unwrap_or(0.0);
+                            let weight = (r + 1 - dx.max(dy).abs()) as f64 * dist;
+                            sx += nx * weight;
+                            sy += ny * weight;
+                        }
+                    }
+                    let len = sx.hypot(sy).max(1e-9);
+                    let tilt = self.slope_at(b.dist.get(i).copied().unwrap_or(0.0));
+                    if let (Some(px), Some(py)) = (vx.get_mut(i), vy.get_mut(i)) {
+                        *px = tilt * sx / len;
+                        *py = tilt * sy / len;
+                    }
+                }
+            }
         }
         let mut hi = vec![0f32; w * h];
         let mut sh = vec![0f32; w * h];
@@ -307,6 +356,12 @@ impl Bevel {
                 *hh = a;
                 *ss = c;
             }
+        }
+        // Bevels also soften their highlight and shadow by half the softness.
+        if matches!(self.kind, BevelKind::Inner | BevelKind::Outer) {
+            let radius = soft as usize / 2;
+            hi = crate::effects::tent_plane(&hi, w as u32, h as u32, radius, math);
+            sh = crate::effects::tent_plane(&sh, w as u32, h as u32, radius, math);
         }
         (hi, sh)
     }

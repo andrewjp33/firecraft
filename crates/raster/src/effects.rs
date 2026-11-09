@@ -419,7 +419,7 @@ impl Effect {
                     paint_under(img, &soft, *color, *knock_out);
                 }
             }
-            Effect::Bevel(b) => b.apply(img),
+            Effect::Bevel(b) => b.apply_with(img, math),
             Effect::BevelBoss(b) => b.apply(img),
             Effect::MotionTrail(m) => m.apply(img),
             Effect::Edges(e) => e.apply(img),
@@ -815,7 +815,7 @@ fn shift_plane(a: &[f32], w: u32, h: u32, dx: i64, dy: i64, fill: f32) -> Vec<f3
 /// Fireworks' softness: a triangle filter of radius `r` along each axis (FirePixel's measurement,
 /// `fp-raster/src/mask.rs`). Fireworks MX's colour math truncates to whole levels after each pass;
 /// FireCraft's keeps the fractions. Outside the image counts as 0.
-fn tent_plane(a: &[f32], w: u32, h: u32, r: usize, math: crate::ColorMath) -> Vec<f32> {
+pub(crate) fn tent_plane(a: &[f32], w: u32, h: u32, r: usize, math: crate::ColorMath) -> Vec<f32> {
     let (w, h) = (w as usize, h as usize);
     if r == 0 || w == 0 || h == 0 {
         return a.to_vec();

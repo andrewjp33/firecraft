@@ -23,6 +23,8 @@ Adapted:
   reconstructed in FirePixel's `crates/fp-vector/src/feather.rs`.
 - `crates/raster/src/effects.rs` (`tent_plane`, shadow and glow softness): the triangle filter and
   truncating shadow offset as measured in FirePixel's `fp-raster/src/mask.rs` and `fp-effects/src/shadow.rs`.
+- `crates/raster/src/bevel.rs` (AngleSoftness): direction averaging and map softening as measured in
+  FirePixel's `fp-effects/src/bevel.rs`.
 - `crates/raster/src/pattern.rs`: how Pattern and Web Dither fills map to pixels, as measured in
   FirePixel's `crates/fp-vector/src/paint.rs`.
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in
