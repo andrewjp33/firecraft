@@ -100,18 +100,22 @@ async function store(kind, files) {
   }
 }
 
-const IMAGE_FILE = /\.(png|gif|jpe?g)$/i;
+// What each kind of folder is read for.
+const IMAGE_FILE = /\.(png|gif|jpe?g|bmp|tiff?)$/i;
+const FONT_FILE = /\.(ttf|otf|ttc)$/i;
 const readAll = (files) =>
   Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
 
-// The images directly inside a chosen folder: { folder, files: [{ name, bytes }] }; null when
+// The images (or fonts) directly inside a chosen folder: { folder, files: [{ name, bytes }] }; null when
 // cancelled.
 export async function pickFolder(kind) {
   const chosen = await chooseFolder();
   if (!chosen) return null;
   // webkitRelativePath is "Folder/file": two parts for files directly inside it.
-  const direct = chosen.filter((f) => f.webkitRelativePath.split("/").length === 2 && IMAGE_FILE.test(f.name));
-  if (direct.length === 0) throw new Error("That folder has no images in it.");
+  const fonts = kind === "firecraft-fonts";
+  const wanted = fonts ? FONT_FILE : IMAGE_FILE;
+  const direct = chosen.filter((f) => f.webkitRelativePath.split("/").length === 2 && wanted.test(f.name));
+  if (direct.length === 0) throw new Error(`That folder has no ${fonts ? "fonts" : "images"} in it.`);
   const files = await readAll(direct);
   await store(kind, files);
   return { folder: direct[0].webkitRelativePath.split("/")[0], files };
