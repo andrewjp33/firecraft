@@ -299,15 +299,16 @@ fn missing_fonts(app: &mut FireCraftApp, ctx: &egui::Context) {
             egui::Grid::new("missing_fonts").show(ui, |ui| {
                 for (i, (font, to)) in rows.iter_mut().enumerate() {
                     ui.label(font.as_str());
-                    egui::ComboBox::from_id_salt(("missing_font", i))
-                        .width(200.0)
-                        .height(300.0)
-                        .selected_text(to.as_str())
-                        .show_ui(ui, |ui| {
-                            for name in names.iter() {
-                                ui.selectable_value(to, name.clone(), name);
-                            }
-                        });
+                    if let Some(name) = crate::font_picker::font_combo(
+                        ui,
+                        ("missing_font", i),
+                        200.0,
+                        300.0,
+                        to.as_str(),
+                        &names,
+                    ) {
+                        *to = name;
+                    }
                     ui.end_row();
                 }
             });

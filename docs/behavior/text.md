@@ -15,6 +15,12 @@ A text object shows the image saved with it (`IMGv`) until it is edited, so a fi
 fonts are installed. Editing draws into that same image, and the rest of the renderer doesn't know the difference.
 An unedited object keeps Fireworks' record on save, apart from its position.
 
+## Font list
+
+While the font list is open, typing finds a font by name, as in Fireworks: a letter goes to the next font starting with
+it (pressing it again steps on), and letters typed within a second narrow the search. Arrows, Page Up/Down, Home, End and
+Enter work too. The list opens at the current font.
+
 ## Missing fonts
 
 Opening a document whose fonts aren't here offers Fireworks MX's choice: **Maintain Appearance** keeps the stored

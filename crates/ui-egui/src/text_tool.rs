@@ -500,6 +500,22 @@ fn apply(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut TextRun)) {
     }
 }
 
+/// Apply a number field's change. Selected objects change as it's dragged, with one History state
+/// on mouse up; text being edited records its changes when editing ends.
+fn apply_value(app: &mut FireCraftApp, field: &egui::Response, label: &str, f: &dyn Fn(&mut TextRun)) {
+    let editing = app.text_tool.editing.as_ref().map(|e| e.r);
+    if let Some(d) = app.session.active_doc_mut()
+        && !editing.is_some_and(|r| d.text_at(r).is_some())
+        && d.selection.iter().any(|r| d.editable_text_at(*r).is_some())
+    {
+        crate::inspector::value_drag(d, field, label, |d, live| {
+            d.format_selected_text(label, live, f);
+        });
+    } else if field.changed() {
+        apply(app, label, f);
+    }
+}
+
 fn set_object(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut firecraft_doc::Text)) {
     let FireCraftApp { session, .. } = app;
     let Some(d) = session.active_doc_mut() else {
@@ -516,10 +532,15 @@ fn number(
     value: &mut f64,
     range: std::ops::RangeInclusive<f64>,
     suffix: &str,
-) -> bool {
+) -> egui::Response {
     ui.label(label);
-    ui.add(DragValue::new(value).range(range).max_decimals(0).suffix(suffix))
-        .changed()
+    ui.add(
+        DragValue::new(value)
+            .range(range)
+            .max_decimals(0)
+            .suffix(suffix)
+            .update_while_editing(false),
+    )
 }
 
 /// The text controls of the Property inspector.
@@ -529,30 +550,22 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let fonts = app.font_names();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            let mut font_pick = None;
-            ComboBox::from_id_salt("text_font")
-                .width(170.0)
-                .height(400.0)
-                .selected_text(style.font.as_str())
-                .show_ui(ui, |ui| {
-                    for name in fonts.iter() {
-                        if ui.selectable_label(*name == style.font, name).clicked() {
-                            font_pick = Some(name.clone());
-                        }
-                    }
-                });
-            if let Some(name) = font_pick {
+            if let Some(name) =
+                crate::font_picker::font_combo(ui, "text_font", 170.0, 400.0, &style.font, &fonts)
+            {
                 app.platform.load_installed_font(&name);
                 apply(app, "Text Font", &move |r| r.font.clone_from(&name));
             }
             let mut size = style.size;
-            if ui
-                .add(DragValue::new(&mut size).range(1.0..=1000.0).max_decimals(1))
-                .on_hover_text("Size")
-                .changed()
-            {
-                apply(app, "Text Size", &move |r| r.size = size);
-            }
+            let field = ui
+                .add(
+                    DragValue::new(&mut size)
+                        .range(1.0..=1000.0)
+                        .max_decimals(1)
+                        .update_while_editing(false),
+                )
+                .on_hover_text("Size");
+            apply_value(app, &field, "Text Size", &move |r| r.size = size);
             let color = cp::color_box(
                 ui,
                 "text_color",
@@ -598,29 +611,27 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         });
         ui.horizontal(|ui| {
             let mut tracking = style.tracking * 100.0;
-            if number(ui, "Kerning:", &mut tracking, -100.0..=100.0, "%") {
-                apply(app, "Text Kerning", &move |r| r.tracking = tracking / 100.0);
-            }
+            let field = number(ui, "Kerning:", &mut tracking, -100.0..=100.0, "%");
+            apply_value(app, &field, "Text Kerning", &move |r| {
+                r.tracking = tracking / 100.0
+            });
             let mut leading = if style.leading_px {
                 style.leading
             } else {
                 style.leading * 100.0
             };
             let suffix = if style.leading_px { " px" } else { "%" };
-            if number(ui, "Leading:", &mut leading, 0.0..=1000.0, suffix) {
-                let px = style.leading_px;
-                apply(app, "Text Leading", &move |r| {
-                    r.leading = if px { leading } else { leading / 100.0 }
-                });
-            }
+            let field = number(ui, "Leading:", &mut leading, 0.0..=1000.0, suffix);
+            let px = style.leading_px;
+            apply_value(app, &field, "Text Leading", &move |r| {
+                r.leading = if px { leading } else { leading / 100.0 }
+            });
             let mut scale = style.h_scale * 100.0;
-            if number(ui, "Scale:", &mut scale, 1.0..=1000.0, "%") {
-                apply(app, "Text Scale", &move |r| r.h_scale = scale / 100.0);
-            }
+            let field = number(ui, "Scale:", &mut scale, 1.0..=1000.0, "%");
+            apply_value(app, &field, "Text Scale", &move |r| r.h_scale = scale / 100.0);
             let mut shift = style.baseline_shift;
-            if number(ui, "Baseline:", &mut shift, -500.0..=500.0, " px") {
-                apply(app, "Text Baseline", &move |r| r.baseline_shift = shift);
-            }
+            let field = number(ui, "Baseline:", &mut shift, -500.0..=500.0, " px");
+            apply_value(app, &field, "Text Baseline", &move |r| r.baseline_shift = shift);
         });
         ui.horizontal(|ui| {
             const MODES: [(u8, &str); 3] = [

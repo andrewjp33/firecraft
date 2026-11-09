@@ -125,6 +125,7 @@ impl Tool {
                 | Tool::SelectBehind
                 | Tool::Subselect
                 | Tool::Pen
+                | Tool::Text
                 | Tool::Brush
                 | Tool::Pencil
                 | Tool::Eraser

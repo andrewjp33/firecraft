@@ -21,6 +21,7 @@ pub mod cursors;
 mod dialogs;
 pub mod effects_ui;
 mod fill_ui;
+mod font_picker;
 mod fpui;
 mod gradient_ui;
 mod icons;
