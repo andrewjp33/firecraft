@@ -55,6 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let doc = firecraft_io::open(&std::fs::read(&path)?, None)?;
         println!("== {path}");
         let ctx = RenderCtx {
+            mx_perspective: false,
             symbols: &doc.symbols,
             frame: 0,
             depth: 0,

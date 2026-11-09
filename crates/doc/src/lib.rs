@@ -150,6 +150,8 @@ pub struct RenderCtx<'a> {
     pub frame: usize,
     pub depth: u32,
     pub math: ColorMath,
+    /// Draw perspective symbol instances the way Fireworks MX does (see [`Document`]).
+    pub mx_perspective: bool,
     /// The symbols being drawn around this point, outermost first (`depth` of them): a symbol
     /// that contains itself, directly or through others, is drawn once, not recursively.
     pub chain: [u32; MAX_SYMBOL_DEPTH as usize],
@@ -160,6 +162,7 @@ impl RenderCtx<'_> {
         symbols: &[],
         frame: 0,
         depth: 0,
+        mx_perspective: false,
         math: ColorMath::Classic,
         chain: [0; MAX_SYMBOL_DEPTH as usize],
     };
@@ -289,6 +292,10 @@ pub struct Document {
     /// Pixel tiles of the original file, by id. Raw nodes kept above (presets, textures, text
     /// caches, `mkBS`) reference them, so they are written back with the document.
     pub raw_tiles: std::sync::Arc<std::collections::HashMap<u32, firecraft_fwpng::Tile>>,
+    /// Perspective symbol instances: `false` warps the symbol's pixels (true perspective), `true`
+    /// maps its paths and fill handles instead, as Fireworks MX draws them (a preference, set by
+    /// the app; docs/behavior/symbols.md).
+    pub mx_perspective: bool,
     /// The symbol library (shared: undo snapshots don't copy it).
     pub symbols: std::sync::Arc<Vec<Symbol>>,
     /// Absolute path or display name; `None` for "Untitled".
@@ -302,6 +309,7 @@ impl Document {
     /// A new document like File > New: a "Layer 1" plus the Web Layer.
     pub fn new(width: u32, height: u32, resolution: f64, canvas: CanvasColor) -> Self {
         Self {
+            mx_perspective: false,
             width,
             height,
             resolution,
@@ -346,6 +354,7 @@ impl Document {
     pub fn render(&self, frame: usize) -> RgbaImage {
         let mut out = RgbaImage::new(self.width, self.height, self.canvas.unwrap_or(Rgba::TRANSPARENT));
         let ctx = RenderCtx {
+            mx_perspective: self.mx_perspective,
             symbols: &self.symbols,
             frame,
             depth: 0,

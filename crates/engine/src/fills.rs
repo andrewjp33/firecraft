@@ -813,6 +813,49 @@ mod tests {
     }
 
     #[test]
+    fn the_mx_perspective_preference_changes_only_how_the_symbol_is_drawn() {
+        use firecraft_doc::{Layer, Symbol, SymbolKind};
+        use firecraft_raster::transform::Affine;
+        let (mut d, o) = doc_with_rect();
+        d.set_fill_category("fc_Ripple", &o);
+        let mut layer = Layer::new("L");
+        let path = d.doc.layers[0].elements(0)[0].clone();
+        if let Some(e) = layer.elements_mut(0) {
+            e.push(path);
+        }
+        d.doc.symbols = std::sync::Arc::new(vec![Symbol {
+            id: 7,
+            name: "S".into(),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer],
+            frames: 1,
+            nine: None,
+            raw: None,
+        }]);
+        let matrix = Affine {
+            g: 0.002,
+            ..Affine::IDENTITY
+        };
+        if let Some(e) = d.doc.layers[0].elements_mut(0) {
+            e[0] = Element::new(ElementKind::Instance {
+                symbol: 7,
+                name: "S".into(),
+                matrix,
+                bounds: Some((0.0, 0.0, 400.0, 300.0)),
+            });
+        }
+        let warped = d.doc.render(0);
+        d.doc.mx_perspective = true;
+        assert_ne!(
+            warped,
+            d.doc.render(0),
+            "mapping the handles draws different rings"
+        );
+        d.doc.mx_perspective = false;
+        assert_eq!(warped, d.doc.render(0));
+    }
+
+    #[test]
     fn editing_a_dither_colour_makes_the_source_their_average() {
         // Fireworks MX: #000033 and #ffffff gave a fill colour of #808099.
         let (mut d, o) = doc_with_rect();

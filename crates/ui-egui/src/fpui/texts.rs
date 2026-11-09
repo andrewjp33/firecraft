@@ -16,6 +16,9 @@ pub fn t(key: &str) -> String {
         "pi-fill-none" => "No Fill",
         "pi-fill-pattern" => "Pattern",
         "pi-fill-solid" => "Solid",
+        "pi-stroke-inside" => "Align stroke inside",
+        "pi-stroke-center" => "Center stroke on path",
+        "pi-stroke-outside" => "Align stroke outside",
         other => other,
     }
     .to_owned()

@@ -1,5 +1,7 @@
 //! Compare FireCraft's rendering of a Fireworks PNG with the flat image Fireworks saved in it.
 //! `fill_compare FILE...`: for each, pixels differing at all and by more than 2 levels.
+//! `FC_MX_PERSPECTIVE=1` turns on the Fireworks MX perspective preference; `FILL_COMPARE_OUT=x.png`
+//! writes FireCraft's render.
 
 use firecraft_raster::RgbaImage;
 
@@ -7,7 +9,8 @@ fn main() {
     for path in std::env::args().skip(1) {
         let bytes = std::fs::read(&path).expect("reads");
         let flat: RgbaImage = firecraft_io::decode_png(&bytes).expect("a PNG");
-        let doc = firecraft_io::open(&bytes, None).expect("opens");
+        let mut doc = firecraft_io::open(&bytes, None).expect("opens");
+        doc.mx_perspective = std::env::var_os("FC_MX_PERSPECTIVE").is_some();
         let mine = doc.render(0);
         let (mut any, mut big, mut first) = (0, 0, None);
         for y in 0..flat.height().min(mine.height()) as i64 {
@@ -33,6 +36,9 @@ fn main() {
                     big += 1;
                 }
             }
+        }
+        if let Some(out) = std::env::var_os("FILL_COMPARE_OUT") {
+            std::fs::write(out, firecraft_io::export_png(&doc).expect("encodes")).expect("writes");
         }
         println!("{path}: {any} differ, {big} by >2, first {first:?}");
     }

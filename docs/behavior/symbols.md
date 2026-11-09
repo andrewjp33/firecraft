@@ -77,3 +77,10 @@ moves it, which FireCraft doesn't reproduce.
   node instead of `NGSv`: CS5 then opens the file with 9-slice unchecked for that symbol
   (confirmed in CS5), and FireCraft reads the guides back. If CS5 re-saves the file the guides
   are lost; enabling 9-slice again in FireCraft puts them at the thirds.
+
+**Perspective instances.** By default FireCraft renders the symbol flat and warps its pixels, so fills are in
+true perspective. Fireworks MX instead transforms each path and its fill handles and then fills it as usual, so
+a gradient's bands stay straight-line in the handles' frame and tighten towards the far side. The preference
+*Draw perspective symbols as Fireworks MX does* (Edit > Preferences) switches to that for symbols of plain
+paths. Measured on a Ripple gradient: nothing differs from Fireworks MX by more than 2 levels on a file it
+re-saved. Symbols with bitmaps, effects, nested instances or 9-slice guides still warp.

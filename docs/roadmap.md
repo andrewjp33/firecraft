@@ -47,7 +47,8 @@ Working order (user's priority, 2026-11-08): Text (item 5) next. Other items kee
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu (Adjust Color, Blur, Sharpen)
-12. (Pattern fills: done.)
+12. **Remember last-used values across restarts**: Fireworks keeps the last used colours, stroke settings
+    and even effect slider values as preferences, and shows them next time, after an app restart too
 13. JavaScript API compatibility for `.jsf` commands (Commands menu)
 14. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas

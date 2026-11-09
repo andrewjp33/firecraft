@@ -288,6 +288,7 @@ impl DocState {
             return;
         }
         let ctx = firecraft_doc::RenderCtx {
+            mx_perspective: self.doc.mx_perspective,
             symbols: &self.doc.symbols,
             frame: self.doc.current_frame,
             depth: 0,

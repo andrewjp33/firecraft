@@ -524,6 +524,10 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
         });
         ui.separator();
+        ui.strong("Fireworks MX compatibility");
+        ui.checkbox(&mut prefs.mx_perspective, "Draw perspective symbols as Fireworks MX does")
+            .on_hover_text("Off: a pixel-correct perspective warp. On: paths and gradient handles are moved instead, which matches Fireworks MX but isn't true perspective.");
+        ui.separator();
         ui.strong("Color math");
         ui.horizontal(|ui| {
             ui.label("New documents:");

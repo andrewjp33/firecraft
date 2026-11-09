@@ -1177,7 +1177,7 @@ fn body(
                     if options {
                         let at = btn(112.5);
                         let r =
-                            Rect::from_min_size(pos2(at.left() - 4.0, at.top()), vec2(112.0, at.height()));
+                            Rect::from_min_size(pos2(at.left() + 6.0, at.top()), vec2(104.0, at.height()));
                         if ui.put(r, egui::Button::new("Stroke Options...")).clicked() {
                             out = Some(ColorChoice::StrokeOptions);
                             close = true;

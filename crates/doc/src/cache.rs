@@ -192,6 +192,7 @@ impl Document {
     /// [`render`](Document::render) using (and filling) `cache`.
     pub fn render_cached(&self, frame: usize, cache: &mut RenderCache) -> RgbaImage {
         let ctx = RenderCtx {
+            mx_perspective: self.mx_perspective,
             symbols: &self.symbols,
             frame,
             depth: 0,
@@ -468,6 +469,7 @@ fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {
         }
         ElementKind::Instance { symbol, matrix, .. } => {
             symbol.hash(h);
+            (ctx.mx_perspective && !matrix.is_affine()).hash(h);
             let m = [
                 matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f, matrix.g, matrix.h, matrix.i,
             ];

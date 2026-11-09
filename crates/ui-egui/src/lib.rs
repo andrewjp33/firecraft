@@ -142,6 +142,8 @@ pub struct Prefs {
     pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
     /// Tool cursors: FireCraft's own (Fireworks style) or the system's.
     pub cursor_style: cursors::CursorStyle,
+    /// Draw perspective symbols as Fireworks MX does, instead of a pixel-correct warp.
+    pub mx_perspective: bool,
     /// Show objects while moving them: dragged with the Pointer, or scaled, rotated, skewed or
     /// distorted (off: only their outline or box moves, and the canvas redraws once on release,
     /// for slower computers).
@@ -171,7 +173,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -188,6 +190,7 @@ impl Prefs {
             self.mouse_highlight,
             self.textures_dir.replace(['\n', '\r'], ""),
             self.patterns_dir.replace(['\n', '\r'], ""),
+            self.mx_perspective,
         )
     }
 
@@ -220,6 +223,7 @@ impl Prefs {
                     }
                 }
                 "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
+                "mx_perspective" => p.mx_perspective = v.trim() == "true",
                 "live_drag" => p.live_drag = flag,
                 "mouse_highlight" => p.mouse_highlight = flag,
                 // `fireworks_dir` is the older name; an install folder still finds its textures.
@@ -269,6 +273,7 @@ impl Default for Prefs {
             aa_style: firecraft_raster::AntiAliasStyle::Smooth,
             new_doc: (660, 440, 72.0, Some(firecraft_raster::Rgba::WHITE)),
             cursor_style: cursors::CursorStyle::Fireworks,
+            mx_perspective: false,
             live_drag: true,
             mouse_highlight: true,
             textures_dir: String::new(),
@@ -577,6 +582,13 @@ impl FireCraftApp {
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
         self.adopt_selected_attributes();
+        for d in &mut self.session.docs {
+            if d.doc.mx_perspective != self.prefs.mx_perspective {
+                d.doc.mx_perspective = self.prefs.mx_perspective;
+                // Redraw, without marking the document as changed.
+                d.revision = d.revision.wrapping_add(1);
+            }
+        }
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();

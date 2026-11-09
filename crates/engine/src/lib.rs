@@ -329,6 +329,7 @@ impl DocState {
     /// Fireworks; hidden objects and locked or hidden layers are skipped.
     pub fn hits_at(&self, x: f64, y: f64) -> Vec<ElementRef> {
         let ctx = firecraft_doc::RenderCtx {
+            mx_perspective: self.doc.mx_perspective,
             symbols: &self.doc.symbols,
             frame: self.frame(),
             depth: 0,
@@ -357,6 +358,7 @@ impl DocState {
     /// innermost member (the topmost member at each level).
     pub fn hit_deep(&self, x: f64, y: f64) -> Option<ElementRef> {
         let ctx = firecraft_doc::RenderCtx {
+            mx_perspective: self.doc.mx_perspective,
             symbols: &self.doc.symbols,
             frame: self.frame(),
             depth: 0,
@@ -746,6 +748,7 @@ impl DocState {
     /// a transform cheaply: each object's pixels and their canvas position.
     pub fn bake(&self, objects: &[(ElementRef, Element)]) -> Vec<(ElementRef, Element, RgbaImage, i64, i64)> {
         let ctx = firecraft_doc::RenderCtx {
+            mx_perspective: self.doc.mx_perspective,
             symbols: &self.doc.symbols,
             frame: self.doc.current_frame,
             depth: 0,

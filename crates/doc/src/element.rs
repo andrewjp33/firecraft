@@ -721,6 +721,19 @@ impl Element {
         Some((mx, my, matrix.then(&unstretch)))
     }
 
+    /// Under the Fireworks MX preference, a perspective instance of plain paths has them mapped,
+    /// fill handles included, instead of its pixels warped. Measured for gradient-filled paths;
+    /// symbols with bitmaps, effects, nested instances or 9-slice guides still warp.
+    fn mapped_in_perspective(&self, ctx: &RenderCtx) -> bool {
+        ctx.mx_perspective
+            && self.nine_split(ctx).is_none()
+            && self.symbol_elements(ctx).is_some_and(|children| {
+                children
+                    .iter()
+                    .all(|e| matches!(e.kind, ElementKind::Path(_)) && e.effects.is_empty())
+            })
+    }
+
     fn instance_elements(&self, ctx: &RenderCtx) -> Option<Vec<Element>> {
         let ElementKind::Instance { matrix, .. } = &self.kind else {
             return None;
@@ -933,9 +946,11 @@ impl Element {
                     .for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
                 Some((layer, 0, 0))
             }
-            ElementKind::Instance { matrix, .. } if !matrix.is_affine() => {
+            ElementKind::Instance { matrix, .. }
+                if !matrix.is_affine() && !self.mapped_in_perspective(ctx) =>
+            {
                 // Perspective: render the symbol flat, then warp its pixels (exact for fills and
-                // effects, unlike mapping the geometry). A 9-slice symbol is rendered sliced at the
+                // effects, unlike mapping the geometry, which is the Fireworks MX preference). A 9-slice symbol is rendered sliced at the
                 // instance's stretch, then warped by the rest of the transform.
                 let mut children = self.symbol_elements(ctx)?;
                 let nine = self.nine_split(ctx);
