@@ -109,9 +109,14 @@ pixels. The Gradient tool's drag and its bitmap fill follow the manual and weren
 Measured in Fireworks MX by reading fills back through its scripting API; FireCraft renders Fireworks
 MX's own saved Pattern, Web Dither and Transparent files with no differing pixels.
 
-**Tools panel.** The Fill box shows the selected object's fill, or new objects' with nothing selected.
-A plain colour opens the colour pop-up, whose **Fill Options...** button opens the Fill Options window;
-a gradient opens Edit Gradient (which has the same button).
+**Tools panel.** The Stroke and Fill boxes show the selected object's stroke and fill. They keep them after
+it is deselected, and new objects take them on whole: fill kind, pattern, stroke colour and size, and having
+no stroke at all (measured). A solid fill opens the colour picker, whose footer offers None, Gradient,
+Pattern and Web Dither; a gradient, pattern or dither fill opens its own pop-up, the same one as the Property
+inspector's, with the kind of fill as its first control.
+
+**Preset list.** It shows a preset's name while the stops are that preset and is blank once they differ
+(measured: adding a stop blanks it, though the stored gradient name `INMs` stays).
 
 **Pattern.** `FSHi 15`, the tile stored in the file (`FPTv { INMs IMGv }`). A new or changed pattern puts
 the round handle on the object's centre, with the other two one tile away (right and up), so the first

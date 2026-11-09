@@ -213,6 +213,11 @@ pub struct ToolOptions {
     pub stroke_texture: Option<firecraft_doc::Texture>,
     /// The texture new fills get (at 0%, as Fireworks keeps one on every fill).
     pub fill_texture: Option<firecraft_doc::Texture>,
+    /// New strokes' placement (0 inside, 1 centred, 2 outside).
+    pub stroke_placement: u8,
+    /// New fills' texture amount (tenths of a percent) and Transparent option.
+    pub fill_texture_amount: u16,
+    pub fill_texture_transparent: bool,
     /// The fill category new objects get (`fc_Solid`, `fc_Linear`, ...).
     pub fill_category: String,
     /// New objects' gradient, when the category is one (its handles are set per object).
@@ -242,6 +247,7 @@ impl ToolOptions {
             s.brush = Some(b.clone());
         }
         s.texture = self.stroke_texture.clone();
+        s.placement = self.stroke_placement;
         s
     }
 }
@@ -262,6 +268,9 @@ impl Default for ToolOptions {
             stroke_brush: None,
             stroke_texture: None,
             fill_texture: None,
+            stroke_placement: 1,
+            fill_texture_amount: 0,
+            fill_texture_transparent: false,
             fill_category: "fc_Solid".into(),
             fill_gradient: None,
             fill_pattern: None,

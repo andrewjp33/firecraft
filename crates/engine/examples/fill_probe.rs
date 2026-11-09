@@ -26,6 +26,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     d.add_shape((210.0, 150.0, 380.0, 280.0), true, &o);
     d.set_fill_category(PATTERN, &o);
     d.set_fill_edge(true, 12, false);
+    // A stroked object, to see what the tools keep from it.
+    o.stroke = Some(Rgba::new(0, 0xff, 0, 255));
+    o.stroke_size = 7;
+    o.fill = Some(Rgba::new(0xff, 0, 0, 255));
+    d.add_shape((300.0, 285.0, 390.0, 298.0), false, &o);
     std::fs::write(&a[2], firecraft_io::save_fireworks_png(&d.doc)?)?;
     Ok(())
 }

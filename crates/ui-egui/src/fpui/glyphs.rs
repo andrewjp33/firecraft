@@ -12,6 +12,7 @@ pub enum Glyph {
     FillSolid,
     FillGradient,
     FillPattern,
+    FillDither,
     StrokeInside,
     StrokeCenter,
     StrokeOutside,
@@ -133,12 +134,13 @@ pub fn paint(p: &Painter, r: Rect, g: Glyph, t: &Theme, enabled: bool) {
             p.add(Shape::mesh(mesh));
             p.rect_stroke(b, 0.0, s1, egui::StrokeKind::Inside);
         }
-        Glyph::FillPattern => {
+        kind @ (Glyph::FillPattern | Glyph::FillDither) => {
             let b = sq(m, 11.0 * k, 11.0 * k);
             p.rect_filled(b, 0.0, paper);
-            let cell = b.width() / 4.0;
-            for j in 0..4 {
-                for i in 0..4 {
+            let cells = if matches!(kind, Glyph::FillDither) { 8 } else { 4 };
+            let cell = b.width() / cells as f32;
+            for j in 0..cells {
+                for i in 0..cells {
                     if (i + j) % 2 == 0 {
                         p.rect_filled(
                             Rect::from_min_size(

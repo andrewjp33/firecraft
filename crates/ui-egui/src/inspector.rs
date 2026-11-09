@@ -384,7 +384,7 @@ fn shape_tool(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
 
 /// A value field in the Property inspector: changes apply as it's dragged and one History state
 /// is recorded on mouse up, as in Fireworks. `apply` gets whether this is part of a drag.
-fn value_drag(
+pub(crate) fn value_drag(
     d: &mut firecraft_engine::DocState,
     resp: &egui::Response,
     label: &str,

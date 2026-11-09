@@ -326,6 +326,8 @@ pub struct FireCraftApp {
     path_edit: path_tool::PathEdit,
     gradient_popup: Option<gradient_ui::Popup>,
     fill_window: Option<fill_ui::Window>,
+    /// The fill and stroke of the selected object the tools last took on.
+    adopted: Option<(Option<firecraft_doc::Fill>, Option<firecraft_doc::Stroke>)>,
     /// Where a pattern file chosen with Other... goes, once the browser delivers it.
     awaiting_pattern: Option<gradient_ui::Target>,
     patterns: firecraft_io::textures::PatternLibrary,
@@ -367,6 +369,7 @@ impl FireCraftApp {
             path_edit: path_tool::PathEdit::default(),
             gradient_popup: None,
             fill_window: None,
+            adopted: None,
             awaiting_pattern: None,
             patterns: Default::default(),
             patterns_for: None,
@@ -380,6 +383,29 @@ impl FireCraftApp {
             textures: Default::default(),
             textures_for: None,
         }
+    }
+
+    /// The tools take on the selected object's fill and stroke and keep them after it is
+    /// deselected, for the Tools panel and new objects (Fireworks MX).
+    fn adopt_selected_attributes(&mut self) {
+        let Some(d) = self.session.active_doc() else {
+            return;
+        };
+        let Some((fill, stroke)) = d.selected_path_attributes() else {
+            self.adopted = None;
+            return;
+        };
+        if self
+            .adopted
+            .as_ref()
+            .is_some_and(|(f, s)| f.as_ref() == fill && s.as_ref() == stroke)
+        {
+            return;
+        }
+        let owned = (fill.cloned(), stroke.cloned());
+        self.session.options.adopt_fill(owned.0.as_ref());
+        self.session.options.adopt_stroke(owned.1.as_ref());
+        self.adopted = Some(owned);
     }
 
     /// The pattern list, read again when the Patterns folder setting changes.
@@ -548,6 +574,7 @@ impl FireCraftApp {
         // Tool options the preferences remember.
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
+        self.adopt_selected_attributes();
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();

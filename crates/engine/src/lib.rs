@@ -13,7 +13,7 @@ mod tools;
 
 pub use fills::{
     FillHandles, GRADIENT_FILLS, GRADIENT_PRESETS, PATTERN, WEB_DITHER, default_handles, fill_label,
-    new_gradient, new_pattern, opaque_ramp, preset_colors, web_dither_tile,
+    new_gradient, new_pattern, opaque_ramp, preset_colors, preset_name, web_dither_tile,
 };
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
@@ -1060,42 +1060,77 @@ impl DocState {
         });
     }
 
+    fn apply_fill_color(s: &mut DocState, refs: &[ElementRef], color: Option<Rgba>) {
+        for &r in refs {
+            if let Some(Element {
+                kind: ElementKind::Path(p),
+                ..
+            }) = s.element_mut(r)
+            {
+                match (color, &mut p.fill) {
+                    (None, f) => *f = None,
+                    (Some(c), Some(f)) => {
+                        f.color = c;
+                        if f.dither.is_some() {
+                            f.dither = Some(fills::dither_tile(c, f.dither_transparent));
+                        }
+                    }
+                    (Some(c), f) => {
+                        *f = Some(Fill {
+                            color: c,
+                            category: "fc_Solid".into(),
+                            anti_alias: true,
+                            feather: 0,
+                            pattern: None,
+                            dither: None,
+                            dither_transparent: false,
+                            gradient: None,
+                            texture: None,
+                            texture_amount: 0,
+                            texture_transparent: false,
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    fn apply_stroke_color(s: &mut DocState, refs: &[ElementRef], color: Option<Rgba>) {
+        for &r in refs {
+            if let Some(Element {
+                kind: ElementKind::Path(p),
+                ..
+            }) = s.element_mut(r)
+            {
+                match (color, &mut p.stroke) {
+                    (None, st) => *st = None,
+                    (Some(c), Some(st)) => st.color = c,
+                    (Some(c), st) => {
+                        *st = Some(Stroke::from_preset(
+                            c,
+                            firecraft_doc::brush_presets::default_index(),
+                            1.0,
+                        ))
+                    }
+                }
+            }
+        }
+    }
+
+    /// The selected paths' stroke and fill colours, in one History step.
+    pub fn set_colors(&mut self, label: &str, stroke: Option<Rgba>, fill: Option<Rgba>) {
+        let refs = self.selection.clone();
+        self.edit(label, |s| {
+            Self::apply_stroke_color(s, &refs, stroke);
+            Self::apply_fill_color(s, &refs, fill);
+        });
+    }
+
     /// The selected paths' fill colour (`None`: no fill; a path without fill gets a solid one).
     pub fn set_fill_color(&mut self, color: Option<Rgba>) {
         let refs = self.selection.clone();
         self.edit(if color.is_some() { "Fill Color" } else { "No Fill" }, |s| {
-            for r in refs {
-                if let Some(Element {
-                    kind: ElementKind::Path(p),
-                    ..
-                }) = s.element_mut(r)
-                {
-                    match (color, &mut p.fill) {
-                        (None, f) => *f = None,
-                        (Some(c), Some(f)) => {
-                            f.color = c;
-                            if f.dither.is_some() {
-                                f.dither = Some(fills::dither_tile(c, f.dither_transparent));
-                            }
-                        }
-                        (Some(c), f) => {
-                            *f = Some(Fill {
-                                color: c,
-                                category: "fc_Solid".into(),
-                                anti_alias: true,
-                                feather: 0,
-                                pattern: None,
-                                dither: None,
-                                dither_transparent: false,
-                                gradient: None,
-                                texture: None,
-                                texture_amount: 0,
-                                texture_transparent: false,
-                            })
-                        }
-                    }
-                }
-            }
+            Self::apply_fill_color(s, &refs, color);
         });
     }
 
@@ -1110,25 +1145,7 @@ impl DocState {
                 "No Stroke"
             },
             |s| {
-                for r in refs {
-                    if let Some(Element {
-                        kind: ElementKind::Path(p),
-                        ..
-                    }) = s.element_mut(r)
-                    {
-                        match (color, &mut p.stroke) {
-                            (None, st) => *st = None,
-                            (Some(c), Some(st)) => st.color = c,
-                            (Some(c), st) => {
-                                *st = Some(Stroke::from_preset(
-                                    c,
-                                    firecraft_doc::brush_presets::default_index(),
-                                    1.0,
-                                ))
-                            }
-                        }
-                    }
-                }
+                Self::apply_stroke_color(s, &refs, color);
             },
         );
     }

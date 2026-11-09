@@ -308,35 +308,10 @@ fn colors(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 },
                 16.0,
             );
-            if !is_stroke {
+            if is_stroke {
+                crate::fill_ui::tools_stroke_box(app, ui);
+            } else {
                 crate::fill_ui::tools_fill_box(app, ui);
-                return;
-            }
-            let cur = if is_stroke {
-                app.session.options.stroke
-            } else {
-                app.session.options.fill
-            };
-            // Fireworks CS's colour pop-up (FirePixel's re-creation).
-            use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
-            let footer = if is_stroke {
-                Footer::Stroke {
-                    placement: None,
-                    enabled: false,
-                }
-            } else {
-                Footer::Fill { kinds: false }
-            };
-            let choice = cp::color_box(ui, ("tools_color", is_stroke), vec2(24.0, 14.0), cur, footer);
-            let slot = if is_stroke {
-                &mut app.session.options.stroke
-            } else {
-                &mut app.session.options.fill
-            };
-            match choice {
-                Some(ColorChoice::Color(c)) => *slot = Some(cp::to_rgba(c)),
-                Some(ColorChoice::None) => *slot = None,
-                _ => {}
             }
             let _ = label;
         });
@@ -347,21 +322,21 @@ fn colors(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             .on_hover_text("Default stroke/fill colors")
             .clicked()
         {
-            app.session.options.stroke = Some(Rgba::BLACK);
-            app.session.options.fill = Some(Rgba::new(0x99, 0x99, 0x99, 255));
+            let fill = Some(Rgba::new(0x99, 0x99, 0x99, 255));
+            crate::fill_ui::set_tool_colors(app, "Set Default Colors", Some(Rgba::BLACK), fill);
         }
         if icons::glyph_button(ui, icons::Glyph::NoColor, 16.0, true)
             .on_hover_text("No fill")
             .clicked()
         {
-            app.session.options.fill = None;
+            crate::fill_ui::tools_no_fill(app);
         }
         if icons::glyph_button(ui, icons::Glyph::Swap, 16.0, true)
             .on_hover_text("Swap stroke/fill colors")
             .clicked()
         {
-            let o = &mut app.session.options;
-            std::mem::swap(&mut o.stroke, &mut o.fill);
+            let (stroke, fill) = (app.session.options.fill, app.session.options.stroke);
+            crate::fill_ui::set_tool_colors(app, "Swap Colors", stroke, fill);
         }
     });
 }

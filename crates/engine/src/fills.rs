@@ -36,6 +36,25 @@ pub fn fill_label(category: &str) -> &'static str {
     }
 }
 
+/// The preset a gradient's stops are, if any (Fireworks MX's Preset list shows it, and is blank
+/// once the stops are changed).
+pub fn preset_name(g: &Gradient) -> Option<&'static str> {
+    if g.opacity.iter().any(|(_, a)| *a != 255) {
+        return None;
+    }
+    GRADIENT_PRESETS
+        .iter()
+        .find(|(_, stops)| {
+            let colors = preset_colors(stops);
+            colors.len() == g.colors.len()
+                && colors
+                    .iter()
+                    .zip(&g.colors)
+                    .all(|(a, b)| (a.0 - b.0).abs() < 1e-3 && a.1 == b.1)
+        })
+        .map(|(name, _)| *name)
+}
+
 /// The Pattern fill category.
 pub const PATTERN: &str = "fc_Pattern";
 /// The Web Dither fill category.
@@ -262,9 +281,52 @@ impl ToolOptions {
             dither_transparent: self.fill_dither_transparent,
             gradient,
             texture: self.fill_texture.clone(),
-            texture_amount: 0,
-            texture_transparent: false,
+            texture_amount: self.fill_texture_amount,
+            texture_transparent: self.fill_texture_transparent,
         })
+    }
+
+    /// Take on a selected object's fill: new objects get it too (Fireworks MX).
+    pub fn adopt_fill(&mut self, fill: Option<&Fill>) {
+        let Some(f) = fill else {
+            self.fill = None;
+            self.fill_category = "fc_Solid".into();
+            self.fill_gradient = None;
+            return;
+        };
+        self.fill = Some(f.color);
+        self.fill_category.clone_from(&f.category);
+        self.fill_gradient.clone_from(&f.gradient);
+        if f.pattern.is_some() {
+            self.fill_pattern.clone_from(&f.pattern);
+        }
+        self.fill_dither_transparent = f.dither_transparent;
+        self.fill_anti_alias = f.anti_alias;
+        self.fill_feather = f.feather;
+        if f.texture.is_some() {
+            self.fill_texture.clone_from(&f.texture);
+        }
+        self.fill_texture_amount = f.texture_amount;
+        self.fill_texture_transparent = f.texture_transparent;
+    }
+
+    /// Take on a selected object's stroke: new objects get it too (Fireworks MX), none included.
+    pub fn adopt_stroke(&mut self, stroke: Option<&firecraft_doc::Stroke>) {
+        let Some(s) = stroke else {
+            self.stroke = None;
+            return;
+        };
+        self.stroke = Some(s.color);
+        self.stroke_size = s.diameter.round().max(1.0) as u32;
+        self.stroke_softness = s.softness;
+        self.stroke_placement = s.placement;
+        if let Some(i) = firecraft_doc::brush_presets::find(&s.category, &s.name) {
+            self.stroke_preset = i;
+        }
+        self.stroke_brush.clone_from(&s.brush);
+        if s.texture.is_some() {
+            self.stroke_texture.clone_from(&s.texture);
+        }
     }
 
     /// Change the kind of fill new objects get.
@@ -376,6 +438,41 @@ impl DocState {
             side: p.side,
             uses_side: true,
         })
+    }
+
+    /// The selected fill's angle in degrees: of the line to its end handle, anticlockwise.
+    pub fn fill_angle(&self) -> Option<f64> {
+        let h = self.selected_fill_handles()?;
+        Some(
+            (h.start.1 - h.end.1)
+                .atan2(h.end.0 - h.start.0)
+                .to_degrees()
+                .rem_euclid(360.0),
+        )
+    }
+
+    /// Turn the selected fill about its round handle to `degrees`.
+    pub fn set_fill_angle(&mut self, degrees: f64, live: bool) {
+        let (Some(h), Some(now)) = (self.selected_fill_handles(), self.fill_angle()) else {
+            return;
+        };
+        let (sin, cos) = (now - degrees).to_radians().sin_cos();
+        let (ox, oy) = h.start;
+        let turn = |p: (f64, f64)| {
+            let (x, y) = (p.0 - ox, p.1 - oy);
+            (ox + x * cos - y * sin, oy + x * sin + y * cos)
+        };
+        self.set_fill_handles(live, h.start, turn(h.end), turn(h.side));
+    }
+
+    /// The first selected path's fill and stroke; `None` with no path selected.
+    pub fn selected_path_attributes(&self) -> Option<(Option<&Fill>, Option<&firecraft_doc::Stroke>)> {
+        self.selection
+            .iter()
+            .find_map(|r| match self.element(*r).map(|e| &e.kind) {
+                Some(ElementKind::Path(p)) => Some((p.fill.as_ref(), p.stroke.as_ref())),
+                _ => None,
+            })
     }
 
     /// Move the selected fills' handles (`live`: part of a live edit already begun).
@@ -659,6 +756,59 @@ mod tests {
         assert_eq!(
             (h.start, h.end, h.side),
             ((180.0, 140.0), (436.0, 140.0), (180.0, -116.0))
+        );
+    }
+
+    #[test]
+    fn new_objects_take_on_the_last_selected_objects_fill_and_stroke() {
+        // Fireworks MX: a rectangle drawn after deselecting matched the object in fill kind,
+        // pattern, stroke colour and size, or had no stroke after an object without one.
+        let (mut d, mut o) = doc_with_rect();
+        o.fill_pattern = Some(new_pattern(
+            "A",
+            RgbaImage::new(8, 8, Rgba::WHITE),
+            (0.0, 0.0, 1.0, 1.0),
+        ));
+        d.set_fill_category(PATTERN, &o);
+        let (fill, stroke) = d.selected_path_attributes().expect("a path");
+        let mut tools = ToolOptions::default();
+        tools.adopt_fill(fill);
+        tools.adopt_stroke(stroke);
+        let new = tools.new_fill((0.0, 0.0, 16.0, 16.0)).expect("a fill");
+        assert_eq!(new.category, PATTERN);
+        let q = new.pattern.expect("a pattern");
+        assert_eq!((q.name.as_str(), q.start), ("A", (8.0, 8.0)));
+        assert_eq!(tools.stroke, Some(Rgba::new(0, 255, 0, 255)));
+        tools.adopt_stroke(None);
+        assert_eq!(tools.stroke, None);
+    }
+
+    #[test]
+    fn the_preset_name_lasts_until_the_stops_change() {
+        let (name, stops) = GRADIENT_PRESETS[4];
+        let mut g = new_gradient(
+            GradientKind::Linear,
+            preset_colors(stops),
+            opaque_ramp(),
+            (0.0, 0.0, 9.0, 9.0),
+        );
+        assert_eq!(preset_name(&g), Some(name));
+        g.colors.insert(1, (0.47, Rgba::new(1, 2, 3, 255)));
+        assert_eq!(preset_name(&g), None);
+    }
+
+    #[test]
+    fn the_fill_angle_turns_about_the_round_handle() {
+        let (mut d, o) = doc_with_rect();
+        d.set_fill_category("fc_Linear", &o);
+        d.set_fill_handles(false, (100.0, 100.0), (200.0, 100.0), (100.0, 0.0));
+        assert!(d.fill_angle().is_some_and(|a| a.abs() < 1e-6));
+        d.set_fill_angle(90.0, false);
+        let h = d.selected_fill_handles().expect("handles");
+        assert!(
+            (h.end.0 - 100.0).abs() < 1e-6 && (h.end.1 - 0.0).abs() < 1e-6,
+            "{:?}",
+            h.end
         );
     }
 

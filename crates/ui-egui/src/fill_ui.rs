@@ -4,7 +4,7 @@
 
 use egui::{Color32, ComboBox, Pos2, Rect, Sense, Stroke, vec2};
 use firecraft_doc::Fill;
-use firecraft_engine::{PATTERN, fill_label, new_pattern};
+use firecraft_engine::{PATTERN, WEB_DITHER, fill_label, new_pattern};
 use firecraft_io::textures::pattern_label;
 use firecraft_raster::Rgba;
 use firecraft_raster::pattern::web_dither_at;
@@ -14,6 +14,7 @@ use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
 use crate::gradient_ui::{self, Target};
 
 /// What a Fill Options menu chose.
+#[derive(Clone, Copy)]
 pub(crate) enum FillPick {
     None,
     Category(&'static str),
@@ -127,7 +128,11 @@ pub(crate) fn open(app: &mut FireCraftApp, target: Target, fill: &Fill, resp: &e
 
 /// Open the Fill Options window, its bottom left corner at `at`.
 pub(crate) fn open_window(app: &mut FireCraftApp, target: Target, at: Pos2) {
-    app.fill_window = Some(Window { target, at });
+    app.fill_window = Some(Window {
+        target,
+        at,
+        preview: None,
+    });
 }
 
 /// Apply a Fill Options menu choice.
@@ -180,15 +185,90 @@ pub(crate) fn tools_fill_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
         return;
     }
-    let at = ui.next_widget_position() + vec2(30.0, 40.0);
+    // A solid fill (or none): the colour picker, whose footer offers the other kinds of fill.
+    let (r, _) = ui.allocate_exact_size(size, Sense::hover());
+    let resp = ui.interact(r, egui::Id::unique("tools_fill_box"), Sense::click());
     let color = fill.as_ref().map(|f| f.color);
-    let choice = cp::color_box(ui, "tools_fill_box", size, color, Footer::FillOptions);
-    match choice {
-        Some(ColorChoice::FillOptions) => open_window(app, target, at),
+    crate::tools_panel::paint_swatch(ui.painter(), r, color);
+    let footer = Footer::Fill { kinds: true };
+    match cp::popup(ui, &resp, &|_| None, color.map(cp::to_argb), footer) {
         Some(ColorChoice::Color(c)) => set_color(app, target, Some(cp::to_rgba(c))),
         Some(ColorChoice::None) => set_color(app, target, None),
+        Some(ColorChoice::Gradient) => {
+            choose(app, target, FillPick::Category("fc_Linear"));
+            gradient_ui::open(app, target, &resp);
+        }
+        Some(ColorChoice::Pattern) => {
+            choose(app, target, FillPick::Category(PATTERN));
+            open_window(app, target, r.left_top() - vec2(0.0, 2.0));
+        }
+        Some(ColorChoice::WebDither) => {
+            choose(app, target, FillPick::Category(WEB_DITHER));
+            open_window(app, target, r.left_top() - vec2(0.0, 2.0));
+        }
         _ => {}
     }
+}
+
+/// The Tools panel's Stroke box: the selected object's stroke, or new objects' with none selected.
+pub(crate) fn tools_stroke_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let selected = app
+        .session
+        .active_doc()
+        .and_then(|d| d.selected_path_attributes().map(|(_, s)| s.cloned()));
+    let o = &app.session.options;
+    let (color, placement) = match &selected {
+        Some(s) => (s.as_ref().map(|s| s.color), s.as_ref().map(|s| s.placement)),
+        None => (o.stroke, o.stroke.map(|_| o.stroke_placement)),
+    };
+    let footer = Footer::Stroke {
+        placement,
+        enabled: placement.is_some(),
+    };
+    let on_selection = selected.is_some();
+    let choice = cp::color_box(ui, "tools_stroke_box", vec2(24.0, 14.0), color, footer);
+    let color = match choice {
+        Some(ColorChoice::Color(c)) => Some(cp::to_rgba(c)),
+        Some(ColorChoice::None) => None,
+        Some(ColorChoice::Placement(k)) => {
+            app.session.options.stroke_placement = k;
+            if on_selection && let Some(d) = app.session.active_doc_mut() {
+                d.edit_stroke("Stroke Placement", false, move |s| s.placement = k);
+            }
+            return;
+        }
+        _ => return,
+    };
+    if on_selection && let Some(d) = app.session.active_doc_mut() {
+        d.set_stroke_color(color);
+    }
+    app.session.options.stroke = color;
+}
+
+/// The Tools panel's colour buttons: new objects' colours and the selection's, in one step.
+pub(crate) fn set_tool_colors(app: &mut FireCraftApp, label: &str, stroke: Option<Rgba>, fill: Option<Rgba>) {
+    if let Some(d) = app.session.active_doc_mut()
+        && d.selected_path_attributes().is_some()
+    {
+        d.set_colors(label, stroke, fill);
+    }
+    let o = &mut app.session.options;
+    o.stroke = stroke;
+    o.fill = fill;
+}
+
+/// The Tools panel's No Fill button.
+pub(crate) fn tools_no_fill(app: &mut FireCraftApp) {
+    let target = if app
+        .session
+        .active_doc()
+        .is_some_and(|d| d.selected_path_attributes().is_some())
+    {
+        Target::Selection
+    } else {
+        Target::ToolFill
+    };
+    set_color(app, target, None);
 }
 
 fn set_color(app: &mut FireCraftApp, target: Target, color: Option<Rgba>) {
@@ -204,6 +284,8 @@ fn set_color(app: &mut FireCraftApp, target: Target, color: Option<Rgba>) {
 pub struct Window {
     target: Target,
     at: Pos2,
+    /// The Pattern preview's texture and the pattern it shows.
+    preview: Option<(String, egui::TextureHandle)>,
 }
 
 #[derive(Default)]
@@ -214,7 +296,7 @@ struct Actions {
     source: Option<Rgba>,
     dither: Option<[Rgba; 4]>,
     transparent: Option<bool>,
-    edit_gradient: Option<egui::Response>,
+    angle: Option<(f64, egui::Response)>,
 }
 
 fn current(app: &FireCraftApp, target: Target) -> Option<Option<Fill>> {
@@ -224,32 +306,100 @@ fn current(app: &FireCraftApp, target: Target) -> Option<Option<Fill>> {
     Some(app.session.options.new_fill((0.0, 0.0, 64.0, 64.0)))
 }
 
-fn body(ui: &mut egui::Ui, fill: Option<&Fill>, names: &[String], target: Target, act: &mut Actions) {
-    ui.set_min_width(190.0);
+/// The Pattern preview's size (FirePixel's pop-up).
+const PREVIEW: egui::Vec2 = vec2(250.0, 123.0);
+
+fn preview_texture(ui: &egui::Ui, p: &firecraft_raster::pattern::PatternFill) -> egui::TextureHandle {
+    let (w, h) = (p.image.width() as usize, p.image.height() as usize);
+    let pixels = (0..h as i64)
+        .flat_map(|y| (0..w as i64).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let c = p.image.get(x, y).unwrap_or(Rgba::TRANSPARENT);
+            Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
+        })
+        .collect();
+    ui.ctx().load_texture(
+        "pattern_preview",
+        egui::ColorImage::new([w, h], pixels),
+        egui::TextureOptions::NEAREST,
+    )
+}
+
+fn body(
+    ui: &mut egui::Ui,
+    fill: Option<&Fill>,
+    names: &[String],
+    state: &mut Window,
+    angle: Option<f64>,
+    act: &mut Actions,
+) {
+    let target = state.target;
     let label = fill.map_or("None", |f| fill_label(&f.category));
-    act.pick = fill_options(ui, "fill_window_kind", label, false);
+    ui.horizontal(|ui| {
+        ui.label("Fill:");
+        act.pick = fill_options(ui, "fill_window_kind", label, false);
+    });
     let Some(f) = fill else {
         return;
     };
     if let Some(p) = &f.pattern {
-        ComboBox::from_id_salt("fill_window_pattern")
-            .width(170.0)
-            .height(400.0)
-            .selected_text(pattern_label(&p.name))
-            .show_ui(ui, |ui| {
-                for name in names {
-                    if ui
-                        .selectable_label(name == pattern_label(&p.name), name)
-                        .clicked()
-                    {
-                        act.pattern = Some(name.clone());
+        ui.horizontal(|ui| {
+            ui.label("Pattern:");
+            ComboBox::from_id_salt("fill_window_pattern")
+                .width(190.0)
+                .height(400.0)
+                .selected_text(pattern_label(&p.name))
+                .show_ui(ui, |ui| {
+                    for name in names {
+                        if ui
+                            .selectable_label(name == pattern_label(&p.name), name)
+                            .clicked()
+                        {
+                            act.pattern = Some(name.clone());
+                        }
                     }
-                }
-                ui.separator();
-                if ui.selectable_label(false, "Other...").clicked() {
-                    act.other = true;
-                }
+                    ui.separator();
+                    if ui.selectable_label(false, "Other...").clicked() {
+                        act.other = true;
+                    }
+                });
+        });
+        let (r, _) = ui.allocate_exact_size(PREVIEW, Sense::hover());
+        let texture = match &state.preview {
+            Some((name, texture)) if *name == p.name => texture.clone(),
+            _ => {
+                let texture = preview_texture(ui, p);
+                state.preview = Some((p.name.clone(), texture.clone()));
+                texture
+            }
+        };
+        let painter = ui.painter().with_clip_rect(r);
+        let tile = vec2(p.image.width().max(1) as f32, p.image.height().max(1) as f32);
+        let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        for row in 0..(PREVIEW.y / tile.y).ceil() as i32 {
+            for col in 0..(PREVIEW.x / tile.x).ceil() as i32 {
+                let at = r.min + vec2(col as f32 * tile.x, row as f32 * tile.y);
+                painter.image(texture.id(), Rect::from_min_size(at, tile), uv, Color32::WHITE);
+            }
+        }
+        painter.rect_stroke(
+            r,
+            0.0,
+            Stroke::new(1.0, Color32::from_gray(110)),
+            egui::StrokeKind::Inside,
+        );
+        ui.add_enabled_ui(angle.is_some(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Angle:");
+                let mut value = angle.unwrap_or(0.0).round();
+                let field = egui::DragValue::new(&mut value)
+                    .range(0.0..=360.0)
+                    .max_decimals(0)
+                    .suffix("\u{b0}");
+                let resp = ui.add(field);
+                act.angle = Some((value.rem_euclid(360.0), resp));
             });
+        });
     }
     if let Some(tile) = f.dither {
         let size = vec2(18.0, 14.0);
@@ -298,12 +448,6 @@ fn body(ui: &mut egui::Ui, fill: Option<&Fill>, names: &[String], target: Target
             }
         }
     }
-    if f.gradient.is_some() {
-        let resp = swatch(ui, vec2(170.0, 14.0), f).on_hover_text("Edit Gradient");
-        if resp.clicked() {
-            act.edit_gradient = Some(resp);
-        }
-    }
 }
 
 fn set_pattern(app: &mut FireCraftApp, target: Target, name: &str, image: firecraft_raster::RgbaImage) {
@@ -338,19 +482,37 @@ pub(crate) fn window(app: &mut FireCraftApp, ctx: &egui::Context) {
     let Some(fill) = current(app, state.target) else {
         return;
     };
+    let mut state = state;
     let names = app.pattern_library().names();
+    let angle = (state.target == Target::Selection)
+        .then(|| {
+            app.session
+                .active_doc()
+                .and_then(firecraft_engine::DocState::fill_angle)
+        })
+        .flatten();
     let mut act = Actions::default();
-    let shown = egui::Area::new(egui::Id::new("fill_options_window"))
+    let shown = egui::Area::new(egui::Id::unique("fill_options_window"))
         .order(egui::Order::Foreground)
         .pivot(egui::Align2::LEFT_BOTTOM)
         .fixed_pos(state.at)
         .show(ctx, |ui| {
-            egui::Frame::popup(ui.style())
-                .show(ui, |ui| body(ui, fill.as_ref(), &names, state.target, &mut act));
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                body(ui, fill.as_ref(), &names, &mut state, angle, &mut act)
+            });
         });
     let selection = state.target == Target::Selection;
     if let Some(pick) = act.pick {
         choose(app, state.target, pick);
+        match pick {
+            FillPick::Category(PATTERN | WEB_DITHER) => {}
+            FillPick::Category(c) if firecraft_raster::gradient::GradientKind::from_category(c).is_some() => {
+                gradient_ui::open_at(app, state.target, state.at);
+                return;
+            }
+            // Solid or None: back to the box, whose colour picker now applies.
+            _ => return,
+        }
     }
     if let Some(name) = act.pattern
         && let Some((stem, image)) = app.pattern_library().get(&name)
@@ -373,10 +535,10 @@ pub(crate) fn window(app: &mut FireCraftApp, ctx: &egui::Context) {
         if let Some(on) = act.transparent {
             d.set_web_dither_transparent(on);
         }
-    }
-    if let Some(resp) = act.edit_gradient {
-        gradient_ui::open(app, state.target, &resp);
-        return;
+        if let Some((a, resp)) = &act.angle {
+            let a = *a;
+            crate::inspector::value_drag(d, resp, "Fill Options", move |d, live| d.set_fill_angle(a, live));
+        }
     }
     let area = shown.response.rect;
     let (pressed, at, enter) = ctx.input(|i| {

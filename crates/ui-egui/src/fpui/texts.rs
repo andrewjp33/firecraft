@@ -11,6 +11,7 @@ pub fn t(key: &str) -> String {
         "pi-color-opacity" => "Opacity",
         "pi-color-rgb" => "RGB:",
         "pi-color-system" => "System color picker",
+        "pi-fill-dither" => "Web Dither",
         "pi-fill-gradient" => "Gradient",
         "pi-fill-none" => "No Fill",
         "pi-fill-pattern" => "Pattern",
