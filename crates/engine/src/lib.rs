@@ -143,6 +143,13 @@ fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> 
     match &el.kind {
         // Bitmaps: the pixel under the pointer.
         ElementKind::Bitmap(b) => b.image.get(px - b.x, py - b.y).is_some_and(|p| p.a > 0),
+        // Perspective symbols cost a lot to draw: their shape is kept between mouse movements.
+        ElementKind::Instance { matrix, .. } if !matrix.is_affine() => {
+            let mut solo = el.clone();
+            solo.opacity = 100.0;
+            solo.blend = firecraft_raster::BlendMode::Normal;
+            firecraft_doc::perspective_hit(&solo, px, py, TOL, ctx)
+        }
         // Everything else: render the object alone around the point.
         _ => {
             let n = (2 * TOL + 1) as u32;

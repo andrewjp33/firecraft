@@ -903,6 +903,50 @@ mod tests {
     }
 
     #[test]
+    fn a_perspective_symbol_is_hit_on_its_shape_and_follows_edits() {
+        use firecraft_doc::{Layer, Symbol, SymbolKind};
+        use firecraft_raster::transform::Affine;
+        let (mut d, _) = doc_with_rect();
+        let mut layer = Layer::new("L");
+        let path = d.doc.layers[0].elements(0)[0].clone();
+        if let Some(e) = layer.elements_mut(0) {
+            e.push(path);
+        }
+        let symbol = |layer: Layer| Symbol {
+            id: 7,
+            name: "S".into(),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer],
+            frames: 1,
+            nine: None,
+            raw: None,
+        };
+        d.doc.symbols = std::sync::Arc::new(vec![symbol(layer.clone())]);
+        let matrix = Affine {
+            g: 0.0001,
+            ..Affine::IDENTITY
+        };
+        if let Some(e) = d.doc.layers[0].elements_mut(0) {
+            e[0] = Element::new(ElementKind::Instance {
+                symbol: 7,
+                name: "S".into(),
+                matrix,
+                bounds: Some((60.0, 80.0, 240.0, 120.0)),
+            });
+        }
+        assert!(d.hit_test(150.0, 130.0).is_some(), "on the shape");
+        assert!(d.hit_test(10.0, 10.0).is_none(), "off it");
+        // Moving the instance, and then editing its symbol, are both seen.
+        d.doc.layers[0].elements_mut(0).expect("layer")[0].translate(100.0, 0.0);
+        assert!(d.hit_test(250.0, 130.0).is_some(), "moved");
+        if let Some(e) = layer.elements_mut(0) {
+            e.clear();
+        }
+        d.doc.symbols = std::sync::Arc::new(vec![symbol(layer)]);
+        assert!(d.hit_test(250.0, 130.0).is_none(), "symbol emptied");
+    }
+
+    #[test]
     fn the_mx_perspective_preference_changes_only_how_the_symbol_is_drawn() {
         use firecraft_doc::{Layer, Symbol, SymbolKind};
         use firecraft_raster::transform::Affine;

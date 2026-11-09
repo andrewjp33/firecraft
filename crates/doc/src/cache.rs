@@ -12,6 +12,7 @@
 //! hidden), just the area they covered before and cover now is composited again, into the
 //! previous picture, and [`RenderCache::dirty`] says which area that was.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
@@ -368,6 +369,100 @@ fn collect_pieces(el: &Element, ctx: &RenderCtx, out: &mut Vec<Piece>) {
 
 /// A hash of everything that affects an object's pixels (not its opacity or blend mode, which
 /// apply when compositing).
+/// A key for what a symbol's contents look like, independent of where its instance puts them.
+pub(crate) fn contents_key(children: &[Element], ctx: &RenderCtx, detail: f64) -> u64 {
+    let mut h = DefaultHasher::new();
+    for c in children {
+        hash_element(c, ctx, &mut h);
+        c.opacity.to_bits().hash(&mut h);
+        c.blend.fw_code().hash(&mut h);
+    }
+    (ctx.frame, ctx.depth, ctx.math as u8, detail.to_bits()).hash(&mut h);
+    h.finish()
+}
+
+/// Rendered pixels and where they start.
+#[derive(Clone)]
+pub(crate) struct Kept {
+    pub image: Arc<RgbaImage>,
+    pub x: i64,
+    pub y: i64,
+}
+
+/// The most recently used entries of a small memory, by key.
+struct Memory {
+    entries: Vec<(u64, Kept)>,
+    limit: usize,
+}
+
+impl Memory {
+    const fn new(limit: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            limit,
+        }
+    }
+
+    fn get(&mut self, key: u64) -> Option<Kept> {
+        let at = self.entries.iter().position(|(k, _)| *k == key)?;
+        let entry = self.entries.remove(at);
+        let kept = entry.1.clone();
+        self.entries.push(entry);
+        Some(kept)
+    }
+
+    fn put(&mut self, key: u64, kept: Kept) {
+        const MAX_BYTES: usize = 256 << 20;
+        self.entries.push((key, kept));
+        let bytes = |e: &[(u64, Kept)]| {
+            e.iter()
+                .map(|(_, k)| k.image.width() as usize * k.image.height() as usize * 4)
+                .sum::<usize>()
+        };
+        while self.entries.len() > 1 && (self.entries.len() > self.limit || bytes(&self.entries) > MAX_BYTES)
+        {
+            self.entries.remove(0);
+        }
+    }
+}
+
+thread_local! {
+    static WARP_SOURCES: RefCell<Memory> = const { RefCell::new(Memory::new(6)) };
+    static HIT_SHAPES: RefCell<Memory> = const { RefCell::new(Memory::new(6)) };
+}
+
+/// A perspective symbol's contents drawn flat, made once however often the pointer or a draw asks.
+pub(crate) fn warp_source(key: u64, make: impl FnOnce() -> Option<Kept>) -> Option<Kept> {
+    if let Some(kept) = WARP_SOURCES.with(|m| m.borrow_mut().get(key)) {
+        return Some(kept);
+    }
+    let kept = make()?;
+    WARP_SOURCES.with(|m| m.borrow_mut().put(key, kept.clone()));
+    Some(kept)
+}
+
+/// Whether a perspective instance has pixels within `tol` of a point. Its shape is rendered once
+/// and kept, as the Pointer asks on every mouse movement.
+pub fn perspective_hit(el: &Element, px: i64, py: i64, tol: i64, ctx: &RenderCtx) -> bool {
+    let key = fingerprint(el, ctx);
+    let kept = HIT_SHAPES.with(|m| m.borrow_mut().get(key)).or_else(|| {
+        let (rx, ry, rw, rh) = el.full_region(ctx)?;
+        let (image, x, y) = el.pixels(rx, ry, rw, rh, ctx)?;
+        let kept = Kept {
+            image: Arc::new(image),
+            x: rx + x,
+            y: ry + y,
+        };
+        HIT_SHAPES.with(|m| m.borrow_mut().put(key, kept.clone()));
+        Some(kept)
+    });
+    let Some(k) = kept else {
+        return false;
+    };
+    (py - tol..=py + tol)
+        .any(|y| (px - tol..=px + tol).any(|x| k.image.get(x - k.x, y - k.y).is_some_and(|p| p.a > 0)))
+}
+
 fn fingerprint(el: &Element, ctx: &RenderCtx) -> u64 {
     let mut h = DefaultHasher::new();
     hash_element(el, ctx, &mut h);

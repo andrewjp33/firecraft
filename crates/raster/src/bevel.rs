@@ -291,47 +291,56 @@ impl Bevel {
             // weights falling off from the centre, ignoring those facing away by over 90 degrees.
             let r = soft.round() as i64;
             let (wi, hi_) = (w as i64, h as i64);
-            for y in 0..hi_ {
-                for x in 0..wi {
+            // Worked out once per pixel: trigonometry per neighbour would cost far more than
+            // the averaging, and plain slices stay quick in unoptimised builds.
+            let on: &[bool] = &b.on;
+            let dist: &[f64] = &b.dist;
+            let mut unit = vec![(0.0f64, 0.0f64); w * h];
+            for i in 0..w * h {
+                if on[i] {
+                    let (sin, cos) = (f64::from(b.normal[i])).to_radians().sin_cos();
+                    unit[i] = (cos, sin);
+                }
+            }
+            let unit: &[(f64, f64)] = &unit;
+            let mut y = 0i64;
+            while y < hi_ {
+                let mut x = 0i64;
+                while x < wi {
                     let i = (y * wi + x) as usize;
-                    if !b.on.get(i).copied().unwrap_or(false) {
+                    x += 1;
+                    if !on[i] {
                         continue;
                     }
-                    let own = (b.normal.get(i).copied().unwrap_or(0) as f64).to_radians();
-                    let (ox, oy) = (own.cos(), own.sin());
+                    let (ox, oy) = unit[i];
                     let (mut sx, mut sy) = (0.0f64, 0.0f64);
-                    for dy in -r..=r {
-                        let yy = y + dy;
-                        if yy < 0 || yy >= hi_ {
-                            continue;
+                    let (dy0, dy1) = ((-r).max(-y), r.min(hi_ - 1 - y));
+                    let cx = x - 1;
+                    let (dx0, dx1) = ((-r).max(-cx), r.min(wi - 1 - cx));
+                    let mut dy = dy0;
+                    while dy <= dy1 {
+                        let row = (y + dy) * wi + cx;
+                        let mut dx = dx0;
+                        while dx <= dx1 {
+                            let k = (row + dx) as usize;
+                            if on[k] {
+                                let (nx, ny) = unit[k];
+                                if nx * ox + ny * oy >= 0.0 {
+                                    let weight = (r + 1 - dx.max(dy).abs()) as f64 * dist[k];
+                                    sx += nx * weight;
+                                    sy += ny * weight;
+                                }
+                            }
+                            dx += 1;
                         }
-                        for dx in -r..=r {
-                            let xx = x + dx;
-                            if xx < 0 || xx >= wi {
-                                continue;
-                            }
-                            let k = (yy * wi + xx) as usize;
-                            if !b.on.get(k).copied().unwrap_or(false) {
-                                continue;
-                            }
-                            let a = (b.normal.get(k).copied().unwrap_or(0) as f64).to_radians();
-                            let (nx, ny) = (a.cos(), a.sin());
-                            if nx * ox + ny * oy < 0.0 {
-                                continue;
-                            }
-                            let dist = b.dist.get(k).copied().unwrap_or(0.0);
-                            let weight = (r + 1 - dx.max(dy).abs()) as f64 * dist;
-                            sx += nx * weight;
-                            sy += ny * weight;
-                        }
+                        dy += 1;
                     }
                     let len = sx.hypot(sy).max(1e-9);
-                    let tilt = self.slope_at(b.dist.get(i).copied().unwrap_or(0.0));
-                    if let (Some(px), Some(py)) = (vx.get_mut(i), vy.get_mut(i)) {
-                        *px = tilt * sx / len;
-                        *py = tilt * sy / len;
-                    }
+                    let tilt = self.slope_at(dist[i]);
+                    vx[i] = tilt * sx / len;
+                    vy[i] = tilt * sy / len;
                 }
+                y += 1;
             }
         }
         let mut hi = vec![0f32; w * h];

@@ -17,7 +17,7 @@ pub mod stroke_fw;
 
 mod cache;
 pub mod effects;
-pub use cache::{Dirty, RenderCache};
+pub use cache::{Dirty, RenderCache, perspective_hit};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
     BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,

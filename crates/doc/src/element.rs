@@ -1096,34 +1096,45 @@ impl Element {
                 } else {
                     1.0
                 };
-                let (x0, y0, x1, y1) = if detail > 1.0 {
-                    let up = Affine {
-                        a: detail,
-                        d: detail,
-                        ..Affine::IDENTITY
-                    };
-                    children.iter_mut().for_each(|c| {
-                        c.transform(&up);
-                        for x in &mut c.effects {
-                            x.effect = x.effect.as_ref().and_then(|e| e.scaled(detail as f32));
-                        }
-                    });
-                    extent(&children)?
-                } else {
-                    (x0, y0, x1, y1)
-                };
-                let (fx, fy) = (x0.floor() as i64 - 2, y0.floor() as i64 - 2);
-                let (fw, fh) = (
-                    (x1.ceil() as i64 + 2 - fx).max(1),
-                    (y1.ceil() as i64 + 2 - fy).max(1),
-                );
-                if fw * fh > 1 << 26 {
-                    return None;
-                }
-                let mut flat = RgbaImage::new(fw as u32, fh as u32, Rgba::TRANSPARENT);
-                children
-                    .iter()
-                    .for_each(|c| c.render_onto(&mut flat, fx, fy, &inner));
+                let key = crate::cache::contents_key(&children, &inner, detail);
+                let crate::cache::Kept {
+                    image: flat,
+                    x: fx,
+                    y: fy,
+                } = crate::cache::warp_source(key, || {
+                    let mut children = children.clone();
+                    if detail > 1.0 {
+                        let up = Affine {
+                            a: detail,
+                            d: detail,
+                            ..Affine::IDENTITY
+                        };
+                        children.iter_mut().for_each(|c| {
+                            c.transform(&up);
+                            for x in &mut c.effects {
+                                x.effect = x.effect.as_ref().and_then(|e| e.scaled(detail as f32));
+                            }
+                        });
+                    }
+                    let (x0, y0, x1, y1) = extent(&children)?;
+                    let (fx, fy) = (x0.floor() as i64 - 2, y0.floor() as i64 - 2);
+                    let (fw, fh) = (
+                        (x1.ceil() as i64 + 2 - fx).max(1),
+                        (y1.ceil() as i64 + 2 - fy).max(1),
+                    );
+                    if fw * fh > 1 << 26 {
+                        return None;
+                    }
+                    let mut flat = RgbaImage::new(fw as u32, fh as u32, Rgba::TRANSPARENT);
+                    children
+                        .iter()
+                        .for_each(|c| c.render_onto(&mut flat, fx, fy, &inner));
+                    Some(crate::cache::Kept {
+                        image: std::sync::Arc::new(flat),
+                        x: fx,
+                        y: fy,
+                    })
+                })?;
                 // Inverse-map each output pixel; only points in front of the horizon (w > 0 on the
                 // same side as the matrix's own w) are visible.
                 let inv = matrix.invert()?;
@@ -1141,10 +1152,10 @@ impl Element {
                             continue;
                         }
                         let p = if detail > 1.0 {
-                            sample_footprint(&flat, u, v, &texel)
+                            sample_footprint(flat.as_ref(), u, v, &texel)
                         } else {
                             let (px, py) = texel(u, v);
-                            sample(&flat, px, py)
+                            sample(flat.as_ref(), px, py)
                         };
                         if p.a != 0 {
                             layer.set(tx, ty, p);
