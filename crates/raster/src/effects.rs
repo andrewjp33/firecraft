@@ -446,10 +446,14 @@ impl Effect {
                 // (outside it, or to the outside for Inner Glow) satisfies offset < d <= offset + width.
                 let inside: Vec<bool> = img.pixels().iter().map(|p| (p.a >= 128) != *inner).collect();
                 let dist = distance_to(&inside, w, h);
+                // With no gap the object's own pixels feed the softening, which keeps the glow's
+                // strength at the edge (FirePixel's measurement), but aren't painted: glow under
+                // a semi-transparent object measured worse against Fireworks MX files.
+                let filled = !*inner && *offset == 0.0;
                 let band: Vec<f32> = dist
                     .iter()
                     .map(|&d| {
-                        if d > *offset && d <= offset + width {
+                        if (d > *offset && d <= offset + width) || (filled && d == 0.0) {
                             255.0
                         } else {
                             0.0
@@ -457,6 +461,13 @@ impl Effect {
                     })
                     .collect();
                 let mut soft = blur_plane(&band, w, h, *softness * SOFTNESS_SIGMA);
+                if filled {
+                    soft.iter_mut().zip(&dist).for_each(|(v, d)| {
+                        if *d == 0.0 {
+                            *v = 0.0
+                        }
+                    });
+                }
                 soft.iter_mut().for_each(|v| *v *= opacity.clamp(0.0, 1.0));
                 let c = Rgba { a: 255, ..*color };
                 if *inner {
@@ -954,6 +965,29 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_softened_glow_keeps_its_strength_at_the_edge() {
+        let mut img = RgbaImage::new(120, 120, Rgba::TRANSPARENT);
+        for y in 30..90 {
+            for x in 30..90 {
+                img.set(x, y, Rgba::new(10, 20, 200, 128));
+            }
+        }
+        Effect::Glow {
+            color: Rgba::new(255, 0, 0, 255),
+            width: 5.0,
+            opacity: 1.0,
+            softness: 12.0,
+            offset: 0.0,
+            inner: false,
+        }
+        .apply(&mut img);
+        let edge = img.get(29, 60).expect("a pixel");
+        assert!(edge.a > 150, "the glow next to the object: {edge:?}");
+        // Not painted under a semi-transparent object.
+        assert_eq!(img.get(60, 60), Some(Rgba::new(10, 20, 200, 128)));
+    }
 
     #[test]
     fn only_effects_that_ignore_neighbouring_pixels_are_scale_free() {

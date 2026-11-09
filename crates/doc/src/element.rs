@@ -108,6 +108,43 @@ impl Fill {
     }
 }
 
+/// Below this much perspective Fireworks MX still treats an instance's matrix as a plain scale
+/// (measured: 0.00001 scales strokes, 0.0002 doesn't; the value between is a choice).
+const MX_PERSPECTIVE_THRESHOLD: f64 = 5e-5;
+
+/// Map `e` through an instance's matrix as Fireworks MX does: strokes scale with a plain matrix
+/// but keep their width in perspective (measured on Confetti strokes at 50% and 100%).
+fn map_instance_child(e: &mut Element, matrix: &Affine) {
+    fn widths(e: &Element, out: &mut Vec<f64>) {
+        match &e.kind {
+            ElementKind::Path(p) => out.push(p.stroke.as_ref().map_or(0.0, |s| s.diameter)),
+            ElementKind::Group(c) => c.iter().for_each(|x| widths(x, out)),
+            _ => {}
+        }
+    }
+    fn restore(e: &mut Element, it: &mut std::vec::IntoIter<f64>) {
+        match &mut e.kind {
+            ElementKind::Path(p) => {
+                let width = it.next().unwrap_or(1.0);
+                if let Some(s) = &mut p.stroke {
+                    s.diameter = width;
+                }
+            }
+            ElementKind::Group(c) => c.iter_mut().for_each(|x| restore(x, it)),
+            _ => {}
+        }
+    }
+    let keep = matrix.g.abs() >= MX_PERSPECTIVE_THRESHOLD || matrix.h.abs() >= MX_PERSPECTIVE_THRESHOLD;
+    let mut kept = Vec::new();
+    if keep {
+        widths(e, &mut kept);
+    }
+    e.transform(matrix);
+    if keep {
+        restore(e, &mut kept.into_iter());
+    }
+}
+
 /// Whether an element redraws faithfully at a larger scale: plain paths, whose fills, simple
 /// strokes and resizable effects (colour adjustments, blurs, shadows, glows, bevels) can all be
 /// drawn bigger. Textures, natural brushes and the plug-in effects change with scale.
@@ -835,7 +872,7 @@ impl Element {
             });
             return Some(out);
         }
-        out.iter_mut().for_each(|e| e.transform(matrix));
+        out.iter_mut().for_each(|e| map_instance_child(e, matrix));
         Some(out)
     }
 
@@ -1254,7 +1291,7 @@ impl Element {
         if self.mapped_in_perspective(ctx) {
             for c in &children {
                 let mut moved = c.clone();
-                moved.transform(matrix);
+                map_instance_child(&mut moved, matrix);
                 if let Some((rx, ry, rw, rh)) = moved.full_region(&inner) {
                     x0 = x0.min(rx as f64);
                     y0 = y0.min(ry as f64);

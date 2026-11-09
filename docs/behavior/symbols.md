@@ -90,4 +90,5 @@ change with scale, so those symbols warp at their own resolution.
 
 *Fireworks MX* transforms each object and its fill handles and fills as usual, then applies effects at canvas
 size, so a gradient's bands tighten towards the far side and a 10-pixel bevel stays 10 pixels. Measured on Ripple
-and Folds gradients, with Color Fill and Inner Bevel. Only 9-slice guides, not a Fireworks MX feature, keep the warp.
+and Folds gradients, with Color Fill and Inner Bevel. Strokes keep their width under real perspective but scale
+with a plain matrix (measured with Confetti: a perspective term of 0.00001 still scales, 0.0002 doesn't). Only 9-slice guides, not a Fireworks MX feature, keep the warp.
