@@ -25,6 +25,6 @@ on a test shape in Fireworks MX (`tools/fwmx-oracle`), save, and fit FireCraft's
 saved render.
 
 **Softness of shadows and glows.** A triangle filter of the softness's radius along each axis, truncating to whole
-levels per pass (FirePixel's measurement), so an Inner Shadow of softness 4 ends exactly 4 pixels in. Shadow offsets
+levels per pass in Fireworks MX color math and keeping fractions in FireCraft's (FirePixel's measurement), so an Inner Shadow of softness 4 ends exactly 4 pixels in. Shadow offsets
 are truncated, not rounded. `innerShadowZero.png` matches Fireworks MX with no differing pixels. Fireworks MX's popup
 puts Inner Glow's width back to 2 if set to 0 or 1; Glow and Inner Shadow have no such minimum.

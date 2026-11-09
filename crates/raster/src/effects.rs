@@ -408,7 +408,7 @@ impl Effect {
                     (-a.sin() * distance).trunc() as i64,
                 );
                 let radius = softness.round().max(0.0) as usize;
-                let blurred = tent_plane(&alpha_plane(img), img.width(), img.height(), radius);
+                let blurred = tent_plane(&alpha_plane(img), img.width(), img.height(), radius, math);
                 let mut soft = shift_plane(&blurred, img.width(), img.height(), dx, dy, 0.0);
                 if *inner {
                     soft.iter_mut().for_each(|x| *x = 255.0 - *x);
@@ -458,7 +458,7 @@ impl Effect {
                         }
                     })
                     .collect();
-                let mut soft = tent_plane(&band, w, h, softness.round().max(0.0) as usize);
+                let mut soft = tent_plane(&band, w, h, softness.round().max(0.0) as usize, math);
                 if filled {
                     soft.iter_mut().zip(&dist).for_each(|(v, d)| {
                         if *d == 0.0 {
@@ -812,36 +812,45 @@ fn shift_plane(a: &[f32], w: u32, h: u32, dx: i64, dy: i64, fill: f32) -> Vec<f3
 
 /// Gaussian blur of a single plane with standard deviation `sigma`, as three box passes (box
 /// radius r gives sigma ~ r + 0.5).
-/// Fireworks' softness: a triangle filter of radius `r` along each axis, each pass truncating to
-/// whole levels (FirePixel's measurement, `fp-raster/src/mask.rs`). Outside the image counts as 0.
-fn tent_plane(a: &[f32], w: u32, h: u32, r: usize) -> Vec<f32> {
+/// Fireworks' softness: a triangle filter of radius `r` along each axis (FirePixel's measurement,
+/// `fp-raster/src/mask.rs`). Fireworks MX's colour math truncates to whole levels after each pass;
+/// FireCraft's keeps the fractions. Outside the image counts as 0.
+fn tent_plane(a: &[f32], w: u32, h: u32, r: usize, math: crate::ColorMath) -> Vec<f32> {
     let (w, h) = (w as usize, h as usize);
     if r == 0 || w == 0 || h == 0 {
         return a.to_vec();
     }
-    let along = |line: &[u64], out: &mut [u64]| {
+    let classic = math == crate::ColorMath::Classic;
+    let denominator = ((r + 1) * (r + 1)) as f64;
+    let along = |line: &[f64], out: &mut [f64]| {
         let n = line.len();
-        let mut first = vec![0u64; n + 1];
+        let mut first = vec![0f64; n + 1];
         for i in 0..n {
             first[i + 1] = first[i] + line[i];
         }
-        let mut second = vec![0u64; n + 1];
+        let mut second = vec![0f64; n + 1];
         for i in 0..n {
             let boxed = first[i + 1] - first[i.saturating_sub(r)];
             second[i + 1] = second[i] + boxed;
         }
-        let denominator = ((r + 1) * (r + 1)) as u64;
         for i in 0..n {
-            out[i] = (second[(i + r + 1).min(n)] - second[i]) / denominator;
+            let value = (second[(i + r + 1).min(n)] - second[i]) / denominator;
+            out[i] = if classic { value.floor() } else { value };
         }
     };
-    let mut v: Vec<u64> = a.iter().map(|x| x.round().clamp(0.0, 255.0) as u64).collect();
-    let mut out = vec![0u64; w.max(h)];
+    let mut v: Vec<f64> = a
+        .iter()
+        .map(|x| {
+            let x = f64::from(x.clamp(0.0, 255.0));
+            if classic { x.round() } else { x }
+        })
+        .collect();
+    let mut out = vec![0f64; w.max(h)];
     for row in v.chunks_mut(w) {
         along(row, &mut out[..w]);
         row.copy_from_slice(&out[..w]);
     }
-    let mut column = vec![0u64; h];
+    let mut column = vec![0f64; h];
     for x in 0..w {
         for y in 0..h {
             column[y] = v[y * w + x];
@@ -851,7 +860,7 @@ fn tent_plane(a: &[f32], w: u32, h: u32, r: usize) -> Vec<f32> {
             v[y * w + x] = out[y];
         }
     }
-    v.into_iter().map(|x| x as f32).collect()
+    v.into_iter().map(|x| x.clamp(0.0, 255.0) as f32).collect()
 }
 
 /// Composite a coloured plane underneath the object's pixels.
@@ -965,6 +974,19 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_fireworks_mx_math_truncates_the_softness_filter() {
+        let plane = vec![101.0f32; 81];
+        let classic = tent_plane(&plane, 9, 9, 4, crate::ColorMath::Classic);
+        let precise = tent_plane(&plane, 9, 9, 4, crate::ColorMath::Precise);
+        assert!(classic.iter().all(|v| v.fract() == 0.0), "whole levels");
+        assert!(precise.iter().any(|v| v.fract() != 0.0), "keeps fractions");
+        assert!(
+            classic.iter().zip(&precise).all(|(c, p)| c <= p),
+            "truncation only lowers"
+        );
+    }
 
     #[test]
     fn inner_shadow_softness_matches_fireworks_mx_exactly() {
