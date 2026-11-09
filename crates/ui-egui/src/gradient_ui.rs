@@ -9,6 +9,7 @@ use firecraft_raster::Rgba;
 use firecraft_raster::gradient::{Gradient, GradientKind};
 
 use crate::FireCraftApp;
+use crate::cursors::{Cur, CursorStyle};
 use crate::fill_ui::{FillPick, fill_options};
 use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
 
@@ -395,6 +396,10 @@ fn editor(ui: &mut egui::Ui, g: &mut Gradient, state: &mut Popup, angle: Option<
                     let a = g.color_on_ramp(pos).a;
                     let at = g.opacity.partition_point(|s| s.0 <= pos);
                     g.opacity.insert(at, (pos, a));
+                    state.selected = Some(Stop {
+                        opacity: true,
+                        index: at,
+                    });
                 } else {
                     let c = Rgba {
                         a: 255,
@@ -402,8 +407,11 @@ fn editor(ui: &mut egui::Ui, g: &mut Gradient, state: &mut Popup, angle: Option<
                     };
                     let at = g.colors.partition_point(|s| s.0 <= pos);
                     g.colors.insert(at, (pos, c));
+                    state.selected = Some(Stop {
+                        opacity: false,
+                        index: at,
+                    });
                 }
-                state.selected = None;
             }
             None => {}
         }
@@ -486,9 +494,8 @@ fn editor(ui: &mut egui::Ui, g: &mut Gradient, state: &mut Popup, angle: Option<
         }
     }
 
-    // A selected opacity stop's opacity; the row's space is kept when none is selected.
+    // The last stop chosen, if an opacity one: its opacity (the row's space is kept otherwise).
     if let Some(Stop { opacity: true, index }) = state.selected
-        && state.dragging.is_none()
         && index < g.opacity.len()
     {
         place(
@@ -659,6 +666,7 @@ pub fn handles(
     painter: &egui::Painter,
     resp: &egui::Response,
     (origin, z): (Pos2, f32),
+    cursors: CursorStyle,
 ) -> bool {
     let ctx = resp.ctx.clone();
     let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
@@ -670,6 +678,22 @@ pub fn handles(
     };
     let (start, end, side) = (to_screen(h.start), to_screen(h.end), to_screen(h.side));
     let uses_side = h.uses_side;
+
+    let grip_at = |s: Pos2| {
+        if s.distance(start) <= HIT {
+            Some(Grip::Move)
+        } else if s.distance(end) <= HIT {
+            Some(Grip::End)
+        } else if uses_side && s.distance(side) <= HIT {
+            Some(Grip::Side)
+        } else if distance_to_segment(s, start, end) <= 3.0
+            || (uses_side && distance_to_segment(s, start, side) <= 3.0)
+        {
+            Some(Grip::Rotate)
+        } else {
+            None
+        }
+    };
 
     let (pressed, down, origin_at, now) = ctx.input(|i| {
         (
@@ -684,19 +708,7 @@ pub fn handles(
         && drag.is_none()
         && let Some(s) = origin_at.or(now)
     {
-        let grip = if s.distance(start) <= HIT {
-            Some(Grip::Move)
-        } else if s.distance(end) <= HIT {
-            Some(Grip::End)
-        } else if uses_side && s.distance(side) <= HIT {
-            Some(Grip::Side)
-        } else if distance_to_segment(s, start, end) <= 3.0
-            || (uses_side && distance_to_segment(s, start, side) <= 3.0)
-        {
-            Some(Grip::Rotate)
-        } else {
-            None
-        };
+        let grip = grip_at(s);
         if let Some(grip) = grip {
             d.begin_live_edit("Move Fill Handle");
             *drag = Some(FillDrag {
@@ -726,6 +738,23 @@ pub fn handles(
                 d.discard_live_edit();
             }
             *drag = None;
+        }
+    }
+    // Fireworks MX: a white arrow over a handle, its rotate cursor over a line.
+    let grip = drag
+        .as_ref()
+        .map(|active| active.grip)
+        .or_else(|| resp.hover_pos().and_then(grip_at));
+    if let Some(grip) = grip {
+        let cur = if matches!(grip, Grip::Rotate) {
+            Cur::Rotate
+        } else {
+            Cur::Subselect
+        };
+        if crate::cursors::set(&ctx, cur, cursors)
+            && let Some(at) = now
+        {
+            crate::transform_tool::paint_rotate_cursor(painter, at);
         }
     }
     // Black lines with a white edge; a white diamond at the start and black squares (Fireworks).

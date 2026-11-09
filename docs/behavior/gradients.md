@@ -133,3 +133,6 @@ the second every higher one. Editing a dither colour makes the source colour the
 
 **Transparent** (`FDTb`): every tile entry becomes the websafe colour nearest the source, and every other
 pixel is left empty, by canvas position (x + y odd).
+
+**Cursors over the handles** (measured): with the Pointer, a white arrow over the round and square handles
+and the rotate cursor over a connecting line.

@@ -390,7 +390,7 @@ fn cursor_for(tool: Tool, h: Handle, edit: &TransformEdit, to_screen: &dyn Fn(Pt
 
 /// A rotate cursor: a three-quarter circle with an arrowhead, drawn at the pointer.
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-fn paint_rotate_cursor(p: &egui::Painter, at: Pos2) {
+pub(crate) fn paint_rotate_cursor(p: &egui::Painter, at: Pos2) {
     let r = 7.0;
     let pts: Vec<Pos2> = (0..=18)
         .map(|i| {

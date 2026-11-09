@@ -326,6 +326,7 @@ pub struct FireCraftApp {
     path_edit: path_tool::PathEdit,
     gradient_popup: Option<gradient_ui::Popup>,
     fill_window: Option<fill_ui::Window>,
+    stroke_window: Option<fill_ui::StrokeWindow>,
     /// The fill and stroke of the selected object the tools last took on.
     adopted: Option<(Option<firecraft_doc::Fill>, Option<firecraft_doc::Stroke>)>,
     /// Where a pattern file chosen with Other... goes, once the browser delivers it.
@@ -369,6 +370,7 @@ impl FireCraftApp {
             path_edit: path_tool::PathEdit::default(),
             gradient_popup: None,
             fill_window: None,
+            stroke_window: None,
             adopted: None,
             awaiting_pattern: None,
             patterns: Default::default(),
@@ -687,6 +689,7 @@ impl FireCraftApp {
         dialogs::show(self, &ctx);
         gradient_ui::popup(self, &ctx);
         fill_ui::window(self, &ctx);
+        fill_ui::stroke_window(self, &ctx);
         effects_ui::editor(self, &ctx);
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {

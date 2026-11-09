@@ -942,7 +942,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
 
     // Fill handles of a selected gradient (over the tool underneath).
     if matches!(tool, Tool::Pointer | Tool::SelectBehind | Tool::Gradient)
-        && crate::gradient_ui::handles(&mut app.fill_drag, d, &p, resp, (origin, z))
+        && crate::gradient_ui::handles(
+            &mut app.fill_drag,
+            d,
+            &p,
+            resp,
+            (origin, z),
+            app.prefs.cursor_style,
+        )
     {
         return;
     }

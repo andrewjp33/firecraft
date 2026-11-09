@@ -59,6 +59,8 @@ pub fn toggle(
         Id::unique(id),
         if enabled { Sense::click() } else { Sense::hover() },
     );
+    // Named for assistive technology (and tests that click widgets by name).
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tip));
     let hot = enabled && resp.hovered();
     if on {
         ui.painter().rect_filled(r, 2.0, c.tool_selected_bg);
@@ -112,6 +114,8 @@ pub fn icon_button(
         Id::unique(id),
         if enabled { Sense::click() } else { Sense::hover() },
     );
+    // Named for assistive technology (and tests that click widgets by name).
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tip));
     if enabled && resp.hovered() {
         ui.painter().rect_filled(r, 2.0, c.button_hover_bg);
         ui.painter().rect_stroke(

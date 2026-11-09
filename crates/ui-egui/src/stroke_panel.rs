@@ -44,7 +44,7 @@ fn shown(app: &FireCraftApp, target: Target) -> Option<Shown> {
                 color: o.stroke,
                 size: o.stroke_size as f64,
                 softness: o.stroke_softness,
-                placement: 1,
+                placement: o.stroke_placement,
                 label: if o.stroke.is_some() {
                     p.map(brush_presets::label).unwrap_or_default()
                 } else {
@@ -115,9 +115,15 @@ fn paint_edge_preview(p: &egui::Painter, pv: Rect, col: Color32, size: f64, soft
 }
 
 pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
+    show_in(app, ui, target, "panel");
+}
+
+/// The stroke controls; `place` keeps their ids apart where they show twice (the Stroke Options
+/// window over the Property inspector).
+pub fn show_in(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, place: &'static str) {
     let Some(s) = shown(app, target) else { return };
     let sel = target == Target::Selection;
-    let id = egui::Id::unique(("pi-stroke", sel));
+    let id = egui::Id::unique(("pi-stroke", sel, place));
     ui.vertical(|ui| {
         // Row 1: colour, size, category.
         ui.horizontal(|ui| {
@@ -125,8 +131,15 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target) {
             let footer = Footer::Stroke {
                 placement: (sel && s.has).then_some(s.placement),
                 enabled: sel,
+                options: false,
             };
-            match cp::color_box(ui, ("pi-stroke-color", sel), vec2(22.0, 14.0), s.color, footer) {
+            match cp::color_box(
+                ui,
+                ("pi-stroke-color", sel, place),
+                vec2(22.0, 14.0),
+                s.color,
+                footer,
+            ) {
                 Some(ColorChoice::Color(c)) => set_color(app, target, Some(cp::to_rgba(c))),
                 Some(ColorChoice::None) => set_color(app, target, None),
                 Some(ColorChoice::Placement(k)) => set_placement(app, k),

@@ -194,6 +194,7 @@ pub(crate) fn tools_fill_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     match cp::popup(ui, &resp, &|_| None, color.map(cp::to_argb), footer) {
         Some(ColorChoice::Color(c)) => set_color(app, target, Some(cp::to_rgba(c))),
         Some(ColorChoice::None) => set_color(app, target, None),
+        Some(ColorChoice::Solid) => choose(app, target, FillPick::Category("fc_Solid")),
         Some(ColorChoice::Gradient) => {
             choose(app, target, FillPick::Category("fc_Linear"));
             gradient_ui::open(app, target, &resp);
@@ -224,8 +225,10 @@ pub(crate) fn tools_stroke_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let footer = Footer::Stroke {
         placement,
         enabled: placement.is_some(),
+        options: true,
     };
     let on_selection = selected.is_some();
+    let at = ui.next_widget_position() - vec2(0.0, 2.0);
     let choice = cp::color_box(ui, "tools_stroke_box", vec2(24.0, 14.0), color, footer);
     let color = match choice {
         Some(ColorChoice::Color(c)) => Some(cp::to_rgba(c)),
@@ -237,12 +240,67 @@ pub(crate) fn tools_stroke_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             return;
         }
+        Some(ColorChoice::StrokeOptions) => {
+            let target = if on_selection {
+                crate::stroke_panel::Target::Selection
+            } else {
+                crate::stroke_panel::Target::Tool
+            };
+            app.stroke_window = Some(StrokeWindow { target, at });
+            return;
+        }
         _ => return,
     };
     if on_selection && let Some(d) = app.session.active_doc_mut() {
         d.set_stroke_color(color);
     }
     app.session.options.stroke = color;
+}
+
+/// The Stroke Options window, while open.
+pub struct StrokeWindow {
+    target: crate::stroke_panel::Target,
+    at: Pos2,
+}
+
+/// Draw the Stroke Options window if open (the Property inspector's stroke controls); closes on
+/// Enter, a click outside it, or when the selection it edits goes.
+pub(crate) fn stroke_window(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(state) = app.stroke_window.take() else {
+        return;
+    };
+    let lost = state.target == crate::stroke_panel::Target::Selection
+        && app
+            .session
+            .active_doc()
+            .is_none_or(|d| d.selected_path_attributes().is_none());
+    if lost {
+        return;
+    }
+    let shown = egui::Area::new(egui::Id::unique("stroke_options_window"))
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(state.at)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                crate::stroke_panel::show_in(app, ui, state.target, "window")
+            });
+        });
+    let area = shown.response.rect;
+    let (pressed, at, enter) = ctx.input(|i| {
+        (
+            i.pointer.any_pressed(),
+            i.pointer.interact_pos(),
+            i.key_pressed(egui::Key::Enter),
+        )
+    });
+    let outside = pressed
+        && at.is_some_and(|p| !area.contains(p))
+        && !cp::any_open(ctx)
+        && !egui::Popup::is_any_open(ctx);
+    if !(enter || outside) {
+        app.stroke_window = Some(state);
+    }
 }
 
 /// The Tools panel's colour buttons: new objects' colours and the selection's, in one step.

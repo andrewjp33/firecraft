@@ -57,6 +57,10 @@ pub enum ColorChoice {
     None,
     /// Tools panel fill: "Web Dither" button (Fireworks MX).
     WebDither,
+    /// Fill: the "Solid" button, while there is no fill.
+    Solid,
+    /// Tools panel stroke: Fireworks MX's "Stroke Options" button.
+    StrokeOptions,
     /// Tools panel fill: "Gradient" button.
     Gradient,
     /// Tools panel fill: "Pattern" button.
@@ -108,7 +112,12 @@ pub enum Footer {
     Fill { kinds: bool },
     /// Kontur (Werkzeugleiste, Inspektor): Ohne, Strich innen/mittig/außen + Farbkreis.
     /// `placement`: gedrückte Lage (0 innen, 1 mittig, 2 außen), `enabled`: Lage-Knöpfe bedienbar.
-    Stroke { placement: Option<u8>, enabled: bool },
+    Stroke {
+        placement: Option<u8>,
+        enabled: bool,
+        /// Show Fireworks MX's Stroke Options button.
+        options: bool,
+    },
 }
 
 impl Footer {
@@ -1107,7 +1116,7 @@ fn body(
             match footer {
                 Footer::Fill { kinds } => {
                     // Einfarbig: gedrückt, lässt das Popup offen und ändert noch nichts (§2.3)
-                    fields::toggle(
+                    if fields::toggle(
                         ui,
                         pid.with("solid"),
                         btn(40.5),
@@ -1115,7 +1124,12 @@ fn body(
                         s.start.is_some(),
                         true,
                         &texts::t("pi-fill-solid"),
-                    );
+                    ) && s.start.is_none()
+                    {
+                        // With no fill, Solid gives one (FirePixel's button did nothing).
+                        out = Some(ColorChoice::Solid);
+                        close = true;
+                    }
                     if fields::toggle(
                         ui,
                         pid.with("gradient"),
@@ -1155,7 +1169,20 @@ fn body(
                         close = true;
                     }
                 }
-                Footer::Stroke { placement, enabled } => {
+                Footer::Stroke {
+                    placement,
+                    enabled,
+                    options,
+                } => {
+                    if options {
+                        let at = btn(112.5);
+                        let r =
+                            Rect::from_min_size(pos2(at.left() - 4.0, at.top()), vec2(112.0, at.height()));
+                        if ui.put(r, egui::Button::new("Stroke Options...")).clicked() {
+                            out = Some(ColorChoice::StrokeOptions);
+                            close = true;
+                        }
+                    }
                     for (k, (g, tip)) in [
                         (Glyph::StrokeInside, "pi-stroke-inside"),
                         (Glyph::StrokeCenter, "pi-stroke-center"),

@@ -163,6 +163,7 @@ fn pencil(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             let footer = Footer::Stroke {
                 placement: None,
                 enabled: false,
+                options: false,
             };
             match cp::color_box(ui, "pencil_color", vec2(22.0, 14.0), o.stroke, footer) {
                 Some(ColorChoice::Color(c)) => o.stroke = Some(cp::to_rgba(c)),
@@ -213,6 +214,7 @@ fn paint_bucket(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ) {
                 Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
                 Some(ColorChoice::None) => o.fill = None,
+                Some(ColorChoice::Solid) => o.fill = Some(firecraft_raster::Rgba::new(0x99, 0x99, 0x99, 255)),
                 _ => {}
             }
             ui.label("Tolerance:");
@@ -275,6 +277,9 @@ fn tool_fill_row(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 ) {
                     Some(ColorChoice::Color(c)) => o.fill = Some(cp::to_rgba(c)),
                     Some(ColorChoice::None) => o.fill = None,
+                    Some(ColorChoice::Solid) => {
+                        fill_ui::choose(app, Target::ToolFill, fill_ui::FillPick::Category("fc_Solid"));
+                    }
                     _ => {}
                 }
             }
@@ -503,6 +508,13 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         match fill {
                             Some(ColorChoice::Color(c)) => fill_choice = Some(Some(cp::to_rgba(c))),
                             Some(ColorChoice::None) => fill_choice = Some(None),
+                            Some(ColorChoice::Solid) => {
+                                fill_ui::choose(
+                                    app,
+                                    Target::Selection,
+                                    fill_ui::FillPick::Category("fc_Solid"),
+                                );
+                            }
                             _ => {}
                         }
                     }
