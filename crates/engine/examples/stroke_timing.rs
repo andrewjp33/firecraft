@@ -81,6 +81,19 @@ fn main() {
         let t = Instant::now();
         let second = d.doc.render(0);
         let b = t.elapsed();
+        let mut cache = firecraft_doc::RenderCache::default();
+        let t = Instant::now();
+        d.doc.render_cached(0, &mut cache);
+        let c0 = t.elapsed();
+        d.doc.layers[0].elements_mut(0).expect("layer")[0].translate(3.0, 2.0);
+        let t = Instant::now();
+        d.doc.render_cached(0, &mut cache);
+        let c1 = t.elapsed();
+        println!(
+            "{name:28} cached: first {:6.1} ms   whole-pixel move {:6.1} ms",
+            c0.as_secs_f64() * 1e3,
+            c1.as_secs_f64() * 1e3
+        );
         println!(
             "{name:28} first {:7.1} ms   moved {:7.1} ms  ({}x{})",
             a.as_secs_f64() * 1e3,

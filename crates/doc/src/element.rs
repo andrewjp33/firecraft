@@ -108,8 +108,16 @@ impl Fill {
     }
 }
 
-/// Whether an element redraws faithfully at a larger scale: plain paths, whose fills and simple
-/// strokes are resolution-free. Effects, textures and natural brushes change with scale.
+/// Whether all an element's effects look the same at any drawing scale.
+fn effects_are_scale_free(e: &Element) -> bool {
+    e.effects
+        .iter()
+        .all(|x| x.effect.as_ref().is_none_or(Effect::is_scale_free))
+}
+
+/// Whether an element redraws faithfully at a larger scale: plain paths, whose fills, simple
+/// strokes and colour effects are resolution-free. Blurs and other effects sized in pixels,
+/// textures and natural brushes change with scale.
 fn redraws_at_any_scale(e: &Element) -> bool {
     let ElementKind::Path(p) = &e.kind else {
         return false;
@@ -120,7 +128,7 @@ fn redraws_at_any_scale(e: &Element) -> bool {
             .as_ref()
             .is_none_or(|b| b.int_of("BRT") != Some(0) && b.int_of("BTB").unwrap_or(0) == 0)
     });
-    e.effects.is_empty() && fill_ok && stroke_ok
+    effects_are_scale_free(e) && fill_ok && stroke_ok
 }
 
 /// How much larger than symbol space to draw so the most enlarged part of the instance has a
@@ -797,15 +805,16 @@ impl Element {
     }
 
     /// Under the Fireworks MX preference, a perspective instance of plain paths has them mapped,
-    /// fill handles included, instead of its pixels warped. Measured for gradient-filled paths;
-    /// symbols with bitmaps, effects, nested instances or 9-slice guides still warp.
+    /// fill handles included, instead of its pixels warped. Measured for gradient-filled paths,
+    /// also under a colour effect; symbols with bitmaps, effects sized in pixels, nested
+    /// instances or 9-slice guides still warp.
     fn mapped_in_perspective(&self, ctx: &RenderCtx) -> bool {
         ctx.mx_perspective
             && self.nine_split(ctx).is_none()
             && self.symbol_elements(ctx).is_some_and(|children| {
                 children
                     .iter()
-                    .all(|e| matches!(e.kind, ElementKind::Path(_)) && e.effects.is_empty())
+                    .all(|e| matches!(e.kind, ElementKind::Path(_)) && effects_are_scale_free(e))
             })
     }
 

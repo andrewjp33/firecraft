@@ -84,9 +84,11 @@ saved; FireCraft files keep what they were saved with (`FCPi` 1 = Pixel-correct)
 
 *Pixel-correct* warps the symbol as a whole, in true perspective. Symbols of plain paths are drawn at the size
 they're seen (up to 8x) and averaged over each pixel where the perspective compresses them, so an enlarged symbol
-resolves detail. Effects, textures, natural brushes and bitmaps change with scale, so those symbols warp at their
-own resolution.
+resolves detail. Colour effects (Hue/Saturation, Levels, Color Fill and the like) don't depend on scale and are
+included. Blurs, shadows, glows, bevels, textures, natural brushes and bitmaps change with scale, so those symbols
+warp at their own resolution.
 
 *Fireworks MX* transforms each path and its fill handles and fills as usual, so a gradient's bands tighten
 towards the far side. Measured on a Ripple gradient: nothing differs from Fireworks MX by more than 2 levels on a
-file it re-saved. Symbols with bitmaps, effects, nested instances or 9-slice guides still warp.
+file it re-saved. Paths under a colour effect are drawn the same way. Symbols with bitmaps, effects sized in
+pixels, nested instances or 9-slice guides still warp.

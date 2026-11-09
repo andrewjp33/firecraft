@@ -91,6 +91,21 @@ const INNER_GLOW: &str = "{2ba87123-8220-11d3-baad0000861f4d01}";
 const INNER_SHADOW: &str = "{5600f702-774c-11d3-baad0000861f4d01}";
 
 impl Effect {
+    /// Whether the effect works on each pixel by itself, so it looks the same at any drawing
+    /// scale (colour adjustments), unlike blurs, shadows, glows and bevels, sized in pixels.
+    pub fn is_scale_free(&self) -> bool {
+        matches!(
+            self,
+            Effect::HueSaturation { .. }
+                | Effect::BrightnessContrast { .. }
+                | Effect::Levels { .. }
+                | Effect::Curves { .. }
+                | Effect::Invert
+                | Effect::ConvertToAlpha
+                | Effect::ColorFill { .. }
+        )
+    }
+
     /// From an effect's parameters (`EffectMoaID` plus the other keys), if FireCraft renders it.
     /// `vectors` holds vector-valued parameters (Curves points) as lists of (x, y).
     pub fn parse(p: &HashMap<String, String>, vectors: &HashMap<String, Vec<(f32, f32)>>) -> Option<Effect> {
@@ -904,6 +919,12 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_effects_that_ignore_neighbouring_pixels_are_scale_free() {
+        assert!(Effect::Invert.is_scale_free());
+        assert!(!Effect::GaussianBlur { radius: 2.0 }.is_scale_free());
+    }
 
     fn params(kv: &[(&str, &str)]) -> HashMap<String, String> {
         kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
