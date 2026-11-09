@@ -279,7 +279,15 @@ fn missing_fonts(app: &mut FireCraftApp, ctx: &egui::Context) {
     let Some(mut rows) = app.dialogs.missing_fonts.take() else {
         return;
     };
+    // Fonts that have since arrived (from the browser, or a folder) no longer count.
+    let fonts = firecraft_text::FontDb::shared();
+    rows.retain(|(font, _)| !fonts.resolve(font, false, false).is_some_and(|f| !f.substituted));
+    if rows.is_empty() {
+        return;
+    }
     let names = app.font_names();
+    let can_ask = app.platform.can_request_fonts() && app.platform.installed_fonts().is_empty();
+    let mut ask = false;
     let (mut close, mut replace) = (false, false);
     egui::Window::new("Missing Fonts")
         .collapsible(false)
@@ -308,8 +316,17 @@ fn missing_fonts(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 close = ui.button("Maintain Appearance").clicked();
                 replace = ui.button("Replace Fonts").clicked();
+                if can_ask {
+                    ask = ui
+                        .button("Use Installed Fonts...")
+                        .on_hover_text("Asks the browser for permission to use this computer's fonts.")
+                        .clicked();
+                }
             });
         });
+    if ask {
+        app.platform.request_fonts();
+    }
     if replace && let Some(d) = app.session.active_doc_mut() {
         d.replace_fonts(&rows);
     }
@@ -629,6 +646,22 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             &mut prefs.fonts_dir,
             "A folder of .ttf or .otf fonts to use besides the installed ones, such as fonts from backups.",
         );
+        if platform.can_request_fonts() {
+            ui.horizontal(|ui| {
+                let offered = platform.installed_fonts().len();
+                if offered == 0 {
+                    if ui
+                        .button("Use Installed Fonts...")
+                        .on_hover_text("Asks the browser for permission to use this computer's fonts.")
+                        .clicked()
+                    {
+                        platform.request_fonts();
+                    }
+                } else {
+                    ui.weak(format!("{offered} installed font families available."));
+                }
+            });
+        }
         ui.separator();
         close = ui.button("OK").clicked();
     });

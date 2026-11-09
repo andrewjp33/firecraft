@@ -16,9 +16,10 @@ pub fn workspace(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     if app.session.docs.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(
-                egui::RichText::new(
-                    "FireCraft\n\nFile > New (Ctrl+N)   |   File > Open (Ctrl+O)   |   or drop a PNG here",
-                )
+                egui::RichText::new(format!(
+                    "FireCraft\n\nFile > New ({})   |   File > Open (Ctrl+O)   |   or drop a PNG here",
+                    crate::menus::NEW_KEY
+                ))
                 .color(Color32::from_gray(230)),
             );
         });

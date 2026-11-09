@@ -525,6 +525,7 @@ fn number(
 /// The text controls of the Property inspector.
 pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let (style, anti_alias, auto_kern) = current_style(app);
+    app.platform.load_installed_font(&style.font);
     let fonts = app.font_names();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
@@ -541,6 +542,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     }
                 });
             if let Some(name) = font_pick {
+                app.platform.load_installed_font(&name);
                 apply(app, "Text Font", &move |r| r.font.clone_from(&name));
             }
             let mut size = style.size;

@@ -651,7 +651,10 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else {
         identity(ui, app.session.tool.label(), Some(app.session.tool), |_| {});
-        ui.weak("No document open. File > New (Ctrl+N) or File > Open (Ctrl+O), or drop a PNG here.");
+        ui.weak(format!(
+            "No document open. File > New ({}) or File > Open (Ctrl+O), or drop a PNG here.",
+            crate::menus::NEW_KEY
+        ));
         return;
     };
     let canvas = d.doc.canvas;

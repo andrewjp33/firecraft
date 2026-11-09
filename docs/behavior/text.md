@@ -23,8 +23,10 @@ images, and text you edit afterwards uses a replacement font; **Replace Fonts** 
 FireCraft goes further than Fireworks MX in two ways: changing only the colour of text whose font is missing
 recolours its stored glyphs instead of redrawing them in a replacement font, and a **Fonts folder** in Preferences
 adds a folder of `.ttf`/`.otf` files, such as fonts recovered from backups. The file keeps the original font name, so
-text picks the real font up again once it is available. The browser has no system fonts: there, the Fonts folder is
-the way to add them, and egui's own fonts stand in until one is chosen.
+text picks the real font up again once it is available. In the browser, **Use Installed Fonts...** (Preferences and
+Missing Fonts) asks for permission to use the computer's fonts, in browsers that offer it (Chrome and Edge). Names
+are listed at once and each font's data is fetched when something needs it; the permission lasts between visits. The
+Fonts folder works everywhere, and egui's own fonts stand in until there is something else.
 
 ## Using the tool
 

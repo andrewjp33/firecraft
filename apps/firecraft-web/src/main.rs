@@ -7,7 +7,7 @@
 #[cfg(target_arch = "wasm32")]
 mod web {
     use std::cell::{Cell, RefCell};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::rc::Rc;
 
     use firecraft_ui_egui::{FireCraftApp, FolderKind, Platform, SaveStatus};
@@ -121,6 +121,36 @@ export async function pickFolder(kind) {
   return { folder: direct[0].webkitRelativePath.split("/")[0], files };
 }
 
+// The computer's installed fonts (Chrome and Edge, with the visitor's permission).
+let localFonts = [];
+export const canUseLocalFonts = () => !!window.queryLocalFonts;
+export async function localFontsGranted() {
+  try {
+    return window.queryLocalFonts && (await navigator.permissions.query({ name: "local-fonts" })).state === "granted";
+  } catch {
+    return false;
+  }
+}
+// What's on offer, without reading any font's data: { families, names }.
+export async function queryLocalFontNames() {
+  localFonts = await window.queryLocalFonts();
+  if (localFonts.length === 0) throw new Error("The browser didn't share any fonts. Check the site's font permission.");
+  return {
+    families: [...new Set(localFonts.map((f) => f.family))],
+    names: [...new Set(localFonts.flatMap((f) => [f.family, f.postscriptName, f.fullName]))],
+  };
+}
+// Every style of the family with this name: [{ name, bytes }].
+export async function readLocalFont(name) {
+  const match = localFonts.find((f) => f.family === name || f.postscriptName === name || f.fullName === name);
+  if (!match) return [];
+  const faces = localFonts.filter((f) => f.family === match.family);
+  return Promise.all(faces.map(async (f) => ({
+    name: `${f.postscriptName}.ttf`,
+    bytes: new Uint8Array(await (await f.blob()).arrayBuffer()),
+  })));
+}
+
 // The stored copy of a folder: [{ name, bytes }], empty if there is none.
 export async function storedFiles(kind) {
   try {
@@ -162,6 +192,14 @@ export async function writeTo(handle, bytes) {
         fn pick_folder(kind: &str) -> Promise;
         #[wasm_bindgen(js_name = storedFiles)]
         fn stored_files(kind: &str) -> Promise;
+        #[wasm_bindgen(js_name = canUseLocalFonts)]
+        fn can_use_local_fonts() -> bool;
+        #[wasm_bindgen(js_name = localFontsGranted)]
+        fn local_fonts_granted() -> Promise;
+        #[wasm_bindgen(js_name = queryLocalFontNames)]
+        fn query_local_font_names() -> Promise;
+        #[wasm_bindgen(js_name = readLocalFont)]
+        fn read_local_font(name: &str) -> Promise;
         #[wasm_bindgen(js_name = writeTo)]
         fn write_to(handle: &JsValue, bytes: &Uint8Array) -> Promise;
     }
@@ -190,6 +228,10 @@ export async function writeTo(handle, bytes) {
         folders: RefCell<HashMap<FolderKind, FolderFiles>>,
         folder_revision: Cell<u64>,
         picked_folder: RefCell<Option<PickedFolder>>,
+        local_families: RefCell<Vec<String>>,
+        local_names: RefCell<HashSet<String>>,
+        local_requested: RefCell<HashSet<String>>,
+        fonts_status: RefCell<Option<Result<usize, String>>>,
     }
 
     impl Shared {
@@ -215,6 +257,29 @@ export async function writeTo(handle, bytes) {
         fn set_folder(&self, kind: FolderKind, files: FolderFiles) {
             self.folders.borrow_mut().insert(kind, files);
             self.folder_revision.set(self.folder_revision.get() + 1);
+            self.ctx.request_repaint();
+        }
+
+        /// Find out which fonts are on offer, keeping the outcome for the app.
+        async fn query_local_fonts(&self) {
+            let strings = |v: &JsValue| -> Vec<String> {
+                js_sys::Array::from(v)
+                    .iter()
+                    .filter_map(|x| x.as_string())
+                    .collect()
+            };
+            let status = match JsFuture::from(query_local_font_names()).await {
+                Ok(found) => {
+                    let families = strings(&field(&found, "families"));
+                    *self.local_names.borrow_mut() = strings(&field(&found, "names")).into_iter().collect();
+                    let count = families.len();
+                    *self.local_families.borrow_mut() = families;
+                    self.folder_revision.set(self.folder_revision.get() + 1);
+                    Ok(count)
+                }
+                Err(e) => Err(error_text(&e)),
+            };
+            *self.fonts_status.borrow_mut() = Some(status);
             self.ctx.request_repaint();
         }
 
@@ -246,8 +311,22 @@ export async function writeTo(handle, bytes) {
                     folders: RefCell::default(),
                     folder_revision: Cell::new(0),
                     picked_folder: RefCell::default(),
+                    local_families: RefCell::default(),
+                    local_names: RefCell::default(),
+                    local_requested: RefCell::default(),
+                    fonts_status: RefCell::default(),
                 }),
             };
+            // Permission given on an earlier visit: no need to ask again.
+            {
+                let shared = browser.shared.clone();
+                spawn_local(async move {
+                    let granted = JsFuture::from(local_fonts_granted()).await;
+                    if granted.is_ok_and(|g| g.is_truthy()) {
+                        shared.query_local_fonts().await;
+                    }
+                });
+            }
             // Folders chosen in earlier visits.
             for kind in [FolderKind::Textures, FolderKind::Patterns, FolderKind::Fonts] {
                 let shared = browser.shared.clone();
@@ -369,6 +448,50 @@ export async function writeTo(handle, bytes) {
             self.shared.folder_revision.get()
         }
 
+        fn can_request_fonts(&self) -> bool {
+            can_use_local_fonts()
+        }
+
+        fn request_fonts(&mut self) {
+            let shared = self.shared.clone();
+            spawn_local(async move { shared.query_local_fonts().await });
+        }
+
+        fn take_fonts_status(&mut self) -> Option<Result<usize, String>> {
+            self.shared.fonts_status.borrow_mut().take()
+        }
+
+        fn installed_fonts(&self) -> Vec<String> {
+            self.shared.local_families.borrow().clone()
+        }
+
+        fn load_installed_font(&mut self, name: &str) {
+            if !self.shared.local_names.borrow().contains(name)
+                || !self.shared.local_requested.borrow_mut().insert(name.to_owned())
+            {
+                return;
+            }
+            let reading = read_local_font(name);
+            let shared = self.shared.clone();
+            spawn_local(async move {
+                if let Ok(files) = JsFuture::from(reading).await {
+                    let files = folder_entries(&files);
+                    let mut all = shared
+                        .folders
+                        .borrow()
+                        .get(&FolderKind::InstalledFonts)
+                        .cloned()
+                        .unwrap_or_default();
+                    for file in files {
+                        if !all.iter().any(|(n, _)| *n == file.0) {
+                            all.push(file);
+                        }
+                    }
+                    shared.set_folder(FolderKind::InstalledFonts, all);
+                }
+            });
+        }
+
         fn take_image(&mut self) -> Option<OpenedFile> {
             self.shared.image.borrow_mut().take()
         }
@@ -430,6 +553,7 @@ export async function writeTo(handle, bytes) {
             FolderKind::Textures => "fireworks-textures",
             FolderKind::Patterns => "fireworks-patterns",
             FolderKind::Fonts => "firecraft-fonts",
+            FolderKind::InstalledFonts => "firecraft-installed-fonts",
         }
     }
 

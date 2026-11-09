@@ -429,24 +429,13 @@ impl DocState {
         self.mark_changed();
     }
 
-    /// Use other fonts in place of missing ones throughout the document: (missing, replacement).
-    pub fn replace_fonts(&mut self, map: &[(String, String)]) {
-        fn visit(e: &mut Element, map: &[(String, String)]) {
+    /// Call `f` on every text object in the document and its symbols.
+    fn for_each_text(&mut self, f: &mut dyn FnMut(&mut Text)) {
+        fn visit(e: &mut Element, f: &mut dyn FnMut(&mut Text)) {
             match &mut e.kind {
-                ElementKind::Text(t) => {
-                    let mut changed = false;
-                    for run in &mut t.runs {
-                        if let Some((_, to)) = map.iter().find(|(from, _)| *from == run.font) {
-                            run.font.clone_from(to);
-                            changed = true;
-                        }
-                    }
-                    if changed {
-                        refresh(t);
-                    }
-                }
-                ElementKind::Group(c) => c.iter_mut().for_each(|x| visit(x, map)),
-                ElementKind::Masked { content, .. } => content.iter_mut().for_each(|x| visit(x, map)),
+                ElementKind::Text(t) => f(t),
+                ElementKind::Group(c) => c.iter_mut().for_each(|x| visit(x, f)),
+                ElementKind::Masked { content, .. } => content.iter_mut().for_each(|x| visit(x, f)),
                 _ => {}
             }
         }
@@ -454,7 +443,7 @@ impl DocState {
         for layer in &mut self.doc.layers {
             for frame in 0..frames {
                 if let Some(list) = layer.elements_mut(frame) {
-                    list.iter_mut().for_each(|e| visit(e, map));
+                    list.iter_mut().for_each(|e| visit(e, f));
                 }
             }
         }
@@ -463,12 +452,43 @@ impl DocState {
             for layer in &mut symbol.layers {
                 for frame in 0..frames {
                     if let Some(list) = layer.elements_mut(frame) {
-                        list.iter_mut().for_each(|e| visit(e, map));
+                        list.iter_mut().for_each(|e| visit(e, f));
                     }
                 }
             }
         }
+    }
+
+    /// Use other fonts in place of missing ones throughout the document: (missing, replacement).
+    pub fn replace_fonts(&mut self, map: &[(String, String)]) {
+        self.for_each_text(&mut |t| {
+            let mut changed = false;
+            for run in &mut t.runs {
+                if let Some((_, to)) = map.iter().find(|(from, _)| *from == run.font) {
+                    run.font.clone_from(to);
+                    changed = true;
+                }
+            }
+            if changed {
+                refresh(t);
+            }
+        });
         self.mark_changed();
+    }
+
+    /// Draw edited text again because more fonts have arrived. Text that hasn't been edited keeps
+    /// its stored image, and the document doesn't count as changed.
+    pub fn redraw_edited_text(&mut self) {
+        let mut any = false;
+        self.for_each_text(&mut |t| {
+            if t.edited && !t.text.is_empty() {
+                refresh(t);
+                any = true;
+            }
+        });
+        if any {
+            self.revision = self.revision.wrapping_add(1);
+        }
     }
 
     /// End editing a text object: empty text goes away; `changed`: keep one History step.

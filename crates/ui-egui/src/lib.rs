@@ -60,6 +60,8 @@ pub enum FolderKind {
     Textures,
     Patterns,
     Fonts,
+    /// Fonts the browser handed over, loaded as they're needed.
+    InstalledFonts,
 }
 
 /// What a save in progress is for.
@@ -124,6 +126,23 @@ pub trait Platform {
     fn folder_revision(&self) -> u64 {
         0
     }
+    /// Whether the host can ask for the computer's installed fonts (a browser permission).
+    fn can_request_fonts(&self) -> bool {
+        false
+    }
+    /// Ask for them; the outcome arrives through [`Platform::take_fonts_status`].
+    fn request_fonts(&mut self) {}
+    /// The answer to [`Platform::request_fonts`]: how many families, or why not.
+    fn take_fonts_status(&mut self) -> Option<Result<usize, String>> {
+        None
+    }
+    /// The installed font families on offer (their data is loaded as needed).
+    fn installed_fonts(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Fetch an installed font's data, by family or PostScript name, if it's on offer. It arrives
+    /// in [`Platform::folder_files`] as [`FolderKind::InstalledFonts`].
+    fn load_installed_font(&mut self, _name: &str) {}
 }
 
 /// User preferences (Edit > Preferences).
@@ -341,6 +360,7 @@ pub struct FireCraftApp {
     text_tool: text_tool::TextTool,
     fonts: std::sync::Arc<Vec<String>>,
     fonts_for: Option<(String, u64)>,
+    fonts_loaded_for: Option<(u64, u64)>,
     /// Documents whose fonts have been checked when first shown.
     fonts_checked: std::collections::HashSet<u64>,
     stroke_window: Option<fill_ui::StrokeWindow>,
@@ -390,6 +410,7 @@ impl FireCraftApp {
             text_tool: Default::default(),
             fonts: Default::default(),
             fonts_for: None,
+            fonts_loaded_for: None,
             fonts_checked: Default::default(),
             stroke_window: None,
             adopted: None,
@@ -441,7 +462,8 @@ impl FireCraftApp {
         }
         self.fonts_for = Some(source);
         let dir = self.prefs.fonts_dir.trim().to_owned();
-        let files = self.platform.folder_files(FolderKind::Fonts);
+        let mut files = self.platform.folder_files(FolderKind::Fonts);
+        files.extend(self.platform.folder_files(FolderKind::InstalledFonts));
         let web = cfg!(target_arch = "wasm32");
         if dir.is_empty() && files.is_empty() && !web {
             return;
@@ -464,6 +486,31 @@ impl FireCraftApp {
         }
         FontDb::set_shared(db);
         self.fonts = Default::default();
+        // Text that was edited before its font arrived.
+        for d in &mut self.session.docs {
+            d.redraw_edited_text();
+        }
+    }
+
+    /// Installed fonts (in the browser): report the permission's outcome, and fetch the fonts
+    /// the active document needs once they're on offer.
+    fn installed_fonts_progress(&mut self) {
+        match self.platform.take_fonts_status() {
+            Some(Err(message)) => self.dialogs.message = Some(("Installed Fonts".into(), message)),
+            Some(Ok(_)) => self.fonts = Default::default(),
+            None => {}
+        }
+        let Some(d) = self.session.active_doc() else {
+            return;
+        };
+        let key = (d.id, self.platform.folder_revision());
+        if self.fonts_loaded_for == Some(key) {
+            return;
+        }
+        self.fonts_loaded_for = Some(key);
+        for font in firecraft_engine::text::missing_fonts(d) {
+            self.platform.load_installed_font(&font);
+        }
     }
 
     /// When a document first shows, offer a choice about any fonts it needs that aren't here.
@@ -490,7 +537,11 @@ impl FireCraftApp {
     /// The installed font families, read once.
     pub(crate) fn font_names(&mut self) -> std::sync::Arc<Vec<String>> {
         if self.fonts.is_empty() {
-            self.fonts = std::sync::Arc::new(firecraft_text::FontDb::shared().families());
+            let mut names = firecraft_text::FontDb::shared().families();
+            names.extend(self.platform.installed_fonts());
+            names.sort_by_key(|n| n.to_lowercase());
+            names.dedup();
+            self.fonts = std::sync::Arc::new(names);
         }
         self.fonts.clone()
     }
@@ -663,6 +714,7 @@ impl FireCraftApp {
         self.texture_library();
         self.adopt_selected_attributes();
         self.refresh_fonts();
+        self.installed_fonts_progress();
         text_tool::tidy(self);
         self.check_missing_fonts();
         let ctx = ui.ctx().clone();
@@ -721,6 +773,7 @@ impl FireCraftApp {
                 (Ok(dir), FolderKind::Textures) => self.prefs.textures_dir = dir,
                 (Ok(dir), FolderKind::Patterns) => self.prefs.patterns_dir = dir,
                 (Ok(dir), FolderKind::Fonts) => self.prefs.fonts_dir = dir,
+                (Ok(_), FolderKind::InstalledFonts) => {}
                 (Err(e), _) => self.error(e),
             }
         }

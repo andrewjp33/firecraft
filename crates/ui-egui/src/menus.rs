@@ -51,7 +51,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if item(ui, "New...", "Ctrl+N", true) {
+            if item(ui, "New...", NEW_KEY, true) {
                 app.dialogs.new_doc = true;
             }
             if item(ui, "Open...", "Ctrl+O", true) {
@@ -60,7 +60,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Open Recent", "");
             todo(ui, "Reconstitute Table...", "");
             todo(ui, "Scan", "");
-            if item(ui, "Close", "Ctrl+W", has_doc) {
+            if item(ui, "Close", CLOSE_KEY, has_doc) {
                 let i = app.session.active;
                 app.session.close(i);
             }
@@ -241,7 +241,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ui.separator();
             ui.menu_button("Transform", |ui| {
                 for (label, key, tool) in [
-                    ("Free Transform", "Ctrl+T", Tool::Scale),
+                    ("Free Transform", TRANSFORM_KEY, Tool::Scale),
                     ("Scale", "", Tool::Scale),
                     ("Skew", "", Tool::Skew),
                     ("Distort", "", Tool::Distort),
@@ -459,6 +459,23 @@ pub fn export(app: &mut FireCraftApp) {
 }
 
 #[allow(clippy::cognitive_complexity)] // a flat shortcut table; to be replaced by craft-keymap
+/// The shortcuts shown for commands whose usual keys a browser keeps for itself.
+pub(crate) const NEW_KEY: &str = if cfg!(target_arch = "wasm32") {
+    "Ctrl+Alt+N"
+} else {
+    "Ctrl+N"
+};
+const CLOSE_KEY: &str = if cfg!(target_arch = "wasm32") {
+    "Ctrl+Alt+W"
+} else {
+    "Ctrl+W"
+};
+const TRANSFORM_KEY: &str = if cfg!(target_arch = "wasm32") {
+    "Ctrl+Alt+T"
+} else {
+    "Ctrl+T"
+};
+
 pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     // A colour pop-up takes the keyboard (typed HEX/RGB values, Enter, Esc).
     if crate::fpui::color_picker::any_open(ctx) {
@@ -500,7 +517,9 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     if pressed(shift, Key::T) {
         app.dialogs.open_numeric(app.session.active_doc());
-    } else if pressed(cmd, Key::T) && app.session.active_doc().is_some_and(|d| !d.selection.is_empty()) {
+    } else if (pressed(cmd | Modifiers::ALT, Key::T) || pressed(cmd, Key::T))
+        && app.session.active_doc().is_some_and(|d| !d.selection.is_empty())
+    {
         app.session.tool = Tool::Scale;
     }
     for (_, _, how, key) in ARRANGE_KEYS {
@@ -541,13 +560,15 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     if pressed(cmd, Key::Q) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
-    if pressed(cmd, Key::N) {
+    // Browsers keep Ctrl+N, Ctrl+W and Ctrl+T for themselves: these work there.
+    let cmd_alt = cmd | Modifiers::ALT;
+    if pressed(cmd_alt, Key::N) || pressed(cmd, Key::N) {
         app.dialogs.new_doc = true;
     }
     if pressed(cmd, Key::O) {
         open(app);
     }
-    if pressed(cmd, Key::W) {
+    if pressed(cmd_alt, Key::W) || pressed(cmd, Key::W) {
         let i = app.session.active;
         app.session.close(i);
     }
