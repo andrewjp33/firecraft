@@ -87,3 +87,8 @@ open document, and any PNG or GIF (Texture > Other...). Nothing of Fireworks is 
   a path's polyline (`PCLv`), and FireCraft doesn't write one yet. Paths from Fireworks keep
   theirs and match (texture probe: Watercolor Heavy exact once MX's polyline is present).
 * Pen pressure stored on bezier points (`BZCi`/`BAZv`) is not kept when points are edited.
+
+**Random strokes are deterministic here.** Fireworks MX re-rolls random strokes such as Confetti every time a file
+opens: moving a symbol and using File > Revert changes where the dots land. FireCraft deliberately doesn't, and draws
+them from the seeds stored in the file. So the picture embedded in a Fireworks PNG may not match its own data for
+these strokes, and a reference comparison will show those dots as differences even when nothing is wrong.

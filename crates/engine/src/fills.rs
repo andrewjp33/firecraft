@@ -872,6 +872,36 @@ mod tests {
         assert!(firecraft_io::open(&mx, None).expect("opens").mx_perspective);
     }
 
+    /// Fireworks MX re-rolls random strokes each time a file opens; FireCraft keeps them put.
+    #[test]
+    fn random_strokes_are_the_same_after_moving_and_reopening() {
+        let preset = firecraft_doc::brush_presets::BRUSH_PRESETS
+            .iter()
+            .position(|p| p.name == "bn_Confetti")
+            .expect("the Confetti preset");
+        let mut d = DocState::new(Document::new(400, 300, 72.0, None));
+        let o = ToolOptions {
+            stroke: Some(Rgba::BLACK),
+            fill: None,
+            stroke_size: 30,
+            stroke_preset: preset,
+            ..ToolOptions::default()
+        };
+        d.add_shape((60.0, 60.0, 340.0, 240.0), false, &o);
+        let first = d.doc.render(0);
+        assert_eq!(first, d.doc.render(0));
+        let path = &mut d.doc.layers[0].elements_mut(0).expect("the layer")[0];
+        path.translate(0.0, -40.0);
+        path.translate(0.0, 40.0);
+        assert_eq!(first, d.doc.render(0), "moved up and back");
+        let saved = firecraft_io::save_fireworks_png(&d.doc).expect("saves");
+        assert_eq!(
+            first,
+            firecraft_io::open(&saved, None).expect("opens").render(0),
+            "reopened"
+        );
+    }
+
     #[test]
     fn the_mx_perspective_preference_changes_only_how_the_symbol_is_drawn() {
         use firecraft_doc::{Layer, Symbol, SymbolKind};
