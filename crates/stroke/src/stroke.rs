@@ -194,16 +194,26 @@ impl InkBuffer<'_> {
         cap: bool,
         full: u8,
     ) -> (i64, i64) {
+        // Written for unoptimised builds too: plain slices and a while loop, with the blend
+        // spelled out, as a function call per pixel is most of a debug build's cost here.
         let (x0, y0) = (self.rect.left as i64, self.rect.top as i64);
         let row = yy * self.w;
         let (mut best, mut run) = ((0i64, 0i64), (0i64, 0i64));
-        for i in cols {
-            let mut v = m.data[j * m.n + i as usize];
+        let tip: &[u8] = &m.data[j * m.n..(j + 1) * m.n];
+        let line: &mut [u8] = &mut self.data[row..row + self.w];
+        let tex = self.tex.as_ref();
+        let opacity = u32::from(o);
+        let limit = if cap { opacity } else { 255 };
+        let (mut i, end) = (cols.start, cols.end);
+        while i < end {
+            let column = i;
+            i += 1;
+            let mut v = tip[column as usize];
             if v == 0 {
                 continue;
             }
-            let xx = i + off;
-            if let Some((t, btb, bte)) = &self.tex {
+            let xx = column + off;
+            if let Some((t, btb, bte)) = tex {
                 v = crate::natural::textured_mask(
                     v,
                     t.value((x0 + xx) as i32, (y0 + yy as i64) as i32),
@@ -211,16 +221,15 @@ impl InkBuffer<'_> {
                     *bte,
                 );
             }
-            let k = row + xx as usize;
-            let sa = mul(v, o);
-            let da = self.data[k];
-            let a2 = da as u32 + sa as u32 - mul(da, sa) as u32;
-            let value = if cap {
-                a2.min(o as u32) as u8
-            } else {
-                a2.min(255) as u8
-            };
-            self.data[k] = value;
+            // mul255(v, o), then the source-over of `sa` on `da`.
+            let t = u32::from(v) * opacity + 128;
+            let sa = (t + (t >> 8)) >> 8;
+            let k = xx as usize;
+            let da = u32::from(line[k]);
+            let t = da * sa + 128;
+            let a2 = da + sa - ((t + (t >> 8)) >> 8);
+            let value = if a2 < limit { a2 } else { limit } as u8;
+            line[k] = value;
             if value == full {
                 if run.1 == xx && run.1 > run.0 {
                     run.1 += 1;
@@ -768,4 +777,20 @@ pub(crate) fn edge_walk(path: &VectorPath, rect: IRect, n_tip: i64) -> Vec<(i64,
         }
     }
     out
+}
+
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+
+    /// The stamp loops spell `mul` out; they must stay the same formula.
+    #[test]
+    fn the_stamp_loops_inline_mul_exactly() {
+        for a in 0..=255u32 {
+            for b in 0..=255u32 {
+                let t = a * b + 128;
+                assert_eq!((t + (t >> 8)) >> 8, u32::from(mul(a as u8, b as u8)), "{a} {b}");
+            }
+        }
+    }
 }

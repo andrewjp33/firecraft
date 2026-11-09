@@ -466,15 +466,22 @@ impl ArgbInk<'_> {
         let n = m.n as i64;
         let (j0, j1) = ((y0 - y).max(0), (y0 + h - y).min(n));
         let (i0, i1) = ((x0 - x).max(0), (x0 + w - x).min(n));
+        // Plain slices and a while loop: per-pixel iterator and index calls dominate a debug build.
+        let tip: &[u8] = &m.data;
+        let tip_n = m.n;
+        let clip = self.clip;
         for j in j0 as usize..j1 as usize {
             let yy = y + j as i64 - y0;
-            for i in i0 as usize..i1 as usize {
-                let mut v = m.data[j * m.n + i];
+            let mut column = i0 as usize;
+            while column < i1 as usize {
+                let i = column;
+                column += 1;
+                let mut v = tip[j * tip_n + i];
                 if v == 0 {
                     continue;
                 }
                 let xx = x + i as i64 - x0;
-                if let Some((cx0, cy0, cx1, cy1)) = self.clip {
+                if let Some((cx0, cy0, cx1, cy1)) = clip {
                     let (dx, dy) = (x0 + xx, y0 + yy);
                     if dx < cx0 || dx >= cx1 || dy < cy0 || dy >= cy1 {
                         continue;
