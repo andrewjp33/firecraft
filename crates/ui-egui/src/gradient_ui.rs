@@ -618,6 +618,7 @@ enum Grip {
 
 /// A fill handle being dragged.
 pub struct FillDrag {
+    doc: u64,
     grip: Grip,
     press: Pt,
     orig: Trio,
@@ -660,6 +661,37 @@ fn distance_to_segment(p: Pos2, a: Pos2, b: Pos2) -> f32 {
 
 /// The selected gradient's or pattern's handles: shows them and takes presses on them. `true` while they have
 /// the mouse (the tool underneath then does nothing).
+/// Which part of a fill's handles (at `start`, `end` and `side` on screen) is under `s`.
+fn grip_under(s: Pos2, [start, end, side]: [Pos2; 3], uses_side: bool) -> Option<Grip> {
+    if s.distance(start) <= HIT {
+        Some(Grip::Move)
+    } else if s.distance(end) <= HIT {
+        Some(Grip::End)
+    } else if uses_side && s.distance(side) <= HIT {
+        Some(Grip::Side)
+    } else if distance_to_segment(s, start, end) <= 3.0
+        || (uses_side && distance_to_segment(s, start, side) <= 3.0)
+    {
+        Some(Grip::Rotate)
+    } else {
+        None
+    }
+}
+
+/// Whether the screen point `s` is over the selected object's fill handles.
+pub fn over_handle(d: &DocState, s: Pos2, (origin, z): (Pos2, f32)) -> bool {
+    let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
+    d.selection.len() == 1
+        && d.selected_fill_handles().is_some_and(|h| {
+            grip_under(
+                s,
+                [to_screen(h.start), to_screen(h.end), to_screen(h.side)],
+                h.uses_side,
+            )
+            .is_some()
+        })
+}
+
 pub fn handles(
     drag: &mut Option<FillDrag>,
     d: &mut DocState,
@@ -671,29 +703,21 @@ pub fn handles(
     let ctx = resp.ctx.clone();
     let to_screen = |q: Pt| pos2(origin.x + q.0 as f32 * z, origin.y + q.1 as f32 * z);
     let to_doc = |q: Pos2| (((q.x - origin.x) / z) as f64, ((q.y - origin.y) / z) as f64);
+    // A drag from another document (the active one changed under it) can't continue here.
+    if drag.as_ref().is_some_and(|active| active.doc != d.id) {
+        *drag = None;
+    }
     let single = d.selection.len() == 1;
     let Some(h) = d.selected_fill_handles().filter(|_| single) else {
-        *drag = None;
+        if drag.take().is_some() {
+            d.discard_live_edit();
+        }
         return false;
     };
     let (start, end, side) = (to_screen(h.start), to_screen(h.end), to_screen(h.side));
     let uses_side = h.uses_side;
 
-    let grip_at = |s: Pos2| {
-        if s.distance(start) <= HIT {
-            Some(Grip::Move)
-        } else if s.distance(end) <= HIT {
-            Some(Grip::End)
-        } else if uses_side && s.distance(side) <= HIT {
-            Some(Grip::Side)
-        } else if distance_to_segment(s, start, end) <= 3.0
-            || (uses_side && distance_to_segment(s, start, side) <= 3.0)
-        {
-            Some(Grip::Rotate)
-        } else {
-            None
-        }
-    };
+    let grip_at = |s: Pos2| grip_under(s, [start, end, side], uses_side);
 
     let (pressed, down, origin_at, now) = ctx.input(|i| {
         (
@@ -712,6 +736,7 @@ pub fn handles(
         if let Some(grip) = grip {
             d.begin_live_edit("Move Fill Handle");
             *drag = Some(FillDrag {
+                doc: d.id,
                 grip,
                 press: to_doc(s),
                 orig: (h.start, h.end, h.side),

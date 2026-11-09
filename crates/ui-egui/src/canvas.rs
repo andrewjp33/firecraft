@@ -658,6 +658,9 @@ fn paint_input(
     ctx.request_repaint();
 }
 
+/// How far in from the view's edge a guide can always be grabbed, in screen points.
+const GUIDE_EDGE: f32 = 10.0;
+
 // One flat input-dispatch function per tool is easier to follow than splitting it; revisit when
 // tools move into their own modules (roadmap: Pen/Subselection).
 #[allow(clippy::cognitive_complexity)]
@@ -668,6 +671,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let tool = if space { Tool::Hand } else { app.session.tool };
     let options = app.session.options.clone();
     let live_drag = app.prefs.live_drag;
+    // A press on a window makes it active in time for the tool to act on that press.
+    if resp.hovered() && ctx.input(|i| i.pointer.primary_pressed()) {
+        app.session.active = index;
+    }
     let Some(d) = app.session.docs.get_mut(index) else {
         return;
     };
@@ -796,11 +803,22 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             p.line_segment([c - vec2(9.0, 0.0), c + vec2(9.0, 0.0)], s);
             p.line_segment([c - vec2(0.0, 9.0), c + vec2(0.0, 9.0)], s);
         }
-        // 9-slice guides (dashed, draggable), as in Fireworks CS.
+        // 9-slice guides (dashed, draggable), as in Fireworks CS. They come last for the pointer:
+        // tools, handles and objects get the press, leaving guides the empty canvas and, whatever
+        // is there or whichever tool is chosen, the edges of the view.
         if let Some((gl, gr, gt, gb)) = d.symbol_nine {
             let (ox, oy) = link.offset;
             let area = canvas_rect.intersect(rect);
             let guide = Stroke::new(1.0, Color32::from_rgb(0, 0, 255));
+            let pointer_at = ctx.pointer_hover_pos();
+            let guide_free = pointer_at.is_some_and(|q| {
+                let (x, y) = to_doc(q);
+                !area.shrink(GUIDE_EDGE).contains(q)
+                    || (matches!(tool, Tool::Pointer | Tool::SelectBehind)
+                        && !crate::gradient_ui::over_handle(d, q, (origin, z))
+                        && !d.selection_contains(x, y)
+                        && d.hit_test(x, y).is_none())
+            });
             let mut moved = None;
             for (k, v) in [gl, gr, gt, gb].into_iter().enumerate() {
                 let vertical = k < 2;
@@ -823,7 +841,11 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     )
                 };
                 p.extend(Shape::dashed_line(&line, guide, 5.0, 4.0));
-                let g = ui.interact(zone, egui::Id::unique(("nine_guide", d.id, k)), Sense::drag());
+                let id = egui::Id::unique(("nine_guide", d.id, k));
+                if !ctx.is_being_dragged(id) && !guide_free {
+                    continue;
+                }
+                let g = ui.interact(zone, id, Sense::drag());
                 if g.hovered() || g.dragged() {
                     ctx.set_cursor_icon(cursor);
                 }
@@ -946,8 +968,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         return;
     }
 
-    // Fill handles of a selected gradient (over the tool underneath).
-    if matches!(tool, Tool::Pointer | Tool::SelectBehind | Tool::Gradient)
+    // Fill handles of a selected gradient (over the tool underneath). Their drag is shared between
+    // windows, so they belong to the active one: another would cancel the drag.
+    if active
+        && matches!(tool, Tool::Pointer | Tool::SelectBehind | Tool::Gradient)
         && crate::gradient_ui::handles(
             &mut app.fill_drag,
             d,

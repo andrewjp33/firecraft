@@ -33,6 +33,9 @@ Measured with Fireworks MX (`dom.convertToSymbol` on test shapes, then the saved
 
 ## 9-slice symbols (Fireworks CS)
 
+In the Symbol Editor the guides come last for the pointer (FireCraft's choice): tools, handles and objects get the
+press. A guide can be grabbed on empty canvas with the Pointer or Select Behind, or near the view's edge with any tool.
+
 A symbol's `NGSv` holds its 9-slice guides: `NGLb` (locked), `NGKi` (colour) and four `NGCf`,
 top y, bottom y, left x, right x in symbol space (`9slicesymbol*.png`: -44, 50, -166, 161 for
 content -236..235 x -149..148), plus `NGMv`/`NGVv`. An instance maps the symbol's objects
