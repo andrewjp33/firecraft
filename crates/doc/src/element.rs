@@ -108,6 +108,81 @@ impl Fill {
     }
 }
 
+/// Whether an element redraws faithfully at a larger scale: plain paths, whose fills and simple
+/// strokes are resolution-free. Effects, textures and natural brushes change with scale.
+fn redraws_at_any_scale(e: &Element) -> bool {
+    let ElementKind::Path(p) = &e.kind else {
+        return false;
+    };
+    let fill_ok = p.fill.as_ref().is_none_or(|f| f.texture_amount == 0);
+    let stroke_ok = p.stroke.as_ref().is_none_or(|s| {
+        s.brush
+            .as_ref()
+            .is_none_or(|b| b.int_of("BRT") != Some(0) && b.int_of("BTB").unwrap_or(0) == 0)
+    });
+    e.effects.is_empty() && fill_ok && stroke_ok
+}
+
+/// How much larger than symbol space to draw so the most enlarged part of the instance has a
+/// pixel for each pixel on screen (a whole number, 1 to 8, kept to a sensible image size).
+fn warp_detail(matrix: &Affine, (x0, y0, x1, y1): (f64, f64, f64, f64)) -> f64 {
+    let side = matrix.i.signum();
+    let in_front = |x: f64, y: f64| (matrix.g * x + matrix.h * y + matrix.i) * side > 0.0;
+    let stretch = |x: f64, y: f64| {
+        let p = matrix.apply(x, y);
+        let (right, down) = (matrix.apply(x + 1.0, y), matrix.apply(x, y + 1.0));
+        ((right.0 - p.0).hypot(right.1 - p.1)).max((down.0 - p.0).hypot(down.1 - p.1))
+    };
+    let most = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        .into_iter()
+        .filter(|(x, y)| in_front(*x, *y))
+        .map(|(x, y)| stretch(x, y))
+        .filter(|s| s.is_finite())
+        .fold(1.0, f64::max);
+    let mut detail = most.ceil().clamp(1.0, 8.0);
+    while detail > 1.0 && (x1 - x0) * (y1 - y0) * detail * detail > (1 << 24) as f64 {
+        detail -= 1.0;
+    }
+    detail
+}
+
+/// An output pixel of a warp over a detailed image: one sample where the image is about pixel
+/// sized there, and an average over the pixel where it's denser (the far side of a perspective),
+/// which keeps edges anti-aliased.
+fn sample_footprint(flat: &RgbaImage, u: f64, v: f64, texel: &impl Fn(f64, f64) -> (f64, f64)) -> Rgba {
+    let at = texel(u, v);
+    let (right, down) = (texel(u + 1.0, v), texel(u, v + 1.0));
+    let across = (right.0 - at.0).abs().max((right.1 - at.1).abs());
+    let along = (down.0 - at.0).abs().max((down.1 - at.1).abs());
+    let n = (across.max(along).round() as i64).clamp(1, 4);
+    if n == 1 {
+        return sample(flat, at.0, at.1);
+    }
+    let (mut sum, mut alpha) = ([0.0f64; 3], 0.0f64);
+    for j in 0..n {
+        for i in 0..n {
+            let offset = |k: i64| (k as f64 + 0.5) / n as f64 - 0.5;
+            let (px, py) = texel(u + offset(i), v + offset(j));
+            let c = sample(flat, px, py);
+            let a = f64::from(c.a);
+            alpha += a;
+            sum[0] += f64::from(c.r) * a;
+            sum[1] += f64::from(c.g) * a;
+            sum[2] += f64::from(c.b) * a;
+        }
+    }
+    if alpha <= 0.0 {
+        return Rgba::TRANSPARENT;
+    }
+    let channel = |c: f64| (c / alpha).round().clamp(0.0, 255.0) as u8;
+    Rgba::new(
+        channel(sum[0]),
+        channel(sum[1]),
+        channel(sum[2]),
+        (alpha / (n * n) as f64).round().clamp(0.0, 255.0) as u8,
+    )
+}
+
 /// `round(v / 255)` for `v` up to 255 * 255 (Fireworks' rounding).
 fn round255(v: u32) -> u32 {
     ((v + 128) + ((v + 128) >> 8)) >> 8
@@ -960,18 +1035,37 @@ impl Element {
                 let matrix = nine.map_or(*matrix, |(_, _, rest)| rest);
                 let matrix = &matrix;
                 let inner = ctx.deeper(self);
-                let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-                for c in &children {
-                    if let Some((bx, by, bw, bh)) = c.deep_bounds(&inner) {
-                        x0 = x0.min(bx);
-                        y0 = y0.min(by);
-                        x1 = x1.max(bx + bw);
-                        y1 = y1.max(by + bh);
+                let extent = |children: &[Element]| {
+                    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                    for c in children {
+                        if let Some((bx, by, bw, bh)) = c.deep_bounds(&inner) {
+                            x0 = x0.min(bx);
+                            y0 = y0.min(by);
+                            x1 = x1.max(bx + bw);
+                            y1 = y1.max(by + bh);
+                        }
                     }
-                }
-                if x0 > x1 {
-                    return None;
-                }
+                    (x0 <= x1).then_some((x0, y0, x1, y1))
+                };
+                let (x0, y0, x1, y1) = extent(&children)?;
+                // Vector contents are drawn at the size they're seen, so an enlarged symbol
+                // resolves detail instead of magnifying its pixels.
+                let detail = if nine.is_none() && children.iter().all(redraws_at_any_scale) {
+                    warp_detail(matrix, (x0, y0, x1, y1))
+                } else {
+                    1.0
+                };
+                let (x0, y0, x1, y1) = if detail > 1.0 {
+                    let up = Affine {
+                        a: detail,
+                        d: detail,
+                        ..Affine::IDENTITY
+                    };
+                    children.iter_mut().for_each(|c| c.transform(&up));
+                    extent(&children)?
+                } else {
+                    (x0, y0, x1, y1)
+                };
                 let (fx, fy) = (x0.floor() as i64 - 2, y0.floor() as i64 - 2);
                 let (fw, fh) = (
                     (x1.ceil() as i64 + 2 - fx).max(1),
@@ -988,14 +1082,24 @@ impl Element {
                 // same side as the matrix's own w) are visible.
                 let inv = matrix.invert()?;
                 let side = matrix.i.signum();
+                let texel = |u: f64, v: f64| {
+                    let (sx, sy) = inv.apply(u, v);
+                    (sx * detail - fx as f64 - 0.5, sy * detail - fy as f64 - 0.5)
+                };
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
                 for ty in 0..h as i64 {
                     for tx in 0..w as i64 {
-                        let (sx, sy) = inv.apply((ox + tx) as f64 + 0.5, (oy + ty) as f64 + 0.5);
+                        let (u, v) = ((ox + tx) as f64 + 0.5, (oy + ty) as f64 + 0.5);
+                        let (sx, sy) = inv.apply(u, v);
                         if (matrix.g * sx + matrix.h * sy + matrix.i) * side <= 0.0 {
                             continue;
                         }
-                        let p = sample(&flat, sx - fx as f64 - 0.5, sy - fy as f64 - 0.5);
+                        let p = if detail > 1.0 {
+                            sample_footprint(&flat, u, v, &texel)
+                        } else {
+                            let (px, py) = texel(u, v);
+                            sample(&flat, px, py)
+                        };
                         if p.a != 0 {
                             layer.set(tx, ty, p);
                         }

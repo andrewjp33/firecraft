@@ -73,6 +73,17 @@ pub(crate) struct InkBuffer<'a> {
     pub bounds: Option<(i64, i64, i64, i64)>,
     /// Strichtextur (Nachschlag, `BTBi`, `BTEi`), wirkt je Stempelpixel auf den Maskenwert.
     pub tex: Option<(crate::natural::TexLookup<'a>, u32, u32)>,
+    /// Per row, a run of pixels known to be at full ink: a further stamp can't change them, so a
+    /// large tip only pays for its rim instead of re-reading all it already covered.
+    full: Vec<FullRun>,
+}
+
+/// Columns `start..end` of a window row, all holding `value`.
+#[derive(Clone, Copy, Debug, Default)]
+struct FullRun {
+    start: i64,
+    end: i64,
+    value: u8,
 }
 
 impl InkBuffer<'_> {
@@ -85,6 +96,7 @@ impl InkBuffer<'_> {
             data: vec![0; w * h],
             bounds: None,
             tex: None,
+            full: Vec::new(),
         }
     }
 
@@ -117,34 +129,110 @@ impl InkBuffer<'_> {
         let n = m.n as i64;
         let (j0, j1) = ((y0 - y).max(0), (y0 + self.h as i64 - y).min(n));
         let (i0, i1) = ((x0 - x).max(0), (x0 + self.w as i64 - x).min(n));
+        if self.full.len() != self.h {
+            self.full = vec![FullRun::default(); self.h];
+        }
+        // What a pixel can't rise above: it stays there whatever is stamped over it.
+        let full = if cap { o } else { 255 };
+        let off = x - x0;
         for j in j0 as usize..j1 as usize {
-            let yy = y + j as i64 - y0;
-            let row = yy as usize * self.w;
-            for i in i0 as usize..i1 as usize {
-                let mut v = m.data[j * m.n + i];
-                if v == 0 {
+            let yy = (y + j as i64 - y0) as usize;
+            let tip_row = m.rows[j];
+            let (a, b) = (i64::from(tip_row.first).max(i0), i64::from(tip_row.end).min(i1));
+            if a >= b {
+                continue;
+            }
+            let known = self.full[yy];
+            let usable = known.start < known.end && known.value == full;
+            let (mut skip0, mut skip1) = (b, b);
+            if usable {
+                let (s0, s1) = ((known.start - off).max(a), (known.end - off).min(b));
+                if s0 < s1 {
+                    (skip0, skip1) = (s0, s1);
+                }
+            }
+            let left = self.stamp_columns(m, j, yy, off, a..skip0, o, cap, full);
+            let right = self.stamp_columns(m, j, yy, off, skip1..b, o, cap, full);
+            // A cap at another level changes pixels the run promised were settled.
+            if !usable && known.start < b + off && a + off < known.end {
+                self.full[yy] = FullRun::default();
+            }
+            for (start, end) in [left, right] {
+                if start >= end {
                     continue;
                 }
-                let xx = x + i as i64 - x0;
-                if let Some((t, btb, bte)) = &self.tex {
-                    v = crate::natural::textured_mask(
-                        v,
-                        t.value((x0 + xx) as i32, (y0 + yy) as i32),
-                        *btb,
-                        *bte,
-                    );
-                }
-                let k = row + xx as usize;
-                let sa = mul(v, o);
-                let da = self.data[k];
-                let a2 = da as u32 + sa as u32 - mul(da, sa) as u32;
-                self.data[k] = if cap {
-                    a2.min(o as u32) as u8
-                } else {
-                    a2.min(255) as u8
+                let slot = &mut self.full[yy];
+                let new = FullRun {
+                    start,
+                    end,
+                    value: full,
                 };
+                if slot.start >= slot.end || slot.value != full {
+                    *slot = new;
+                } else if start <= slot.end && slot.start <= end {
+                    slot.start = slot.start.min(start);
+                    slot.end = slot.end.max(end);
+                } else if end - start > slot.end - slot.start {
+                    *slot = new;
+                }
             }
         }
+    }
+
+    /// Stamp tip row `j`'s columns `cols` onto window row `yy`: the longest run of window columns
+    /// left at `full`, which no later stamp can change.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn stamp_columns(
+        &mut self,
+        m: &Tip,
+        j: usize,
+        yy: usize,
+        off: i64,
+        cols: std::ops::Range<i64>,
+        o: u8,
+        cap: bool,
+        full: u8,
+    ) -> (i64, i64) {
+        let (x0, y0) = (self.rect.left as i64, self.rect.top as i64);
+        let row = yy * self.w;
+        let (mut best, mut run) = ((0i64, 0i64), (0i64, 0i64));
+        for i in cols {
+            let mut v = m.data[j * m.n + i as usize];
+            if v == 0 {
+                continue;
+            }
+            let xx = i + off;
+            if let Some((t, btb, bte)) = &self.tex {
+                v = crate::natural::textured_mask(
+                    v,
+                    t.value((x0 + xx) as i32, (y0 + yy as i64) as i32),
+                    *btb,
+                    *bte,
+                );
+            }
+            let k = row + xx as usize;
+            let sa = mul(v, o);
+            let da = self.data[k];
+            let a2 = da as u32 + sa as u32 - mul(da, sa) as u32;
+            let value = if cap {
+                a2.min(o as u32) as u8
+            } else {
+                a2.min(255) as u8
+            };
+            self.data[k] = value;
+            if value == full {
+                if run.1 == xx && run.1 > run.0 {
+                    run.1 += 1;
+                } else {
+                    run = (xx, xx + 1);
+                }
+                if run.1 - run.0 > best.1 - best.0 {
+                    best = run;
+                }
+            }
+        }
+        best
     }
 
     /// Alles außerhalb der Stempelrechtecke löschen (`STAMP_BOUNDS`, T5).

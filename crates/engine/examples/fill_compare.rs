@@ -1,6 +1,6 @@
 //! Compare FireCraft's rendering of a Fireworks PNG with the flat image Fireworks saved in it.
 //! `fill_compare FILE...`: for each, pixels differing at all and by more than 2 levels.
-//! `FC_MX_PERSPECTIVE=1` turns on the Fireworks MX perspective preference; `FILL_COMPARE_OUT=x.png`
+//! `FC_PERSPECTIVE=mx|warp` overrides the document's perspective setting; `FILL_COMPARE_OUT=x.png`
 //! writes FireCraft's render.
 
 use firecraft_raster::RgbaImage;
@@ -10,7 +10,9 @@ fn main() {
         let bytes = std::fs::read(&path).expect("reads");
         let flat: RgbaImage = firecraft_io::decode_png(&bytes).expect("a PNG");
         let mut doc = firecraft_io::open(&bytes, None).expect("opens");
-        doc.mx_perspective = std::env::var_os("FC_MX_PERSPECTIVE").is_some();
+        if let Ok(v) = std::env::var("FC_PERSPECTIVE") {
+            doc.mx_perspective = v == "mx";
+        }
         let mine = doc.render(0);
         let (mut any, mut big, mut first) = (0, 0, None);
         for y in 0..flat.height().min(mine.height()) as i64 {

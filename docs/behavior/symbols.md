@@ -78,9 +78,15 @@ moves it, which FireCraft doesn't reproduce.
   (confirmed in CS5), and FireCraft reads the guides back. If CS5 re-saves the file the guides
   are lost; enabling 9-slice again in FireCraft puts them at the thirds.
 
-**Perspective instances.** By default FireCraft renders the symbol flat and warps its pixels, so fills are in
-true perspective. Fireworks MX instead transforms each path and its fill handles and then fills it as usual, so
-a gradient's bands stay straight-line in the handles' frame and tighten towards the far side. The preference
-*Draw perspective symbols as Fireworks MX does* (Edit > Preferences) switches to that for symbols of plain
-paths. Measured on a Ripple gradient: nothing differs from Fireworks MX by more than 2 levels on a file it
-re-saved. Symbols with bitmaps, effects, nested instances or 9-slice guides still warp.
+**Perspective instances.** A per-document setting, *Perspective symbols* in the Property inspector and in
+Preferences for new documents, like Color math. Files from Fireworks open as *Fireworks MX*, so they look as
+saved; FireCraft files keep what they were saved with (`FCPi` 1 = Pixel-correct).
+
+*Pixel-correct* warps the symbol as a whole, in true perspective. Symbols of plain paths are drawn at the size
+they're seen (up to 8x) and averaged over each pixel where the perspective compresses them, so an enlarged symbol
+resolves detail. Effects, textures, natural brushes and bitmaps change with scale, so those symbols warp at their
+own resolution.
+
+*Fireworks MX* transforms each path and its fill handles and fills as usual, so a gradient's bands tighten
+towards the far side. Measured on a Ripple gradient: nothing differs from Fireworks MX by more than 2 levels on a
+file it re-saved. Symbols with bitmaps, effects, nested instances or 9-slice guides still warp.

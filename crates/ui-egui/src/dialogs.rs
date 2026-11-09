@@ -348,6 +348,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             app.session.new_document(w, h, r, canvas);
             if let Some(d) = app.session.active_doc_mut() {
                 d.doc.color_math = app.prefs.color_math;
+                d.doc.mx_perspective = app.prefs.mx_perspective;
             }
             return;
         }
@@ -469,6 +470,20 @@ pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raste
     changed
 }
 
+/// How perspective symbols are drawn: `true` as Fireworks MX does. Whether it changed.
+pub fn perspective_combo(ui: &mut egui::Ui, id: &str, value: &mut bool) -> bool {
+    let label = |mx: bool| if mx { "Fireworks MX" } else { "Pixel-correct" };
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(label(*value))
+        .show_ui(ui, |ui| {
+            for mx in [false, true] {
+                changed |= ui.selectable_value(value, mx, label(mx)).changed();
+            }
+        });
+    changed
+}
+
 /// A folder setting: its path and a Browse button.
 fn folder_row(
     ui: &mut egui::Ui,
@@ -524,16 +539,17 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
         });
         ui.separator();
-        ui.strong("Fireworks MX compatibility");
-        ui.checkbox(&mut prefs.mx_perspective, "Draw perspective symbols as Fireworks MX does")
-            .on_hover_text("Off: a pixel-correct perspective warp. On: paths and gradient handles are moved instead, which matches Fireworks MX but isn't true perspective.");
-        ui.separator();
-        ui.strong("Color math");
+        ui.strong("Fireworks compatibility");
+        ui.label("New documents:");
         ui.horizontal(|ui| {
-            ui.label("New documents:");
+            ui.label("Color math:");
             color_math_combo(ui, "prefs_color_math", &mut prefs.color_math);
         });
-        ui.weak("FireCraft: Fireworks' formulas in double precision (no byte rounding of hue, saturation, lightness).\nFireworks MX: bit-exact Fireworks results. Files from Fireworks always open with Fireworks MX math.");
+        ui.horizontal(|ui| {
+            ui.label("Perspective symbols:");
+            perspective_combo(ui, "prefs_perspective", &mut prefs.mx_perspective);
+        });
+        ui.weak("Color math: FireCraft uses Fireworks' formulas in double precision; Fireworks MX is bit-exact.\nPerspective symbols: Pixel-correct warps the whole symbol; Fireworks MX moves its paths and gradient handles.\nFiles from Fireworks always open with Fireworks' settings, so they look as saved. Either can be changed per document in the Property inspector.");
         ui.separator();
         ui.strong("Folders");
         folder_row(

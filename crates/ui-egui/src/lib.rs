@@ -142,7 +142,7 @@ pub struct Prefs {
     pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
     /// Tool cursors: FireCraft's own (Fireworks style) or the system's.
     pub cursor_style: cursors::CursorStyle,
-    /// Draw perspective symbols as Fireworks MX does, instead of a pixel-correct warp.
+    /// New documents draw perspective symbols as Fireworks MX does (else a pixel-correct warp).
     pub mx_perspective: bool,
     /// Show objects while moving them: dragged with the Pointer, or scaled, rotated, skewed or
     /// distorted (off: only their outline or box moves, and the canvas redraws once on release,
@@ -582,13 +582,6 @@ impl FireCraftApp {
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
         self.adopt_selected_attributes();
-        for d in &mut self.session.docs {
-            if d.doc.mx_perspective != self.prefs.mx_perspective {
-                d.doc.mx_perspective = self.prefs.mx_perspective;
-                // Redraw, without marking the document as changed.
-                d.revision = d.revision.wrapping_add(1);
-            }
-        }
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();

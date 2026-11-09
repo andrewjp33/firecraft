@@ -82,6 +82,11 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
     if doc.color_math == ColorMath::Precise {
         root.children.push(Node::int("FCM", 1));
     }
+    // FireCraft extension: FCPi 1 = perspective symbols use the pixel-correct warp.
+    root.children.retain(|c| !c.is("FCP"));
+    if !doc.mx_perspective {
+        root.children.push(Node::int("FCP", 1));
+    }
     let frames = doc.frames.len().max(1);
     let layers = doc
         .layers

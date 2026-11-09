@@ -37,9 +37,35 @@ pub fn bell_table() -> [u8; 256] {
 pub struct Tip {
     pub n: usize,
     pub data: Vec<u8>,
+    /// Per row: which columns matter when stamping.
+    pub rows: Vec<TipRow>,
+}
+
+/// One row of a tip.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TipRow {
+    /// The columns from the first non-zero value to past the last.
+    pub first: u32,
+    pub end: u32,
 }
 
 impl Tip {
+    /// A tip with its row summaries.
+    pub fn new(n: usize, data: Vec<u8>) -> Self {
+        let rows = data
+            .chunks(n.max(1))
+            .map(|row| {
+                let first = row.iter().position(|v| *v != 0).unwrap_or(row.len());
+                let end = row.iter().rposition(|v| *v != 0).map_or(first, |i| i + 1);
+                TipRow {
+                    first: first as u32,
+                    end: end as u32,
+                }
+            })
+            .collect();
+        Self { n, data, rows }
+    }
+
     /// Wert an (x, y); außerhalb 0.
     #[inline]
     pub fn at(&self, x: i64, y: i64) -> u8 {
@@ -90,7 +116,7 @@ pub fn tip_mask(dp: f64, round: bool, soft_permille: u32, bell: bool) -> Tip {
             data[y * n + x] = tip_value(fx, fy, rr, s, round, bell, &g);
         }
     }
-    Tip { n, data }
+    Tip::new(n, data)
 }
 
 /// Wert der Spitze an `(fx, fy)` (1/16 px relativ zur Mitte), Radius `rr` (1/16 px), Weichheit `s`.
@@ -280,7 +306,7 @@ pub fn transformed_tip(dp: f64, round: bool, soft_permille: u32, bell: bool, t: 
             data[y * n + x] = v as u8;
         }
     }
-    Tip { n, data }
+    Tip::new(n, data)
 }
 
 /// Bilineare Verschiebung um `(fx/16, fy/16)` px; Ergebnis `(n+1) × (n+1)`.
@@ -315,7 +341,7 @@ pub fn shift_tip(tip: &Tip, fx: usize, fy: usize) -> Tip {
             data[y as usize * nn + x as usize] = v.min(255) as u8;
         }
     }
-    Tip { n: nn, data }
+    Tip::new(nn, data)
 }
 
 /// Strichmuster-Zustand je Teilpfad (`@0078a1f0`: an = 1, Zähler 0, Index 0; Fortschreibung je

@@ -1287,6 +1287,12 @@ impl DocState {
     }
 
     /// Fireworks-exact or high-precision colour formulas for this document.
+    pub fn set_mx_perspective(&mut self, on: bool) {
+        if self.doc.mx_perspective != on {
+            self.edit("Perspective", |s| s.doc.mx_perspective = on);
+        }
+    }
+
     pub fn set_color_math(&mut self, math: firecraft_raster::ColorMath) {
         if self.doc.color_math != math {
             self.edit("Color Math", |s| s.doc.color_math = math);

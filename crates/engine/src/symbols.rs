@@ -477,6 +477,7 @@ impl DocState {
         // Instances inside the symbol need the other symbols.
         doc.symbols = self.doc.symbols.clone();
         doc.color_math = self.doc.color_math;
+        doc.mx_perspective = self.doc.mx_perspective;
         doc.raw_tiles = self.doc.raw_tiles.clone();
         doc.path = Some(format!("Symbol: {}", sym.name));
         Some((doc, offset))

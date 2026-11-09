@@ -813,6 +813,66 @@ mod tests {
     }
 
     #[test]
+    fn an_enlarged_perspective_symbol_of_paths_stays_sharp() {
+        use firecraft_doc::{Layer, Symbol, SymbolKind};
+        use firecraft_raster::transform::Affine;
+        let (mut d, _) = doc_with_rect();
+        let mut layer = Layer::new("L");
+        let mut path = d.doc.layers[0].elements(0)[0].clone();
+        path.translate(-60.0, -80.0);
+        if let Some(e) = layer.elements_mut(0) {
+            e.push(path);
+        }
+        // The rectangle is 240 x 120; the instance shows it about 6x larger, its edge on canvas.
+        d.doc.symbols = std::sync::Arc::new(vec![Symbol {
+            id: 7,
+            name: "S".into(),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer],
+            frames: 1,
+            nine: None,
+            raw: None,
+        }]);
+        let matrix = Affine {
+            a: 6.0,
+            d: 6.0,
+            e: 20.5,
+            f: -500.0,
+            g: 1e-6,
+            ..Affine::IDENTITY
+        };
+        if let Some(e) = d.doc.layers[0].elements_mut(0) {
+            e[0] = Element::new(ElementKind::Instance {
+                symbol: 7,
+                name: "S".into(),
+                matrix,
+                bounds: Some((0.0, 0.0, 400.0, 300.0)),
+            });
+        }
+        let image = d.doc.render(0);
+        let soft = (0..120i64)
+            .filter_map(|x| image.get(x, 100))
+            .filter(|p| p.a != 0 && p.a != 255)
+            .count();
+        assert!(
+            soft <= 3,
+            "edge {soft} pixels wide (a magnified symbol would be about 6)"
+        );
+    }
+
+    #[test]
+    fn perspective_setting_survives_a_save_and_fireworks_files_keep_theirs() {
+        let (mut d, _) = doc_with_rect();
+        d.doc.mx_perspective = false;
+        let warp = firecraft_io::save_fireworks_png(&d.doc).expect("saves");
+        assert!(!firecraft_io::open(&warp, None).expect("opens").mx_perspective);
+        // No FireCraft marker, as in a file Fireworks saved.
+        d.doc.mx_perspective = true;
+        let mx = firecraft_io::save_fireworks_png(&d.doc).expect("saves");
+        assert!(firecraft_io::open(&mx, None).expect("opens").mx_perspective);
+    }
+
+    #[test]
     fn the_mx_perspective_preference_changes_only_how_the_symbol_is_drawn() {
         use firecraft_doc::{Layer, Symbol, SymbolKind};
         use firecraft_raster::transform::Affine;

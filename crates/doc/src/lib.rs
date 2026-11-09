@@ -293,8 +293,8 @@ pub struct Document {
     /// caches, `mkBS`) reference them, so they are written back with the document.
     pub raw_tiles: std::sync::Arc<std::collections::HashMap<u32, firecraft_fwpng::Tile>>,
     /// Perspective symbol instances: `false` warps the symbol's pixels (true perspective), `true`
-    /// maps its paths and fill handles instead, as Fireworks MX draws them (a preference, set by
-    /// the app; docs/behavior/symbols.md).
+    /// maps its paths and fill handles instead, as Fireworks MX draws them. Per document, like
+    /// `color_math`: files from Fireworks open with `true` (docs/behavior/symbols.md).
     pub mx_perspective: bool,
     /// The symbol library (shared: undo snapshots don't copy it).
     pub symbols: std::sync::Arc<Vec<Symbol>>,

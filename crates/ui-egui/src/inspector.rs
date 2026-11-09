@@ -684,6 +684,17 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         })
         .response
         .on_hover_text("FireCraft: Fireworks' formulas in double precision (blend modes, Hue/Saturation). Fireworks MX: bit-exact Fireworks results. Fireworks MX itself always renders with its own math.");
+        ui.horizontal(|ui| {
+            ui.label("Perspective symbols:");
+            let mut mx = app.session.active_doc().is_some_and(|d| d.doc.mx_perspective);
+            if crate::dialogs::perspective_combo(ui, "doc_perspective", &mut mx)
+                && let Some(d) = app.session.active_doc_mut()
+            {
+                d.set_mx_perspective(mx);
+            }
+        })
+        .response
+        .on_hover_text("Pixel-correct: the whole symbol is warped in true perspective. Fireworks MX: its paths and gradient handles are moved instead.");
     });
 }
 
