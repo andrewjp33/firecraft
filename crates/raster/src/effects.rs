@@ -215,7 +215,7 @@ impl Effect {
                 knock_out: truthy("ShadowKnockOut")
                     || p.get("ShowObject").is_some_and(|v| v == "false") && name.contains("Knock"),
             },
-            // Measured: the glow's width is GlowWidth (0 = no glow), colour OuterBevelColor,
+            // Measured: the glow's width is GlowWidth (0 with no softness = no glow), colour OuterBevelColor,
             // softness MaskSoftness, gap GlowStartDistance, opacity BevelContrast.
             BEVEL_GLOW if num("BevelType", 0.0) == 4.0 => Effect::Glow {
                 color: color("OuterBevelColor", Rgba::BLACK),
@@ -438,7 +438,8 @@ impl Effect {
                 offset,
                 inner,
             } => {
-                if *width <= 0.0 {
+                // A width of 0 still glows when softened: the object itself feeds the softening.
+                if *width <= 0.0 && *softness <= 0.0 {
                     return;
                 }
                 let (w, h) = (img.width(), img.height());
@@ -965,6 +966,33 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_zero_width_glow_still_shows_its_softness() {
+        let square = || {
+            let mut img = RgbaImage::new(80, 80, Rgba::TRANSPARENT);
+            for y in 30..50 {
+                for x in 30..50 {
+                    img.set(x, y, Rgba::new(10, 20, 200, 255));
+                }
+            }
+            img
+        };
+        let glow = |softness| Effect::Glow {
+            color: Rgba::new(255, 0, 0, 255),
+            width: 0.0,
+            opacity: 1.0,
+            softness,
+            offset: 0.0,
+            inner: false,
+        };
+        let mut soft = square();
+        glow(7.0).apply(&mut soft);
+        assert!(soft.get(28, 40).is_some_and(|p| p.a > 40), "softness shows");
+        let mut hard = square();
+        glow(0.0).apply(&mut hard);
+        assert_eq!(hard, square(), "no width and no softness: no glow");
+    }
 
     #[test]
     fn a_softened_glow_keeps_its_strength_at_the_edge() {
