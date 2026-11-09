@@ -69,6 +69,7 @@ pub fn text_block(t: &Text) -> TextBlock {
         orientation: Orientation::HorizontalLtr,
         antialias: AntiAlias::from_tags(i64::from(t.anti_alias), 192, 64, 8, None),
         path: None,
+        em_box_lines: !t.cs_layout,
     }
 }
 
@@ -334,6 +335,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         auto_kern: opts.text_auto_kern,
         anti_alias: opts.text_anti_alias,
         auto_width: auto,
+        cs_layout: false,
         anchor: None,
         on_path: false,
         edited: true,

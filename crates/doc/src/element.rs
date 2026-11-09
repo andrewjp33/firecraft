@@ -550,6 +550,8 @@ pub struct Text {
     pub auto_kern: bool,
     /// Anti-alias mode (`TAAi`): 0 smooth, 1 crisp, 2 strong.
     pub anti_alias: u8,
+    /// Laid out by Fireworks CS's rules (its record's block) rather than Fireworks MX's.
+    pub cs_layout: bool,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates

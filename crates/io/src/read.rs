@@ -731,6 +731,17 @@ fn text_attrs(nodes: &[&Node], base: &TextRun) -> TextRun {
     r
 }
 
+/// How far Fireworks MX has moved a text object since it was typed: it leaves the block where it
+/// was and keeps the move in the matrix. Only plain moves (a scaled or rotated object keeps its
+/// matrix), and only MX's records: no Fireworks CS file here has shown what its block does.
+pub(crate) fn text_move(n: &Node) -> Option<(f64, f64)> {
+    let m = matrix_of(n.child("MTX"));
+    let plain = [m.a - 1.0, m.b, m.g, m.c, m.d - 1.0, m.h, m.i - 1.0]
+        .iter()
+        .all(|v| v.abs() < 1e-9);
+    (plain && n.child("LFA").is_none() && (m.e != 0.0 || m.f != 0.0)).then_some((m.e, m.f))
+}
+
 fn read_text(n: &Node, ctx: &Ctx) -> Text {
     let base = TextRun {
         text: String::new(),
@@ -802,19 +813,36 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         italic: initial.italic,
         underline: initial.underline,
         runs,
-        rect: frame.unwrap_or((
-            edge("LFT") - ox,
-            edge("TOP") - oy,
-            edge("RIT") - ox,
-            edge("BOT") - oy,
-        )),
+        rect: frame.unwrap_or_else(|| {
+            let (dx, dy) = text_move(n).unwrap_or_default();
+            (
+                edge("LFT") - ox + dx,
+                edge("TOP") - oy + dy,
+                edge("RIT") - ox + dx,
+                edge("BOT") - oy + dy,
+            )
+        }),
         anchor,
         on_path: matches!(kind, Some(2 | 3)),
         auto_kern: n.bool_of("ATK").unwrap_or(true),
         anti_alias: n.int_of("TAA").unwrap_or(0).clamp(0, 2) as u8,
         // FireCraft extension (Fireworks MX ignores unknown nodes).
         auto_width: n.int_of("FAW") == Some(1),
+        cs_layout: n.child("LFA").is_some(),
         edited: false,
         cached: n.child("IMG").and_then(|i| read_bitmap(i, ctx)),
     }
+}
+
+/// A text object read from its record alone, for tests.
+#[cfg(test)]
+pub(crate) fn text_from_node(n: &Node) -> Text {
+    read_text(
+        n,
+        &Ctx {
+            tiles: &HashMap::new(),
+            origin: (0.0, 0.0),
+            symbols: HashMap::new(),
+        },
+    )
 }

@@ -654,6 +654,13 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
     ] {
         put(&mut n, Node::float(tag, v));
     }
+    // The block above already includes a move read from the matrix.
+    if crate::read::text_move(&n).is_some()
+        && let Some(m) = n.children.iter_mut().find(|c| c.is("MTX"))
+    {
+        put(m, Node::float("M20", 0.0));
+        put(m, Node::float("M21", 0.0));
+    }
     // Fireworks CS's own record of where the block is.
     if n.child("LFA").is_some() {
         let (x, y, r, b) = match t.anchor {
@@ -1516,6 +1523,59 @@ mod primitive_tests {
             (mtx.float_of("M01"), mtx.float_of("M10")),
             (Some(1.0), Some(-1.0))
         );
+    }
+
+    fn text_record(matrix: [f64; 6]) -> Node {
+        let m = |t: &str, v: f64| Node::float(t, v);
+        Node::vector(
+            "TXT",
+            vec![
+                m("LFT", 111.0),
+                m("TOP", 87.0),
+                m("RIT", 518.5),
+                m("BOT", 429.0),
+                Node::vector(
+                    "MTX",
+                    vec![
+                        m("M00", matrix[0]),
+                        m("M01", matrix[1]),
+                        m("M02", 0.0),
+                        m("M10", matrix[2]),
+                        m("M11", matrix[3]),
+                        m("M12", 0.0),
+                        m("M20", matrix[4]),
+                        m("M21", matrix[5]),
+                        m("M22", 1.0),
+                    ],
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn a_text_objects_move_applies_to_its_block_and_only_once() {
+        let raw = text_record([1.0, 0.0, 0.0, 1.0, -6.0, -42.0]);
+        let moved = (105.0, 45.0, 512.5, 387.0);
+        let t = crate::read::text_from_node(&raw);
+        assert_eq!(t.rect, moved);
+        let mut e = rect_path(0.0);
+        e.kind = ElementKind::Text(t);
+        e.raw = Some(raw);
+        let mut doc = Document::new(800, 600, 72.0, Some(Rgba::WHITE));
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            cell.push(e);
+        }
+        let back = round_trip(&doc);
+        let ElementKind::Text(t) = &first(&back).kind else {
+            panic!("text")
+        };
+        assert_eq!(t.rect, moved, "saving and reopening doesn't move it again");
+    }
+
+    #[test]
+    fn a_scaled_text_objects_block_is_left_alone() {
+        let t = crate::read::text_from_node(&text_record([0.69, 0.0, 0.0, 0.69, 392.0, 344.0]));
+        assert_eq!(t.rect, (111.0, 87.0, 518.5, 429.0));
     }
 
     #[test]

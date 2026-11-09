@@ -32,7 +32,7 @@ fn walk(e: &Element, n: &mut usize, out: Option<&str>) {
         return;
     };
     let mut best = (u64::MAX, 0, 0, 0);
-    for dy in -3..=3 {
+    for dy in -70..=70 {
         for dx in -3..=3 {
             let (s, o) = compare(&c.image, c.x, c.y, &m.image, m.x + dx, m.y + dy);
             if s < best.0 {
@@ -57,6 +57,12 @@ fn walk(e: &Element, n: &mut usize, out: Option<&str>) {
         best.3,
         100.0 * best.0 as f64 / total.max(1) as f64
     );
+    if let Some(run) = t.runs.first() {
+        println!(
+            "    {} {} leading {} align {}  rect {:?} anchor {:?}",
+            run.font, run.size, run.leading, run.align, t.rect, t.anchor
+        );
+    }
     if let Some(dir) = out {
         let path = |k: &str| format!("{dir}/t{n}_{k}.png");
         let mine = firecraft_io::encode_png(&m.image, 72.0);

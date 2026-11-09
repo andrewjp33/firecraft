@@ -457,7 +457,13 @@ pub struct TextBlock {
     pub antialias: AntiAlias,
     /// `TAPv` (nur bei `OnPath`/`InPath`).
     pub path: Option<TextPath>,
+    /// Fireworks MX's fixed blocks: every line is an em box with its baseline
+    /// [`EM_BASELINE`] of the way down, whatever the font (Fireworks CS uses the font's metrics).
+    pub em_box_lines: bool,
 }
+
+/// How far down its em box Fireworks MX puts a line's baseline.
+pub const EM_BASELINE: f64 = 0.8;
 
 impl Default for TextBlock {
     fn default() -> Self {
@@ -470,6 +476,7 @@ impl Default for TextBlock {
             orientation: Orientation::HorizontalLtr,
             antialias: AntiAlias::default(),
             path: None,
+            em_box_lines: false,
         }
     }
 }

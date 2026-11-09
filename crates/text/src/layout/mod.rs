@@ -49,6 +49,7 @@ use std::sync::Arc;
 use crate::support::Rect;
 
 use crate::font::{Font, FontDb};
+use crate::model::EM_BASELINE;
 use crate::model::{Alignment, CharAttrs, FrameKind, Orientation, PathTextMode, TextBlock};
 use crate::raster::Affine;
 
@@ -509,19 +510,44 @@ impl<'a> Builder<'a> {
         (asc, desc, emb)
     }
 
+    /// How far the first baseline sits below the block's top for this font and size.
+    fn first_ascent(&self, font: &Font, size: f64) -> f64 {
+        if self.block.em_box_lines {
+            EM_BASELINE * size
+        } else {
+            font.roman_ascent() * size
+        }
+    }
+
+    /// The largest type on a line, for Fireworks MX's em-box lines.
+    fn line_size(&self, items: &[Item], fallback_run: usize) -> f64 {
+        let size = items
+            .iter()
+            .map(|it| self.attrs(it.run).size)
+            .fold(f64::NEG_INFINITY, f64::max);
+        if size.is_finite() {
+            size
+        } else {
+            self.attrs(fallback_run).size
+        }
+    }
+
     /// Größte lateinische Oberlänge (px, inkl. Grundlinienversatz) einer Zeile.
     fn roman_ascent(&self, items: &[Item], fallback_run: usize) -> f64 {
         let v = items
             .iter()
             .map(|it| {
                 let a = self.attrs(it.run);
-                it.font.roman_ascent() * a.size + a.baseline_shift
+                self.first_ascent(&it.font, a.size) + a.baseline_shift
             })
             .fold(f64::NEG_INFINITY, f64::max);
         if v.is_finite() {
             return v;
         }
         let a = self.attrs(fallback_run);
+        if self.block.em_box_lines {
+            return EM_BASELINE * a.size;
+        }
         self.run_fonts
             .get(fallback_run)
             .cloned()
@@ -794,10 +820,16 @@ impl<'a> Builder<'a> {
             // (Arial 12/15/30/60 pt -> 13/16/32/63, Myriad Pro 60 -> 58, Times 60 -> 61), each
             // further line adds leading·s (Arial 12 pt, three lines: 42). Corpus of stored fixed
             // frames: bottom exact 630/676 (before, with the em box rounded: 305/676)
-            let bottom = if vertical { y + emb } else { last_base + desc };
+            let em_bottom = (!vertical && b.em_box_lines).then(|| {
+                let last = lines.last().map_or(&[][..], |l| l.items.as_slice());
+                last_base + (1.0 - EM_BASELINE) * self.line_size(last, last_run)
+            });
+            let bottom = em_bottom.unwrap_or(if vertical { y + emb } else { last_base + desc });
             frame_exact = [b.bounds.left as f64, y_anchor, b.bounds.right as f64, bottom];
             // vertical text keeps the em-box bottom, rounded
-            let bottom = if vertical {
+            let bottom = if em_bottom.is_some() {
+                bottom
+            } else if vertical {
                 bottom.round()
             } else {
                 (bottom - 1e-6).ceil()

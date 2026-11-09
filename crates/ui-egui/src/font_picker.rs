@@ -129,7 +129,7 @@ pub fn font_combo(
                     picked = Some(name.clone());
                 }
                 if i == f.row && f.scroll {
-                    row.scroll_to_me(Some(Align::Center));
+                    row.scroll_to_me_animation(Some(Align::Center), egui::style::ScrollAnimation::none());
                 }
             }
             if !ui.is_sizing_pass() {

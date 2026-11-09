@@ -9,6 +9,16 @@ Files saved by Fireworks CS differ: `TFTi` gives the kind of block (0 point text
 `FONs` is the family and `CFTs` and the runs the PostScript name, and `DTAv` holds its own copy of the story, dropped
 when the text is edited. With the same font, point text re-renders to within 0.1% of Fireworks CS's stored image.
 
+Fireworks MX's blocks have their own line model, whatever the font: each line is an em box with its baseline 80% of the
+way down, so the first baseline is `top + 0.8 × size` and the block ends one em below the last line's top. Measured on
+every MX-made object in the reference files whose font is available: after this the vertical offset from MX's stored image
+is 0, across Arial 10-12, Prototype 18, Trebuchet MS 36 and MoolBoran 59-200, whose ascents differ widely. New text uses
+it too; blocks from Fireworks CS records keep CS's rule (first baseline at the font's own Latin ascent).
+
+MX keeps a text object's move in its matrix (`MTXv`) and leaves the block where it was typed. A plain move is applied to the
+block on opening and cleared on save, which MX reads as the same position. Scaled or rotated text keeps its matrix, so
+editing it doesn't yet land in the right place.
+
 ## Stored image first
 
 A text object shows the image saved with it (`IMGv`) until it is edited, so a file looks as it was saved whatever
