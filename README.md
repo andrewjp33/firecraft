@@ -17,9 +17,9 @@ Fireworks MX does. It is in active development. Vector and bitmap editing, text,
 symbols are in place. Web export (Optimize, GIF/JPEG), frame editing and slices are not yet
 ([what's next](#not-done-yet)).
 
-**Rendering parity** on 88 reference files, scored against Fireworks' own render of each file
-(10 November 2026): 37 match 100%, 13 more are above 99%, 20 are between 90% and 99%, and 18 are
-below 90%. The average is 93.1%. Every file survives the lossless round trip and a FireCraft save
+**Rendering parity** on 87 reference files, scored against Fireworks' own render of each file
+(10 November 2026): 37 match 100%, 13 more are above 99%, 20 are between 90% and 99%, and 17 are
+below 90%. The average is 93.8%. Every file survives the lossless round trip and a FireCraft save
 that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### Recently added
@@ -83,8 +83,9 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
     groups).
   - Transform: Scale, Skew, Distort and rotate (live preview), the **9-slice Scaling tool**
     from Fireworks CS5.
-  - Bitmap: Marquee, Oval Marquee, **Magic Wand**, Brush, Pencil, Eraser, Paint Bucket,
-    Gradient.
+  - Bitmap: Marquee, Oval Marquee, Magic Wand (Fireworks MX's anti-alias, or a smoother one
+    by default: [docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)), Brush, Pencil,
+    Eraser, Paint Bucket, Gradient.
   - Vector: Line, **Pen**, Rectangle (Fireworks rectangle primitives with roundness), Ellipse,
     **Text**.
   - Eyedropper, Hand, Zoom.
@@ -126,17 +127,6 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Styles and the Filters menu.
 - `.jsf` commands.
 - Check Spelling, last.
-
-### The Magic Wand anti-alias fix
-
-In Fireworks MX the Magic Wand's *Anti-alias* edge is tied to *Tolerance*: on a hard colour edge
-the edge pixels are selected at exactly `tolerance / 255`, so low tolerances look identical to
-*Hard* and only values around 100 show an edge, by which point the selection itself starts
-leaking. This was measured in Fireworks MX itself
-([docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)); it is not a modern-PC
-incompatibility. FireCraft's default **Smooth** anti-alias computes real edge coverage instead,
-independent of tolerance. **Classic** reproduces Fireworks MX exactly (pick it in the Property
-inspector or Preferences).
 
 ### File compatibility
 
