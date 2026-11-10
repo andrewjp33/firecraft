@@ -43,6 +43,23 @@ replacement for Prototype).
 Range kerning (`RKNf`) is an em fraction in Fireworks MX (`0.34`: letters 34% of the size apart); Fireworks CS
 records count tenths of that. FireCraft keeps MX's unit and converts CS records when reading and writing.
 
+## Convert to Paths
+
+Checked against Fireworks MX (`convert_compare` example, MX's own conversion of the same file): each text object becomes
+a group with one path per character in text order (none for spaces), then an underline path after each stretch of
+underlined characters. The outlines are the fonts' unhinted ones with each line's baseline on a whole pixel, through the
+text's matrix; MX's nodes and handles match to within 0.06 px (Arial, Trebuchet MS). Each path has the text's fill
+(a gradient keeps its handles) or its character's colour, and no stroke; the group keeps the text's effects, opacity
+and blending.
+
+Underlines in Fireworks MX text: whole pixels, the top at the font's underline position below the baseline rounded, the
+thickness the font's rounded, one per stretch of one colour, in that colour (measured: Trebuchet MS 30 -> 178..180 under
+baseline 174). Fireworks CS records keep FirePixel's measured rule.
+
+Known differences: Fireworks MX widens small text differently (its per-character advances at 8-24 px differ from the
+fonts' by up to ~0.25 px each; closest model so far: hinted at 4x the size, unrounded), and its synthetic bold (a font
+without a bold file) keeps the outlines' curves and is narrower than FireCraft's. Both are on the roadmap.
+
 ## Text menu
 
 Read from Fireworks MX's menu resource and shortcut file, and checked in MX: Font, Size (Other..., Smaller and Larger

@@ -168,6 +168,8 @@ pub struct LineLayout {
 pub struct Decoration {
     pub quad: [[f64; 2]; 4],
     pub color: Rgba8,
+    /// The run it underlines (its first, if several).
+    pub run: usize,
 }
 
 /// Ergebnis des Satzes.

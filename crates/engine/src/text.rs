@@ -148,6 +148,98 @@ pub fn rasterize(t: &Text) -> Option<Bitmap> {
     Some(drawn)
 }
 
+/// Text > Convert to Paths: one path per character (none for spaces) and one per underline, as
+/// Fireworks MX makes them: the fonts' unhinted outlines on whole-pixel baselines, through the
+/// text's matrix, each filled with the text's fill or its character's colour.
+pub fn to_paths(t: &Text) -> Vec<firecraft_doc::Path> {
+    let mut layout = layout_of(t);
+    for g in &mut layout.glyphs {
+        if g.transform.b == 0.0 && g.transform.c == 0.0 {
+            g.transform.f = g.transform.f.round();
+        }
+    }
+    let rgba = |c: Rgba8| Rgba::new(c.r, c.g, c.b, c.a);
+    // The colours and runs in the order `glyph_contours` lists the shapes.
+    let info: Vec<(Rgba, usize)> = layout
+        .visible_glyphs()
+        .filter(|g| !g.is_tab && !g.font.outline(g.glyph_id).is_empty())
+        .map(|g| (rgba(g.color), g.run))
+        .chain(layout.decorations.iter().map(|d| (rgba(d.color), d.run)))
+        .collect();
+    let glyphs = info.len() - layout.decorations.len();
+    let m = t.matrix;
+    let at = |p: firecraft_text::support::Point| m.apply(f64::from(p.x), f64::from(p.y));
+    let shapes: Vec<_> = firecraft_text::render::glyph_contours(&layout)
+        .into_iter()
+        .zip(info)
+        .collect();
+    // Fireworks MX puts each underline after its run's characters.
+    let (mut order, underlines) = shapes.split_at(glyphs.min(shapes.len()));
+    let mut ordered: Vec<_> = Vec::with_capacity(shapes.len());
+    let mut pending: Vec<_> = underlines.iter().collect();
+    while let Some((first, rest)) = order.split_first() {
+        ordered.push(first);
+        let run = first.1.1;
+        if rest.first().is_none_or(|next| next.1.1 != run) {
+            ordered.extend(pending.iter().filter(|u| u.1.1 <= run));
+            pending.retain(|u| u.1.1 > run);
+        }
+        order = rest;
+    }
+    ordered.extend(pending);
+    ordered
+        .into_iter()
+        .map(|(shape, (color, _))| {
+            let color = *color;
+            let contours = shape
+                .iter()
+                .map(|c| firecraft_doc::Contour {
+                    closed: c.closed,
+                    points: c
+                        .nodes
+                        .iter()
+                        .map(|n| {
+                            let (x, y) = at(n.pt);
+                            let (px, py) = at(n.ctrl_in);
+                            let (sx, sy) = at(n.ctrl_out);
+                            firecraft_doc::BezierPoint {
+                                x,
+                                y,
+                                pred: (px - x, py - y),
+                                succ: (sx - x, sy - y),
+                            }
+                        })
+                        .collect(),
+                })
+                .collect();
+            let fill = match &t.fill {
+                Some(f) => f.clone(),
+                None => Fill {
+                    color,
+                    category: "fc_Solid".into(),
+                    anti_alias: true,
+                    feather: 0,
+                    gradient: None,
+                    pattern: None,
+                    dither: None,
+                    dither_transparent: false,
+                    texture: None,
+                    texture_amount: 0,
+                    texture_transparent: false,
+                },
+            };
+            firecraft_doc::Path {
+                contours,
+                fill: Some(fill),
+                stroke: None,
+                rect: None,
+                pcl: None,
+                texture_origin: None,
+            }
+        })
+        .collect()
+}
+
 /// Paint a gradient, pattern or web dither fill through the text's coverage in `b`, sampled at
 /// each pixel's canvas coordinate as for paths, then apply the fill's texture.
 fn shade(b: &mut Bitmap, f: &Fill) {
@@ -660,9 +752,69 @@ impl DocState {
     }
 }
 
+impl DocState {
+    /// Whether Text > Convert to Paths has something to do.
+    pub fn can_convert_text(&self) -> bool {
+        self.selection.iter().any(|r| self.editable_text_at(*r).is_some())
+    }
+
+    /// Text > Convert to Paths: each selected text object becomes a group of paths, one per
+    /// character, keeping the object's effects, opacity and blending (Fireworks MX).
+    pub fn convert_text_to_paths(&mut self) {
+        let refs: Vec<ElementRef> = self
+            .selection
+            .iter()
+            .copied()
+            .filter(|r| self.editable_text_at(*r).is_some())
+            .collect();
+        if refs.is_empty() {
+            return;
+        }
+        self.edit("Convert to Paths", |s| {
+            for r in refs {
+                let Some(e) = s.element_mut(r) else { continue };
+                let ElementKind::Text(t) = &e.kind else { continue };
+                let children: Vec<Element> = to_paths(t)
+                    .into_iter()
+                    .map(|p| Element::new(ElementKind::Path(p)))
+                    .collect();
+                e.kind = ElementKind::Group(children);
+                e.raw = None;
+                e.name = None;
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn convert_to_paths_makes_a_group_of_characters_keeping_effects() {
+        let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));
+        let opts = ToolOptions::default();
+        let r = d.start_new_text(new_text((20.0, 20.0, 21.0, 40.0), true, &opts));
+        d.change_text(r, |t| insert(t, 0, "Hi you", None));
+        d.change_text(r, |t| format(t, 3..6, &|run| run.underline = true));
+        d.commit_live_edit();
+        let shadow = firecraft_doc::EffectEntry::new(Vec::new());
+        if let Some(e) = d.element_mut(r) {
+            e.effects = vec![shadow];
+        }
+        d.selection = vec![r];
+        assert!(d.can_convert_text());
+        d.convert_text_to_paths();
+        let e = d.element(r).expect("still there");
+        let ElementKind::Group(children) = &e.kind else {
+            panic!("a group, not {:?}", e.kind)
+        };
+        // Five characters (no path for the space) and the underline.
+        assert_eq!(children.len(), 6);
+        assert!(children.iter().all(|c| matches!(c.kind, ElementKind::Path(_))));
+        assert_eq!(e.effects.len(), 1);
+        assert!(!d.can_convert_text());
+    }
 
     fn sample() -> Text {
         let mut t = new_text((0.0, 0.0, 100.0, 20.0), true, &ToolOptions::default());

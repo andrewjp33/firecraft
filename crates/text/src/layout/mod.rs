@@ -1161,12 +1161,15 @@ fn underlines(block: &TextBlock, glyphs: &[PositionedGlyph], out: &mut Vec<Decor
             continue;
         }
         let mut j = i + 1;
-        while j < glyphs.len()
-            && ul(&glyphs[j])
-            && Arc::ptr_eq(&glyphs[j].font, &g.font)
-            && glyphs[j].size == g.size
-            && glyphs[j].y == g.y
-        {
+        // Fireworks MX underlines each stretch of one colour on its own, in that colour.
+        let same = |h: &PositionedGlyph| {
+            if block.em_box_lines {
+                h.color == g.color && h.y == g.y
+            } else {
+                Arc::ptr_eq(&h.font, &g.font) && h.size == g.size && h.y == g.y
+            }
+        };
+        while j < glyphs.len() && ul(&glyphs[j]) && same(&glyphs[j]) {
             j += 1;
         }
         let upm = g.font.units_per_em() as f64;
@@ -1176,13 +1179,27 @@ fn underlines(block: &TextBlock, glyphs: &[PositionedGlyph], out: &mut Vec<Decor
             .underline_metrics()
             .map(|(p, t)| (p as f64, t as f64))
             .unwrap_or((-upm / 10.0, upm / 20.0));
-        let c = g.y - pos * k + UNDERLINE_EXTRA_DEPTH * g.size;
-        let h = (th * k).max(0.0) / 2.0;
         let last = &glyphs[j - 1];
         let (x0, x1) = (g.x, last.x + last.advance - last.tracking);
+        let (top, bottom) = if block.em_box_lines {
+            // Fireworks MX: whole pixels, its top at the font's underline position below the
+            // baseline (measured: Trebuchet MS 30 on baseline 174 -> 178..180).
+            let top = (g.y - pos * k).round();
+            (top, top + (th * k).round().max(1.0))
+        } else {
+            let c = g.y - pos * k + UNDERLINE_EXTRA_DEPTH * g.size;
+            let h = (th * k).max(0.0) / 2.0;
+            (c - h, c + h)
+        };
+        let (x0, x1) = if block.em_box_lines {
+            (x0.round(), x1.round())
+        } else {
+            (x0, x1)
+        };
         out.push(Decoration {
-            quad: [[x0, c - h], [x1, c - h], [x1, c + h], [x0, c + h]],
+            quad: [[x0, top], [x1, top], [x1, bottom], [x0, bottom]],
             color: g.color,
+            run: g.run,
         });
         i = j;
     }

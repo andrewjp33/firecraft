@@ -140,7 +140,10 @@ pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     });
     todo(ui, "Reverse Direction", "");
     ui.separator();
-    todo(ui, "Convert to Paths", "Ctrl+Shift+P");
+    let can_convert = app.session.active_doc().is_some_and(|d| d.can_convert_text());
+    if item(ui, "Convert to Paths", "Ctrl+Shift+P", can_convert) {
+        convert_to_paths(app);
+    }
     ui.separator();
     todo(ui, "Check Spelling...", "Shift+F7");
     todo(ui, "Spelling Setup...", "");
@@ -181,6 +184,22 @@ pub fn dialogs(app: &mut FireCraftApp, ctx: &egui::Context) {
         set_size(app, size);
     } else if cancel {
         app.text_tool.other_size = None;
+    }
+}
+
+/// Text > Convert to Paths (finishing any text being edited first).
+fn convert_to_paths(app: &mut FireCraftApp) {
+    if let Some(d) = app.session.active_doc_mut() {
+        app.text_tool.finish(d);
+        d.convert_text_to_paths();
+    }
+}
+
+/// Text commands' keys that work on the selection, not while typing.
+pub fn command_shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
+    if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(cmd_shift, Key::P))) {
+        convert_to_paths(app);
     }
 }
 

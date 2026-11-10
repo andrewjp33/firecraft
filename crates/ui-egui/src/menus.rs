@@ -480,6 +480,7 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
         return;
     }
     clipboard_events(app, ctx);
+    crate::text_menu::command_shortcuts(app, ctx);
     let cmd = Modifiers::COMMAND;
     let pressed = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
     // Native: Ctrl+X/C/V arrive as keys (see FireCraftApp::set_clipboard_keys).
