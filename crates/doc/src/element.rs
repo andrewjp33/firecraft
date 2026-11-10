@@ -589,6 +589,10 @@ pub struct Text {
     /// Its characters or formatting have changed since the file was read, so the record and its
     /// stored image are rewritten on save.
     pub edited: bool,
+    /// The stored image already shows the object's Live Effects: Fireworks draws a text's effects
+    /// into its `IMGv` (measured in Fireworks MX: a glowing text's stored image holds the glow).
+    /// Until the text is drawn again, its effects aren't applied a second time.
+    pub baked_effects: bool,
     pub text: String,
     pub font: String,
     pub size: f64,
@@ -1423,7 +1427,8 @@ impl Element {
     /// its position relative to the output area's top-left (canvas (`ox`, `oy`), `w` x `h`).
     pub fn pixels(&self, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> Option<(RgbaImage, i64, i64)> {
         let active: Vec<&Effect> = self.effects.iter().filter_map(|e| e.active()).collect();
-        if active.is_empty() {
+        let baked = matches!(&self.kind, ElementKind::Text(t) if t.baked_effects && !t.edited);
+        if active.is_empty() || baked {
             return self.rasterize(ox, oy, w, h, ctx);
         }
         // Effects can draw outside the object (shadows, glows, blurs) and are affected by the

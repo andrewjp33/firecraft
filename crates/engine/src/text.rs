@@ -406,7 +406,7 @@ fn fonts_missing(t: &Text) -> bool {
 /// Show a change to the text's fill: drawn again, or, while one of its fonts is missing and it
 /// hasn't been edited, its stored glyphs shaded afresh (so it keeps Fireworks' appearance).
 pub fn restyle(t: &mut Text) {
-    if !t.edited && t.stroke.is_none() && fonts_missing(t) {
+    if !t.edited && !t.baked_effects && t.stroke.is_none() && fonts_missing(t) {
         let color = t.runs.first().map_or(t.color, |r| r.color);
         if let Some(b) = &mut t.cached {
             for p in b.image.pixels_mut() {
@@ -575,6 +575,7 @@ pub fn refresh(t: &mut Text) {
     }
     normalize(t);
     t.edited = true;
+    t.baked_effects = false;
     // Text on a path keeps its block (the one it had, which Detach centres on the path).
     if t.path.is_some() {
         t.cached = if t.text.is_empty() { None } else { rasterize(t) };
@@ -669,6 +670,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         on_path: false,
         path: None,
         edited: true,
+        baked_effects: false,
         text: String::new(),
         font: style.font,
         size: style.size,
@@ -1324,6 +1326,47 @@ mod tests {
         assert_eq!(d.selected_fill_over_stroke(), None);
         d.set_fill_color(Some(Rgba::new(255, 0, 0, 255)));
         assert_eq!(d.selected_fill_over_stroke(), Some(true));
+    }
+
+    #[test]
+    fn a_stored_text_image_already_shows_its_effects() {
+        let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));
+        let r = d.start_new_text(new_text((20.0, 20.0, 21.0, 40.0), true, &ToolOptions::default()));
+        d.change_text(r, |t| insert(t, 0, "Hi", None));
+        d.commit_live_edit();
+        let glow = |width: &str| {
+            firecraft_doc::EffectEntry::from_pairs(&[
+                ("EffectMoaID", "{7fe61102-6ce2-11d1-8c76000502701850}"),
+                ("EffectIsVisible", "true"),
+                ("BevelType", "4"),
+                ("GlowWidth", width),
+                ("OuterBevelColor", "#ff0000"),
+            ])
+        };
+        // As read from a Fireworks file: the stored image was drawn with the glow.
+        if let Some(e) = d.element_mut(r) {
+            e.effects = vec![glow("5")];
+            if let ElementKind::Text(t) = &mut e.kind {
+                t.edited = false;
+                t.baked_effects = true;
+            }
+        }
+        let ctx = firecraft_doc::RenderCtx::EMPTY;
+        let drawn = |d: &DocState| {
+            let e = d.element(r).expect("the text");
+            (e.pixels(0, 0, 300, 200, &ctx), e.rasterize(0, 0, 300, 200, &ctx))
+        };
+        let (with_effects, stored) = drawn(&d);
+        assert_eq!(with_effects, stored, "not glowing a second time");
+        // A new effect list draws the text afresh, and its effects apply to that.
+        d.selection = vec![r];
+        d.set_effects(vec![glow("6")], "Glow");
+        let ElementKind::Text(t) = &d.element(r).expect("the text").kind else {
+            panic!("still text")
+        };
+        assert!(t.edited && !t.baked_effects);
+        let (with_effects, glyphs) = drawn(&d);
+        assert_ne!(with_effects, glyphs);
     }
 
     #[test]

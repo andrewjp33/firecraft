@@ -28,7 +28,9 @@ Fireworks CS records keep ignoring the matrix until a CS file shows what it does
 
 A text object shows the image saved with it (`IMGv`) until it is edited, so a file looks as it was saved whatever
 fonts are installed. Editing draws into that same image, and the rest of the renderer doesn't know the difference.
-An unedited object keeps Fireworks' record on save, apart from its position.
+An unedited object keeps Fireworks' record on save, apart from its position. The stored image already shows the object's Live
+Effects (Fireworks draws them into it), so they aren't applied again until the text is drawn afresh; changing
+its effects does that ([effects.md](effects.md)).
 
 ## Fill and spacing
 

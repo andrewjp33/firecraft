@@ -164,6 +164,19 @@ fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> 
     }
 }
 
+/// Give an object a new effect list. A text still showing the image Fireworks stored with it has
+/// its old effects drawn into that image, so it is drawn afresh first.
+fn set_element_effects(e: &mut Element, list: &[firecraft_doc::EffectEntry]) {
+    if let ElementKind::Text(t) = &mut e.kind
+        && t.baked_effects
+        && !t.edited
+        && e.effects.as_slice() != list
+    {
+        text::refresh(t);
+    }
+    e.effects = list.to_vec();
+}
+
 fn members_mut(e: &mut Element) -> Option<&mut Vec<Element>> {
     match &mut e.kind {
         ElementKind::Group(c) => Some(c),
@@ -849,7 +862,7 @@ impl DocState {
         self.edit(label, |s| {
             for r in refs {
                 if let Some(e) = s.element_mut(r) {
-                    e.effects = list.clone();
+                    set_element_effects(e, &list);
                 }
             }
         });
@@ -900,7 +913,7 @@ impl DocState {
         let refs = self.selection.clone();
         for r in refs {
             if let Some(e) = self.element_mut(r) {
-                e.effects = list.clone();
+                set_element_effects(e, &list);
             }
         }
         self.touch();

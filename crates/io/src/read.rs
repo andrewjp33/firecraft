@@ -187,6 +187,10 @@ fn read_element(n: &Node, ctx: &Ctx, depth: usize) -> Option<Element> {
         .child("EFL")
         .map(firecraft_doc::effects::read_list)
         .unwrap_or_default();
+    let has_effects = el.effects.iter().any(|e| e.active().is_some());
+    if let ElementKind::Text(t) = &mut el.kind {
+        t.baked_effects = has_effects && t.cached.is_some();
+    }
     // Object name (Layers panel / Property inspector), `OBNs`.
     el.name = n.str_of("OBN").filter(|s| !s.is_empty()).map(str::to_owned);
     // Hidden objects (eye off in the Layers panel).
@@ -876,6 +880,7 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
             f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some() || f.texture_amount > 0
         }),
         edited: false,
+        baked_effects: false,
         cached: n.child("IMG").and_then(|i| read_bitmap(i, ctx)),
     }
 }

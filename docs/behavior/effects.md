@@ -11,7 +11,7 @@ the object's raw node, so saving never loses an effect.
 | Drop Shadow | **measured**: offset = trunc(distance x (cos a, -sin a)), hard edges at softness 0; softness = triangle filter of radius `ShadowBlur` (see below) |
 | Hue/Saturation | **bit-exact** (read from `0x7d7433` with REA, verified on 48 renders): byte HSL; hue byte -> whole degrees (x360/256), + `hue_amount`, back (x256/360, wraps); saturation/lightness move by (255-x)*k for k>0, x*k for k<0 (k = amount/100), truncated. Colorize is still approximate |
 | Brightness/Contrast, Levels, Auto Levels, Curves, Invert, Convert to Alpha, Color Fill | implemented from parameters; not yet measured |
-| Glow / Inner Glow | **measured**: `BevelType` 4; band of pixels at Euclidean distance (offset, offset + width] from the object, unanti-aliased; width = `GlowWidth` (0 with no softness = no glow; 0 with softness acts as a 2-pixel band, fitted on one file at softness 7), colour `OuterBevelColor`, gap `GlowStartDistance`, opacity `BevelContrast`, softness is a triangle filter of radius `MaskSoftness`; with no gap the object's own pixels feed the softening but aren't painted |
+| Glow / Inner Glow | **measured**: `BevelType` 4; colour `OuterBevelColor`, gap `GlowStartDistance`, opacity `BevelContrast`, softness a triangle filter of radius `MaskSoftness`. **Glow** (oracle probe, 2026-11-10, below): every visible pixel is the object (alpha 1 glows like 255); hard, the band is anti-aliased, coverage `clamp(width + 1 − d, 0, 1)` at Euclidean distance d; softened, a hard band `d ≤ width + 1`; with no gap the object's pixels feed the softening and the glow is painted under them too (it shows through semi-transparent pixels); opacity is taken as a byte (65% = 165) and the product truncated. Within 1 level (hard) and 2 (softness 12) of Fireworks MX. **Inner Glow**: a hard band `offset < d ≤ offset + width` inside the half-alpha edge (not re-measured) |
 | Motion Blur, Radial Blur | approximations |
 | Inner/Outer Bevel, Raised/Inset Emboss (`BevelType` 0-3) | **read from the binary + measured**, see bevel.md: within 2-8 levels without softness; mitred corners with softness still differ |
 | Eye Candy 4000 LE / Splat LE (Bevel Boss, Motion Trail, Marble, Edges) | built-in versions, see plugins.md: Bevel Boss fitted to Fireworks renders, the others first versions |
@@ -23,6 +23,16 @@ area grown by the effect's margin.
 Measuring an effect: script it with `dom.applyEffects({category, name, effects:[{EffectMoaID, ...}]})`
 on a test shape in Fireworks MX (`tools/fwmx-oracle`), save, and fit FireCraft's output to the
 saved render.
+
+**Glow probe.** White 30×40 blocks at alpha 1, 4, 16, 64, 127, 128, 192 and 255 in one bitmap, given
+`ref_fw_images/minions_banana2_glow.png`'s Glow (width 5, 65%, `#df0000`) by `dom.applyEffects` at
+softness 0 and 12, saved by Fireworks MX and compared pixel by pixel. That file (a WebP's soft
+floor shadow, which glows in Fireworks) and gym, gym2, gym3 and circles_hi now match at 100.0%.
+
+**Effects in a text's stored image.** Fireworks draws a text object's Live Effects into the image
+it stores with it (`IMGv`; a glowing text made in Fireworks MX by script stores the glow). An
+unedited text shows that image as it is; FireCraft used to apply the effects a second time (gym's
+text glow was twice as dark). Changing the text's effects draws it afresh first.
 
 **Softness of shadows and glows.** A triangle filter of the softness's radius along each axis, truncating to whole
 levels per pass in Fireworks MX color math and keeping fractions in FireCraft's (FirePixel's measurement), so an Inner Shadow of softness 4 ends exactly 4 pixels in. Shadow offsets

@@ -439,34 +439,50 @@ impl Effect {
                 let (w, h) = (img.width(), img.height());
                 // Measured: a hard band of pixels whose Euclidean distance d to the object
                 // (outside it, or to the outside for Inner Glow) satisfies offset < d <= offset + width.
-                let inside: Vec<bool> = img.pixels().iter().map(|p| (p.a >= 128) != *inner).collect();
+                // For Glow every visible pixel is the object: a block of alpha 1 glows exactly as
+                // an opaque one (oracle probe, docs/behavior/effects.md). Inner Glow keeps the
+                // half-alpha edge (not measured on faint pixels yet).
+                let inside: Vec<bool> = img
+                    .pixels()
+                    .iter()
+                    .map(|p| if *inner { p.a < 128 } else { p.a > 0 })
+                    .collect();
                 let dist = distance_to(&inside, w, h);
                 // With no gap the object's own pixels feed the softening, which keeps the glow's
-                // strength at the edge (FirePixel's measurement), but aren't painted: glow under
-                // a semi-transparent object measured worse against Fireworks MX files.
+                // strength at the edge (FirePixel's measurement), and the glow is painted under
+                // them too: it shows through a semi-transparent object (measured: under an alpha-1
+                // block the softened glow keeps rising inward, 144 to 159 at softness 12).
                 let filled = !*inner && *offset == 0.0;
-                // A softened glow of width 0 acts as a 2-pixel band (best fit against Fireworks
-                // MX on gym.png, at softness 7; widening other glows made files worse).
-                let reach = if *width <= 0.0 && !*inner { 2.0 } else { *width };
+                // Measured on a Glow of width 5 at 65% (oracle probe): hard, its band is
+                // anti-aliased, coverage clamp(width + 1 - d, 0, 1) (all 63 pixels around a
+                // corner within 1 level); softened, it is a hard band one pixel wider
+                // (d <= width + 1; softness 12 within 2 levels everywhere). Inner Glow keeps the
+                // hard band of its width.
+                let soft_glow = !*inner && *softness > 0.0;
+                let reach = if soft_glow { *width + 1.0 } else { *width };
                 let band: Vec<f32> = dist
                     .iter()
                     .map(|&d| {
-                        if (d > *offset && d <= offset + reach) || (filled && d == 0.0) {
+                        if filled && d == 0.0 {
                             255.0
-                        } else {
+                        } else if d <= *offset {
                             0.0
+                        } else if *inner || soft_glow {
+                            if d <= offset + reach { 255.0 } else { 0.0 }
+                        } else {
+                            (offset + reach + 1.0 - d).clamp(0.0, 1.0) * 255.0
                         }
                     })
                     .collect();
                 let mut soft = tent_plane(&band, w, h, softness.round().max(0.0) as usize, math);
-                if filled {
-                    soft.iter_mut().zip(&dist).for_each(|(v, d)| {
-                        if *d == 0.0 {
-                            *v = 0.0
-                        }
-                    });
+                if *inner {
+                    soft.iter_mut().for_each(|v| *v *= opacity.clamp(0.0, 1.0));
+                } else {
+                    // Fireworks MX takes the opacity as a byte (65% is 165) and truncates the
+                    // product: coverage 230 at 65% paints 148.
+                    let ob = (opacity.clamp(0.0, 1.0) * 255.0).floor();
+                    soft.iter_mut().for_each(|v| *v = (v.floor() * ob / 255.0).floor());
                 }
-                soft.iter_mut().for_each(|v| *v *= opacity.clamp(0.0, 1.0));
                 let c = Rgba { a: 255, ..*color };
                 if *inner {
                     paint_inside(img, &soft, c);
@@ -1056,8 +1072,73 @@ mod tests {
         .apply(&mut img);
         let edge = img.get(29, 60).expect("a pixel");
         assert!(edge.a > 150, "the glow next to the object: {edge:?}");
-        // Not painted under a semi-transparent object.
-        assert_eq!(img.get(60, 60), Some(Rgba::new(10, 20, 200, 128)));
+        // Painted under a semi-transparent object too (measured in Fireworks MX).
+        let under = img.get(60, 60).expect("a pixel");
+        assert!(under.a == 255 && under.r > 100, "the glow shows through: {under:?}");
+    }
+
+    /// Fireworks MX's Glow, width 5 at 65%, measured with the oracle on blocks of white at
+    /// alpha 1..255 (docs/behavior/effects.md).
+    fn measured_glow(softness: f32) -> Effect {
+        Effect::Glow {
+            color: Rgba::new(0xdf, 0, 0, 255),
+            width: 5.0,
+            opacity: 0.65,
+            softness,
+            offset: 0.0,
+            inner: false,
+        }
+    }
+
+    fn block(alpha: u8) -> RgbaImage {
+        let mut img = RgbaImage::new(60, 60, Rgba::TRANSPARENT);
+        for y in 20..40 {
+            for x in 20..40 {
+                img.set(x, y, Rgba::new(255, 255, 255, alpha));
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn a_faint_object_glows_like_an_opaque_one() {
+        let (mut faint, mut opaque) = (block(1), block(255));
+        measured_glow(0.0).apply(&mut faint);
+        measured_glow(0.0).apply(&mut opaque);
+        let alphas = |img: &RgbaImage| (10..20).map(|x| img.get(x, 30).map_or(0, |p| p.a)).collect::<Vec<_>>();
+        // Five pixels at 65% (truncated: 165), as Fireworks MX paints them.
+        assert_eq!(alphas(&opaque), [0, 0, 0, 0, 0, 165, 165, 165, 165, 165]);
+        assert_eq!(alphas(&faint), alphas(&opaque));
+        // And under the faint block (Fireworks MX: df0101 at 165).
+        assert_eq!(faint.get(25, 30), Some(Rgba::new(0xdf, 1, 1, 165)));
+    }
+
+    #[test]
+    fn a_hard_glow_is_anti_aliased_round_corners() {
+        let mut img = block(255);
+        measured_glow(0.0).apply(&mut img);
+        // Fireworks MX: 1 across and 5 up from the corner (d = 5.10) is 148; (4, 4) is 56.
+        assert_eq!(img.get(19, 15).map(|p| p.a), Some(148));
+        assert_eq!(img.get(16, 16).map(|p| p.a), Some(56));
+    }
+
+    #[test]
+    fn a_softened_glow_falls_off_as_in_fireworks() {
+        let mut img = RgbaImage::new(80, 60, Rgba::TRANSPARENT);
+        for y in 0..60 {
+            for x in 40..80 {
+                img.set(x, y, Rgba::new(255, 255, 255, 255));
+            }
+        }
+        measured_glow(12.0).apply_with(&mut img, crate::ColorMath::Classic);
+        // Fireworks MX, the 24 pixels left of an opaque edge.
+        let mx = [
+            0, 0, 0, 0, 0, 0, 0, 2, 5, 9, 14, 20, 27, 35, 43, 53, 64, 76, 88, 100, 111, 121, 129, 137,
+        ];
+        for (x, want) in (16..40).zip(mx) {
+            let got = i32::from(img.get(x, 30).map_or(0, |p| p.a));
+            assert!((got - want).abs() <= 2, "x {x}: {got} vs Fireworks MX {want}");
+        }
     }
 
     #[test]
