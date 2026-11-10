@@ -111,8 +111,8 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 - **Preferences**:
   - Live dragging ("Show objects while moving them", off for slower PCs).
   - Tool cursor style.
-  - Fireworks-exact or high-precision colour math.
-  - Perspective symbols drawn as Fireworks MX does or pixel-correct.
+  - Colour math for new documents: Precise (default) or Fireworks MX's exact formulas.
+  - Perspective symbols in new documents: pixel-correct (default) or drawn as Fireworks MX does.
   - Fonts, Textures and Patterns folders.
 
 ### Not done yet
@@ -130,11 +130,18 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 
 ### File compatibility
 
-Files are saved **Fireworks MX compatible** by default (they also open in later versions).
-Features MX doesn't have are baked into ordinary objects or stored in data MX safely ignores; an
-opt-in Fireworks CS6 save mode is planned for documents that need CS6 to understand them
-([docs/fireworks-png.md](docs/fireworks-png.md#compatibility-levels-design)). Some pieces are
-adapted from [FirePixel](https://github.com/Zignixx/firepixel) (Apache-2.0); see
+Every save is a **Fireworks MX file**: it opens in Fireworks MX and later versions. Features MX
+doesn't have are baked into ordinary objects or stored in data MX safely ignores. An opt-in
+Fireworks CS6 save mode is planned for documents that need CS6 to understand them
+([docs/fireworks-png.md](docs/fireworks-png.md#compatibility-levels-design)).
+
+New documents use FireCraft's improved drawing by default: *Precise* colour math and
+*Pixel-correct* perspective symbols (both can be changed in Preferences, and per document in the
+Property inspector). Files from Fireworks open in the Fireworks MX modes, so they look as they
+were saved. A FireCraft file keeps its modes in data Fireworks ignores, so Fireworks MX draws it
+with its own rules, which can differ slightly from FireCraft's improved modes.
+
+Some pieces are adapted from [FirePixel](https://github.com/Zignixx/firepixel) (Apache-2.0); see
 [ATTRIBUTION.md](ATTRIBUTION.md).
 
 ## Build and run
