@@ -133,6 +133,17 @@ pub fn members(e: &Element) -> Option<&Vec<Element>> {
 fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> bool {
     const TOL: i64 = 2;
     let (px, py) = (x.floor() as i64, y.floor() as i64);
+    // Perspective symbols: their whole shape is drawn once and kept, so the pixel test is
+    // exact and cheap, and their bounds can't be trusted (drawn the Fireworks MX way, folds7's
+    // reach 50 pixels beyond the exact projection's).
+    if let ElementKind::Instance { matrix, .. } = &el.kind
+        && !matrix.is_affine()
+    {
+        let mut solo = el.clone();
+        solo.opacity = 100.0;
+        solo.blend = firecraft_raster::BlendMode::Normal;
+        return firecraft_doc::perspective_hit(&solo, px, py, TOL, ctx);
+    }
     // Where the object can have pixels (its stroke and effects reach beyond its geometry).
     let near = el.visual_bounds(ctx).is_some_and(|(bx, by, bw, bh)| {
         let t = TOL as f64;
@@ -144,13 +155,6 @@ fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> 
     match &el.kind {
         // Bitmaps: the pixel under the pointer.
         ElementKind::Bitmap(b) => b.image.get(px - b.x, py - b.y).is_some_and(|p| p.a > 0),
-        // Perspective symbols cost a lot to draw: their shape is kept between mouse movements.
-        ElementKind::Instance { matrix, .. } if !matrix.is_affine() => {
-            let mut solo = el.clone();
-            solo.opacity = 100.0;
-            solo.blend = firecraft_raster::BlendMode::Normal;
-            firecraft_doc::perspective_hit(&solo, px, py, TOL, ctx)
-        }
         // Everything else: render the object alone around the point.
         _ => {
             let n = (2 * TOL + 1) as u32;

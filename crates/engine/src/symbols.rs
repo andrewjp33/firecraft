@@ -768,6 +768,36 @@ mod tests {
     }
 
     #[test]
+    fn a_symbols_glow_can_be_clicked() {
+        let mut d = doc();
+        // The right square (100..150 x 20..70) glows 15 pixels out, then becomes a symbol.
+        d.selection = vec![ElementRef::new(0, 1)];
+        d.set_effects(
+            vec![firecraft_doc::EffectEntry::from_pairs(&[
+                ("EffectMoaID", "{7fe61102-6ce2-11d1-8c76000502701850}"),
+                ("EffectIsVisible", "true"),
+                ("BevelType", "4"),
+                ("GlowWidth", "15"),
+                ("OuterBevelColor", "#ff0000"),
+            ])],
+            "Glow",
+        );
+        d.convert_to_symbol("glowing", SymbolKind::Graphic).expect("converted");
+        let instance = d.selection.first().copied().expect("the instance is selected");
+        // In the glow above the square, outside its outline.
+        assert_eq!(d.hit_test(125.0, 9.0), Some(instance));
+        assert_eq!(d.hit_test(125.0, 1.0), None, "beyond the glow");
+        // The same as a perspective instance drawn the Fireworks MX way.
+        d.doc.mx_perspective = true;
+        if let Some(e) = d.element_mut(instance)
+            && let ElementKind::Instance { matrix, .. } = &mut e.kind
+        {
+            matrix.g = 1e-5;
+        }
+        assert_eq!(d.hit_test(125.0, 9.0), Some(instance));
+    }
+
+    #[test]
     fn symbol_editor_round_trip_updates_instances() {
         let mut s = Session::default();
         s.push(doc().doc);

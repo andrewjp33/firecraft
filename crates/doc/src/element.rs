@@ -1060,16 +1060,7 @@ impl Element {
         if ctx.depth >= MAX_SYMBOL_DEPTH {
             return None;
         }
-        let union = |items: &mut dyn Iterator<Item = (f64, f64, f64, f64)>| {
-            let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-            for (bx, by, bw, bh) in items {
-                x0 = x0.min(bx);
-                y0 = y0.min(by);
-                x1 = x1.max(bx + bw);
-                y1 = y1.max(by + bh);
-            }
-            (x0 <= x1).then(|| (x0, y0, x1 - x0, y1 - y0))
-        };
+        let union = union_rects;
         match &self.kind {
             ElementKind::Instance {
                 matrix, bounds: None, ..
@@ -1540,9 +1531,41 @@ impl Element {
     /// Where the object can have pixels: its bounds grown by how far its stroke and effects
     /// reach (conservative; for hit testing).
     pub fn visual_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
-        let (bx, by, bw, bh) = self.deep_bounds(ctx)?;
-        let m = self.max_stroke() + self.effect_margin() as f64 + 1.0;
+        let (bx, by, bw, bh) = self.contents_visual_bounds(ctx)?;
+        let m = self.effect_margin() as f64 + 1.0;
         Some((bx - m, by - m, bw + 2.0 * m, bh + 2.0 * m))
+    }
+
+    /// Where the object's own drawing reaches, before its own effects: the strokes, and for a
+    /// group or symbol instance its members' strokes and effects too (folds7's glow and stroke
+    /// inside a symbol reach far beyond its outline). An instance draws its members either moved
+    /// onto the canvas (strokes and effects at canvas size) or drawn in the symbol and the
+    /// picture transformed, so both reaches count.
+    fn contents_visual_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
+        match &self.kind {
+            ElementKind::Instance { matrix, .. } if ctx.depth < MAX_SYMBOL_DEPTH => {
+                let inner = ctx.deeper(self);
+                let reach = |kids: Option<Vec<Element>>| {
+                    kids.and_then(|k| union_rects(&mut k.iter().filter_map(|c| c.visual_bounds(&inner))))
+                };
+                let drawn_in_symbol = reach(self.symbol_elements(ctx)).map(|(x, y, w, h)| matrix.map_rect(x, y, w, h));
+                let on_canvas = if matrix.is_affine() {
+                    reach(self.instance_elements(ctx))
+                } else {
+                    None
+                };
+                union_rects(&mut drawn_in_symbol.into_iter().chain(on_canvas))
+                    .or_else(|| self.deep_bounds(ctx))
+            }
+            ElementKind::Group(children) => {
+                union_rects(&mut children.iter().filter_map(|c| c.visual_bounds(ctx)))
+            }
+            _ => {
+                let (bx, by, bw, bh) = self.deep_bounds(ctx)?;
+                let m = self.max_stroke();
+                Some((bx - m, by - m, bw + 2.0 * m, bh + 2.0 * m))
+            }
+        }
     }
 
     /// Half the widest stroke in the object (strokes reach beyond the geometry's bounds).
@@ -1709,4 +1732,16 @@ fn for_children_mut(e: &mut Element, f: &mut dyn FnMut(&mut Element)) {
         }
         _ => {}
     }
+}
+
+/// The smallest rectangle (x, y, w, h) holding all of `items`; `None` when there are none.
+fn union_rects(items: &mut dyn Iterator<Item = (f64, f64, f64, f64)>) -> Option<(f64, f64, f64, f64)> {
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for (bx, by, bw, bh) in items {
+        x0 = x0.min(bx);
+        y0 = y0.min(by);
+        x1 = x1.max(bx + bw);
+        y1 = y1.max(by + bh);
+    }
+    (x0 <= x1).then_some((x0, y0, x1 - x0, y1 - y0))
 }
