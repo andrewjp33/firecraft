@@ -640,7 +640,7 @@ fn tip_colors(b: &BrushParams, base: [u8; 3], seed: u32) -> Vec<[u8; 3]> {
             let mut rng = Minstd::new(seed);
             let st = PenState::default();
             for o in out.iter_mut() {
-                *o = jitter_color(b, base, &st, Some(&mut rng));
+                *o = jitter_color_with(b, base, &st, Some(&mut rng), true);
             }
         }
     }
@@ -655,6 +655,22 @@ fn tip_colors(b: &BrushParams, base: [u8; 3], seed: u32) -> Vec<[u8; 3]> {
 /// - `S′ = clamp(S + ⌊Sp·p/255⌋ − ⌊Ss·spd/256⌋ − (Sh·|h|) >> 7 − (Sv·|v|) >> 7 + r2 % Sr, 0, 255)`
 /// - `L′ = clamp(L − ⌊Lp·p/255⌋ + ⌊Ls·spd/256⌋ + (Lh·|h| >> 7) + (Lv·|v| >> 7) + r3 % Lr − (Lr >> 1), 0, 255)`
 fn jitter_color(b: &BrushParams, base: [u8; 3], st: &PenState, rng: Option<&mut Minstd>) -> [u8; 3] {
+    jitter_color_with(b, base, st, rng, false)
+}
+
+/// `raw_random`: the tips' colours (`@786f30`) take the random hue range as the row byte itself,
+/// not `byte·255 >> 7` (Fireworks MX, measured on folds7's Outline stroke: four tips, random
+/// colours, hue 703‰ = byte 90; its three visible tips are 172°, 185° and 204° from #3399cc,
+/// within the glow's tint of what Fireworks MX shows, where `·255 >> 7` gives 91°, 186° and 290°).
+/// Saturation keeps the scaled weight (lines3's Yarn fits it better); single-tip strokes keep
+/// FirePixel's runtime-verified formula.
+fn jitter_color_with(
+    b: &BrushParams,
+    base: [u8; 3],
+    st: &PenState,
+    rng: Option<&mut Minstd>,
+    raw_random: bool,
+) -> [u8; 3] {
     let (r1, r2, r3) = match rng {
         Some(r) => (
             r.next_value() as i64,
@@ -667,7 +683,13 @@ fn jitter_color(b: &BrushParams, base: [u8; 3], st: &PenState, rng: Option<&mut 
         return base;
     }
     let raw = |t: Tgt, s: Src| sense(b, t, s);
-    let w = |t: Tgt, s: Src| (raw(t, s) * 255) >> 7;
+    let w = |t: Tgt, s: Src| {
+        if raw_random && s == Src::Random && t == Tgt::Hue {
+            raw(t, s)
+        } else {
+            (raw(t, s) * 255) >> 7
+        }
+    };
     let spd = st.spd.min(256);
     let (ah, av) = (st.h.abs(), st.v.abs());
     let (h, l, s) = rgb_to_hls(base);
@@ -1166,6 +1188,24 @@ impl NaturalDash {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn random_tip_colours_stay_near_the_stroke_colour() {
+        let mut b = BrushParams {
+            tip_count: 4,
+            tip_coloring_mode: TipColoringMode::Random,
+            ..BrushParams::default()
+        };
+        b.sense[Tgt::Hue as usize][Src::Random as usize] = BrushParams::sense_from_permille(703);
+        let cols = tip_colors(&b, [0x33, 0x99, 0xcc], 0xf314_2f77);
+        let hues: Vec<i64> = cols
+            .iter()
+            .take(3)
+            .map(|&c| (rgb_to_hls(c).0 * 360.0 / 255.0).round() as i64)
+            .collect();
+        // Fireworks MX draws folds7's outline 170-174°, 186° and about 195° (under a red glow).
+        assert_eq!(hues, [172, 185, 204]);
+    }
 
     #[test]
     fn remap_tables() {

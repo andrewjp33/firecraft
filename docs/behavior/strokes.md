@@ -34,6 +34,13 @@ What the measurements showed, and the engine implements:
   fades the tip linearly in the squared distance, with Fireworks' bell curve (`BSFi`).
 * Inside/outside placement (`BRPi`) doubles the diameter and masks the stroke with the path's
   fill coverage.
+* Colour jitter (2026-11-10, folds7): a multi-tip brush with random tip colours (`BCMi` 0)
+  picks each tip's colour once per stroke from `RNDi`, and its random hue range is the
+  sensitivity row's byte itself (Outline, 703‰ = 90: tips 172°, 185°, 204° from #3399cc, as
+  Fireworks MX draws them; the scaled `byte·255 >> 7` gave 91°, 186°, 290°). A single-tip brush
+  re-rolls the hue for every dab with the scaled range: the same path changed to one tip and
+  redrawn by Fireworks MX matches FireCraft's hues (51 of 135,720 pixels more than 15° off).
+  folds7 went from 90.3% to 98.7%.
 
 ## Inputs
 
@@ -87,6 +94,10 @@ open document, and any PNG or GIF (Texture > Other...). Nothing of Fireworks is 
   a path's polyline (`PCLv`), and FireCraft doesn't write one yet. Paths from Fireworks keep
   theirs and match (texture probe: Watercolor Heavy exact once MX's polyline is present).
 * Pen pressure stored on bezier points (`BZCi`/`BAZv`) is not kept when points are edited.
+
+**Which strokes are random in Fireworks MX.** Checked by redrawing a file twice in Fireworks MX:
+Confetti and Fluid Splatter (which isn't in the Random category) come out different each time;
+Toothpaste and Outline the same, so their files make good references.
 
 **Random strokes are deterministic here.** Fireworks MX re-rolls random strokes such as Confetti every time a file
 opens: moving a symbol and using File > Revert changes where the dots land. FireCraft deliberately doesn't, and draws
