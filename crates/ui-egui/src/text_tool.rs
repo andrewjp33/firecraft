@@ -30,9 +30,39 @@ impl Editing {
 }
 
 /// The tool's state.
+/// What the text is laid out with while it's edited: its own fonts, sizes and colours, or (the Text
+/// Editor's Show Font / Show Size & Color unticked) plain ones. Edits change the real formatting.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct View {
+    pub font: bool,
+    pub size_color: bool,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        View {
+            font: true,
+            size_color: true,
+        }
+    }
+}
+
+/// The layout the caret and selection follow.
+fn layout(t: &firecraft_doc::Text, view: View) -> firecraft_text::TextLayout {
+    if view == View::default() {
+        engine::layout_of(t)
+    } else {
+        engine::layout_of(&engine::display_copy(t, view.font, view.size_color))
+    }
+}
+
 #[derive(Default)]
 pub struct TextTool {
     pub editing: Option<Editing>,
+    /// How the text being edited is laid out (the Text Editor's display options).
+    pub(crate) view: View,
+    /// The Text Editor's text area: every press is in the text being edited.
+    pub(crate) contained: bool,
     /// Where a press that may become a new text block started, and in which document.
     new_at: Option<(u64, f64, f64)>,
     /// The canvas taking the keyboard while text is edited.
@@ -49,7 +79,7 @@ impl TextTool {
         }
     }
 
-    fn begin(&mut self, d: &mut DocState, r: ElementRef, caret: usize) {
+    pub(crate) fn begin(&mut self, d: &mut DocState, r: ElementRef, caret: usize) {
         d.begin_live_edit("Edit Text");
         d.selection = vec![r];
         self.editing = Some(Editing {
@@ -74,10 +104,10 @@ impl TextTool {
 }
 
 /// The character position under canvas point (`x`, `y`).
-fn caret_at(d: &DocState, r: ElementRef, x: f64, y: f64) -> usize {
+fn caret_at(d: &DocState, r: ElementRef, (x, y): (f64, f64), view: View) -> usize {
     d.text_at(r).map_or(0, |t| {
         let (x, y) = engine::to_block(t, x, y);
-        engine::layout_of(t).hit_test(x, y).char_index
+        layout(t, view).hit_test(x, y).char_index
     })
 }
 
@@ -130,7 +160,7 @@ fn place(e: &mut Editing, to: usize, extend: bool) {
 }
 
 /// Take keyboard input: whether editing should end.
-fn keyboard(d: &mut DocState, e: &mut Editing, ctx: &egui::Context) -> bool {
+fn keyboard(d: &mut DocState, e: &mut Editing, ctx: &egui::Context, view: View) -> bool {
     let events = ctx.input(|i| i.events.clone());
     let mut done = false;
     for ev in events {
@@ -154,7 +184,7 @@ fn keyboard(d: &mut DocState, e: &mut Editing, ctx: &egui::Context) -> bool {
                 ..
             } => {
                 let extend = modifiers.shift;
-                let layout = || d.text_at(e.r).map(engine::layout_of);
+                let layout = || d.text_at(e.r).map(|t| layout(t, view));
                 match key {
                     Key::Escape => done = true,
                     Key::Enter => type_text(d, e, "\r"),
@@ -306,16 +336,18 @@ pub fn canvas(
         && let Some(p) = press_at.or(pointer)
     {
         let (x, y) = to_doc(p);
-        let inside = state.editing.as_ref().is_some_and(|e| {
-            d.text_at(e.r).is_some_and(|t| {
-                let (x, y) = engine::to_block(t, x, y);
-                x >= t.rect.0 - 3.0 && x <= t.rect.2 + 3.0 && y >= t.rect.1 - 3.0 && y <= t.rect.3 + 3.0
-            })
-        });
+        let view = state.view;
+        let inside = state.contained
+            || state.editing.as_ref().is_some_and(|e| {
+                d.text_at(e.r).is_some_and(|t| {
+                    let (x, y) = engine::to_block(t, x, y);
+                    x >= t.rect.0 - 3.0 && x <= t.rect.2 + 3.0 && y >= t.rect.1 - 3.0 && y <= t.rect.3 + 3.0
+                })
+            });
         if inside {
             if let Some(e) = &mut state.editing {
                 let shift = ctx.input(|i| i.modifiers.shift);
-                let at = caret_at(d, e.r, x, y);
+                let at = caret_at(d, e.r, (x, y), view);
                 place(e, at, shift);
                 e.selecting = true;
             }
@@ -323,7 +355,7 @@ pub fn canvas(
             state.finish(d);
             match d.hit_test(x, y).filter(|r| d.editable_text_at(*r).is_some()) {
                 Some(r) => {
-                    let at = caret_at(d, r, x, y);
+                    let at = caret_at(d, r, (x, y), view);
                     state.begin(d, r, at);
                     if let Some(e) = &mut state.editing {
                         e.selecting = true;
@@ -339,7 +371,7 @@ pub fn canvas(
         if down {
             if let Some(p) = pointer {
                 let (x, y) = to_doc(p);
-                e.caret = caret_at(d, e.r, x, y);
+                e.caret = caret_at(d, e.r, (x, y), state.view);
             }
         } else {
             e.selecting = false;
@@ -397,7 +429,7 @@ pub fn canvas(
                     },
                 );
             });
-            done = focused == Some(resp.id) && keyboard(d, e, &ctx);
+            done = focused == Some(resp.id) && keyboard(d, e, &ctx, state.view);
         }
     }
     if done {
@@ -415,11 +447,13 @@ pub fn canvas(
         };
         let quad = |l: f64, top: f64, r: f64, b: f64| vec![at(l, top), at(r, top), at(r, b), at(l, b)];
         let (l, top, r, b) = t.rect;
-        painter.add(egui::Shape::closed_line(
-            quad(l - 1.0, top - 1.0, r + 1.0, b + 1.0),
-            Stroke::new(1.0, Color32::from_rgb(0x33, 0x99, 0xff)),
-        ));
-        let layout = engine::layout_of(t);
+        if !state.contained {
+            painter.add(egui::Shape::closed_line(
+                quad(l - 1.0, top - 1.0, r + 1.0, b + 1.0),
+                Stroke::new(1.0, Color32::from_rgb(0x33, 0x99, 0xff)),
+            ));
+        }
+        let layout = layout(t, state.view);
         let range = e.range();
         if !range.is_empty() {
             for s in layout.selection_rects(range.start, range.end) {
@@ -463,10 +497,7 @@ pub(crate) fn current_style(app: &FireCraftApp) -> (TextRun, u8, bool) {
     if let Some(e) = &app.text_tool.editing
         && let Some(t) = d.text_at(e.r)
     {
-        let at = e.range().start + usize::from(!e.range().is_empty());
-        let style = e.typing.clone().unwrap_or_else(|| engine::style_at(t, at));
-        let font = engine::family_of(&style.font);
-        return (TextRun { font, ..style }, t.anti_alias, t.auto_kern);
+        return (editing_style(e, t), t.anti_alias, t.auto_kern);
     }
     d.selection
         .iter()
@@ -476,6 +507,37 @@ pub(crate) fn current_style(app: &FireCraftApp) -> (TextRun, u8, bool) {
             let font = engine::family_of(&style.font);
             (TextRun { font, ..style }, t.anti_alias, t.auto_kern)
         })
+}
+
+/// Apply a formatting change to the text being edited: its selection, or what's typed next.
+pub(crate) fn apply_editing(e: &mut Editing, d: &mut DocState, f: &dyn Fn(&mut TextRun)) {
+    let range = e.range();
+    if range.is_empty() {
+        let empty = d.text_at(e.r).is_some_and(|t| t.text.is_empty());
+        if empty {
+            d.change_text(e.r, |t| t.runs.iter_mut().for_each(f));
+            e.changed = true;
+        } else {
+            let mut style = e
+                .typing
+                .clone()
+                .or_else(|| d.text_at(e.r).map(|t| engine::style_at(t, e.caret)))
+                .unwrap_or_else(engine::default_style);
+            f(&mut style);
+            e.typing = Some(style);
+        }
+    } else {
+        d.change_text(e.r, |t| engine::format(t, range, f));
+        e.changed = true;
+    }
+}
+
+/// The formatting the controls show for text being edited.
+pub(crate) fn editing_style(e: &Editing, t: &firecraft_doc::Text) -> TextRun {
+    let at = e.range().start + usize::from(!e.range().is_empty());
+    let style = e.typing.clone().unwrap_or_else(|| engine::style_at(t, at));
+    let font = engine::family_of(&style.font);
+    TextRun { font, ..style }
 }
 
 /// Apply a formatting change to whatever the controls show.
@@ -491,25 +553,7 @@ pub(crate) fn apply(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut TextRun
     if let Some(e) = editing
         && d.text_at(e.r).is_some()
     {
-        let range = e.range();
-        if range.is_empty() {
-            let empty = d.text_at(e.r).is_some_and(|t| t.text.is_empty());
-            if empty {
-                d.change_text(e.r, |t| t.runs.iter_mut().for_each(f));
-                e.changed = true;
-            } else {
-                let mut style = e
-                    .typing
-                    .clone()
-                    .or_else(|| d.text_at(e.r).map(|t| engine::style_at(t, e.caret)))
-                    .unwrap_or_else(engine::default_style);
-                f(&mut style);
-                e.typing = Some(style);
-            }
-        } else {
-            d.change_text(e.r, |t| engine::format(t, range, f));
-            e.changed = true;
-        }
+        apply_editing(e, d, f);
         return;
     }
     if d.selection.iter().any(|r| d.editable_text_at(*r).is_some()) {

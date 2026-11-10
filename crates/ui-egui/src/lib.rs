@@ -33,6 +33,7 @@ mod panels;
 mod path_tool;
 mod stroke_dialog;
 mod stroke_panel;
+mod text_editor;
 mod text_menu;
 mod text_tool;
 mod theme;
@@ -360,6 +361,7 @@ pub struct FireCraftApp {
     gradient_popup: Option<gradient_ui::Popup>,
     fill_window: Option<fill_ui::Window>,
     text_tool: text_tool::TextTool,
+    text_editor: Option<text_editor::TextEditor>,
     fonts: std::sync::Arc<Vec<String>>,
     fonts_for: Option<(String, u64)>,
     fonts_loaded_for: Option<(u64, u64)>,
@@ -410,6 +412,7 @@ impl FireCraftApp {
             gradient_popup: None,
             fill_window: None,
             text_tool: Default::default(),
+            text_editor: None,
             fonts: Default::default(),
             fonts_for: None,
             fonts_loaded_for: None,

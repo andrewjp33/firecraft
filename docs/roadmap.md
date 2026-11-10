@@ -41,7 +41,7 @@ Other items keep their numbers.
 3. **Crop tool**; Lasso and Polygon Lasso
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
-5. **Text**: Text menu Editor... and Attach to Path (Orientation, Reverse Direction), vertical text, Fireworks MX's small-size character widths (per-glyph advances at 8-24 px differ from the fonts'), synthetic bold like MX's (curves kept, narrower), Check Spelling (last).
+5. **Text**: Text menu Attach to Path (Orientation, Reverse Direction), vertical text, Fireworks MX's small-size character widths (per-glyph advances at 8-24 px differ from the fonts'), synthetic bold like MX's (curves kept, narrower), Check Spelling (last).
 6. **Fills**: the Gradient tool's exact behaviour against Fireworks MX
 7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween

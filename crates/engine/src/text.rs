@@ -82,6 +82,27 @@ pub fn layout_of(t: &Text) -> TextLayout {
     firecraft_text::layout(&text_block(t), &FontDb::shared(), &LayoutOptions::default())
 }
 
+/// The text as the Text Editor shows it with Show Font (`font`) or Show Size & Color
+/// (`size_color`) unticked: in one plain font, or at one size in black.
+pub fn display_copy(t: &Text, font: bool, size_color: bool) -> Text {
+    let plain = default_style();
+    let mut c = t.clone();
+    for r in &mut c.runs {
+        if !font {
+            r.font.clone_from(&plain.font);
+            r.bold = false;
+            r.italic = false;
+        }
+        if !size_color {
+            r.size = plain.size;
+            r.color = plain.color;
+            r.h_scale = 1.0;
+            r.baseline_shift = 0.0;
+        }
+    }
+    c
+}
+
 /// A canvas point in the text block's own space (before its matrix).
 pub fn to_block(t: &Text, x: f64, y: f64) -> (f64, f64) {
     if t.matrix == Affine::IDENTITY {

@@ -43,6 +43,15 @@ replacement for Prototype).
 Range kerning (`RKNf`) is an em fraction in Fireworks MX (`0.34`: letters 34% of the size apart); Fireworks CS
 records count tenths of that. FireCraft keeps MX's unit and converts CS records when reading and writing.
 
+## Text Editor
+
+Text > Editor... (Ctrl+Shift+E, from Fireworks MX's shortcut file) opens MX's Text Editor on the selected text object:
+font, size, colour, B/I/U, kerning, leading, alignment, scale, baseline, anti-alias and Auto Kern above a text area
+that shows the text in its own fonts, sizes and colours, all of it selected. Show Font and Show Size & Color unticked
+show it plainly (one font; one size in black) without changing the formatting. The area wraps at its width, scrolls,
+and turns dark for light text. Typing, selection and formatting work as on the canvas (it edits a working copy with the
+Text tool's code); OK and Apply put it back as one History step, Cancel and Esc leave the object as it was.
+
 ## Convert to Paths
 
 Checked against Fireworks MX (`convert_compare` example, MX's own conversion of the same file): each text object becomes

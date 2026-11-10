@@ -124,7 +124,9 @@ pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
     });
     ui.separator();
-    todo(ui, "Editor...", "");
+    if item(ui, "Editor...", "", crate::text_editor::can_open(app)) {
+        crate::text_editor::open(app);
+    }
     ui.separator();
     todo(ui, "Attach to Path", "Ctrl+Shift+Y");
     todo(ui, "Detach from Path", "");
@@ -149,8 +151,9 @@ pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     todo(ui, "Spelling Setup...", "");
 }
 
-/// Size > Other...: a size to type.
+/// Size > Other...: a size to type; and the Text Editor.
 pub fn dialogs(app: &mut FireCraftApp, ctx: &egui::Context) {
+    crate::text_editor::show(app, ctx);
     let Some(mut size) = app.text_tool.other_size else {
         return;
     };
@@ -200,6 +203,12 @@ pub fn command_shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
     if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(cmd_shift, Key::P))) {
         convert_to_paths(app);
+    }
+    // Fireworks MX's shortcut file has Ctrl+Shift+E for the Text Editor.
+    if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(cmd_shift, Key::E)))
+        && crate::text_editor::can_open(app)
+    {
+        crate::text_editor::open(app);
     }
 }
 
