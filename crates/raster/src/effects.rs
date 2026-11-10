@@ -475,7 +475,9 @@ impl Effect {
                     })
                     .collect();
                 let mut soft = tent_plane(&band, w, h, softness.round().max(0.0) as usize, math);
-                if *inner {
+                if *inner || math == crate::ColorMath::Precise {
+                    // Precise colour math keeps the fractions; the result is rounded once, when
+                    // it is painted.
                     soft.iter_mut().for_each(|v| *v *= opacity.clamp(0.0, 1.0));
                 } else {
                     // Fireworks MX takes the opacity as a byte (65% is 165) and truncates the
@@ -1111,6 +1113,20 @@ mod tests {
         assert_eq!(alphas(&faint), alphas(&opaque));
         // And under the faint block (Fireworks MX: df0101 at 165).
         assert_eq!(faint.get(25, 30), Some(Rgba::new(0xdf, 1, 1, 165)));
+    }
+
+    #[test]
+    fn precise_colour_math_rounds_the_glow_once() {
+        let (mut classic, mut precise) = (block(255), block(255));
+        measured_glow(0.0).apply_with(&mut classic, crate::ColorMath::Classic);
+        measured_glow(0.0).apply_with(&mut precise, crate::ColorMath::Precise);
+        // 65% of 255 is 165.75: Fireworks MX truncates, Precise rounds.
+        assert_eq!(classic.get(18, 30).map(|p| p.a), Some(165));
+        assert_eq!(precise.get(18, 30).map(|p| p.a), Some(166));
+        // Corner coverage 0.901 (229.75 of 255) at 65%: Fireworks MX truncates twice to 148;
+        // Precise keeps 149.34 and rounds it to 149.
+        assert_eq!(classic.get(19, 15).map(|p| p.a), Some(148));
+        assert_eq!(precise.get(19, 15).map(|p| p.a), Some(149));
     }
 
     #[test]
