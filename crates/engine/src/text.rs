@@ -1367,6 +1367,12 @@ mod tests {
         assert!(t.edited && !t.baked_effects);
         let (with_effects, glyphs) = drawn(&d);
         assert_ne!(with_effects, glyphs);
+        // Saved, the stored image holds the glow (as Fireworks writes it), and the file opens
+        // looking the same.
+        let before = d.doc.render(0);
+        let bytes = firecraft_io::save_fireworks_png(&d.doc).expect("saves");
+        let reopened = firecraft_io::open(&bytes, None).expect("opens");
+        assert_eq!(reopened.render(0), before);
     }
 
     #[test]

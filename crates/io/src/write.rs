@@ -28,6 +28,8 @@ struct Writer {
     symbol_frames: std::collections::HashMap<u32, usize>,
     /// Mask tiles already written per texture (shared by every path using it, as in Fireworks).
     texture_tiles: Vec<(std::sync::Arc<Vec<u8>>, u32, Vec<u32>)>,
+    /// The document's colour math (text effects are drawn into the text's stored image).
+    math: ColorMath,
 }
 
 impl Writer {
@@ -66,6 +68,7 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
         next_rnd: 0x0060_0000,
         symbol_frames: doc.symbols.iter().map(|s| (s.id, s.frames)).collect(),
         texture_tiles: Vec::new(),
+        math: doc.color_math,
     };
 
     put(&mut root, Node::int("FRC", doc.frames.len().max(1) as i64));
@@ -415,7 +418,13 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             );
             g
         }
-        ElementKind::Text(t) => write_text(t, el.raw.as_ref().filter(|r| r.is("TXT")), w),
+        ElementKind::Text(t) => {
+            let raw = el.raw.as_ref().filter(|r| r.is("TXT"));
+            match text_with_effects(el, t, w.math) {
+                Some(baked) => write_text(&baked, raw, w),
+                None => write_text(t, raw, w),
+            }
+        }
         // Other elements are re-emitted as read.
         ElementKind::Other { cached, .. } => match (&el.raw, cached) {
             (Some(raw), _) => raw.clone(),
@@ -713,6 +722,31 @@ fn write_text_fill(t: &firecraft_doc::Text, n: &mut Node, w: &mut Writer) {
     if let Some(st) = &t.stroke {
         put(n, Node::int("BRP", st.placement.min(2) as i64));
     }
+}
+
+/// A text whose stored image doesn't show its Live Effects yet (drawn by FireCraft), with them
+/// drawn in: Fireworks stores a text's image with its effects, and reads it back that way.
+fn text_with_effects(el: &Element, t: &firecraft_doc::Text, math: ColorMath) -> Option<firecraft_doc::Text> {
+    let b = t.cached.as_ref()?;
+    if (t.baked_effects && !t.edited) || el.effects.iter().all(|e| e.active().is_none()) {
+        return None;
+    }
+    let m = el.effect_margin();
+    let (ox, oy) = (b.x - m, b.y - m);
+    let (bw, bh) = (b.image.width() as i64 + 2 * m, b.image.height() as i64 + 2 * m);
+    let ctx = firecraft_doc::RenderCtx {
+        math,
+        ..firecraft_doc::RenderCtx::EMPTY
+    };
+    let (image, x, y) = el.pixels(ox, oy, u32::try_from(bw).ok()?, u32::try_from(bh).ok()?, &ctx)?;
+    let mut baked = t.clone();
+    baked.cached = Some(firecraft_doc::Bitmap {
+        x: ox + x,
+        y: oy + y,
+        image,
+    });
+    baked.baked_effects = true;
+    Some(baked)
 }
 
 fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> Node {

@@ -33,6 +33,8 @@ floor shadow, which glows in Fireworks) and gym, gym2, gym3 and circles_hi now m
 it stores with it (`IMGv`; a glowing text made in Fireworks MX by script stores the glow). An
 unedited text shows that image as it is; FireCraft used to apply the effects a second time (gym's
 text glow was twice as dark). Changing the text's effects draws it afresh first.
+FireCraft writes text it has drawn the same way, with the effects in the stored image, so the file
+reopens unchanged (in FireCraft and, by the same rule, in Fireworks).
 
 **Softness of shadows and glows.** A triangle filter of the softness's radius along each axis, truncating to whole
 levels per pass in Fireworks MX color math and keeping fractions in FireCraft's (FirePixel's measurement), so an Inner Shadow of softness 4 ends exactly 4 pixels in. Shadow offsets
