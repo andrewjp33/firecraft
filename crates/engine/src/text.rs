@@ -1253,6 +1253,41 @@ mod tests {
     }
 
     #[test]
+    fn fill_over_stroke_is_set_on_text_and_paths() {
+        use firecraft_doc::{BezierPoint, Contour, Path};
+        let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));
+        let line = Path {
+            contours: vec![Contour {
+                closed: true,
+                points: vec![
+                    BezierPoint::corner(10.0, 10.0),
+                    BezierPoint::corner(50.0, 10.0),
+                    BezierPoint::corner(50.0, 50.0),
+                ],
+            }],
+            fill: None,
+            stroke: None,
+            rect: None,
+            pcl: None,
+            texture_origin: None,
+        };
+        if let Some(cell) = d.doc.layers[0].elements_mut(0) {
+            cell.push(Element::new(ElementKind::Path(line)));
+        }
+        let r = d.start_new_text(new_text((20.0, 80.0, 21.0, 100.0), true, &ToolOptions::default()));
+        d.change_text(r, |t| insert(t, 0, "Hi", None));
+        d.commit_live_edit();
+        d.selection = vec![ElementRef::new(0, 0), r];
+        assert_eq!(d.selected_fill_over_stroke(), Some(false));
+        d.set_fill_over_stroke(true);
+        assert!(d.text_at(r).is_some_and(|t| t.fill_over_stroke));
+        let path = d.element(ElementRef::new(0, 0)).expect("path");
+        assert_eq!(path.raw.as_ref().and_then(|n| n.bool_of("FOT")), Some(true));
+        assert_eq!(d.selected_fill_over_stroke(), Some(true));
+        assert!(d.history.can_undo());
+    }
+
+    #[test]
     fn convert_to_paths_makes_a_group_of_characters_keeping_effects() {
         let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));
         let opts = ToolOptions::default();

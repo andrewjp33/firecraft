@@ -246,6 +246,23 @@ pub fn show_in(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, place:
             }
             finish(app, target, &resp);
         });
+        // Row 4 (the selection): Fireworks MX's "Fill over stroke".
+        if sel
+            && let Some(on) = app
+                .session
+                .active_doc()
+                .and_then(|d| d.selected_fill_over_stroke())
+        {
+            let mut v = on;
+            let resp = ui
+                .add_enabled(s.has, egui::Checkbox::new(&mut v, "Fill over stroke"))
+                .on_hover_text("Draw fill color over stroke");
+            if resp.changed()
+                && let Some(d) = app.session.active_doc_mut()
+            {
+                d.set_fill_over_stroke(v);
+            }
+        }
     });
 }
 

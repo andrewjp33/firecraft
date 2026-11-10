@@ -1217,6 +1217,46 @@ impl DocState {
         }
     }
 
+    /// The first selected path's or text object's "Fill over stroke" (`FOTb`), if one is selected.
+    pub fn selected_fill_over_stroke(&self) -> Option<bool> {
+        self.selection.iter().find_map(|r| {
+            let e = self.element(*r)?;
+            match &e.kind {
+                ElementKind::Text(t) => Some(t.fill_over_stroke),
+                ElementKind::Path(_) => Some(e.raw.as_ref().and_then(|n| n.bool_of("FOT")).unwrap_or(false)),
+                _ => None,
+            }
+        })
+    }
+
+    /// "Fill over stroke" (Fireworks MX: draw the fill colour over the stroke) for the selected
+    /// paths and text objects.
+    pub fn set_fill_over_stroke(&mut self, on: bool) {
+        let refs = self.selection.clone();
+        self.edit("Fill over Stroke", |s| {
+            for r in refs {
+                let Some(e) = s.element_mut(r) else { continue };
+                match &mut e.kind {
+                    ElementKind::Text(t) => {
+                        t.fill_over_stroke = on;
+                        crate::text::refresh(t);
+                    }
+                    ElementKind::Path(_) => {
+                        let raw = e
+                            .raw
+                            .get_or_insert_with(|| firecraft_fwpng::Node::vector("PTH", Vec::new()));
+                        let flag = firecraft_fwpng::Node::bool("FOT", on);
+                        match raw.children.iter_mut().find(|c| c.is("FOT")) {
+                            Some(c) => *c = flag,
+                            None => raw.children.push(flag),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+
     /// The selected paths' stroke preset (Property inspector stroke category); paths without a
     /// stroke get one in the stroke colour of the tools, as Fireworks does.
     pub fn set_stroke_preset(&mut self, index: usize, opts: &ToolOptions) {
