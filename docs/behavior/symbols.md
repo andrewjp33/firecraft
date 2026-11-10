@@ -100,5 +100,5 @@ symbol shares one pattern. Measured with mechscene2's floor of 16 tiles with *Li
 draws all the tiles' stripes in one phase, the same with the tiles reordered, or only the first or last kept,
 and with the instance moved 1 or 2 pixels down or 1 right. (Elsewhere a texture is anchored to its object
 and moves with it.)
-Its saved images of some files show the stripes one or two rows off, still the same on every tile; opened
-and saved again, Fireworks MX draws them anchored at the canvas origin.
+Some saved images show the stripes one or two rows off: a stale drawing. Redrawn (every symbol level nudged
+and saved again, in Fireworks MX on Windows and under Wine alike), they're anchored at the canvas origin.
