@@ -361,15 +361,15 @@ impl DocState {
                     .element(r)
                     .and_then(Element::bounds)
                     .unwrap_or((0.0, 0.0, 1.0, 1.0));
-                let Some(Element {
-                    kind: ElementKind::Path(p),
-                    ..
-                }) = s.element_mut(r)
-                else {
-                    continue;
+                let Some(e) = s.element_mut(r) else { continue };
+                // Text starts from its own colour.
+                let color = match &e.kind {
+                    ElementKind::Text(t) => t.runs.first().map_or(t.color, |r| r.color),
+                    _ => opts.fill.unwrap_or(Rgba::new(0x99, 0x99, 0x99, 255)),
                 };
-                let f = p.fill.get_or_insert_with(|| Fill {
-                    color: opts.fill.unwrap_or(Rgba::new(0x99, 0x99, 0x99, 255)),
+                let Some(slot) = e.fill_slot_mut() else { continue };
+                let f = slot.get_or_insert_with(|| Fill {
+                    color,
                     category: "fc_Solid".into(),
                     anti_alias: opts.fill_anti_alias,
                     feather: opts.fill_feather,
@@ -397,28 +397,25 @@ impl DocState {
                     };
                     new_gradient(kind, colors, opacity, bounds)
                 });
+                if let ElementKind::Text(t) = &mut e.kind {
+                    crate::text::restyle(t);
+                }
             }
         });
     }
 
     /// The first selected gradient, if any.
     pub fn selected_gradient(&self) -> Option<(ElementRef, &Gradient)> {
-        self.selection
-            .iter()
-            .find_map(|r| match self.element(*r).map(|e| &e.kind) {
-                Some(ElementKind::Path(p)) => p.fill.as_ref()?.gradient.as_ref().map(|g| (*r, g)),
-                _ => None,
-            })
+        self.selection.iter().find_map(|r| {
+            let g = self.element(*r)?.fill_slot()??.gradient.as_ref()?;
+            Some((*r, g))
+        })
     }
 
-    /// The first selected path's fill: `None` with no path selected, `Some(None)` for no fill.
+    /// The first selected path's or text's fill: `None` with neither selected, `Some(None)` for
+    /// no fill (or plain-coloured text).
     pub fn selected_fill(&self) -> Option<Option<&Fill>> {
-        self.selection
-            .iter()
-            .find_map(|r| match self.element(*r).map(|e| &e.kind) {
-                Some(ElementKind::Path(p)) => Some(p.fill.as_ref()),
-                _ => None,
-            })
+        self.selection.iter().find_map(|r| self.element(*r)?.fill_slot())
     }
 
     /// The handles of the selected gradient or pattern.
@@ -494,13 +491,14 @@ impl DocState {
                     .element(r)
                     .and_then(Element::bounds)
                     .unwrap_or((0.0, 0.0, 1.0, 1.0));
-                if let Some(Element {
-                    kind: ElementKind::Path(p),
-                    ..
-                }) = s.element_mut(r)
-                    && let Some(q) = p.fill.as_mut().and_then(|f| f.pattern.as_mut())
+                let Some(e) = s.element_mut(r) else { continue };
+                if let Some(Some(f)) = e.fill_slot_mut()
+                    && let Some(q) = f.pattern.as_mut()
                 {
                     *q = new_pattern(name, image.clone(), bounds);
+                }
+                if let ElementKind::Text(t) = &mut e.kind {
+                    crate::text::restyle(t);
                 }
             }
         });

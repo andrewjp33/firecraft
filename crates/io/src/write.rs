@@ -661,6 +661,54 @@ fn matrix_node(m: &Affine) -> Node {
     )
 }
 
+/// A text object's fill: a gradient, pattern or web dither (with its handles) or texture, or plain
+/// colour, which is the first run's.
+fn write_text_fill(t: &firecraft_doc::Text, n: &mut Node, w: &mut Writer) {
+    let color = t.runs.first().map_or(t.color, |r| r.color);
+    if n.child("PAT").is_none() {
+        let at = n
+            .children
+            .iter()
+            .position(|c| c.is("BOT"))
+            .map_or(n.children.len(), |i| i + 1);
+        n.children.insert(
+            at,
+            Node::vector(
+                "PAT",
+                vec![Node::int("BCL", 0xff00_0000), Node::int("FCL", to_argb(color))],
+            ),
+        );
+    }
+    let plain;
+    let f = match &t.fill {
+        Some(f) => f,
+        None => {
+            plain = firecraft_doc::Fill {
+                color,
+                category: "fc_Solid".into(),
+                anti_alias: true,
+                feather: 0,
+                gradient: None,
+                pattern: None,
+                dither: None,
+                dither_transparent: false,
+                texture: None,
+                texture_amount: 0,
+                texture_transparent: false,
+            };
+            &plain
+        }
+    };
+    let handles = n.child_mut("PAT").and_then(|attrs| {
+        let h = put_fill(attrs, f, w);
+        put(attrs, Node::int("FCL", to_argb(color)));
+        h
+    });
+    if let Some(h) = handles {
+        put_fill_handles(n, h, w);
+    }
+}
+
 fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut n = raw.cloned().unwrap_or_else(|| Node::vector("TXT", vec![]));
     let (ox, oy) = w.origin;
@@ -744,13 +792,13 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
             n.children.retain(|c| !c.is("FAW"));
         }
         let start = first.cloned().unwrap_or_else(|| default_run(t));
-        for a in run_nodes(&start, None) {
+        for a in run_nodes(&start, None, t.cs_layout) {
             put(&mut n, a);
         }
         let mut stream = Vec::new();
         let mut before = start;
         for run in &t.runs {
-            stream.extend(run_nodes(run, Some(&before)));
+            stream.extend(run_nodes(run, Some(&before), t.cs_layout));
             stream.push(Node::string("TRN", &run.text));
             before = run.clone();
         }
@@ -758,6 +806,7 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
         n.children.retain(|c| !c.is("TFS") && !c.is("IMG"));
         n.children.push(Node::vector("TFS", stream));
     }
+    write_text_fill(t, &mut n, w);
     match &t.cached {
         Some(b) => {
             let image = write_bitmap(b, n.child("IMG"), w);
@@ -790,7 +839,7 @@ fn default_run(t: &firecraft_doc::Text) -> firecraft_doc::TextRun {
 }
 
 /// A run's attribute nodes: all of them, or those differing from `before`.
-fn run_nodes(r: &firecraft_doc::TextRun, before: Option<&firecraft_doc::TextRun>) -> Vec<Node> {
+fn run_nodes(r: &firecraft_doc::TextRun, before: Option<&firecraft_doc::TextRun>, cs: bool) -> Vec<Node> {
     let mut out = Vec::new();
     let changed = |f: &dyn Fn(&firecraft_doc::TextRun) -> bool| before.is_none_or(f);
     if changed(&|b| b.font != r.font) {
@@ -815,7 +864,7 @@ fn run_nodes(r: &firecraft_doc::TextRun, before: Option<&firecraft_doc::TextRun>
         out.push(Node::float("KRN", 0.0));
     }
     if changed(&|b| b.tracking != r.tracking) {
-        out.push(Node::float("RKN", r.tracking));
+        out.push(Node::float("RKN", r.tracking * crate::read::tracking_unit(cs)));
     }
     if changed(&|b| b.baseline_shift != r.baseline_shift) {
         out.push(Node::float("BLS", r.baseline_shift));
@@ -928,6 +977,70 @@ fn contour_node(c: &Contour, origin: (f64, f64)) -> Node {
     Node::vector("PBP", kids)
 }
 
+/// Write fill `f` into an object's attributes (`PATv`): colour, preset, texture. Returns the
+/// gradient or pattern handles to put on the object.
+fn put_fill(attrs: &mut Node, f: &firecraft_doc::Fill, w: &mut Writer) -> Option<Handles> {
+    let mut handles = None;
+    if let Some(g) = &f.gradient {
+        handles = Some((g.start, g.end, g.side));
+    }
+    if let Some(q) = &f.pattern {
+        handles = Some((q.start, q.end, q.side));
+    }
+    put(attrs, Node::int("FCL", to_argb(f.color)));
+    if attrs.child("FPL").is_none() {
+        attrs.children.push(fill_preset());
+    }
+    if let Some(fpl) = attrs.child_mut("FPL") {
+        write_fill_kind(fpl, f, w);
+        put(fpl, Node::int("FTB", f.texture_amount.min(1000) as i64));
+        put(fpl, Node::int("FSM", if f.texture_transparent { 1 } else { 2 }));
+    }
+    if let Some(t) = &f.texture {
+        let txf = texture_node("TXF", t, w);
+        match attrs.children.iter().position(|c| c.is("TXF")) {
+            Some(i) => attrs.children[i] = txf,
+            None => {
+                // After TXBv (Fireworks' order: BPL, FPL, TXB, TXF).
+                let at = attrs
+                    .children
+                    .iter()
+                    .rposition(|c| c.is("TXB") || c.is("BPL") || c.is("FPL"))
+                    .map_or(attrs.children.len(), |i| i + 1);
+                attrs.children.insert(at, txf);
+            }
+        }
+    }
+    handles
+}
+
+type Handles = ((f64, f64), (f64, f64), (f64, f64));
+
+/// Put fill handles (`PSXf`..`PFYf`, document space) on object node `n`.
+fn put_fill_handles(n: &mut Node, (s, e, f): Handles, w: &Writer) {
+    let (ox, oy) = w.origin;
+    let handles = [
+        ("PSX", s.0 + ox),
+        ("PSY", s.1 + oy),
+        ("PEX", e.0 + ox),
+        ("PEY", e.1 + oy),
+        ("PFX", f.0 + ox),
+        ("PFY", f.1 + oy),
+    ];
+    for (tag, v) in handles {
+        put(n, Node::float(tag, v));
+    }
+    // Fireworks MX ignores the handles without this flag.
+    put(n, Node::bool("PCF", true));
+    // A rectangle repeats them in its primitive record, which is the one MX uses.
+    if let Some(pri) = n.child_mut("PRI") {
+        for (tag, v) in handles {
+            put(pri, Node::float(tag, v));
+        }
+        put(pri, Node::bool("PCF", true));
+    }
+}
+
 fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut n = raw.cloned().unwrap_or_else(|| {
         Node::vector(
@@ -988,38 +1101,7 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut gradient_handles = None;
     if let Some(attrs) = n.child_mut("PAT") {
         match &p.fill {
-            Some(f) => {
-                if let Some(g) = &f.gradient {
-                    gradient_handles = Some((g.start, g.end, g.side));
-                }
-                if let Some(q) = &f.pattern {
-                    gradient_handles = Some((q.start, q.end, q.side));
-                }
-                put(attrs, Node::int("FCL", to_argb(f.color)));
-                if attrs.child("FPL").is_none() {
-                    attrs.children.push(fill_preset());
-                }
-                if let Some(fpl) = attrs.child_mut("FPL") {
-                    write_fill_kind(fpl, f, w);
-                    put(fpl, Node::int("FTB", f.texture_amount.min(1000) as i64));
-                    put(fpl, Node::int("FSM", if f.texture_transparent { 1 } else { 2 }));
-                }
-                if let Some(t) = &f.texture {
-                    let txf = texture_node("TXF", t, w);
-                    match attrs.children.iter().position(|c| c.is("TXF")) {
-                        Some(i) => attrs.children[i] = txf,
-                        None => {
-                            // After TXBv (Fireworks' order: BPL, FPL, TXB, TXF).
-                            let at = attrs
-                                .children
-                                .iter()
-                                .rposition(|c| c.is("TXB") || c.is("BPL") || c.is("FPL"))
-                                .map_or(attrs.children.len(), |i| i + 1);
-                            attrs.children.insert(at, txf);
-                        }
-                    }
-                }
-            }
+            Some(f) => gradient_handles = put_fill(attrs, f, w),
             None => attrs.children.retain(|c| !c.is("FPL")),
         }
         match &p.stroke {
@@ -1070,28 +1152,8 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
         put(&mut n, Node::int("BRP", st.placement.min(2) as i64));
     }
     // Gradient handles follow the object when it is moved or scaled.
-    if let Some((s, e, f)) = gradient_handles {
-        let (ox, oy) = w.origin;
-        let handles = [
-            ("PSX", s.0 + ox),
-            ("PSY", s.1 + oy),
-            ("PEX", e.0 + ox),
-            ("PEY", e.1 + oy),
-            ("PFX", f.0 + ox),
-            ("PFY", f.1 + oy),
-        ];
-        for (tag, v) in handles {
-            put(&mut n, Node::float(tag, v));
-        }
-        // Fireworks MX ignores the handles without this flag.
-        put(&mut n, Node::bool("PCF", true));
-        // A rectangle repeats them in its primitive record, which is the one MX uses.
-        if let Some(pri) = n.child_mut("PRI") {
-            for (tag, v) in handles {
-                put(pri, Node::float(tag, v));
-            }
-            put(pri, Node::bool("PCF", true));
-        }
+    if let Some(h) = gradient_handles {
+        put_fill_handles(&mut n, h, w);
     }
     n
 }
@@ -1588,6 +1650,53 @@ mod primitive_tests {
             panic!("text")
         };
         assert_eq!(t.rect, moved, "saving and reopening doesn't move it again");
+    }
+
+    #[test]
+    fn a_text_objects_gradient_fill_is_saved() {
+        use firecraft_raster::gradient::{Gradient, GradientKind};
+        let raw = text_record([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let mut t = crate::read::text_from_node(&raw);
+        let gradient = Gradient {
+            kind: GradientKind::Linear,
+            colors: vec![(0.0, Rgba::new(255, 0, 0, 255)), (1.0, Rgba::new(0, 0, 255, 255))],
+            opacity: Vec::new(),
+            start: (111.0, 100.0),
+            end: (500.0, 100.0),
+            side: (111.0, 300.0),
+        };
+        t.fill = Some(firecraft_doc::Fill {
+            color: Rgba::WHITE,
+            category: "fc_Linear".into(),
+            anti_alias: true,
+            feather: 0,
+            gradient: Some(gradient.clone()),
+            pattern: None,
+            dither: None,
+            dither_transparent: false,
+            texture: None,
+            texture_amount: 0,
+            texture_transparent: false,
+        });
+        let mut e = rect_path(0.0);
+        e.kind = ElementKind::Text(t);
+        e.raw = Some(raw);
+        let mut doc = Document::new(800, 600, 72.0, Some(Rgba::WHITE));
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            cell.push(e);
+        }
+        let back = round_trip(&doc);
+        let ElementKind::Text(b) = &first(&back).kind else {
+            panic!("text")
+        };
+        let f = b.fill.as_ref().expect("a fill");
+        assert_eq!(f.category, "fc_Linear");
+        let g = f.gradient.as_ref().expect("a gradient");
+        assert_eq!(
+            (g.start, g.end, g.side),
+            (gradient.start, gradient.end, gradient.side)
+        );
+        assert_eq!(g.colors, gradient.colors);
     }
 
     #[test]

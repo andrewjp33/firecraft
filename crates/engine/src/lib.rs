@@ -1199,12 +1199,13 @@ impl DocState {
     pub fn edit_fill(&mut self, label: &str, live: bool, f: impl Fn(&mut Fill)) {
         let apply = |s: &mut DocState| {
             for r in s.selection.clone() {
-                if let Some(Element {
-                    kind: ElementKind::Path(Path { fill: Some(fl), .. }),
-                    ..
-                }) = s.element_mut(r)
-                {
-                    f(fl);
+                let Some(e) = s.element_mut(r) else { continue };
+                let Some(Some(fl)) = e.fill_slot_mut() else {
+                    continue;
+                };
+                f(fl);
+                if let ElementKind::Text(t) = &mut e.kind {
+                    crate::text::restyle(t);
                 }
             }
         };

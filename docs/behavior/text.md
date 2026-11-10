@@ -30,6 +30,19 @@ A text object shows the image saved with it (`IMGv`) until it is edited, so a fi
 fonts are installed. Editing draws into that same image, and the rest of the renderer doesn't know the difference.
 An unedited object keeps Fireworks' record on save, apart from its position.
 
+## Fill and spacing
+
+A text object can have any fill a path has (Property inspector: the fill kind beside the colour box; a gradient, pattern
+or dither shows as a swatch that opens its editor, and its handles show on the canvas). Gradient, pattern and web
+dither fills shade the glyphs, sampled at each pixel's canvas coordinate as for paths; a texture applies over them.
+Plain colour stays per character. While a font is missing and the text hasn't been edited, a fill change re-shades the
+stored glyphs. Checked on `gym2` (a linear gradient over mixed fonts, sizes, widths and spacing): MX redraws
+FireCraft's saved file the same way (with the fonts installed; the reference image itself was drawn with a
+replacement for Prototype).
+
+Range kerning (`RKNf`) is an em fraction in Fireworks MX (`0.34`: letters 34% of the size apart); Fireworks CS
+records count tenths of that. FireCraft keeps MX's unit and converts CS records when reading and writing.
+
 ## Text menu
 
 Read from Fireworks MX's menu resource and shortcut file, and checked in MX: Font, Size (Other..., Smaller and Larger

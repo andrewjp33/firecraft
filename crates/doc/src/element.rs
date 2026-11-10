@@ -555,6 +555,9 @@ pub struct Text {
     /// How the block is drawn on the canvas, as Fireworks MX keeps it (`MTXv`): scaled, rotated,
     /// skewed or distorted text keeps its block and formatting and is drawn through this.
     pub matrix: Affine,
+    /// The text's fill when it isn't plain colour: a gradient, pattern or web dither shades the
+    /// glyphs, and a texture applies over them. `None`: each run's colour.
+    pub fill: Option<Fill>,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates
@@ -580,6 +583,9 @@ pub struct Text {
 impl Text {
     /// Move the text by (`dx`, `dy`) canvas pixels: its block, or its matrix once it has one.
     pub fn shift(&mut self, dx: f64, dy: f64) {
+        for h in self.fill.iter_mut().flat_map(Fill::handles_mut) {
+            *h = (h.0 + dx, h.1 + dy);
+        }
         if self.matrix == Affine::IDENTITY {
             self.rect = (
                 self.rect.0 + dx,
@@ -687,6 +693,24 @@ pub struct Element {
 }
 
 impl Element {
+    /// The fill of a path or text object (`None` for other kinds; `Some(None)`: no fill).
+    pub fn fill_slot(&self) -> Option<Option<&Fill>> {
+        match &self.kind {
+            ElementKind::Path(p) => Some(p.fill.as_ref()),
+            ElementKind::Text(t) => Some(t.fill.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// [`fill_slot`](Self::fill_slot), to change.
+    pub fn fill_slot_mut(&mut self) -> Option<&mut Option<Fill>> {
+        match &mut self.kind {
+            ElementKind::Path(p) => Some(&mut p.fill),
+            ElementKind::Text(t) => Some(&mut t.fill),
+            _ => None,
+        }
+    }
+
     pub fn new(kind: ElementKind) -> Self {
         Self {
             name: None,
@@ -839,7 +863,12 @@ impl Element {
                 // transformation joins the text's matrix.
                 match plain_move(m) {
                     Some((dx, dy)) => t.shift(dx, dy),
-                    None => t.matrix = m.then(&t.matrix),
+                    None => {
+                        for h in t.fill.iter_mut().flat_map(Fill::handles_mut) {
+                            *h = m.apply(h.0, h.1);
+                        }
+                        t.matrix = m.then(&t.matrix);
+                    }
                 }
             }
             ElementKind::Bitmap(b) => map_bitmap(b),

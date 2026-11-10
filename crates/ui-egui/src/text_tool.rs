@@ -585,16 +585,45 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 )
                 .on_hover_text("Size");
             apply_value(app, &field, "Text Size", &move |r| r.size = size);
-            let color = cp::color_box(
-                ui,
-                "text_color",
-                vec2(22.0, 14.0),
-                Some(style.color),
-                Footer::Plain,
-            );
-            if let Some(ColorChoice::Color(c)) = color {
-                let c = cp::to_rgba(c);
-                apply(app, "Text Color", &move |r| r.color = c);
+            // A selected text object's fill: a gradient, pattern or dither shows as a swatch that
+            // opens its editor; plain colour is the characters' own.
+            let object_fill = app
+                .session
+                .active_doc()
+                .filter(|d| d.selection.iter().any(|r| d.text_at(*r).is_some()))
+                .and_then(|d| d.selected_fill().map(|f| f.cloned()));
+            let fancy = object_fill
+                .clone()
+                .flatten()
+                .filter(|f| !crate::fill_ui::is_plain(f));
+            match &fancy {
+                Some(f) => {
+                    let resp = crate::fill_ui::swatch(ui, vec2(22.0, 14.0), f);
+                    if resp.clicked() {
+                        crate::fill_ui::open(app, crate::gradient_ui::Target::Selection, f, &resp);
+                    }
+                }
+                None => {
+                    let color = cp::color_box(
+                        ui,
+                        "text_color",
+                        vec2(22.0, 14.0),
+                        Some(style.color),
+                        Footer::Plain,
+                    );
+                    if let Some(ColorChoice::Color(c)) = color {
+                        let c = cp::to_rgba(c);
+                        apply(app, "Text Color", &move |r| r.color = c);
+                    }
+                }
+            }
+            if let Some(fill) = &object_fill {
+                let label = fill
+                    .as_ref()
+                    .map_or("Solid", |f| firecraft_engine::fill_label(&f.category));
+                if let Some(pick) = crate::fill_ui::fill_options(ui, "text_fill_kind", label, false) {
+                    crate::fill_ui::choose(app, crate::gradient_ui::Target::Selection, pick);
+                }
             }
             let (bold, italic, underline) = (style.bold, style.italic, style.underline);
             if ui.selectable_label(bold, "B").on_hover_text("Bold").clicked() {

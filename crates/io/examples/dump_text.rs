@@ -4,7 +4,10 @@ use firecraft_doc::{Element, ElementKind};
 fn print_node(n: &firecraft_fwpng::Node, depth: usize) {
     let tag = String::from_utf8_lossy(&n.tag).into_owned();
     println!("{}{} {}", " ".repeat(depth), tag, n.text);
-    if tag.starts_with("TFS") || tag.starts_with("TIL") || tag.starts_with("DTA") {
+    if (tag.starts_with("TFS") && std::env::var_os("DUMP_RUNS").is_none())
+        || tag.starts_with("TIL")
+        || tag.starts_with("DTA")
+    {
         return;
     }
     for c in &n.children {

@@ -2,7 +2,9 @@
 //! (`firecraft-text`). A text object keeps the image stored with it until it is edited, so a file's
 //! appearance survives even when its fonts aren't installed.
 
-use firecraft_doc::{Bitmap, Element, ElementKind, Text, TextRun};
+use firecraft_doc::element::apply_fill_texture;
+use firecraft_doc::{Bitmap, Element, ElementKind, Fill, Text, TextRun};
+use firecraft_raster::pattern::web_dither_at;
 use firecraft_raster::transform::{Affine, transform_image};
 use firecraft_raster::{Rgba, RgbaImage};
 use firecraft_text::support::{Rect, Rgba8};
@@ -23,7 +25,8 @@ fn char_attrs(r: &TextRun) -> CharAttrs {
         underline: r.underline,
         h_scale: r.h_scale,
         kerning: 0.0,
-        tracking: r.tracking,
+        // FireCraft keeps an em fraction (Fireworks MX); the layout counts tenths of one.
+        tracking: r.tracking * 10.0,
         baseline_shift: r.baseline_shift,
         leading: r.leading,
         leading_mode: if r.leading_px {
@@ -133,11 +136,76 @@ pub fn rasterize(t: &Text) -> Option<Bitmap> {
         );
     }
     let (x, y) = (i64::from(b.left), i64::from(b.top));
-    if warp {
+    let mut drawn = if warp {
         let (image, x, y) = transform_image(&image, x, y, &m)?;
-        return Some(Bitmap { x, y, image });
+        Bitmap { x, y, image }
+    } else {
+        Bitmap { x, y, image }
+    };
+    if let Some(f) = &t.fill {
+        shade(&mut drawn, f);
     }
-    Some(Bitmap { x, y, image })
+    Some(drawn)
+}
+
+/// Paint a gradient, pattern or web dither fill through the text's coverage in `b`, sampled at
+/// each pixel's canvas coordinate as for paths, then apply the fill's texture.
+fn shade(b: &mut Bitmap, f: &Fill) {
+    if f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some() {
+        let w = b.image.width().max(1) as i64;
+        let (x0, y0) = (b.x, b.y);
+        for (i, p) in b.image.pixels_mut().iter_mut().enumerate() {
+            if p.a == 0 {
+                continue;
+            }
+            let (cx, cy) = (x0 + i as i64 % w, y0 + i as i64 / w);
+            let (fx, fy) = (cx as f64, cy as f64);
+            let c = match (&f.gradient, &f.pattern, &f.dither) {
+                (Some(g), _, _) => g.color_at(fx, fy),
+                (_, Some(q), _) => q.color_at(fx, fy),
+                (_, _, Some(tile)) => {
+                    let c = web_dither_at(tile, fx, fy);
+                    if f.dither_transparent && (cx + cy) % 2 != 0 {
+                        Rgba { a: 0, ..c }
+                    } else {
+                        c
+                    }
+                }
+                _ => *p,
+            };
+            let a = (u32::from(p.a) * u32::from(c.a) + 127) / 255;
+            *p = Rgba { a: a as u8, ..c };
+        }
+    }
+    apply_fill_texture(&mut b.image, f, (0.0, 0.0), (b.x, b.y));
+}
+
+/// Whether one of the text's fonts isn't here (a replacement would draw it).
+fn fonts_missing(t: &Text) -> bool {
+    let fonts = FontDb::shared();
+    t.runs.iter().any(|r| {
+        !fonts
+            .resolve(&r.font, r.bold, r.italic)
+            .is_some_and(|f| !f.substituted)
+    })
+}
+
+/// Show a change to the text's fill: drawn again, or, while one of its fonts is missing and it
+/// hasn't been edited, its stored glyphs shaded afresh (so it keeps Fireworks' appearance).
+pub fn restyle(t: &mut Text) {
+    if !t.edited && fonts_missing(t) {
+        let color = t.runs.first().map_or(t.color, |r| r.color);
+        if let Some(b) = &mut t.cached {
+            for p in b.image.pixels_mut() {
+                *p = Rgba { a: p.a, ..color };
+            }
+            if let Some(f) = &t.fill {
+                shade(b, f);
+            }
+            return;
+        }
+    }
+    refresh(t);
 }
 
 /// Formatting for new text.
@@ -337,13 +405,10 @@ fn recolor_stored_image(before: &Text, t: &mut Text) -> bool {
     let Some(color) = t.runs.first().map(|r| r.color) else {
         return false;
     };
-    let fonts = FontDb::shared();
-    let missing = t.runs.iter().any(|r| {
-        !fonts
-            .resolve(&r.font, r.bold, r.italic)
-            .is_some_and(|f| !f.substituted)
-    });
-    if !missing
+    if !fonts_missing(t)
+        || t.fill
+            .as_ref()
+            .is_some_and(|f| f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some())
         || before.cached.is_none()
         || plain(before) != plain(t)
         || before.rect != t.rect
@@ -374,6 +439,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         auto_width: auto,
         cs_layout: false,
         matrix: Affine::IDENTITY,
+        fill: None,
         anchor: None,
         on_path: false,
         edited: true,

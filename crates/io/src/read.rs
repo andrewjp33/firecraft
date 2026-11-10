@@ -436,6 +436,32 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
     Some(Bitmap { x, y, image })
 }
 
+/// An object's fill (`PATv`'s `FPLv` and colour, the texture, gradient or pattern handles on `n`).
+fn read_fill(n: &Node, ctx: &Ctx) -> Option<Fill> {
+    n.child("PAT").and_then(|a| {
+        let preset = a.child("FPL")?;
+        let category = preset.str_of("CAT").unwrap_or("fc_Solid").to_owned();
+        Some(Fill {
+            color: argb(a.u32_of("FCL").unwrap_or(0xFF00_0000)),
+            anti_alias: preset.int_of("FET").unwrap_or(1) != 0,
+            feather: preset.int_of("FEF").unwrap_or(0).clamp(0, 1024) as u16,
+            pattern: (category == "fc_Pattern")
+                .then(|| read_pattern(preset, n, ctx))
+                .flatten(),
+            dither: (category == "fc_WebDither")
+                .then(|| read_web_dither(preset))
+                .flatten(),
+            dither_transparent: preset.bool_of("FDT").unwrap_or(false),
+            gradient: read_gradient(&category, preset, n, ctx),
+            category,
+            texture: a.child("TXF").and_then(|t| read_texture(t, ctx)),
+            texture_amount: preset.int_of("FTB").unwrap_or(0).clamp(0, 1000) as u16,
+            // FSMi 1 = transparent; anything else (2 is the default) lightens the colour.
+            texture_transparent: preset.int_of("FSM") == Some(1),
+        })
+    })
+}
+
 fn read_path(n: &Node, ctx: &Ctx) -> Path {
     let (ox, oy) = ctx.origin;
     let contours: Vec<Contour> = n
@@ -469,28 +495,7 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
         })
         .unwrap_or_default();
     let attrs = n.child("PAT");
-    let fill = attrs.and_then(|a| {
-        let preset = a.child("FPL")?;
-        let category = preset.str_of("CAT").unwrap_or("fc_Solid").to_owned();
-        Some(Fill {
-            color: argb(a.u32_of("FCL").unwrap_or(0xFF00_0000)),
-            anti_alias: preset.int_of("FET").unwrap_or(1) != 0,
-            feather: preset.int_of("FEF").unwrap_or(0).clamp(0, 1024) as u16,
-            pattern: (category == "fc_Pattern")
-                .then(|| read_pattern(preset, n, ctx))
-                .flatten(),
-            dither: (category == "fc_WebDither")
-                .then(|| read_web_dither(preset))
-                .flatten(),
-            dither_transparent: preset.bool_of("FDT").unwrap_or(false),
-            gradient: read_gradient(&category, preset, n, ctx),
-            category,
-            texture: a.child("TXF").and_then(|t| read_texture(t, ctx)),
-            texture_amount: preset.int_of("FTB").unwrap_or(0).clamp(0, 1000) as u16,
-            // FSMi 1 = transparent; anything else (2 is the default) lightens the colour.
-            texture_transparent: preset.int_of("FSM") == Some(1),
-        })
-    });
+    let fill = read_fill(n, ctx);
     let stroke = attrs.and_then(|a| {
         let preset = a.child("BPL")?;
         Some(Stroke {
@@ -698,7 +703,14 @@ fn read_web_dither(preset: &Node) -> Option<[Rgba; 4]> {
 }
 
 /// A run's attributes: `base`, changed by whatever `n` (or a run's preceding nodes) sets.
-fn text_attrs(nodes: &[&Node], base: &TextRun) -> TextRun {
+/// How many of a record's `RKN` units make the em fraction FireCraft keeps (Fireworks MX's
+/// unit: `RKN 0.34` spaces letters by 34% of the size). Fireworks CS counts tenths of that,
+/// as FirePixel measured (`RKNf · PTSf / 10` px).
+pub(crate) fn tracking_unit(cs: bool) -> f64 {
+    if cs { 10.0 } else { 1.0 }
+}
+
+fn text_attrs(nodes: &[&Node], base: &TextRun, cs: bool) -> TextRun {
     let mut r = base.clone();
     for n in nodes {
         let t = String::from_utf8_lossy(&n.tag).to_string();
@@ -709,7 +721,7 @@ fn text_attrs(nodes: &[&Node], base: &TextRun) -> TextRun {
             "ITL" => r.italic = n.as_bool().unwrap_or(r.italic),
             "UND" => r.underline = n.as_bool().unwrap_or(r.underline),
             "HSC" => r.h_scale = n.as_float().unwrap_or(r.h_scale),
-            "RKN" => r.tracking = n.as_float().unwrap_or(r.tracking),
+            "RKN" => r.tracking = n.as_float().map_or(r.tracking, |v| v / tracking_unit(cs)),
             "BLS" => r.baseline_shift = n.as_float().unwrap_or(r.baseline_shift),
             "LED" => r.leading = n.as_float().unwrap_or(r.leading),
             "LDM" => r.leading_px = n.as_int().unwrap_or(0) != 0,
@@ -779,14 +791,15 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         space_after: 0.0,
     };
     let own: Vec<&Node> = n.children.iter().collect();
-    let initial = text_attrs(&own, &base);
+    let cs = n.child("LFA").is_some();
+    let initial = text_attrs(&own, &base, cs);
     // `TFSv`: attribute changes, then the characters they apply to.
     let mut runs = Vec::new();
     let mut current = initial.clone();
     let mut pending: Vec<&Node> = Vec::new();
     for c in n.child("TFS").map_or(&[][..], |t| &t.children) {
         if c.is("TRN") {
-            current = text_attrs(&pending, &current);
+            current = text_attrs(&pending, &current, cs);
             pending.clear();
             runs.push(TextRun {
                 text: c.as_str().unwrap_or_default().to_owned(),
@@ -843,6 +856,10 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         auto_width: n.int_of("FAW") == Some(1),
         cs_layout: n.child("LFA").is_some(),
         matrix: text_matrix(n, ctx),
+        // Plain colour comes from the runs.
+        fill: read_fill(n, ctx).filter(|f| {
+            f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some() || f.texture_amount > 0
+        }),
         edited: false,
         cached: n.child("IMG").and_then(|i| read_bitmap(i, ctx)),
     }
