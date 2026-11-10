@@ -340,6 +340,10 @@ pub fn canvas(
         let inside = state.contained
             || state.editing.as_ref().is_some_and(|e| {
                 d.text_at(e.r).is_some_and(|t| {
+                    // Text on a path: anywhere on its characters.
+                    if t.path.is_some() {
+                        return d.hit_test(x, y) == Some(e.r);
+                    }
                     let (x, y) = engine::to_block(t, x, y);
                     x >= t.rect.0 - 3.0 && x <= t.rect.2 + 3.0 && y >= t.rect.1 - 3.0 && y <= t.rect.3 + 3.0
                 })
@@ -447,11 +451,27 @@ pub fn canvas(
         };
         let quad = |l: f64, top: f64, r: f64, b: f64| vec![at(l, top), at(r, top), at(r, b), at(l, b)];
         let (l, top, r, b) = t.rect;
-        if !state.contained {
-            painter.add(egui::Shape::closed_line(
-                quad(l - 1.0, top - 1.0, r + 1.0, b + 1.0),
-                Stroke::new(1.0, Color32::from_rgb(0x33, 0x99, 0xff)),
-            ));
+        let outline = Stroke::new(1.0, Color32::from_rgb(0x33, 0x99, 0xff));
+        match t.path.as_ref().map(|tp| &tp.path.kind) {
+            // Text on a path: the path it runs along.
+            Some(firecraft_doc::ElementKind::Path(p)) => {
+                for c in &p.contours {
+                    let pts: Vec<Pos2> = c.flatten(0.0, 0.0).iter().map(|q| at(q.0, q.1)).collect();
+                    let shape = if c.closed {
+                        egui::Shape::closed_line(pts, outline)
+                    } else {
+                        egui::Shape::line(pts, outline)
+                    };
+                    painter.add(shape);
+                }
+            }
+            _ if !state.contained => {
+                painter.add(egui::Shape::closed_line(
+                    quad(l - 1.0, top - 1.0, r + 1.0, b + 1.0),
+                    outline,
+                ));
+            }
+            _ => {}
         }
         let layout = layout(t, state.view);
         let range = e.range();
@@ -725,6 +745,19 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             let field = number(ui, "Baseline:", &mut shift, -500.0..=500.0, " px");
             apply_value(app, &field, "Text Baseline", &move |r| r.baseline_shift = shift);
         });
+        // Text on a path: how far along the path it starts (Fireworks MX's Text Offset).
+        if let Some(d) = app.session.active_doc_mut()
+            && let Some((_, offset)) = d.text_path_settings()
+        {
+            ui.horizontal(|ui| {
+                ui.label("Text offset:");
+                let mut v = offset;
+                let field = ui.add(DragValue::new(&mut v).max_decimals(0).suffix(" px"));
+                crate::inspector::value_drag(d, &field, "Text Offset", |d, live| {
+                    d.edit_text_path("Text Offset", live, |tp| tp.offset = v);
+                });
+            });
+        }
         ui.horizontal(|ui| {
             const MODES: [(u8, &str); 3] = [
                 (0, "Smooth Anti-Alias"),

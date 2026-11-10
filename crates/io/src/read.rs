@@ -849,7 +849,15 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
             )
         }),
         anchor,
-        on_path: matches!(kind, Some(2 | 3)),
+        on_path: kind == Some(3),
+        path: n.child("TAP").filter(|_| kind != Some(3)).and_then(|tap| {
+            let pth = tap.child("PTH")?;
+            Some(firecraft_doc::TextPath {
+                mode: tap.int_of("TAM").unwrap_or(0).clamp(0, 3) as u8,
+                offset: tap.float_of("CHO").unwrap_or(0.0),
+                path: Box::new(read_element(pth, ctx, 0)?),
+            })
+        }),
         auto_kern: n.bool_of("ATK").unwrap_or(true),
         anti_alias: n.int_of("TAA").unwrap_or(0).clamp(0, 2) as u8,
         // FireCraft extension (Fireworks MX ignores unknown nodes).

@@ -43,6 +43,23 @@ replacement for Prototype).
 Range kerning (`RKNf`) is an em fraction in Fireworks MX (`0.34`: letters 34% of the size apart); Fireworks CS
 records count tenths of that. FireCraft keeps MX's unit and converts CS records when reading and writing.
 
+## Text on a path
+
+Fireworks MX keeps text on a path as one object: the text's record keeps its block (`LFT`..`BOT`, as typed) and gets
+`TAPv { TAMi mode, CHOf offset, PTHv path }`, the whole path element (stroke and all). FireCraft reads, draws, edits and
+writes it (layout from FirePixel's on-path model):
+
+- Text > Attach to Path (Ctrl+Shift+Y): exactly one text object and one path selected; the path becomes part of the text.
+- Text > Detach from Path: the path comes back below the text, whose block keeps its size, centred on the path's bounds.
+- Orientation (Rotate Around Path, Vertical, Skew Vertical, Skew Horizontal: `TAMi` 0-3), Reverse Direction (the path's
+  points reversed, as MX writes them), and the Property inspector's Text offset (`CHOf`).
+- Editing: clicks on the characters place the caret along the path; the path is outlined while editing.
+
+Checked with MX: an ellipse attached in FireCraft and saved, then redrawn by MX, is pixel-identical to MX's own Attach to
+Path. FireCraft's drawing of MX's on-path text has the right geometry in all four orientations, with the offset and
+reversed; the remaining drift along the line is MX's small-size character widths (see Convert to Paths). Fireworks CS
+text in a path (`TFTi` 3) is still shown from its stored image only.
+
 ## Text Editor
 
 Text > Editor... (Ctrl+Shift+E, from Fireworks MX's shortcut file) opens MX's Text Editor on the selected text object:

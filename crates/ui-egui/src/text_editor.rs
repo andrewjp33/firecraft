@@ -51,6 +51,7 @@ pub fn open(app: &mut FireCraftApp) {
         fill: None,
         anchor: None,
         on_path: false,
+        path: None,
         auto_width: false,
         rect: (MARGIN, MARGIN, 400.0, MARGIN + t.size),
         cached: None,

@@ -50,6 +50,37 @@ fn char_attrs(r: &TextRun) -> CharAttrs {
 /// The engine's description of a text object.
 pub fn text_block(t: &Text) -> TextBlock {
     let (l, top, r, b) = t.rect;
+    let path = t.path.as_ref().and_then(|tp| {
+        let ElementKind::Path(p) = &tp.path.kind else {
+            return None;
+        };
+        let pt = |x: f64, y: f64| firecraft_text::support::Point::new(x as f32, y as f32);
+        let contours = p
+            .contours
+            .iter()
+            .map(|c| {
+                firecraft_text::support::BezierContour::new(
+                    c.points
+                        .iter()
+                        .map(|q| {
+                            firecraft_text::support::BezierNode::new(
+                                pt(q.x, q.y),
+                                pt(q.x + q.pred.0, q.y + q.pred.1),
+                                pt(q.x + q.succ.0, q.y + q.succ.1),
+                            )
+                        })
+                        .collect(),
+                    c.closed,
+                )
+            })
+            .collect();
+        Some(firecraft_text::TextPath {
+            mode: firecraft_text::PathTextMode::from_tami(i64::from(tp.mode)),
+            offset: tp.offset,
+            contours,
+            reversed: false,
+        })
+    });
     let (kind, bounds) = match t.anchor {
         Some((x, y)) => (
             FrameKind::Point,
@@ -61,7 +92,6 @@ pub fn text_block(t: &Text) -> TextBlock {
         ),
     };
     TextBlock {
-        kind,
         bounds,
         runs: t
             .runs
@@ -72,7 +102,8 @@ pub fn text_block(t: &Text) -> TextBlock {
         story_kerning: None,
         orientation: Orientation::HorizontalLtr,
         antialias: AntiAlias::from_tags(i64::from(t.anti_alias), 192, 64, 8, None),
-        path: None,
+        kind: if path.is_some() { FrameKind::OnPath } else { kind },
+        path,
         em_box_lines: !t.cs_layout,
     }
 }
@@ -475,6 +506,11 @@ pub fn refresh(t: &mut Text) {
     }
     normalize(t);
     t.edited = true;
+    // Text on a path keeps its block (the one it had, which Detach centres on the path).
+    if t.path.is_some() {
+        t.cached = if t.text.is_empty() { None } else { rasterize(t) };
+        return;
+    }
     if t.anchor.is_some() {
         let f = layout_of(t).frame;
         if !t.text.is_empty() {
@@ -555,6 +591,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         fill: None,
         anchor: None,
         on_path: false,
+        path: None,
         edited: true,
         text: String::new(),
         font: style.font,
@@ -774,6 +811,152 @@ impl DocState {
 }
 
 impl DocState {
+    /// Text > Attach to Path's text object (one not on a path yet) and path: exactly those two
+    /// selected, side by side in a layer.
+    fn attach_pair(&self) -> Option<(ElementRef, ElementRef)> {
+        let top = |r: &ElementRef| r.sub == Default::default();
+        let text = self
+            .selection
+            .iter()
+            .copied()
+            .find(|r| top(r) && self.editable_text_at(*r).is_some_and(|t| t.path.is_none()))?;
+        let path = self.selection.iter().copied().find(|r| {
+            top(r)
+                && matches!(self.element(*r).map(|e| &e.kind),
+                    Some(ElementKind::Path(p)) if p.contours.iter().any(|c| c.points.len() > 1))
+        })?;
+        (self.selection.len() == 2 && text.layer == path.layer).then_some((text, path))
+    }
+
+    /// Whether Text > Attach to Path has a text object and a path to join.
+    pub fn can_attach_text(&self) -> bool {
+        self.attach_pair().is_some()
+    }
+
+    /// Text > Attach to Path: the text runs along the path, which becomes part of it (Fireworks
+    /// MX: one object, keeping the text's block and the path for Detach).
+    pub fn attach_text_to_path(&mut self) {
+        let Some((t, p)) = self.attach_pair() else { return };
+        self.edit("Attach to Path", |s| {
+            let Some(path) = s.take(&[p]).pop() else { return };
+            let t = if p.index < t.index {
+                ElementRef::new(t.layer, t.index - 1)
+            } else {
+                t
+            };
+            if let Some(Element {
+                kind: ElementKind::Text(text),
+                ..
+            }) = s.element_mut(t)
+            {
+                text.path = Some(firecraft_doc::TextPath {
+                    mode: 0,
+                    offset: 0.0,
+                    path: Box::new(path),
+                });
+                refresh(text);
+            }
+            s.selection = vec![t];
+        });
+    }
+
+    /// The selected text on a path, top-level.
+    fn texts_on_paths(&self) -> Vec<ElementRef> {
+        self.selection
+            .iter()
+            .copied()
+            .filter(|r| r.sub == Default::default() && self.text_at(*r).is_some_and(|t| t.path.is_some()))
+            .collect()
+    }
+
+    /// Whether the selection has text on a path (Detach, Orientation, Reverse Direction).
+    pub fn has_text_on_path(&self) -> bool {
+        !self.texts_on_paths().is_empty()
+    }
+
+    /// The first selected text on a path: its mode and offset.
+    pub fn text_path_settings(&self) -> Option<(u8, f64)> {
+        self.selection
+            .iter()
+            .find_map(|r| self.text_at(*r)?.path.as_ref().map(|tp| (tp.mode, tp.offset)))
+    }
+
+    /// Text > Detach from Path: the path comes back below the text, whose block is centred on it
+    /// (Fireworks MX).
+    pub fn detach_text_from_path(&mut self) {
+        let mut refs = self.texts_on_paths();
+        if refs.is_empty() {
+            return;
+        }
+        refs.sort();
+        self.edit("Detach from Path", |s| {
+            let f = s.frame();
+            let mut selection = Vec::new();
+            // From the top down, so earlier indices stay put.
+            for r in refs.iter().rev() {
+                let Some(Element {
+                    kind: ElementKind::Text(text),
+                    ..
+                }) = s.element_mut(*r)
+                else {
+                    continue;
+                };
+                let Some(tp) = text.path.take() else { continue };
+                if let Some((x, y, w, h)) = tp.path.bounds() {
+                    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+                    let (bw, bh) = (text.rect.2 - text.rect.0, text.rect.3 - text.rect.1);
+                    text.rect = (cx - bw / 2.0, cy - bh / 2.0, cx + bw / 2.0, cy + bh / 2.0);
+                }
+                refresh(text);
+                if let Some(cell) = s.doc.layers.get_mut(r.layer).and_then(|l| l.elements_mut(f)) {
+                    cell.insert(r.index, *tp.path);
+                }
+                selection.push(ElementRef::new(r.layer, r.index + 1));
+            }
+            s.selection = selection;
+        });
+    }
+
+    /// Change the selected text on paths (`live`: part of a live edit already begun).
+    pub fn edit_text_path(&mut self, label: &str, live: bool, f: impl Fn(&mut firecraft_doc::TextPath)) {
+        let refs = self.texts_on_paths();
+        let apply = |s: &mut DocState| {
+            for r in &refs {
+                if let Some(Element {
+                    kind: ElementKind::Text(text),
+                    ..
+                }) = s.element_mut(*r)
+                    && let Some(tp) = &mut text.path
+                {
+                    f(tp);
+                    refresh(text);
+                }
+            }
+        };
+        if live {
+            apply(self);
+            self.touch();
+        } else {
+            self.edit(label, apply);
+        }
+    }
+
+    /// Text > Reverse Direction: the text runs the other way along its path.
+    pub fn reverse_text_path(&mut self) {
+        self.edit_text_path("Reverse Direction", false, |tp| {
+            if let ElementKind::Path(p) = &mut tp.path.kind {
+                for c in &mut p.contours {
+                    c.points.reverse();
+                    for q in &mut c.points {
+                        std::mem::swap(&mut q.pred, &mut q.succ);
+                    }
+                }
+                p.rect = None;
+                p.pcl = None;
+            }
+        });
+    }
+
     /// Whether Text > Convert to Paths has something to do.
     pub fn can_convert_text(&self) -> bool {
         self.selection.iter().any(|r| self.editable_text_at(*r).is_some())
@@ -810,6 +993,70 @@ impl DocState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_attaches_to_a_path_and_detaches_centred_on_it() {
+        use firecraft_doc::{BezierPoint, Contour, Path};
+        let mut d = DocState::new(firecraft_doc::Document::new(500, 400, 72.0, None));
+        let line = Path {
+            contours: vec![Contour {
+                closed: false,
+                points: vec![
+                    BezierPoint::corner(100.0, 300.0),
+                    BezierPoint::corner(400.0, 100.0),
+                ],
+            }],
+            fill: None,
+            stroke: None,
+            rect: None,
+            pcl: None,
+            texture_origin: None,
+        };
+        if let Some(cell) = d.doc.layers[0].elements_mut(0) {
+            cell.push(Element::new(ElementKind::Path(line)));
+        }
+        let r = d.start_new_text(new_text((20.0, 20.0, 21.0, 40.0), true, &ToolOptions::default()));
+        d.change_text(r, |t| insert(t, 0, "Along", None));
+        d.commit_live_edit();
+        let block = d.text_at(r).map(|t| t.rect).expect("text");
+        d.selection = vec![ElementRef::new(0, 0), r];
+        assert!(d.can_attach_text());
+        d.attach_text_to_path();
+        assert_eq!(
+            d.doc.layers[0].elements(0).len(),
+            1,
+            "the path is part of the text"
+        );
+        let t = ElementRef::new(0, 0);
+        assert_eq!(d.text_at(t).map(|x| x.rect), Some(block), "the block is kept");
+        let ink = d
+            .text_at(t)
+            .and_then(|x| x.cached.as_ref())
+            .map(|b| (b.x, b.y))
+            .expect("drawn");
+        assert!(
+            ink.0 > 90 && ink.1 > 90,
+            "along the path, not in the block: {ink:?}"
+        );
+        assert!(d.text_at(t).is_some_and(|x| x.path.is_some()) && d.editable_text_at(t).is_some());
+        d.selection = vec![t];
+        d.reverse_text_path();
+        d.detach_text_from_path();
+        let els = d.doc.layers[0].elements(0);
+        assert_eq!(els.len(), 2);
+        assert!(
+            matches!(els[0].kind, ElementKind::Path(_)),
+            "the path comes back below"
+        );
+        let ElementKind::Text(t) = &els[1].kind else {
+            panic!("text")
+        };
+        let (w, h) = (block.2 - block.0, block.3 - block.1);
+        assert_eq!(
+            t.rect,
+            (250.0 - w / 2.0, 200.0 - h / 2.0, 250.0 + w / 2.0, 200.0 + h / 2.0)
+        );
+    }
 
     #[test]
     fn convert_to_paths_makes_a_group_of_characters_keeping_effects() {

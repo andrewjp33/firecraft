@@ -802,6 +802,25 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
             stream.push(Node::string("TRN", &run.text));
             before = run.clone();
         }
+        // Text on a path: the mode, offset and the path itself.
+        match &t.path {
+            Some(tp) => {
+                let path = write_element(&tp.path, w, 0);
+                put(
+                    &mut n,
+                    Node::vector(
+                        "TAP",
+                        vec![
+                            Node::int("TAM", i64::from(tp.mode)),
+                            Node::float("CHO", tp.offset),
+                            path,
+                        ],
+                    ),
+                );
+            }
+            None if !t.on_path => n.children.retain(|c| !c.is("TAP")),
+            None => {}
+        }
         // The text and image come last, as Fireworks writes them.
         n.children.retain(|c| !c.is("TFS") && !c.is("IMG"));
         n.children.push(Node::vector("TFS", stream));

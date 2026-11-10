@@ -540,6 +540,17 @@ impl Path {
     }
 }
 
+/// Text attached to a path (Fireworks MX's `TAPv`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextPath {
+    /// `TAMi`: 0 rotate around the path, 1 vertical, 2 skew vertical, 3 skew horizontal.
+    pub mode: u8,
+    /// `CHOf`: how far along the path the text starts, in pixels.
+    pub offset: f64,
+    /// The path (`PTHv`), as it was: Detach from Path puts it back.
+    pub path: Box<Element>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Text {
     /// The characters with their formatting, in order (`TFSv`).
@@ -563,8 +574,11 @@ pub struct Text {
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates
     /// (`LFAf`, `TOAf`). `rect` is then just the area it covers.
     pub anchor: Option<(f64, f64)>,
-    /// Text attached to a path (`TFTi` 2 or 3): shown from its stored image, not editable yet.
+    /// Text bound to a shape FireCraft can't lay out yet (Fireworks CS text in a path, `TFTi` 3):
+    /// shown from its stored image, not editable.
     pub on_path: bool,
+    /// Text attached to a path (Text > Attach to Path): it runs along the path's first contour.
+    pub path: Option<TextPath>,
     /// Its characters or formatting have changed since the file was read, so the record and its
     /// stored image are rewritten on save.
     pub edited: bool,
@@ -585,6 +599,9 @@ impl Text {
     pub fn shift(&mut self, dx: f64, dy: f64) {
         for h in self.fill.iter_mut().flat_map(Fill::handles_mut) {
             *h = (h.0 + dx, h.1 + dy);
+        }
+        if let Some(tp) = &mut self.path {
+            tp.path.translate(dx, dy);
         }
         if self.matrix == Affine::IDENTITY {
             self.rect = (
@@ -863,6 +880,18 @@ impl Element {
                 // transformation joins the text's matrix.
                 match plain_move(m) {
                     Some((dx, dy)) => t.shift(dx, dy),
+                    // Text on a path follows the path.
+                    None if t.path.is_some() => {
+                        for h in t.fill.iter_mut().flat_map(Fill::handles_mut) {
+                            *h = m.apply(h.0, h.1);
+                        }
+                        if let Some(tp) = &mut t.path {
+                            tp.path.transform(m);
+                        }
+                        let (l, top, r, b) = t.rect;
+                        let (x, y, w, h) = m.map_rect(l, top, r - l, b - top);
+                        t.rect = (x, y, x + w, y + h);
+                    }
                     None => {
                         for h in t.fill.iter_mut().flat_map(Fill::handles_mut) {
                             *h = m.apply(h.0, h.1);

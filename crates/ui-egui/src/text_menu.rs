@@ -4,6 +4,8 @@
 
 use egui::{Button, Key, KeyboardShortcut, Modifiers, ScrollArea};
 
+use firecraft_engine::DocState;
+
 use crate::FireCraftApp;
 use crate::menus::{item, todo};
 use crate::text_tool::{apply, current_style};
@@ -128,19 +130,40 @@ pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         crate::text_editor::open(app);
     }
     ui.separator();
-    todo(ui, "Attach to Path", "Ctrl+Shift+Y");
-    todo(ui, "Detach from Path", "");
+    let (can_attach, on_path, mode) = app.session.active_doc().map_or((false, false, None), |d| {
+        (
+            d.can_attach_text(),
+            d.has_text_on_path(),
+            d.text_path_settings().map(|(m, _)| m),
+        )
+    });
+    if item(ui, "Attach to Path", "Ctrl+Shift+Y", can_attach) {
+        attach(app);
+    }
+    if item(ui, "Detach from Path", "", on_path) {
+        with_doc(app, DocState::detach_text_from_path);
+    }
     ui.menu_button("Orientation", |ui| {
-        for label in [
-            "Rotate Around Path",
-            "Vertical",
-            "Skew Vertical",
-            "Skew Horizontal",
+        for (value, label) in [
+            (0u8, "Rotate Around Path"),
+            (1, "Vertical"),
+            (2, "Skew Vertical"),
+            (3, "Skew Horizontal"),
         ] {
-            todo(ui, label, "");
+            let clicked = ui
+                .add_enabled(on_path, Button::selectable(mode == Some(value), label))
+                .clicked();
+            if clicked {
+                ui.close();
+                with_doc(app, |d| {
+                    d.edit_text_path("Text Orientation", false, |tp| tp.mode = value)
+                });
+            }
         }
     });
-    todo(ui, "Reverse Direction", "");
+    if item(ui, "Reverse Direction", "", on_path) {
+        with_doc(app, DocState::reverse_text_path);
+    }
     ui.separator();
     let can_convert = app.session.active_doc().is_some_and(|d| d.can_convert_text());
     if item(ui, "Convert to Paths", "Ctrl+Shift+P", can_convert) {
@@ -190,6 +213,18 @@ pub fn dialogs(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
 }
 
+fn with_doc(app: &mut FireCraftApp, f: impl FnOnce(&mut DocState)) {
+    if let Some(d) = app.session.active_doc_mut() {
+        app.text_tool.finish(d);
+        f(d);
+    }
+}
+
+/// Text > Attach to Path.
+fn attach(app: &mut FireCraftApp) {
+    with_doc(app, DocState::attach_text_to_path);
+}
+
 /// Text > Convert to Paths (finishing any text being edited first).
 fn convert_to_paths(app: &mut FireCraftApp) {
     if let Some(d) = app.session.active_doc_mut() {
@@ -203,6 +238,9 @@ pub fn command_shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
     if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(cmd_shift, Key::P))) {
         convert_to_paths(app);
+    }
+    if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(cmd_shift, Key::Y))) {
+        attach(app);
     }
     // Fireworks MX's shortcut file has Ctrl+Shift+E for the Text Editor.
     if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(cmd_shift, Key::E)))
