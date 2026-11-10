@@ -52,7 +52,21 @@ fn align(app: &mut FireCraftApp, value: u8) {
 }
 
 pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
-    let (style, _, _) = current_style(app);
+    let (mut style, _, _) = current_style(app);
+    // Nothing is checked for a value the selection has several of.
+    let mix = crate::text_tool::mixed(app);
+    if mix.font {
+        style.font.clear();
+    }
+    if mix.size {
+        style.size = -1.0;
+    }
+    if mix.align {
+        style.align = u8::MAX;
+    }
+    style.bold &= !mix.bold;
+    style.italic &= !mix.italic;
+    style.underline &= !mix.underline;
     let mut font = None;
     ui.menu_button("Font", |ui| {
         let fonts = app.font_names();
@@ -86,7 +100,8 @@ pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
     });
     ui.menu_button("Style", |ui| {
-        let none = !style.bold && !style.italic && !style.underline;
+        let none =
+            !style.bold && !style.italic && !style.underline && !(mix.bold || mix.italic || mix.underline);
         if check(ui, none, "Plain", "Ctrl+Alt+Shift+P") {
             plain(app);
         }

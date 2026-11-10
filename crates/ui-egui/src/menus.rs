@@ -653,8 +653,9 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
             with_doc(app, |d| d.move_selection(dx * step, dy * step, "Move"));
         }
     }
-    // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks).
-    let letters: [(Key, &[Tool]); 14] = [
+    // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks; keys from
+    // Fireworks MX's shortcut file).
+    let letters: [(Key, &[Tool]); 17] = [
         (Key::V, &[Tool::Pointer, Tool::SelectBehind]),
         (Key::A, &[Tool::Subselect]),
         (Key::Q, &[Tool::Scale, Tool::Skew, Tool::Distort, Tool::NineSlice]),
@@ -669,6 +670,9 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
         (Key::P, &[Tool::Pen]),
         (Key::T, &[Tool::Text]),
         (Key::B, &[Tool::Brush]),
+        (Key::Y, &[Tool::Pencil]),
+        (Key::E, &[Tool::Eraser]),
+        (Key::G, &[Tool::PaintBucket, Tool::Gradient]),
     ];
     for (k, tools) in letters {
         if pressed(Modifiers::NONE, k) {

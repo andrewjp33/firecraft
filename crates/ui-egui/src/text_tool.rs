@@ -615,39 +615,110 @@ fn number(
     value: &mut f64,
     range: std::ops::RangeInclusive<f64>,
     suffix: &str,
+    mixed: bool,
 ) -> egui::Response {
     ui.label(label);
-    ui.add(
-        DragValue::new(value)
-            .range(range)
-            .max_decimals(0)
-            .suffix(suffix)
-            .update_while_editing(false),
-    )
+    let field = DragValue::new(value)
+        .range(range)
+        .max_decimals(0)
+        .update_while_editing(false);
+    // Blank when the selection has several values (Fireworks MX).
+    let field = if mixed {
+        field.custom_formatter(|_, _| String::new())
+    } else {
+        field.suffix(suffix)
+    };
+    ui.add(field)
+}
+
+/// Which of the controls' values differ across what a change would apply to: the characters
+/// selected in the text being edited, or every run of the selected text objects. Fireworks MX
+/// shows those controls blank.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Mixed {
+    pub font: bool,
+    pub size: bool,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub tracking: bool,
+    pub leading: bool,
+    pub h_scale: bool,
+    pub shift: bool,
+    pub align: bool,
+}
+
+pub(crate) fn mixed(app: &FireCraftApp) -> Mixed {
+    let Some(d) = app.session.active_doc() else {
+        return Mixed::default();
+    };
+    let mut runs: Vec<&TextRun> = Vec::new();
+    if let Some(e) = &app.text_tool.editing
+        && let Some(t) = d.text_at(e.r)
+    {
+        let range = e.range();
+        let mut at = 0;
+        for r in &t.runs {
+            let n = r.text.chars().count();
+            if at < range.end && at + n > range.start {
+                runs.push(r);
+            }
+            at += n;
+        }
+    } else {
+        for r in &d.selection {
+            if let Some(t) = d.text_at(*r) {
+                runs.extend(t.runs.iter().filter(|r| !r.text.is_empty()));
+            }
+        }
+    }
+    let Some(first) = runs.first() else {
+        return Mixed::default();
+    };
+    let differs = |f: &dyn Fn(&TextRun) -> bool| runs.iter().any(|r| !f(r));
+    let family = engine::family_of(&first.font);
+    Mixed {
+        font: differs(&|r| engine::family_of(&r.font) == family),
+        size: differs(&|r| r.size == first.size),
+        bold: differs(&|r| r.bold == first.bold),
+        italic: differs(&|r| r.italic == first.italic),
+        underline: differs(&|r| r.underline == first.underline),
+        tracking: differs(&|r| r.tracking == first.tracking),
+        leading: differs(&|r| r.leading == first.leading && r.leading_px == first.leading_px),
+        h_scale: differs(&|r| r.h_scale == first.h_scale),
+        shift: differs(&|r| r.baseline_shift == first.baseline_shift),
+        align: differs(&|r| r.align == first.align),
+    }
 }
 
 /// The text controls of the Property inspector.
 pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let (style, anti_alias, auto_kern) = current_style(app);
+    let mix = mixed(app);
     app.platform.load_installed_font(&style.font);
     let fonts = app.font_names();
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            if let Some(name) =
-                crate::font_picker::font_combo(ui, "text_font", 170.0, 400.0, &style.font, &fonts)
-            {
+            if let Some(name) = crate::font_picker::font_combo(
+                ui,
+                "text_font",
+                170.0,
+                400.0,
+                if mix.font { "" } else { &style.font },
+                &fonts,
+            ) {
                 app.platform.load_installed_font(&name);
                 apply(app, "Text Font", &move |r| r.font.clone_from(&name));
             }
             let mut size = style.size;
-            let field = ui
-                .add(
-                    DragValue::new(&mut size)
-                        .range(1.0..=1000.0)
-                        .max_decimals(1)
-                        .update_while_editing(false),
-                )
-                .on_hover_text("Size");
+            let mut size_field = DragValue::new(&mut size)
+                .range(1.0..=1000.0)
+                .max_decimals(1)
+                .update_while_editing(false);
+            if mix.size {
+                size_field = size_field.custom_formatter(|_, _| String::new());
+            }
+            let field = ui.add(size_field).on_hover_text("Size");
             apply_value(app, &field, "Text Size", &move |r| r.size = size);
             // A selected text object's fill: a gradient, pattern or dither shows as a swatch that
             // opens its editor; plain colour is the characters' own.
@@ -689,7 +760,10 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     crate::fill_ui::choose(app, crate::gradient_ui::Target::Selection, pick);
                 }
             }
-            let (bold, italic, underline) = (style.bold, style.italic, style.underline);
+            // Mixed: shown off, and a click turns it on for all.
+            let bold = style.bold && !mix.bold;
+            let italic = style.italic && !mix.italic;
+            let underline = style.underline && !mix.underline;
             if ui.selectable_label(bold, "B").on_hover_text("Bold").clicked() {
                 apply(app, "Text Style", &move |r| r.bold = !bold);
             }
@@ -713,7 +787,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 (4, "Stretch", "Stretch"),
             ] {
                 if ui
-                    .selectable_label(style.align == value, label)
+                    .selectable_label(style.align == value && !mix.align, label)
                     .on_hover_text(tip)
                     .clicked()
                 {
@@ -723,7 +797,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         });
         ui.horizontal(|ui| {
             let mut tracking = style.tracking * 100.0;
-            let field = number(ui, "Kerning:", &mut tracking, -100.0..=100.0, "%");
+            let field = number(ui, "Kerning:", &mut tracking, -100.0..=100.0, "%", mix.tracking);
             apply_value(app, &field, "Text Kerning", &move |r| {
                 r.tracking = tracking / 100.0
             });
@@ -733,16 +807,16 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 style.leading * 100.0
             };
             let suffix = if style.leading_px { " px" } else { "%" };
-            let field = number(ui, "Leading:", &mut leading, 0.0..=1000.0, suffix);
+            let field = number(ui, "Leading:", &mut leading, 0.0..=1000.0, suffix, mix.leading);
             let px = style.leading_px;
             apply_value(app, &field, "Text Leading", &move |r| {
                 r.leading = if px { leading } else { leading / 100.0 }
             });
             let mut scale = style.h_scale * 100.0;
-            let field = number(ui, "Scale:", &mut scale, 1.0..=1000.0, "%");
+            let field = number(ui, "Scale:", &mut scale, 1.0..=1000.0, "%", mix.h_scale);
             apply_value(app, &field, "Text Scale", &move |r| r.h_scale = scale / 100.0);
             let mut shift = style.baseline_shift;
-            let field = number(ui, "Baseline:", &mut shift, -500.0..=500.0, " px");
+            let field = number(ui, "Baseline:", &mut shift, -500.0..=500.0, " px", mix.shift);
             apply_value(app, &field, "Text Baseline", &move |r| r.baseline_shift = shift);
         });
         // Text on a path: how far along the path it starts (Fireworks MX's Text Offset).
