@@ -26,6 +26,9 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 - Live Effects editor in the Property inspector
 - Symbols: Convert to Symbol, Library, Symbol Editor, Break Apart, 9-slice symbols (`NGSv`)
 - Clean-room oracle tooling and UI test helpers (`tools/fwmx-oracle`)
+- Optimize panel, Preview and File > Export: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's
+  palettes and settings (stored in `EXPv` as Fireworks MX does), plus WebP and JPEG XL with Quality and
+  Alpha Quality ([behavior/export.md](behavior/export.md))
 - Opening flat images as Fireworks MX does: PNG, JPEG, GIF (animated GIFs as frames), BMP, TIFF,
   Targa, plus WebP, JPEG XL and animated PNG ([behavior/opening-files.md](behavior/opening-files.md))
 
@@ -47,7 +50,14 @@ Other items keep their numbers.
      ([behavior/strokes.md](behavior/strokes.md), Not yet)
 5. **Text**: text in a path (Fireworks CS), Fireworks MX's kerning quirks (no " A", an "St" Arial lacks; map them with MX under Wine, which reproduces Windows), synthetic bold like MX's (curves kept, narrower), Check Spelling (last).
 6. **Fills**: the Gradient tool's exact behaviour against Fireworks MX
-7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
+7. **Optimize panel + Export, the rest**: 2-Up/4-Up and Export Preview; GIF Loss (lossy LZW); custom
+   palettes and the Color Table panel; Selective JPEG quality; Fireworks MX's own adaptive palette and
+   dither pattern; animated WebP export; WebP in the browser build (libwebp needs a C-to-wasm
+   compiler)
+   - **16-bit colour (PNG 48/64 export)**: layers, effects and the renderer work in 8 bits per
+     channel today (Precise colour math computes in `f64` but stores 8 bits between steps), so a
+     16-bit export would only hold 8-bit values. Needs 16-bit (or float) images through the
+     pipeline, 16-bit PNG/TIFF/PSD import, and a document setting
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
    Instances; button symbol states
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)

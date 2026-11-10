@@ -17,6 +17,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "bmp",
 gif = "0.14"
 # Resolution tags, which `image` doesn't report.
 tiff = "0.11"
+# Export: JPEG (progressive, quality, density) and JPEG XL (pure Rust, BSD-3/Apache-2.0).
+jpeg-encoder = "0.7"
+jixel = { version = "0.5", default-features = false, features = ["avx", "neon", "sse", "wasm", "splines"] }
 firecraft-raster = { workspace = true }
 firecraft-doc = { workspace = true }
 png = { workspace = true }
@@ -26,6 +29,8 @@ thiserror = { workspace = true }
 # JPEG XL, colour-managed to sRGB (moxcms is pure Rust). Multi-threaded on the desktop; the browser build decodes on one thread.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 jxl-oxide = { version = "0.12", features = ["moxcms"] }
+# WebP export: libwebp (BSD), compiled from C, so not in the browser build.
+webp = "0.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 jxl-oxide = { version = "0.12", default-features = false, features = ["moxcms"] }

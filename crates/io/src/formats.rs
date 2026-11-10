@@ -137,7 +137,109 @@ pub fn open_flat(bytes: &[u8], name: Option<String>) -> Result<Document> {
             )));
         }
     };
-    Ok(build(layout, name))
+    let mut doc = build(layout, name);
+    doc.export = export_settings_for(format, bytes, &doc);
+    Ok(doc)
+}
+
+/// The export settings an opened image starts with, as Fireworks MX chooses them (measured with
+/// `dom.exportOptions`): a JPEG exports as JPEG at the quality it was saved with, a GIF as GIF
+/// (animated if it has frames) with its exact palette; FireCraft keeps PNG, WebP and JPEG XL
+/// files in their own format.
+fn export_settings_for(format: Format, bytes: &[u8], doc: &Document) -> firecraft_doc::ExportSettings {
+    use firecraft_doc::{ExportFormat, ExportSettings, PaletteKind};
+    let d = ExportSettings::default();
+    match format {
+        Format::Jpeg => ExportSettings {
+            format: ExportFormat::Jpeg,
+            jpeg_quality: jpeg_quality(bytes).map_or(80, crate::export::mx_quality),
+            ..d
+        },
+        Format::Gif => ExportSettings {
+            format: if doc.frames.len() > 1 {
+                ExportFormat::AnimatedGif
+            } else {
+                ExportFormat::Gif
+            },
+            palette: PaletteKind::Exact,
+            colors: 256,
+            ..d
+        },
+        Format::Png => ExportSettings {
+            format: match png_color_type(bytes) {
+                Some(png::ColorType::Indexed) => ExportFormat::Png8,
+                Some(png::ColorType::Rgb | png::ColorType::Grayscale) => ExportFormat::Png24,
+                _ => ExportFormat::Png32,
+            },
+            palette: PaletteKind::Exact,
+            colors: 256,
+            ..d
+        },
+        Format::WebP => ExportSettings {
+            format: ExportFormat::WebP,
+            ..d
+        },
+        Format::JpegXl => ExportSettings {
+            format: ExportFormat::JpegXl,
+            ..d
+        },
+        _ => d,
+    }
+}
+
+fn png_color_type(bytes: &[u8]) -> Option<png::ColorType> {
+    let r = png::Decoder::new(Cursor::new(bytes)).read_info().ok()?;
+    Some(r.info().color_type)
+}
+
+/// A JPEG's quality, estimated from its luminance quantization table against the IJG standard
+/// table (the scaling libjpeg's quality setting applies).
+pub(crate) fn jpeg_quality(bytes: &[u8]) -> Option<u8> {
+    const STD: [u16; 64] = [
+        16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19, 26, 58, 60, 55, 14, 13, 16, 24, 40, 57, 69, 56, 14,
+        17, 22, 29, 51, 87, 80, 62, 18, 22, 37, 56, 68, 109, 103, 77, 24, 35, 55, 64, 81, 104, 113, 92,
+        49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99,
+    ];
+    // Find the first DQT segment (FFDB) and its table 0.
+    let mut at = 2;
+    while at + 4 <= bytes.len() {
+        if bytes.get(at) != Some(&0xFF) {
+            return None;
+        }
+        let marker = *bytes.get(at + 1)?;
+        let len = usize::from(u16::from_be_bytes([*bytes.get(at + 2)?, *bytes.get(at + 3)?]));
+        if marker == 0xDB {
+            let pq = bytes.get(at + 4)? >> 4;
+            let table: Vec<u16> = if pq == 0 {
+                bytes.get(at + 5..at + 69)?.iter().map(|&v| u16::from(v)).collect()
+            } else {
+                bytes
+                    .get(at + 5..at + 133)?
+                    .chunks_exact(2)
+                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .collect()
+            };
+            // Tables are stored in zig-zag order; the standard table above is in natural order.
+            const ZIGZAG: [usize; 64] = [
+                0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27,
+                20, 13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+                58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+            ];
+            let mut sum = 0f64;
+            for (k, &q) in table.iter().enumerate() {
+                let std = f64::from(*STD.get(*ZIGZAG.get(k)?)?);
+                sum += f64::from(q) * 100.0 / std;
+            }
+            let scale = sum / 64.0;
+            let q = if scale <= 100.0 { (200.0 - scale) / 2.0 } else { 5000.0 / scale };
+            return Some(q.round().clamp(1.0, 100.0) as u8);
+        }
+        if marker == 0xDA {
+            return None;
+        }
+        at += 2 + len;
+    }
+    None
 }
 
 fn build(layout: Layout, name: Option<String>) -> Document {
@@ -659,6 +761,17 @@ mod tests {
             if format != image::ImageFormat::Jpeg {
                 assert_eq!(px, Some(Rgba::new(200, 180, 200, 255)), "{format:?}");
             }
+        }
+    }
+
+    #[test]
+    fn jpeg_quality_is_estimated_from_its_tables() {
+        for q in [30u8, 50, 75, 86, 95] {
+            let mut out = Vec::new();
+            let enc = jpeg_encoder::Encoder::new(&mut out, q);
+            enc.encode(&[200u8; 8 * 8 * 3], 8, 8, jpeg_encoder::ColorType::Rgb)
+                .unwrap_or_else(|e| unreachable!("{e}"));
+            assert_eq!(jpeg_quality(&out), Some(q));
         }
     }
 

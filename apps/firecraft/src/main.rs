@@ -49,6 +49,28 @@ impl Platform for Desktop {
         }
     }
 
+    fn export_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus {
+        let ext = suggested.rsplit_once('.').map_or("png", |(_, e)| e).to_ascii_lowercase();
+        let label = match ext.as_str() {
+            "gif" => "GIF image",
+            "jpg" | "jpeg" => "JPEG image",
+            "webp" => "WebP image",
+            "jxl" => "JPEG XL image",
+            _ => "PNG image",
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .set_file_name(suggested)
+            .add_filter(label, &[ext.as_str()])
+            .save_file()
+        else {
+            return SaveStatus::Cancelled;
+        };
+        match std::fs::write(&path, bytes) {
+            Ok(()) => SaveStatus::Saved(path.display().to_string()),
+            Err(e) => SaveStatus::Failed(e.to_string()),
+        }
+    }
+
     fn open_image(&mut self) -> Option<(String, Vec<u8>)> {
         let path = rfd::FileDialog::new()
             .add_filter("Images", &["png", "gif"])

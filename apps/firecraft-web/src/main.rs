@@ -180,9 +180,21 @@ export function canPickSave() {
   return !!window.showSaveFilePicker;
 }
 
+// Save picker types for an export, from its file name's extension.
+const EXPORT_TYPES = {
+  gif: { description: "GIF image", accept: { "image/gif": [".gif"] } },
+  jpg: { description: "JPEG image", accept: { "image/jpeg": [".jpg", ".jpeg"] } },
+  webp: { description: "WebP image", accept: { "image/webp": [".webp"] } },
+  jxl: { description: "JPEG XL image", accept: { "image/jxl": [".jxl"] } },
+};
+function typesFor(name) {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return EXPORT_TYPES[ext] ? [EXPORT_TYPES[ext]] : TYPES;
+}
+
 // The chosen handle, or null when cancelled.
 export async function pickAndWrite(suggestedName, bytes) {
-  const handle = await orCancelled(window.showSaveFilePicker({ suggestedName, types: TYPES }));
+  const handle = await orCancelled(window.showSaveFilePicker({ suggestedName, types: typesFor(suggestedName) }));
   if (handle) await write(handle, bytes);
   return handle;
 }
@@ -613,10 +625,12 @@ export async function writeTo(handle, bytes) {
         if name.is_empty() {
             return SaveStatus::Cancelled;
         }
-        let name = if name.to_ascii_lowercase().ends_with(".png") {
+        // Keep the suggested file's extension (.png, or an export's .gif, .jpg...).
+        let ext = suggested.rsplit_once('.').map_or("png", |(_, e)| e).to_ascii_lowercase();
+        let name = if name.to_ascii_lowercase().ends_with(&format!(".{ext}")) {
             name.to_owned()
         } else {
-            format!("{name}.png")
+            format!("{name}.{ext}")
         };
         match download(&name, bytes) {
             Ok(()) => SaveStatus::Saved(name),

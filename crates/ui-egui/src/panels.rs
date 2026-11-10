@@ -47,10 +47,7 @@ pub fn dock(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            group(ui, Group::Optimize, "Optimize", false, |ui| {
-                ui.label("Export format: PNG 32");
-                ui.weak("GIF/JPEG optimization and palettes are on the roadmap.");
-            });
+            group(ui, Group::Optimize, "Optimize", false, |ui| crate::optimize::panel(app, ui));
             group(ui, Group::Layers, "Layers", true, |ui| layers(app, ui));
             group(ui, Group::Frames, "Frames and History", true, |ui| {
                 frames_history(app, ui)

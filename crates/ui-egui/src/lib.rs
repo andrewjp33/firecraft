@@ -29,6 +29,7 @@ mod inspector;
 mod library;
 mod menus;
 mod nine;
+mod optimize;
 mod panels;
 mod path_tool;
 mod stroke_dialog;
@@ -84,6 +85,11 @@ pub trait Platform {
     fn open_file(&mut self) -> Option<(String, Vec<u8>)>;
     /// Ask where to save `bytes` and write them. `suggested` is a file name.
     fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus;
+    /// Ask where to save an export and write it. `suggested` is a file name whose extension
+    /// says the type (`.gif`, `.jpg`, `.webp`...). Default: as [`Platform::save_file`].
+    fn export_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus {
+        self.save_file(suggested, bytes)
+    }
     /// Write to a known path (Save on an already-saved document). Default: ask.
     fn write_file(&mut self, path: &str, bytes: &[u8]) -> SaveStatus {
         self.save_file(path, bytes)
@@ -329,6 +335,8 @@ struct View {
     /// The drag in progress uses the secondary (right) button.
     drag_secondary: bool,
     preview: bool,
+    /// The Preview tab's picture: the document exported with its Optimize settings.
+    optimized: Option<canvas::Optimized>,
     /// Windows mode: the document window's rectangle when shown normally (FireCraft keeps it;
     /// egui draws the window exactly there), and its state.
     win_rect: Option<egui::Rect>,

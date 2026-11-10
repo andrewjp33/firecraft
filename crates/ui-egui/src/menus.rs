@@ -435,10 +435,11 @@ pub fn export(app: &mut FireCraftApp) {
         return;
     }
     let Some(d) = app.session.active_doc() else { return };
-    let name = firecraft_io::png_name(&d.doc.title()).trim_end_matches(".png").to_owned() + "-export.png";
-    match firecraft_io::export_png(&d.doc) {
-        Ok(bytes) => {
-            let status = app.platform.save_file(&name, &bytes);
+    // With the Optimize panel's settings, named after the document with the format's extension.
+    let name = firecraft_io::export::file_name(&d.doc.title(), d.doc.export.format);
+    match firecraft_io::export::export(&d.doc, &d.doc.export) {
+        Ok(e) => {
+            let status = app.platform.export_file(&name, &e.bytes);
             app.save_status(SaveTarget::Export, status);
         }
         Err(e) => app.error(format!("Export failed: {e}")),

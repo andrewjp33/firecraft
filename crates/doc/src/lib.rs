@@ -17,6 +17,8 @@ pub mod stroke_fw;
 
 mod cache;
 pub mod effects;
+pub mod export;
+pub use export::{ExportFormat, ExportSettings, PaletteKind, Transparency};
 pub use cache::{Dirty, RenderCache, perspective_hit};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
@@ -308,6 +310,8 @@ pub struct Document {
     /// Fireworks-exact or double-precision colour formulas (a FireCraft extension, saved in a
     /// node Fireworks MX ignores).
     pub color_math: ColorMath,
+    /// How File > Export writes the document (the Optimize panel).
+    pub export: ExportSettings,
 }
 
 impl Document {
@@ -330,6 +334,7 @@ impl Document {
             symbols: Default::default(),
             path: None,
             color_math: ColorMath::Classic,
+            export: ExportSettings::default(),
         }
     }
 

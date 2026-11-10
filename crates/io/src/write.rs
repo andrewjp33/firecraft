@@ -98,12 +98,41 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
         .collect();
     put(&mut root, Node::vector("LYL", layers));
     write_symbols(&mut root, doc, &mut w);
-    // Frame delays/export flags back into EXPv > FNLv (kept as read otherwise).
-    if let Some(fnl) = root.child_mut("EXP").and_then(|e| e.child_mut("FNL")) {
-        let fnms: Vec<&mut Node> = fnl.children.iter_mut().filter(|c| c.is("FNM")).collect();
-        for (f, n) in doc.frames.iter().zip(fnms) {
-            put(n, Node::int("FND", f.delay as i64));
-            put(n, Node::bool("VIS", f.export));
+    // Export settings (`EXPv`): kept as read while unchanged, apart from the frames (delays and
+    // export flags in `FNLv`); otherwise written, from Fireworks MX's default record for a
+    // document that had none.
+    let kept = root
+        .child("EXP")
+        .filter(|e| crate::export::expv::unchanged(e, &doc.export))
+        .cloned();
+    match kept {
+        Some(_) => {
+            if let Some(fnl) = root.child_mut("EXP").and_then(|e| e.child_mut("FNL")) {
+                let fnms: Vec<&mut Node> = fnl.children.iter_mut().filter(|c| c.is("FNM")).collect();
+                for (f, n) in doc.frames.iter().zip(fnms) {
+                    put(n, Node::int("FND", f.delay as i64));
+                    put(n, Node::bool("VIS", f.export));
+                }
+            }
+        }
+        None => {
+            let mut settings = doc.export.clone();
+            if settings.raw.is_none() {
+                settings.raw = root.child("EXP").cloned();
+            }
+            let exp = crate::export::expv::write(&settings, &doc.frames);
+            match root.children.iter_mut().find(|c| c.is("EXP")) {
+                Some(slot) => *slot = exp,
+                None => {
+                    // Fireworks writes it after the presets and PATv, before MNFv and LYLv.
+                    let at = root
+                        .children
+                        .iter()
+                        .position(|c| c.is("MNF") || c.is("LYL"))
+                        .unwrap_or(root.children.len());
+                    root.children.insert(at, exp);
+                }
+            }
         }
     }
     // Carry over original tiles still referenced (presets, textures, cached text, mkBS images).

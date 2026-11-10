@@ -494,9 +494,23 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                 ui.selectable_value(&mut preview, false, "Original");
                 ui.selectable_value(&mut preview, true, "Preview");
                 ui.add_enabled(false, egui::Button::new("2-Up"))
-                    .on_disabled_hover_text("Coming with the Optimize panel");
+                    .on_disabled_hover_text("Coming soon (Preview works)");
                 ui.add_enabled(false, egui::Button::new("4-Up"))
-                    .on_disabled_hover_text("Coming with the Optimize panel");
+                    .on_disabled_hover_text("Coming soon (Preview works)");
+                // Preview: the export's format and file size, as Fireworks shows them.
+                if preview
+                    && let Some(o) = app.views.get(&id).and_then(|v| v.optimized.as_ref())
+                    && let Some(d) = app.session.docs.get(index)
+                {
+                    match &o.result {
+                        Ok((bytes, _)) => {
+                            ui.label(format!("{}  {}", d.doc.export.format.label(), file_size(*bytes)));
+                        }
+                        Err(e) => {
+                            ui.colored_label(Color32::from_rgb(170, 30, 30), e);
+                        }
+                    }
+                }
                 // Symbol Editor: Done closes it and returns to the document (Fireworks CS).
                 let editing_symbol = app
                     .session
@@ -781,7 +795,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     if d.doc.canvas.is_none() {
         checkerboard(&p, canvas_rect.intersect(rect));
     }
-    if let Some((_, tex)) = &view.texture {
+    // Preview: the document as it exports (the Optimize panel's settings).
+    let shown = if view.preview {
+        refresh_optimized(view, d, &ctx);
+        view.optimized.as_ref().and_then(|o| o.texture.as_ref())
+    } else {
+        None
+    };
+    if let Some(tex) = shown.or(view.texture.as_ref().map(|t| &t.1)) {
         p.image(
             tex.id(),
             canvas_rect,
@@ -1471,5 +1492,52 @@ fn marching_ants(
                 seg((x as f64, y as f64), ((x + 1) as f64, y as f64), &mut n);
             }
         }
+    }
+}
+
+/// The Preview tab's export of a document, kept until the document, its frame or its export
+/// settings change.
+#[derive(Clone)]
+pub(crate) struct Optimized {
+    key: (u64, usize, String),
+    texture: Option<egui::TextureHandle>,
+    /// File size in bytes and palette colours, or why it couldn't be exported.
+    pub result: Result<(usize, usize), String>,
+}
+
+fn optimize_key(d: &firecraft_engine::DocState) -> (u64, usize, String) {
+    let mut s = d.doc.export.clone();
+    s.raw = None;
+    (d.revision, d.doc.current_frame, format!("{s:?}"))
+}
+
+/// Export the document again if anything it depends on changed since the last preview.
+pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::DocState, ctx: &egui::Context) {
+    let key = optimize_key(d);
+    if view.optimized.as_ref().is_some_and(|o| o.key == key) {
+        return;
+    }
+    let (texture, result) = match firecraft_io::export::export(&d.doc, &d.doc.export) {
+        Ok(e) => {
+            let img = egui::ColorImage::from_rgba_unmultiplied(
+                [e.preview.width() as usize, e.preview.height() as usize],
+                &e.preview.to_rgba_bytes(),
+            );
+            let tex = ctx.load_texture(format!("optimized-{}", d.id), img, egui::TextureOptions::NEAREST);
+            (Some(tex), Ok((e.bytes.len(), e.palette.len())))
+        }
+        Err(e) => (None, Err(e.to_string())),
+    };
+    view.optimized = Some(Optimized { key, texture, result });
+}
+
+/// "4.6K" / "820 bytes": a file size as Fireworks shows it.
+pub(crate) fn file_size(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} bytes")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.2}K", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.2}M", bytes as f64 / (1024.0 * 1024.0))
     }
 }

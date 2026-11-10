@@ -84,6 +84,9 @@ pub fn document_from_fireworks(fw: &FwPng) -> Result<Document> {
     };
     // Files from Fireworks keep its perspective; FireCraft marks its pixel-correct warp (FCPi).
     doc.mx_perspective = root.int_of("FCP") != Some(1);
+    if let Some(exp) = root.child("EXP") {
+        doc.export = crate::export::expv::read(exp);
+    }
     // Frame delays (1/100 s) and export flags: EXPv > FNLv > FNMv{FNDi, VISb}.
     let fnm: Vec<&Node> = root
         .child("EXP")

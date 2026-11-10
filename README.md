@@ -66,6 +66,11 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   layers, frames, bitmaps, paths, text, groups, masks, symbols and effects
   ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet
   (slices, presets) is carried through a save untouched.
+- **Optimize panel and Export**: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's palettes
+  (Adaptive, WebSnap, Web 216, Exact, Windows, Macintosh, Grayscale, Uniform), dither and
+  transparency, kept in the document as Fireworks MX keeps them; plus **WebP** and **JPEG XL** with
+  Quality and Alpha Quality. The Preview tab shows the export and its file size
+  ([docs/behavior/export.md](docs/behavior/export.md)).
 - **Opening images**: PNG, JPEG, GIF, BMP, TIFF, Targa, WebP and JPEG XL open as Fireworks MX
   opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;
   the file's resolution kept). Saving never overwrites the original: it asks for a `.png` name
@@ -125,7 +130,7 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Combine/Alter Path, Knife, Polygon/Star.
 - Crop and Lasso tools.
 - Blur, Sharpen, Dodge, Burn, Smudge and Rubber Stamp.
-- Optimize panel and GIF/JPEG/PNG-8 export.
+- 2-Up/4-Up previews, GIF loss and custom palettes; 16-bit (PNG 64) export.
 - Editing frames (adding, removing, timing) and animated GIF export.
 - Slices, hotspots and HTML export.
 - Styles and the Filters menu.

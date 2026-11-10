@@ -7,6 +7,7 @@
 //! * [`export_png`] writes a flat PNG.
 
 mod clip;
+pub mod export;
 mod flat;
 pub mod formats;
 mod read;
