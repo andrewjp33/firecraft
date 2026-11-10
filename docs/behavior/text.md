@@ -82,9 +82,15 @@ Underlines in Fireworks MX text: whole pixels, the top at the font's underline p
 thickness the font's rounded, one per stretch of one colour, in that colour (measured: Trebuchet MS 30 -> 178..180 under
 baseline 174). Fireworks CS records keep FirePixel's measured rule.
 
-Known differences: Fireworks MX widens small text differently (its per-character advances at 8-24 px differ from the
-fonts' by up to ~0.25 px each; closest model so far: hinted at 4x the size, unrounded), and its synthetic bold (a font
-without a bold file) keeps the outlines' curves and is narrower than FireCraft's. Both are on the roadmap.
+Character positions in Fireworks MX text (measured with MX's own Convert to Paths on Arial 8-36 px, 484 letter
+pairs and whole lines): exact advances accumulate along the line and each character lands on the nearest whole pixel;
+pair kerning comes from the `kern` table only (as Windows applies it, not GPOS) and is scaled by the font's cell height
+(`usWinAscent + usWinDescent`, Arial 2288 units), not its em. FireCraft does this for MX text: 494 of 507 positions on
+the test lines exact, the rest within 1 px; across the reference files the mean difference from MX's stored images fell
+from 46% to 35%. Two MX-under-Wine results don't fit and may be Wine's: no kerning for " A" (Wine reports a space pair
+under the no-break space, which shares its glyph) and a 2 px kerning for "St", which Arial doesn't define. Fireworks CS
+records keep FirePixel's per-character rounding. MX's synthetic bold (a font without a bold file) keeps the outlines'
+curves and is narrower than FireCraft's (roadmap).
 
 ## Stroke
 

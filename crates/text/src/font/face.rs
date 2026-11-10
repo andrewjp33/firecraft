@@ -36,6 +36,9 @@ pub struct Font {
     underline: Option<(i16, i16)>,
     num_glyphs: u16,
     typo_ascender: Option<i16>,
+    /// `OS/2.usWinAscent + usWinDescent`: the cell height Windows sizes a font by when asked for a
+    /// positive height.
+    win_cell: Option<u32>,
     kern: OnceLock<KernTables>,
     roman_ascent: OnceLock<f64>,
     outlines: Mutex<HashMap<u16, Arc<GlyphOutline>>>,
@@ -152,6 +155,10 @@ impl Font {
             .and_then(|h| Bytes(h).i16(4))
             .unwrap_or(0);
         let typo_ascender = raw.table(Tag::from_bytes(b"OS/2")).and_then(|o| Bytes(o).i16(68));
+        let win_cell = raw.table(Tag::from_bytes(b"OS/2")).and_then(|o| {
+            let (a, d) = (Bytes(o).i16(74)? as u16, Bytes(o).i16(76)? as u16);
+            (a > 0 || d > 0).then_some(u32::from(a) + u32::from(d))
+        });
         let ideo = raw.table(Tag::from_bytes(b"BASE")).and_then(base_ideo);
         let underline = face.underline_metrics().map(|m| (m.position, m.thickness));
         let num_glyphs = face.number_of_glyphs();
@@ -167,6 +174,7 @@ impl Font {
             underline,
             num_glyphs,
             typo_ascender,
+            win_cell,
             kern: OnceLock::new(),
             roman_ascent: OnceLock::new(),
             outlines: Mutex::new(HashMap::new()),
@@ -257,6 +265,31 @@ impl Font {
                 )
             })
             .get(g1, g2) as i32
+    }
+
+    /// How many pixels a font unit of kerning is worth at `size` in Fireworks MX: Windows' kerning
+    /// pairs for a font sized by its cell (`usWinAscent + usWinDescent`), not its em (measured on
+    /// Arial 12-36: pairs of -152 units give -2 px at 36, not -3).
+    pub fn kerning_scale(&self, size: f64) -> f64 {
+        let units = self
+            .win_cell
+            .map_or(f64::from(self.units_per_em), f64::from)
+            .max(1.0);
+        size / units
+    }
+
+    /// The `kern` table's kerning alone (Fireworks MX, through Windows' GDI, ignores GPOS).
+    pub fn legacy_kerning(&self, g1: u16, g2: u16) -> i32 {
+        self.kern
+            .get_or_init(|| {
+                let face = self.face();
+                let raw = face.as_ref().map(|f| f.raw_face());
+                KernTables::parse(
+                    raw.and_then(|r| r.table(Tag::from_bytes(b"GPOS"))),
+                    raw.and_then(|r| r.table(Tag::from_bytes(b"kern"))),
+                )
+            })
+            .get_legacy(g1, g2) as i32
     }
 
     /// Umriss einer Glyphe (Font-Einheiten, y nach oben), zwischengespeichert.

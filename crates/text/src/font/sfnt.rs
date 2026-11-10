@@ -164,18 +164,26 @@ enum PairSubtable {
 pub(crate) struct KernTables {
     gpos: Vec<PairSubtable>,
     kern: HashMap<(u16, u16), i16>,
+    /// The `kern` table on its own, as Windows' GDI applies it (Fireworks MX).
+    legacy: HashMap<(u16, u16), i16>,
 }
 
 impl KernTables {
     /// Liest GPOS und `kern` (beide optional).
     pub fn parse(gpos: Option<&[u8]>, kern: Option<&[u8]>) -> Self {
         let gpos = gpos.map(parse_gpos_pairs).unwrap_or_default();
+        let legacy: HashMap<(u16, u16), i16> = kern.map(parse_kern).unwrap_or_default();
         let kern = if gpos.is_empty() {
-            kern.map(parse_kern).unwrap_or_default()
+            legacy.clone()
         } else {
             HashMap::new()
         };
-        Self { gpos, kern }
+        Self { gpos, kern, legacy }
+    }
+
+    /// The `kern` table's value for the pair, whatever GPOS says.
+    pub fn get_legacy(&self, g1: u16, g2: u16) -> i16 {
+        self.legacy.get(&(g1, g2)).copied().unwrap_or(0)
     }
 
     /// Kerning des Paars (g1, g2) in Font-Einheiten (XAdvance der ersten Glyphe).

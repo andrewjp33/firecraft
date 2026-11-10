@@ -283,6 +283,12 @@ impl<'a> Builder<'a> {
     /// Positionieren.
     fn advances(&self, items: &mut [Item], unrounded: bool) {
         let n = items.len();
+        // Fireworks MX (through Windows): exact advances accumulate along the line and each
+        // character lands on the nearest whole pixel; the `kern` table's pair kerning is scaled by
+        // the font's cell height (measured on Arial 8-36 px: 494 of 507 positions exact, the
+        // rest within 1 px).
+        let mx = self.block.em_box_lines && !unrounded;
+        let mut exact = 0.0f64;
         for i in 0..n {
             let a = self.attrs(items[i].run).clone();
             let k = a.size / items[i].font.units_per_em() as f64;
@@ -292,12 +298,26 @@ impl<'a> Builder<'a> {
                 items[i].adv = 0.0;
                 continue;
             }
+            let next = items.get(i + 1).filter(|nx| {
+                !nx.tab && Arc::ptr_eq(&nx.font, &items[i].font) && self.attrs(nx.run).size == a.size
+            });
+            let extra = if a.bold { FAUX_BOLD_ADVANCE * a.size } else { 0.0 };
+            if mx && items[i].hb_advance.is_none() {
+                let font = &items[i].font;
+                let kern = match next {
+                    Some(nx) if items[i].kern_on => font.legacy_kerning(items[i].gid, nx.gid),
+                    _ => 0,
+                };
+                let v = (font.advance(items[i].gid) as f64 * k + extra) * a.h_scale
+                    + kern as f64 * font.kerning_scale(a.size) * a.h_scale
+                    + trk;
+                items[i].adv = (exact + v + 0.5).floor() - (exact + 0.5).floor();
+                exact += v;
+                continue;
+            }
             let base = match items[i].hb_advance {
                 Some((adv, _, _)) => adv as f64,
                 None => {
-                    let next = items.get(i + 1).filter(|nx| {
-                        !nx.tab && Arc::ptr_eq(&nx.font, &items[i].font) && self.attrs(nx.run).size == a.size
-                    });
                     let kern = match next {
                         Some(nx) if items[i].kern_on => items[i].font.kerning(items[i].gid, nx.gid),
                         _ => 0,
@@ -305,7 +325,6 @@ impl<'a> Builder<'a> {
                     items[i].font.advance(items[i].gid) as f64 + kern as f64
                 }
             };
-            let extra = if a.bold { FAUX_BOLD_ADVANCE * a.size } else { 0.0 };
             let v = (base * k + extra) * a.h_scale;
             items[i].adv = if unrounded {
                 v + trk
