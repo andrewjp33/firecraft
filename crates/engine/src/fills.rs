@@ -987,6 +987,72 @@ mod tests {
         assert_eq!(warped, d.doc.render(0));
     }
 
+    /// Fireworks MX lays fill textures inside a mapped perspective symbol on the canvas: every
+    /// tile of mechscene2's floor shows its stripes in one phase, whatever each tile's own origin.
+    #[test]
+    fn textures_in_a_mapped_perspective_symbol_share_the_canvas_phase() {
+        use firecraft_doc::{Layer, Symbol, SymbolKind, Texture};
+        use firecraft_raster::transform::Affine;
+        let mut d = DocState::new(Document::new(320, 120, 72.0, None));
+        let o = ToolOptions {
+            stroke: None,
+            fill: Some(Rgba::new(100, 100, 100, 255)),
+            ..ToolOptions::default()
+        };
+        d.add_shape((20.0, 20.0, 120.0, 100.0), false, &o);
+        d.add_shape((200.0, 20.0, 300.0, 100.0), false, &o);
+        let stripes = Texture {
+            name: "stripes".into(),
+            width: 1,
+            height: 3,
+            mask: std::sync::Arc::new(vec![255, 0, 255]),
+        };
+        let mut layer = Layer::new("L");
+        for (i, e) in d.doc.layers[0].elements(0).iter().enumerate() {
+            let mut e = e.clone();
+            if let ElementKind::Path(p) = &mut e.kind {
+                // Origins one row apart: drawn apart, their stripes would be out of phase.
+                p.texture_origin = Some((0.0, i as f64));
+                let f = p.fill.as_mut().expect("a fill");
+                f.texture = Some(stripes.clone());
+                f.texture_amount = 1000;
+            }
+            if let Some(v) = layer.elements_mut(0) {
+                v.push(e);
+            }
+        }
+        d.doc.symbols = std::sync::Arc::new(vec![Symbol {
+            id: 7,
+            name: "S".into(),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer],
+            frames: 1,
+            nine: None,
+            raw: None,
+        }]);
+        if let Some(e) = d.doc.layers[0].elements_mut(0) {
+            e.truncate(1);
+            e[0] = Element::new(ElementKind::Instance {
+                symbol: 7,
+                name: "S".into(),
+                matrix: Affine {
+                    g: 0.0005,
+                    ..Affine::IDENTITY
+                },
+                bounds: Some((20.0, 20.0, 280.0, 80.0)),
+            });
+        }
+        d.doc.mx_perspective = true;
+        let image = d.doc.render(0);
+        let light_row = |x: i64| {
+            (40..43)
+                .max_by_key(|&y| image.get(x, y).map_or(0, |p| p.r))
+                .expect("rows")
+        };
+        assert_eq!(light_row(60) % 3, light_row(240) % 3);
+        assert_eq!(light_row(60) % 3, 1, "anchored at the canvas origin");
+    }
+
     #[test]
     fn editing_a_dither_colour_makes_the_source_their_average() {
         // Fireworks MX: #000033 and #ffffff gave a fill colour of #808099.

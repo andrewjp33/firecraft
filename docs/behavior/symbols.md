@@ -95,3 +95,10 @@ change with scale, so those symbols warp at their own resolution.
 size, so a gradient's bands tighten towards the far side and a 10-pixel bevel stays 10 pixels. Measured on Ripple
 and Folds gradients, with Color Fill and Inner Bevel. Strokes keep their width under real perspective but scale
 with a plain matrix (measured with Confetti: a perspective term of 0.00001 still scales, 0.0002 doesn't). Only 9-slice guides, not a Fireworks MX feature, keep the warp.
+Fill textures aren't mapped: they're laid on the canvas, anchored at its origin, so every object in the
+symbol shares one pattern. Measured with mechscene2's floor of 16 tiles with *Line-Horiz 1*: Fireworks MX
+draws all the tiles' stripes in one phase, the same with the tiles reordered, or only the first or last kept,
+and with the instance moved 1 or 2 pixels down or 1 right. (Elsewhere a texture is anchored to its object
+and moves with it.)
+Its saved images of some files show the stripes one or two rows off, still the same on every tile; opened
+and saved again, Fireworks MX draws them anchored at the canvas origin.

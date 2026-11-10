@@ -155,6 +155,10 @@ pub struct RenderCtx<'a> {
     /// The symbols being drawn around this point, outermost first (`depth` of them): a symbol
     /// that contains itself, directly or through others, is drawn once, not recursively.
     pub chain: [u32; MAX_SYMBOL_DEPTH as usize],
+    /// Inside a perspective instance mapped the Fireworks MX way, fill textures are anchored to
+    /// the canvas rather than to each path: Fireworks MX draws every tile of mechscene2's floor with
+    /// one stripe phase, the same one wherever the tiles are or in what order.
+    pub canvas_textures: bool,
 }
 
 impl RenderCtx<'_> {
@@ -165,6 +169,7 @@ impl RenderCtx<'_> {
         mx_perspective: false,
         math: ColorMath::Classic,
         chain: [0; MAX_SYMBOL_DEPTH as usize],
+        canvas_textures: false,
     };
 
     /// Inside `el` (an instance: its symbol joins the chain).
@@ -360,6 +365,7 @@ impl Document {
             depth: 0,
             math: self.color_math,
             chain: [0; crate::MAX_SYMBOL_DEPTH as usize],
+            canvas_textures: false,
         };
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
             for el in layer.elements(frame) {

@@ -61,6 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             depth: 0,
             math: doc.color_math,
             chain: [0; firecraft_doc::MAX_SYMBOL_DEPTH as usize],
+            canvas_textures: false,
         };
         for l in &doc.layers {
             for el in l.elements(0) {

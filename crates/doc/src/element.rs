@@ -1231,12 +1231,12 @@ impl Element {
                     } else {
                         fill_polygons_with(&mut layer, &polys, f.anti_alias, &shade);
                     }
-                    apply_fill_texture(
-                        &mut layer,
-                        f,
-                        crate::stroke_fw::texture_origin(p),
-                        (ox + x0, oy + y0),
-                    );
+                    let origin = if ctx.canvas_textures {
+                        (0.0, 0.0)
+                    } else {
+                        crate::stroke_fw::texture_origin(p)
+                    };
+                    apply_fill_texture(&mut layer, f, origin, (ox + x0, oy + y0));
                 }
                 match stroke_layer {
                     Some(mut st) => {
@@ -1361,9 +1361,11 @@ impl Element {
                 }
                 Some((layer, 0, 0))
             }
-            ElementKind::Instance { .. } => {
+            ElementKind::Instance { matrix, .. } => {
                 let children = self.instance_elements(ctx)?;
-                let inner = ctx.deeper(self);
+                let mut inner = ctx.deeper(self);
+                // Only perspective instances mapped the Fireworks MX way reach here unwarped.
+                inner.canvas_textures |= !matrix.is_affine();
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
                 children
                     .iter()

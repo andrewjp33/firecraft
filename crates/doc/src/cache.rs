@@ -199,6 +199,7 @@ impl Document {
             depth: 0,
             math: self.color_math,
             chain: [0; crate::MAX_SYMBOL_DEPTH as usize],
+            canvas_textures: false,
         };
         let canvas = self.canvas.unwrap_or(Rgba::TRANSPARENT);
         cache.last = (0, 0);
@@ -378,6 +379,7 @@ pub(crate) fn contents_key(children: &[Element], ctx: &RenderCtx, detail: f64) -
         c.blend.fw_code().hash(&mut h);
     }
     (ctx.frame, ctx.depth, ctx.math as u8, detail.to_bits()).hash(&mut h);
+    ctx.canvas_textures.hash(&mut h);
     h.finish()
 }
 
@@ -469,6 +471,7 @@ fn fingerprint(el: &Element, ctx: &RenderCtx) -> u64 {
     ctx.frame.hash(&mut h);
     ctx.depth.hash(&mut h);
     (ctx.math as u8).hash(&mut h);
+    ctx.canvas_textures.hash(&mut h);
     h.finish()
 }
 

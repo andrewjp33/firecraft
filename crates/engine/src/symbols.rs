@@ -294,6 +294,7 @@ impl DocState {
             depth: 0,
             math: self.doc.color_math,
             chain: [0; firecraft_doc::MAX_SYMBOL_DEPTH as usize],
+            canvas_textures: false,
         };
         // Each instance's objects, in place (instances' own opacity/blend/effects are dropped,
         // as Fireworks does).
