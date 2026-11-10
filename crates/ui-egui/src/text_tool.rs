@@ -35,6 +35,10 @@ pub struct TextTool {
     pub editing: Option<Editing>,
     /// Where a press that may become a new text block started, and in which document.
     new_at: Option<(u64, f64, f64)>,
+    /// The canvas taking the keyboard while text is edited.
+    pub(crate) focus: Option<egui::Id>,
+    /// Text > Size > Other...: the size being typed.
+    pub(crate) other_size: Option<f64>,
 }
 
 impl TextTool {
@@ -377,6 +381,7 @@ pub fn canvas(
         let focused = ctx.memory(egui::Memory::focused);
         if focused.is_none() || focused == Some(resp.id) {
             resp.request_focus();
+            state.focus = Some(resp.id);
             ctx.memory_mut(|m| {
                 m.set_focus_lock_filter(
                     resp.id,
@@ -435,7 +440,7 @@ pub fn canvas(
 
 /// What the controls show: the selection in the text being edited, a selected text object, or new
 /// text's formatting.
-fn current_style(app: &FireCraftApp) -> (TextRun, u8, bool) {
+pub(crate) fn current_style(app: &FireCraftApp) -> (TextRun, u8, bool) {
     let o = &app.session.options;
     let tool_style = (o.text_style.clone(), o.text_anti_alias, o.text_auto_kern);
     let Some(d) = app.session.active_doc() else {
@@ -460,7 +465,7 @@ fn current_style(app: &FireCraftApp) -> (TextRun, u8, bool) {
 }
 
 /// Apply a formatting change to whatever the controls show.
-fn apply(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut TextRun)) {
+pub(crate) fn apply(app: &mut FireCraftApp, label: &str, f: &dyn Fn(&mut TextRun)) {
     let FireCraftApp {
         session, text_tool, ..
     } = app;

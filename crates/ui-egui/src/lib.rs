@@ -33,6 +33,7 @@ mod panels;
 mod path_tool;
 mod stroke_dialog;
 mod stroke_panel;
+mod text_menu;
 mod text_tool;
 mod theme;
 mod tools_panel;
@@ -830,6 +831,7 @@ impl FireCraftApp {
             .frame(theme::workspace_frame())
             .show(ui, |ui| canvas::workspace(self, ui));
         dialogs::show(self, &ctx);
+        text_menu::dialogs(self, &ctx);
         gradient_ui::popup(self, &ctx);
         fill_ui::window(self, &ctx);
         fill_ui::stroke_window(self, &ctx);

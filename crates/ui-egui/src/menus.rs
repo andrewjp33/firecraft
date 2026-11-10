@@ -10,7 +10,7 @@ use firecraft_engine::{Align, Arrange, Tool, Turn};
 use crate::FireCraftApp;
 use crate::SaveTarget;
 
-fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
+pub(crate) fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
     let clicked = ui
         .add_enabled(enabled, Button::new(label).shortcut_text(shortcut))
         .clicked();
@@ -20,7 +20,7 @@ fn item(ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool) -> bool {
     clicked
 }
 
-fn todo(ui: &mut egui::Ui, label: &str, shortcut: &str) {
+pub(crate) fn todo(ui: &mut egui::Ui, label: &str, shortcut: &str) {
     ui.add_enabled(false, Button::new(label).shortcut_text(shortcut))
         .on_disabled_hover_text("Not implemented yet");
 }
@@ -293,20 +293,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             let _ = several;
         });
-        ui.menu_button("Text", |ui| {
-            for l in [
-                "Font",
-                "Size",
-                "Style",
-                "Align",
-                "Editor...",
-                "Attach to Path",
-                "Convert to Paths",
-                "Check Spelling...",
-            ] {
-                todo(ui, l, "");
-            }
-        });
+        ui.menu_button("Text", |ui| crate::text_menu::menu(app, ui));
         ui.menu_button("Commands", |ui| {
             todo(ui, "Manage Saved Commands...", "");
             todo(ui, "Run Script...", "");
@@ -480,6 +467,13 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     // A colour pop-up takes the keyboard (typed HEX/RGB values, Enter, Esc).
     if crate::fpui::color_picker::any_open(ctx) {
         return;
+    }
+    // Text formatting keys work while text is being edited too.
+    let editing_text = app.text_tool.editing.is_some()
+        && app.text_tool.focus.is_some()
+        && ctx.memory(egui::Memory::focused) == app.text_tool.focus;
+    if editing_text || !ctx.egui_wants_keyboard_input() {
+        crate::text_menu::shortcuts(app, ctx);
     }
     // Don't steal keys from text fields.
     if ctx.egui_wants_keyboard_input() {

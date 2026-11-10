@@ -25,6 +25,16 @@ A text object shows the image saved with it (`IMGv`) until it is edited, so a fi
 fonts are installed. Editing draws into that same image, and the rest of the renderer doesn't know the difference.
 An unedited object keeps Fireworks' record on save, apart from its position.
 
+## Text menu
+
+Read from Fireworks MX's menu resource and shortcut file, and checked in MX: Font, Size (Other..., Smaller and Larger
+change by 1 pt, presets 8-120), Style and Align are always enabled and change the text being edited, the selected text
+objects, or the Text tool's settings, with the current values checked. Shortcuts: Plain/Bold/Italic/Underline
+Ctrl+Alt+Shift+P/B/I/U (also F5/F6/F7 for the first three), Align Left/Centered/Right/Justified/Stretched
+Ctrl+Alt+Shift+L/C/R/J/S; they work while editing too. Editor... and Convert to Paths need text selected, Attach to Path
+text and a path (Ctrl+Shift+Y), Convert to Paths is Ctrl+Shift+P, Check Spelling Shift+F7. The vertical Align items,
+Orientation and Reverse Direction are for vertical text and text on a path.
+
 ## Font list
 
 While the font list is open, typing finds a font by name, as in Fireworks: a letter goes to the next font starting with
