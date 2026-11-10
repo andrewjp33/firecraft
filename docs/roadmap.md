@@ -26,6 +26,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 - Live Effects editor in the Property inspector
 - Symbols: Convert to Symbol, Library, Symbol Editor, Break Apart, 9-slice symbols (`NGSv`)
 - Clean-room oracle tooling and UI test helpers (`tools/fwmx-oracle`)
+- Opening flat images as Fireworks MX does: PNG, JPEG, GIF (animated GIFs as frames), BMP, TIFF,
+  Targa, plus WebP, JPEG XL and animated PNG ([behavior/opening-files.md](behavior/opening-files.md))
 
 ## Next
 
@@ -52,7 +54,18 @@ Other items keep their numbers.
 12. **Remember last-used values across restarts**: Fireworks keeps the last used colours, stroke settings
     and even effect slider values as preferences, and shows them next time, after an app restart too
 13. JavaScript API compatibility for `.jsf` commands (Commands menu)
-14. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
+14. **Opening and importing other applications' files**, in this order:
+    1. **Photoshop (PSD)**, highest priority: layers as bitmap objects with names, visibility,
+       opacity and blend modes; layer groups; text layers as editable text where possible
+       (otherwise their pixels); masks. Measure what Fireworks MX makes of a PSD with the oracle
+       first.
+    2. **Illustrator (AI)**: paths, fills and strokes from PDF-based `.ai` files (and the older
+       PostScript ones), as Fireworks' vector import does.
+    3. **FreeHand (FH)**: FreeHand documents' paths, text and layers (FreeHand 8-11; Fireworks MX
+       imports them).
+    These open as documents and also come in through **File > Import** (not built yet; placing an
+    image on the canvas with a click or drag, as in Fireworks).
+15. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
 
 ## Lowest priority

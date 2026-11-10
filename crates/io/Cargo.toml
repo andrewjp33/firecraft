@@ -11,9 +11,21 @@ workspace = true
 
 [dependencies]
 firecraft-fwpng = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["jpeg", "bmp", "tiff"] }
+# Flat images opened as documents (and pattern/texture files).
+image = { version = "0.25", default-features = false, features = ["jpeg", "bmp", "tiff", "tga", "webp", "png"] }
+# GIF frames as stored (offsets, disposal), which Fireworks keeps when it opens an animated GIF.
+gif = "0.14"
+# Resolution tags, which `image` doesn't report.
+tiff = "0.11"
 firecraft-raster = { workspace = true }
 firecraft-doc = { workspace = true }
 png = { workspace = true }
 weezl = { workspace = true }
 thiserror = { workspace = true }
+
+# JPEG XL, colour-managed to sRGB (moxcms is pure Rust). Multi-threaded on the desktop; the browser build decodes on one thread.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+jxl-oxide = { version = "0.12", features = ["moxcms"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+jxl-oxide = { version = "0.12", default-features = false, features = ["moxcms"] }

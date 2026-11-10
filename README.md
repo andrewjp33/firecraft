@@ -66,6 +66,10 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   layers, frames, bitmaps, paths, text, groups, masks, symbols and effects
   ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet
   (slices, presets) is carried through a save untouched.
+- **Opening images**: PNG, JPEG, GIF, BMP, TIFF, Targa, WebP and JPEG XL open as Fireworks MX
+  opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;
+  the file's resolution kept). Saving never overwrites the original: it asks for a `.png` name
+  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
 - **Rendering**:
   - Blend modes and all 11 MX gradient types.
   - Masks, symbol instances (with perspective) and animation frames.
@@ -126,6 +130,8 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Slices, hotspots and HTML export.
 - Styles and the Filters menu.
 - `.jsf` commands.
+- Opening/importing Photoshop (PSD) files first, then Illustrator (AI) and FreeHand (FH); File >
+  Import.
 - Check Spelling, last.
 
 ### File compatibility

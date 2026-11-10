@@ -417,15 +417,15 @@ pub fn save(app: &mut FireCraftApp, save_as: bool) {
         Ok(b) => b,
         Err(e) => return app.error(format!("Save failed: {e}")),
     };
-    let existing = d
-        .doc
-        .path
-        .clone()
-        .filter(|p| !save_as && (p.contains('/') || p.contains('\\')));
+    // A document opened from a JPEG, GIF... is saved as a new Fireworks PNG, never over the
+    // original (Fireworks asks for a name too).
+    let existing = d.doc.path.clone().filter(|p| {
+        !save_as && (p.contains('/') || p.contains('\\')) && firecraft_io::saves_in_place(p)
+    });
     let id = d.id;
     let status = match existing {
         Some(path) => app.platform.write_file(&path, &bytes),
-        None => app.platform.save_file(&d.doc.title(), &bytes),
+        None => app.platform.save_file(&firecraft_io::png_name(&d.doc.title()), &bytes),
     };
     app.save_status(SaveTarget::Doc(id), status);
 }
@@ -435,7 +435,7 @@ pub fn export(app: &mut FireCraftApp) {
         return;
     }
     let Some(d) = app.session.active_doc() else { return };
-    let name = d.doc.title().trim_end_matches(".png").to_owned() + "-export.png";
+    let name = firecraft_io::png_name(&d.doc.title()).trim_end_matches(".png").to_owned() + "-export.png";
     match firecraft_io::export_png(&d.doc) {
         Ok(bytes) => {
             let status = app.platform.save_file(&name, &bytes);

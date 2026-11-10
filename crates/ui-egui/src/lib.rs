@@ -44,6 +44,8 @@ use std::collections::HashMap;
 
 use egui::{Color32, Pos2, TextureHandle, Vec2};
 use firecraft_engine::Session;
+/// File extensions File > Open reads (for the host's file dialog).
+pub use firecraft_io::formats::OPEN_EXTENSIONS;
 
 /// How a save went, as far as the host knows when it returns.
 #[derive(Clone, Debug, PartialEq, Eq)]

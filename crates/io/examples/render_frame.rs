@@ -4,7 +4,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let [input, frame, out] = a.as_slice() else {
         return Err("usage: render_frame <in.png> <frame> <out.png>".into());
     };
-    let doc = firecraft_io::open(&std::fs::read(input)?, None)?;
+    let doc = firecraft_io::open(&std::fs::read(input)?, Some(input.clone()))?;
     let f: usize = frame.parse::<usize>()?.saturating_sub(1);
     println!(
         "{} frames; delays (1/100 s): {:?}",

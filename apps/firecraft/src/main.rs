@@ -23,7 +23,8 @@ struct Desktop;
 impl Platform for Desktop {
     fn open_file(&mut self) -> Option<(String, Vec<u8>)> {
         let path = rfd::FileDialog::new()
-            .add_filter("Images", &["png"])
+            .add_filter("Images", &firecraft_ui_egui::OPEN_EXTENSIONS)
+            .add_filter("Fireworks PNG", &["png"])
             .add_filter("All files", &["*"])
             .pick_file()?;
         let bytes = std::fs::read(&path).ok()?;

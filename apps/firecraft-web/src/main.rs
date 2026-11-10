@@ -20,6 +20,20 @@ mod web {
     #[wasm_bindgen(inline_js = r#"
 const TYPES = [{ description: "Fireworks PNG", accept: { "image/png": [".png"] } }];
 const IMAGE_TYPES = [{ description: "Images", accept: { "image/png": [".png"], "image/gif": [".gif"] } }];
+// Everything File > Open reads (firecraft_io::formats::OPEN_EXTENSIONS).
+const OPEN_TYPES = [{
+  description: "Images",
+  accept: {
+    "image/png": [".png"],
+    "image/jpeg": [".jpg", ".jpeg", ".jpe", ".jfif"],
+    "image/gif": [".gif"],
+    "image/bmp": [".bmp"],
+    "image/tiff": [".tif", ".tiff"],
+    "image/x-tga": [".tga"],
+    "image/webp": [".webp"],
+    "image/jxl": [".jxl"],
+  },
+}];
 
 // null when the user cancelled.
 async function orCancelled(picker) {
@@ -55,7 +69,7 @@ async function write(handle, bytes) {
 
 // { name, bytes, handle? }, or null when cancelled.
 export async function pickAndRead(images) {
-  const types = images ? IMAGE_TYPES : TYPES;
+  const types = images ? IMAGE_TYPES : OPEN_TYPES;
   let handle, file;
   if (window.showOpenFilePicker) {
     const picked = await orCancelled(window.showOpenFilePicker({ types }));
