@@ -510,8 +510,8 @@ fn quantized(text: &str) -> String {
 }
 
 fn hash_image(img: &RgbaImage, h: &mut DefaultHasher) {
-    // Pixels are shared copy-on-write: the same buffer means the same pixels.
-    (img.pixels().as_ptr() as usize, img.width(), img.height()).hash(h);
+    // The same stamp means the same pixels (addresses can be reused once freed).
+    (img.stamp(), img.width(), img.height()).hash(h);
 }
 
 fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {

@@ -102,11 +102,37 @@ impl Rgba {
 
 /// A rectangular RGBA image. Pixels are shared copy-on-write: cloning is cheap (undo snapshots
 /// share unchanged bitmaps) and the first write to a shared image copies it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct RgbaImage {
     width: u32,
     height: u32,
     pixels: std::sync::Arc<Vec<Rgba>>,
+    /// See [`stamp`](Self::stamp).
+    stamp: u64,
+}
+
+impl PartialEq for RgbaImage {
+    fn eq(&self, other: &Self) -> bool {
+        (self.width, self.height) == (other.width, other.height) && self.pixels == other.pixels
+    }
+}
+
+impl Eq for RgbaImage {}
+
+impl std::fmt::Debug for RgbaImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RgbaImage")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("pixels", &self.pixels)
+            .finish()
+    }
+}
+
+/// A stamp no image has had yet.
+fn fresh_stamp() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Images larger than this many pixels are refused (64k x 64k guards hostile sizes).
@@ -121,12 +147,14 @@ impl RgbaImage {
                 width: 0,
                 height: 0,
                 pixels: Default::default(),
+                stamp: fresh_stamp(),
             };
         }
         Self {
             width,
             height,
             pixels: std::sync::Arc::new(vec![fill; n as usize]),
+            stamp: fresh_stamp(),
         }
     }
 
@@ -136,6 +164,7 @@ impl RgbaImage {
             width,
             height,
             pixels: std::sync::Arc::new(pixels),
+            stamp: fresh_stamp(),
         })
     }
 
@@ -162,7 +191,21 @@ impl RgbaImage {
         &self.pixels
     }
     pub fn pixels_mut(&mut self) -> &mut [Rgba] {
-        std::sync::Arc::make_mut(&mut self.pixels).as_mut_slice()
+        self.writable().as_mut_slice()
+    }
+
+    /// Identifies these pixels: images with the same stamp have the same pixels (copies share
+    /// it), and every write gives a new one. Unlike the buffer's address, a stamp is never
+    /// reused, so caches can key on it safely (a freed buffer's address can come back for
+    /// different pixels).
+    pub fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// The pixels, to change: copied first if shared, and stamped anew.
+    fn writable(&mut self) -> &mut Vec<Rgba> {
+        self.stamp = fresh_stamp();
+        std::sync::Arc::make_mut(&mut self.pixels)
     }
 
     fn index(&self, x: i64, y: i64) -> Option<usize> {
@@ -176,7 +219,7 @@ impl RgbaImage {
 
     pub fn set(&mut self, x: i64, y: i64, p: Rgba) {
         if let Some(i) = self.index(x, y) {
-            if let Some(d) = std::sync::Arc::make_mut(&mut self.pixels).get_mut(i) {
+            if let Some(d) = self.writable().get_mut(i) {
                 *d = p;
             }
         }
@@ -185,10 +228,7 @@ impl RgbaImage {
     /// Remove the selected pixels (Edit > Clear / Delete). Partial coverage scales alpha;
     /// fully removed pixels become [`Rgba::CLEARED`] as in Fireworks MX.
     pub fn clear_masked(&mut self, mask: &Mask) {
-        for (p, &m) in std::sync::Arc::make_mut(&mut self.pixels)
-            .iter_mut()
-            .zip(mask.data())
-        {
+        for (p, &m) in self.writable().iter_mut().zip(mask.data()) {
             if m == 0 {
                 continue;
             }
@@ -221,6 +261,7 @@ impl RgbaImage {
             width: self.width,
             height: self.height,
             pixels: std::sync::Arc::new(pixels),
+            stamp: fresh_stamp(),
         }
     }
 
@@ -263,7 +304,7 @@ impl RgbaImage {
             return;
         };
         let (sw, tw) = (src.width as usize, self.width as usize);
-        let dst = std::sync::Arc::make_mut(&mut self.pixels);
+        let dst = self.writable();
         for row in 0..h {
             let s0 = (sy + row) * sw + sx;
             let t0 = (ty + row) * tw + tx;
@@ -348,6 +389,32 @@ mod tests {
         b.set(0, 0, Rgba::BLACK);
         assert_eq!(a.get(0, 0), Some(Rgba::WHITE));
         assert_eq!(b.get(0, 0), Some(Rgba::BLACK));
+    }
+
+    /// Caches key images on their stamp: a buffer's address came back for different pixels once
+    /// the old one was freed (gym3 on Windows: align, undo, then a stroke edit showed the
+    /// undone alignment).
+    #[test]
+    fn stamps_follow_the_pixels_not_the_buffer() {
+        let a = RgbaImage::new(4, 4, Rgba::WHITE);
+        let mut b = a.clone();
+        assert_eq!(a.stamp(), b.stamp(), "a copy shares the pixels");
+        b.set(0, 0, Rgba::BLACK);
+        assert_ne!(a.stamp(), b.stamp(), "a write");
+        // Written in place (the buffer not shared, so not moved): still a new stamp.
+        let before = b.stamp();
+        b.pixels_mut()[1] = Rgba::BLACK;
+        assert_ne!(before, b.stamp());
+        // Equal pixels made separately are equal images, with their own stamps.
+        let c = RgbaImage::new(4, 4, Rgba::WHITE);
+        assert_eq!(a, c);
+        assert_ne!(a.stamp(), c.stamp());
+        // A buffer freed and allocated again for other pixels: a new stamp whatever its address.
+        let first = RgbaImage::new(64, 64, Rgba::WHITE);
+        let old = first.stamp();
+        drop(first);
+        let second = RgbaImage::new(64, 64, Rgba::BLACK);
+        assert_ne!(old, second.stamp());
     }
 
     #[test]
