@@ -1119,22 +1119,21 @@ impl DocState {
 
     fn apply_stroke_color(s: &mut DocState, refs: &[ElementRef], color: Option<Rgba>) {
         for &r in refs {
-            if let Some(Element {
-                kind: ElementKind::Path(p),
-                ..
-            }) = s.element_mut(r)
-            {
-                match (color, &mut p.stroke) {
-                    (None, st) => *st = None,
-                    (Some(c), Some(st)) => st.color = c,
-                    (Some(c), st) => {
-                        *st = Some(Stroke::from_preset(
-                            c,
-                            firecraft_doc::brush_presets::default_index(),
-                            1.0,
-                        ))
-                    }
+            let Some(e) = s.element_mut(r) else { continue };
+            let Some(slot) = e.stroke_slot_mut() else { continue };
+            match (color, slot) {
+                (None, st) => *st = None,
+                (Some(c), Some(st)) => st.color = c,
+                (Some(c), st) => {
+                    *st = Some(Stroke::from_preset(
+                        c,
+                        firecraft_doc::brush_presets::default_index(),
+                        1.0,
+                    ))
                 }
+            }
+            if let ElementKind::Text(t) = &mut e.kind {
+                crate::text::restyle(t);
             }
         }
     }
@@ -1177,12 +1176,13 @@ impl DocState {
     pub fn edit_stroke(&mut self, label: &str, live: bool, f: impl Fn(&mut Stroke)) {
         let apply = |s: &mut DocState| {
             for r in s.selection.clone() {
-                if let Some(Element {
-                    kind: ElementKind::Path(Path { stroke: Some(st), .. }),
-                    ..
-                }) = s.element_mut(r)
-                {
-                    f(st);
+                let Some(e) = s.element_mut(r) else { continue };
+                let Some(Some(st)) = e.stroke_slot_mut() else {
+                    continue;
+                };
+                f(st);
+                if let ElementKind::Text(t) = &mut e.kind {
+                    crate::text::restyle(t);
                 }
             }
         };
@@ -1224,26 +1224,25 @@ impl DocState {
         let color = opts.stroke.unwrap_or(Rgba::BLACK);
         self.edit("Stroke", |s| {
             for r in refs {
-                if let Some(Element {
-                    kind: ElementKind::Path(p),
-                    ..
-                }) = s.element_mut(r)
+                let Some(e) = s.element_mut(r) else { continue };
+                let Some(slot) = e.stroke_slot_mut() else { continue };
+                match slot {
+                    Some(st) => st.set_preset(index),
+                    None => {
+                        let d = firecraft_doc::brush_presets::BRUSH_PRESETS
+                            .get(index)
+                            .map_or(1.0, |b| b.diameter as f64);
+                        *slot = Some(Stroke::from_preset(color, index, d));
+                    }
+                }
+                // Textured presets need a texture (Fireworks always keeps one).
+                if let Some(st) = slot
+                    && st.texture.is_none()
                 {
-                    match &mut p.stroke {
-                        Some(st) => st.set_preset(index),
-                        None => {
-                            let d = firecraft_doc::brush_presets::BRUSH_PRESETS
-                                .get(index)
-                                .map_or(1.0, |b| b.diameter as f64);
-                            p.stroke = Some(Stroke::from_preset(color, index, d));
-                        }
-                    }
-                    // Textured presets need a texture (Fireworks always keeps one).
-                    if let Some(st) = &mut p.stroke
-                        && st.texture.is_none()
-                    {
-                        st.texture.clone_from(&opts.stroke_texture);
-                    }
+                    st.texture.clone_from(&opts.stroke_texture);
+                }
+                if let ElementKind::Text(t) = &mut e.kind {
+                    crate::text::restyle(t);
                 }
             }
         });

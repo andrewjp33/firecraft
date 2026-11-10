@@ -610,7 +610,8 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
     }
     // Fireworks CS's stroke controls (FirePixel's layout).
-    if is_path {
+    let is_text = matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_)));
+    if is_path || is_text {
         crate::stroke_panel::show(app, ui, crate::stroke_panel::Target::Selection);
         ui.separator();
     }

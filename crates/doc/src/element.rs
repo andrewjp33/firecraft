@@ -569,6 +569,8 @@ pub struct Text {
     /// The text's fill when it isn't plain colour: a gradient, pattern or web dither shades the
     /// glyphs, and a texture applies over them. `None`: each run's colour.
     pub fill: Option<Fill>,
+    /// A stroke along the characters' outlines (the brush, placement and texture of a path's).
+    pub stroke: Option<Stroke>,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates
@@ -715,6 +717,24 @@ impl Element {
         match &self.kind {
             ElementKind::Path(p) => Some(p.fill.as_ref()),
             ElementKind::Text(t) => Some(t.fill.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// The stroke of a path or text object (`None` for other kinds; `Some(None)`: no stroke).
+    pub fn stroke_slot(&self) -> Option<Option<&Stroke>> {
+        match &self.kind {
+            ElementKind::Path(p) => Some(p.stroke.as_ref()),
+            ElementKind::Text(t) => Some(t.stroke.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// [`stroke_slot`](Self::stroke_slot), to change.
+    pub fn stroke_slot_mut(&mut self) -> Option<&mut Option<Stroke>> {
+        match &mut self.kind {
+            ElementKind::Path(p) => Some(&mut p.stroke),
+            ElementKind::Text(t) => Some(&mut t.stroke),
             _ => None,
         }
     }

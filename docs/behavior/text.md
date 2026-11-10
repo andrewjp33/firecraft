@@ -86,6 +86,16 @@ Known differences: Fireworks MX widens small text differently (its per-character
 fonts' by up to ~0.25 px each; closest model so far: hinted at 4x the size, unrounded), and its synthetic bold (a font
 without a bold file) keeps the outlines' curves and is narrower than FireCraft's. Both are on the roadmap.
 
+## Stroke
+
+A text object's stroke is stored as a path's (`PATv`'s `BPLv` brush, `BRPi` placement, textures) and edited with the
+same Property inspector controls. Fireworks MX draws stroked text exactly as its Convert to Paths result (checked: MX's
+stroked text and its own converted paths differ by 5 pixels): every character filled from its outline and stroked in
+turn. FireCraft does the same, so stroked text matches MX in all placements and sizes tried (1-6 px inside, centred,
+outside; Arial 36, Prototype 30), and MX redraws FireCraft's saved strokes identically. The characters count as text
+outlines (`PTTi` 1): like MX, a centred stroke of 1 px or less on them is drawn inside, which keeps it crisp. Convert
+to Paths keeps the stroke on each character, marked the same way.
+
 ## Text menu
 
 Read from Fireworks MX's menu resource and shortcut file, and checked in MX: Font, Size (Other..., Smaller and Larger

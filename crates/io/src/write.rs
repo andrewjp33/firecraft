@@ -702,10 +702,16 @@ fn write_text_fill(t: &firecraft_doc::Text, n: &mut Node, w: &mut Writer) {
     let handles = n.child_mut("PAT").and_then(|attrs| {
         let h = put_fill(attrs, f, w);
         put(attrs, Node::int("FCL", to_argb(color)));
+        put_stroke(attrs, t.stroke.as_ref(), w);
+        order_attributes(attrs);
         h
     });
     if let Some(h) = handles {
         put_fill_handles(n, h, w);
+    }
+    // Stroke placement (`BRPi`: 0 inside, 1 centred, 2 outside).
+    if let Some(st) = &t.stroke {
+        put(n, Node::int("BRP", st.placement.min(2) as i64));
     }
 }
 
@@ -1033,6 +1039,47 @@ fn put_fill(attrs: &mut Node, f: &firecraft_doc::Fill, w: &mut Writer) -> Option
     handles
 }
 
+/// Write an object's stroke (or its absence) into its attributes (`PATv`).
+fn put_stroke(attrs: &mut Node, stroke: Option<&firecraft_doc::Stroke>, w: &mut Writer) {
+    match stroke {
+        Some(s) => {
+            put(attrs, Node::int("BCL", to_argb(s.color)));
+            // The file's brush preset, in step with FireCraft's stroke settings; new
+            // strokes get FireCraft's pencil.
+            let mut bpl = s
+                .brush
+                .clone()
+                .or_else(|| attrs.child("BPL").cloned())
+                .unwrap_or_else(|| firecraft_doc::stroke_fw::pencil_preset(s));
+            firecraft_doc::stroke_fw::sync_preset(&mut bpl, s);
+            put(attrs, bpl);
+            if let Some(t) = &s.texture {
+                let txb = texture_node("TXB", t, w);
+                match attrs.children.iter().position(|c| c.is("TXB")) {
+                    Some(i) => attrs.children[i] = txb,
+                    None => {
+                        let at = attrs
+                            .children
+                            .iter()
+                            .rposition(|c| c.is("BPL") || c.is("FPL"))
+                            .map_or(attrs.children.len(), |i| i + 1);
+                        attrs.children.insert(at, txb);
+                    }
+                }
+            }
+        }
+        None => attrs.children.retain(|c| !c.is("BPL")),
+    }
+}
+
+/// Fireworks' order of an object's attributes (others after, as they were).
+fn order_attributes(attrs: &mut Node) {
+    const ORDER: [&str; 6] = ["BCL", "FCL", "BPL", "FPL", "TXB", "TXF"];
+    attrs
+        .children
+        .sort_by_key(|c| ORDER.iter().position(|t| c.is(t)).unwrap_or(ORDER.len()));
+}
+
 type Handles = ((f64, f64), (f64, f64), (f64, f64));
 
 /// Put fill handles (`PSXf`..`PFYf`, document space) on object node `n`.
@@ -1061,17 +1108,23 @@ fn put_fill_handles(n: &mut Node, (s, e, f): Handles, w: &Writer) {
 }
 
 fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
-    let mut n = raw.cloned().unwrap_or_else(|| {
-        Node::vector(
-            "PTH",
-            vec![
-                Node::vector("PAT", vec![]),
-                Node::int("BRP", 1),
-                Node::int("PTT", 0),
-                Node::bool("FOT", false),
-            ],
-        )
-    });
+    let defaults = Node::vector(
+        "PTH",
+        vec![
+            Node::vector("PAT", vec![]),
+            Node::int("BRP", 1),
+            Node::int("PTT", 0),
+            Node::bool("FOT", false),
+        ],
+    );
+    let mut n = raw.cloned().unwrap_or_else(|| defaults.clone());
+    // A partial record (FireCraft's characters from text carry only `PTTi`): the rest from the
+    // defaults, in their order.
+    for (i, d) in defaults.children.iter().enumerate() {
+        if n.child(&String::from_utf8_lossy(&d.tag)[..3]).is_none() {
+            n.children.insert(i.min(n.children.len()), d.clone());
+        }
+    }
     if n.child("RND").is_none() {
         w.next_rnd += 1;
         let at = n
@@ -1123,35 +1176,7 @@ fn write_path(p: &Path, raw: Option<&Node>, w: &mut Writer) -> Node {
             Some(f) => gradient_handles = put_fill(attrs, f, w),
             None => attrs.children.retain(|c| !c.is("FPL")),
         }
-        match &p.stroke {
-            Some(s) => {
-                put(attrs, Node::int("BCL", to_argb(s.color)));
-                // The file's brush preset, in step with FireCraft's stroke settings; new
-                // strokes get FireCraft's pencil.
-                let mut bpl = s
-                    .brush
-                    .clone()
-                    .or_else(|| attrs.child("BPL").cloned())
-                    .unwrap_or_else(|| firecraft_doc::stroke_fw::pencil_preset(s));
-                firecraft_doc::stroke_fw::sync_preset(&mut bpl, s);
-                put(attrs, bpl);
-                if let Some(t) = &s.texture {
-                    let txb = texture_node("TXB", t, w);
-                    match attrs.children.iter().position(|c| c.is("TXB")) {
-                        Some(i) => attrs.children[i] = txb,
-                        None => {
-                            let at = attrs
-                                .children
-                                .iter()
-                                .rposition(|c| c.is("BPL") || c.is("FPL"))
-                                .map_or(attrs.children.len(), |i| i + 1);
-                            attrs.children.insert(at, txb);
-                        }
-                    }
-                }
-            }
-            None => attrs.children.retain(|c| !c.is("BPL")),
-        }
+        put_stroke(attrs, p.stroke.as_ref(), w);
         // Fireworks MX refuses a path whose attributes lack either colour, even when there is no
         // stroke or no fill (verified with tools/fwmx-oracle). Order as Fireworks writes: BCL, FCL.
         if attrs.child("FCL").is_none() {
@@ -1716,6 +1741,35 @@ mod primitive_tests {
             (gradient.start, gradient.end, gradient.side)
         );
         assert_eq!(g.colors, gradient.colors);
+    }
+
+    #[test]
+    fn a_text_objects_stroke_is_saved() {
+        let raw = text_record([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let mut t = crate::read::text_from_node(&raw);
+        let mut stroke = firecraft_doc::Stroke::from_preset(
+            Rgba::new(0, 0, 204, 255),
+            firecraft_doc::brush_presets::default_index(),
+            4.0,
+        );
+        stroke.placement = 2;
+        t.stroke = Some(stroke);
+        let mut e = rect_path(0.0);
+        e.kind = ElementKind::Text(t);
+        e.raw = Some(raw);
+        let mut doc = Document::new(800, 600, 72.0, Some(Rgba::WHITE));
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            cell.push(e);
+        }
+        let back = round_trip(&doc);
+        let ElementKind::Text(b) = &first(&back).kind else {
+            panic!("text")
+        };
+        let s = b.stroke.as_ref().expect("a stroke");
+        assert_eq!(
+            (s.diameter, s.placement, s.color),
+            (4.0, 2, Rgba::new(0, 0, 204, 255))
+        );
     }
 
     #[test]

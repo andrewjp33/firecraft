@@ -149,6 +149,9 @@ pub fn from_block(t: &Text, x: f64, y: f64) -> (f64, f64) {
 
 /// The text drawn with the fonts available here, through its matrix.
 pub fn rasterize(t: &Text) -> Option<Bitmap> {
+    if t.stroke.is_some() {
+        return stroked(t);
+    }
     let mut layout = layout_of(t);
     let m = t.matrix;
     let warp = m != Affine::IDENTITY && !m.is_affine();
@@ -198,6 +201,41 @@ pub fn rasterize(t: &Text) -> Option<Bitmap> {
         shade(&mut drawn, f);
     }
     Some(drawn)
+}
+
+/// The text's characters as path objects. Like Fireworks MX's, they're marked as text outlines
+/// (`PTTi` 1): a centred stroke of 1 px or less on them is drawn inside.
+fn character_paths(t: &Text) -> Vec<Element> {
+    to_paths(t)
+        .into_iter()
+        .map(|p| {
+            let mut e = Element::new(ElementKind::Path(p));
+            e.raw = Some(firecraft_fwpng::Node::vector(
+                "PTH",
+                vec![firecraft_fwpng::Node::int("PTT", 1)],
+            ));
+            e
+        })
+        .collect()
+}
+
+/// Stroked text, drawn as Fireworks MX draws it: as its Convert to Paths result, each character
+/// filled from its outline and stroked in turn (MX's own stroked text and its converted paths
+/// differ by a handful of pixels).
+fn stroked(t: &Text) -> Option<Bitmap> {
+    let s = t.stroke.as_ref()?;
+    let group = Element::new(ElementKind::Group(character_paths(t)));
+    let (x, y, w, h) = group.bounds()?;
+    let m = firecraft_doc::stroke_fw::margin(s).ceil() + 2.0;
+    let (x0, y0) = ((x - m).floor() as i64, (y - m).floor() as i64);
+    let (x1, y1) = ((x + w + m).ceil() as i64, (y + h + m).ceil() as i64);
+    let (w, h) = (
+        (x1 - x0).clamp(1, 16_384) as u32,
+        (y1 - y0).clamp(1, 16_384) as u32,
+    );
+    let mut image = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+    group.render_onto(&mut image, x0, y0, &firecraft_doc::RenderCtx::EMPTY);
+    Some(Bitmap { x: x0, y: y0, image })
 }
 
 /// Text > Convert to Paths: one path per character (none for spaces) and one per underline, as
@@ -283,7 +321,8 @@ pub fn to_paths(t: &Text) -> Vec<firecraft_doc::Path> {
             firecraft_doc::Path {
                 contours,
                 fill: Some(fill),
-                stroke: None,
+                // Fireworks MX keeps the text's stroke on every character.
+                stroke: t.stroke.clone(),
                 rect: None,
                 pcl: None,
                 texture_origin: None,
@@ -337,7 +376,7 @@ fn fonts_missing(t: &Text) -> bool {
 /// Show a change to the text's fill: drawn again, or, while one of its fonts is missing and it
 /// hasn't been edited, its stored glyphs shaded afresh (so it keeps Fireworks' appearance).
 pub fn restyle(t: &mut Text) {
-    if !t.edited && fonts_missing(t) {
+    if !t.edited && t.stroke.is_none() && fonts_missing(t) {
         let color = t.runs.first().map_or(t.color, |r| r.color);
         if let Some(b) = &mut t.cached {
             for p in b.image.pixels_mut() {
@@ -555,6 +594,7 @@ fn recolor_stored_image(before: &Text, t: &mut Text) -> bool {
         return false;
     };
     if !fonts_missing(t)
+        || t.stroke.is_some()
         || t.fill
             .as_ref()
             .is_some_and(|f| f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some())
@@ -589,6 +629,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         cs_layout: false,
         matrix: Affine::IDENTITY,
         fill: None,
+        stroke: None,
         anchor: None,
         on_path: false,
         path: None,
@@ -978,10 +1019,7 @@ impl DocState {
             for r in refs {
                 let Some(e) = s.element_mut(r) else { continue };
                 let ElementKind::Text(t) = &e.kind else { continue };
-                let children: Vec<Element> = to_paths(t)
-                    .into_iter()
-                    .map(|p| Element::new(ElementKind::Path(p)))
-                    .collect();
+                let children = character_paths(t);
                 e.kind = ElementKind::Group(children);
                 e.raw = None;
                 e.name = None;
@@ -1055,6 +1093,36 @@ mod tests {
         assert_eq!(
             t.rect,
             (250.0 - w / 2.0, 200.0 - h / 2.0, 250.0 + w / 2.0, 200.0 + h / 2.0)
+        );
+    }
+
+    #[test]
+    fn a_stroke_on_text_draws_around_the_characters_and_converts_with_them() {
+        let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));
+        let r = d.start_new_text(new_text((20.0, 20.0, 21.0, 40.0), true, &ToolOptions::default()));
+        d.change_text(r, |t| insert(t, 0, "Hi", None));
+        d.commit_live_edit();
+        let plain = d.element(r).and_then(Element::bounds).expect("drawn");
+        d.selection = vec![r];
+        d.set_stroke_color(Some(Rgba::new(0, 0, 200, 255)));
+        d.edit_stroke("Stroke Size", false, |s| {
+            s.diameter = 6.0;
+            s.placement = 2;
+        });
+        let stroked = d.element(r).and_then(Element::bounds).expect("drawn");
+        assert!(d.text_at(r).is_some_and(|t| t.stroke.is_some()));
+        assert!(
+            stroked.2 > plain.2 + 4.0 && stroked.3 > plain.3 + 4.0,
+            "{plain:?} -> {stroked:?}"
+        );
+        d.convert_text_to_paths();
+        let Some(ElementKind::Group(children)) = d.element(r).map(|e| &e.kind) else {
+            panic!("a group")
+        };
+        assert!(
+            children
+                .iter()
+                .all(|c| matches!(&c.kind, ElementKind::Path(p) if p.stroke.is_some()))
         );
     }
 

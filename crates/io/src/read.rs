@@ -436,6 +436,25 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
     Some(Bitmap { x, y, image })
 }
 
+/// An object's stroke (`PATv`'s `BPLv`, colour and texture; placement `BRPi` on `n`).
+fn read_stroke(n: &Node, ctx: &Ctx) -> Option<Stroke> {
+    n.child("PAT").and_then(|a| {
+        let preset = a.child("BPL")?;
+        Some(Stroke {
+            color: argb(a.u32_of("BCL").unwrap_or(0xFF00_0000)),
+            category: preset.str_of("CAT").unwrap_or("bc_Pencil").to_owned(),
+            name: preset.str_of("INM").unwrap_or_default().to_owned(),
+            diameter: preset.int_of("BDI").unwrap_or(1).clamp(1, 1000) as f64,
+            // BSEi is in tenths of a percent (1000 = 100%).
+            softness: (preset.int_of("BSE").unwrap_or(0).clamp(0, 1000) / 10) as u8,
+            anti_alias: preset.bool_of("BIA").unwrap_or(true),
+            brush: Some(preset.clone()),
+            placement: n.int_of("BRP").unwrap_or(1).clamp(0, 2) as u8,
+            texture: a.child("TXB").and_then(|t| read_texture(t, ctx)),
+        })
+    })
+}
+
 /// An object's fill (`PATv`'s `FPLv` and colour, the texture, gradient or pattern handles on `n`).
 fn read_fill(n: &Node, ctx: &Ctx) -> Option<Fill> {
     n.child("PAT").and_then(|a| {
@@ -494,23 +513,8 @@ fn read_path(n: &Node, ctx: &Ctx) -> Path {
                 .collect()
         })
         .unwrap_or_default();
-    let attrs = n.child("PAT");
     let fill = read_fill(n, ctx);
-    let stroke = attrs.and_then(|a| {
-        let preset = a.child("BPL")?;
-        Some(Stroke {
-            color: argb(a.u32_of("BCL").unwrap_or(0xFF00_0000)),
-            category: preset.str_of("CAT").unwrap_or("bc_Pencil").to_owned(),
-            name: preset.str_of("INM").unwrap_or_default().to_owned(),
-            diameter: preset.int_of("BDI").unwrap_or(1).clamp(1, 1000) as f64,
-            // BSEi is in tenths of a percent (1000 = 100%).
-            softness: (preset.int_of("BSE").unwrap_or(0).clamp(0, 1000) / 10) as u8,
-            anti_alias: preset.bool_of("BIA").unwrap_or(true),
-            brush: Some(preset.clone()),
-            placement: n.int_of("BRP").unwrap_or(1).clamp(0, 2) as u8,
-            texture: a.child("TXB").and_then(|t| read_texture(t, ctx)),
-        })
-    });
+    let stroke = read_stroke(n, ctx);
     let rect = read_rect(n, &contours, ctx);
     let pcl = read_pcl(n, &contours, ctx);
     let texture_origin = match (n.float_of("TOX"), n.float_of("TOY")) {
@@ -864,6 +868,7 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         auto_width: n.int_of("FAW") == Some(1),
         cs_layout: n.child("LFA").is_some(),
         matrix: text_matrix(n, ctx),
+        stroke: read_stroke(n, ctx),
         // Plain colour comes from the runs.
         fill: read_fill(n, ctx).filter(|f| {
             f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some() || f.texture_amount > 0

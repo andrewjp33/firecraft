@@ -1,5 +1,5 @@
 //! Compare FireCraft's Text > Convert to Paths with Fireworks MX's: `convert_compare SRC.png DST.png`,
-//! where DST is SRC after MX converted all its text.
+//! where DST is SRC after MX converted all its text. [OUT.png]: FireCraft's conversion, saved.
 use firecraft_doc::{Element, ElementKind};
 use firecraft_engine::{DocState, ElementRef};
 
@@ -17,6 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n = d.doc.layers[0].elements(0).len();
     d.selection = (0..n).map(|i| ElementRef::new(0, i)).collect();
     d.convert_text_to_paths();
+    if let Some(out) = a.get(3) {
+        std::fs::write(out, firecraft_io::save_fireworks_png(&d.doc)?)?;
+    }
     let mx = firecraft_io::open(&std::fs::read(&a[2])?, None)?;
     let fc_els = d.doc.layers[0].elements(0);
     let mx_els = mx.layers[0].elements(0);
