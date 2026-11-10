@@ -84,6 +84,13 @@ open document, and any PNG or GIF (Texture > Other...). Nothing of Fireworks is 
 
 ## Not yet
 
+* The Outline brush's soft edge (alpha remap `BEFi` 5) comes out with different opacity from
+  Fireworks MX: on folds7's path changed to one tip and redrawn by MX, hues match but 11,923
+  pixels differ by 9+ levels in alpha alone, at the outline's soft edges (folds7 itself: 98.7%).
+  Next step: an MX-made file (new FireCraft paths have no `PCLv`, and then the Outline brush
+  draws nothing in either app) with the Outline stroke at a few diameters and softnesses, no
+  fill colour variation and no effects, to fit the alpha remap curve.
+
 * The 3D Glow brush (natural, alpha remap) comes out up to ~10-19 levels too bright in parts
   of its glow compared with Fireworks MX (lines2.png, 92.6% match). FirePixel's own renderer
   gives the same pixels, so it's in the engine as reconstructed (possibly an MX/CS difference),
