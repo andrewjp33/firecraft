@@ -574,6 +574,8 @@ pub struct Text {
     /// `ORIi`: 0 horizontal, 1 vertical with columns right to left, 2 horizontal right to left,
     /// 3 vertical with columns left to right.
     pub orientation: u8,
+    /// "Draw fill over stroke" (`FOTb`).
+    pub fill_over_stroke: bool,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates
@@ -1190,6 +1192,19 @@ impl Element {
                 }
                 let mut layer = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32, Rgba::TRANSPARENT);
                 let (fx, fy) = (-((ox + x0) as f64), -((oy + y0) as f64));
+                // "Draw fill over stroke" (`FOTb`): the fill goes on a layer of its own, laid over
+                // the stroke afterwards.
+                let fill_over = p.stroke.is_some()
+                    && p.fill.is_some()
+                    && self.raw.as_ref().and_then(|r| r.bool_of("FOT")).unwrap_or(false);
+                let mut stroke_layer = None;
+                if fill_over {
+                    let mut st = RgbaImage::new(layer.width(), layer.height(), Rgba::TRANSPARENT);
+                    if let Some(s) = &p.stroke {
+                        crate::stroke_fw::draw(&mut st, p, s, self.raw.as_ref(), (fx, fy));
+                    }
+                    stroke_layer = Some(st);
+                }
                 if let Some(f) = &p.fill {
                     let polys: Vec<Vec<Pt>> = p.contours.iter().map(|c| c.flatten(fx, fy)).collect();
                     // Shade in canvas coordinates (the layer's pixel + its canvas offset).
@@ -1223,8 +1238,18 @@ impl Element {
                         (ox + x0, oy + y0),
                     );
                 }
-                if let Some(s) = &p.stroke {
-                    crate::stroke_fw::draw(&mut layer, p, s, self.raw.as_ref(), (fx, fy));
+                match stroke_layer {
+                    Some(mut st) => {
+                        for (d, f) in st.pixels_mut().iter_mut().zip(layer.pixels()) {
+                            *d = d.over(*f, 255);
+                        }
+                        layer = st;
+                    }
+                    None => {
+                        if let Some(s) = &p.stroke {
+                            crate::stroke_fw::draw(&mut layer, p, s, self.raw.as_ref(), (fx, fy));
+                        }
+                    }
                 }
                 Some((layer, x0, y0))
             }

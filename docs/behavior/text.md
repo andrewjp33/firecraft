@@ -114,6 +114,13 @@ outside; Arial 36, Prototype 30), and MX redraws FireCraft's saved strokes ident
 outlines (`PTTi` 1): like MX, a centred stroke of 1 px or less on them is drawn inside, which keeps it crisp. Convert
 to Paths keeps the stroke on each character, marked the same way.
 
+### Fill over stroke
+
+"Draw fill over stroke" (`FOTb`) puts the fill on top. For a path, the fill (with its texture) is laid over its
+stroke. For text, Fireworks MX strokes every character first and then fills every character over all the strokes, so
+a wide stroke can't cover the next letters (checked on `gym3`: a 13 px 3D Glow stroke behind a gradient-filled
+Arial 18 line). Without it, each character is filled and stroked in turn, as before.
+
 ## Text menu
 
 Read from Fireworks MX's menu resource and shortcut file, and checked in MX: Font, Size (Other..., Smaller and Larger

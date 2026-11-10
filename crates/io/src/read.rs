@@ -870,6 +870,7 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         matrix: text_matrix(n, ctx),
         stroke: read_stroke(n, ctx),
         orientation: n.int_of("ORI").unwrap_or(0).clamp(0, 3) as u8,
+        fill_over_stroke: n.bool_of("FOT").unwrap_or(false),
         // Plain colour comes from the runs.
         fill: read_fill(n, ctx).filter(|f| {
             f.gradient.is_some() || f.pattern.is_some() || f.dither.is_some() || f.texture_amount > 0

@@ -212,7 +212,10 @@ fn character_paths(t: &Text) -> Vec<Element> {
             let mut e = Element::new(ElementKind::Path(p));
             e.raw = Some(firecraft_fwpng::Node::vector(
                 "PTH",
-                vec![firecraft_fwpng::Node::int("PTT", 1)],
+                vec![
+                    firecraft_fwpng::Node::int("PTT", 1),
+                    firecraft_fwpng::Node::bool("FOT", t.fill_over_stroke),
+                ],
             ));
             e
         })
@@ -234,7 +237,34 @@ fn stroked(t: &Text) -> Option<Bitmap> {
         (y1 - y0).clamp(1, 16_384) as u32,
     );
     let mut image = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-    group.render_onto(&mut image, x0, y0, &firecraft_doc::RenderCtx::EMPTY);
+    if t.fill_over_stroke {
+        // "Draw fill over stroke": every character's stroke, then every character's fill over all
+        // of them (MX keeps the whole text clear of a wide stroke, as in gym3).
+        let ElementKind::Group(chars) = group.kind else {
+            return None;
+        };
+        let part = |keep_fill: bool| {
+            let only: Vec<Element> = chars
+                .iter()
+                .cloned()
+                .map(|mut e| {
+                    if let ElementKind::Path(p) = &mut e.kind {
+                        if keep_fill {
+                            p.stroke = None;
+                        } else {
+                            p.fill = None;
+                        }
+                    }
+                    e
+                })
+                .collect();
+            Element::new(ElementKind::Group(only))
+        };
+        part(false).render_onto(&mut image, x0, y0, &firecraft_doc::RenderCtx::EMPTY);
+        part(true).render_onto(&mut image, x0, y0, &firecraft_doc::RenderCtx::EMPTY);
+    } else {
+        group.render_onto(&mut image, x0, y0, &firecraft_doc::RenderCtx::EMPTY);
+    }
     Some(Bitmap { x: x0, y: y0, image })
 }
 
@@ -634,6 +664,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         fill: None,
         stroke: None,
         orientation: 0,
+        fill_over_stroke: false,
         anchor: None,
         on_path: false,
         path: None,
@@ -1184,6 +1215,40 @@ mod tests {
         assert!(
             d.text_at(r)
                 .is_some_and(|t| t.auto_width && t.rect.2 - t.rect.0 > 40.0)
+        );
+    }
+
+    #[test]
+    fn fill_over_stroke_keeps_the_characters_on_top() {
+        let red = Rgba::new(255, 0, 0, 255);
+        let reds = |over: bool| {
+            let mut opts = ToolOptions::default();
+            opts.fill = Some(red);
+            let mut t = new_text((20.0, 20.0, 21.0, 60.0), true, &opts);
+            t.runs[0].size = 40.0;
+            insert(&mut t, 0, "II", None);
+            let mut st = firecraft_doc::Stroke::from_preset(
+                Rgba::new(0, 0, 255, 255),
+                firecraft_doc::brush_presets::default_index(),
+                8.0,
+            );
+            st.placement = 1;
+            t.stroke = Some(st);
+            t.fill_over_stroke = over;
+            refresh(&mut t);
+            let b = t.cached.expect("drawn");
+            b.image
+                .pixels()
+                .iter()
+                .filter(|p| p.r > 200 && p.b < 60 && p.a > 200)
+                .count()
+        };
+        // An 8 px centred stroke covers the I's stems; drawn under the fill, it leaves them red.
+        assert!(
+            reds(true) > 10 * reds(false).max(1),
+            "{} vs {}",
+            reds(true),
+            reds(false)
         );
     }
 

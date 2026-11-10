@@ -779,9 +779,7 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
                 put(&mut n, Node::int(tag, v));
             }
         }
-        if n.child("FOT").is_none() {
-            put(&mut n, Node::bool("FOT", false));
-        }
+        put(&mut n, Node::bool("FOT", t.fill_over_stroke));
         for tag in ["TOX", "TOY"] {
             if n.child(tag).is_none() {
                 put(&mut n, Node::float(tag, 0.0));
