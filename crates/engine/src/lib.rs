@@ -1087,6 +1087,21 @@ impl DocState {
 
     fn apply_fill_color(s: &mut DocState, refs: &[ElementRef], color: Option<Rgba>) {
         for &r in refs {
+            // Text: the characters' colour (and a gradient's, as for a path). Text always has a
+            // fill, so No Fill leaves it.
+            if s.editable_text_at(r).is_some() {
+                if let Some(c) = color {
+                    s.change_text(r, |t| {
+                        let n = crate::text::char_count(t);
+                        crate::text::format(t, 0..n, &|run| run.color = c);
+                        t.runs.iter_mut().for_each(|run| run.color = c);
+                        if let Some(f) = &mut t.fill {
+                            f.color = c;
+                        }
+                    });
+                }
+                continue;
+            }
             if let Some(Element {
                 kind: ElementKind::Path(p),
                 ..
@@ -1100,21 +1115,7 @@ impl DocState {
                             f.dither = Some(fills::dither_tile(c, f.dither_transparent));
                         }
                     }
-                    (Some(c), f) => {
-                        *f = Some(Fill {
-                            color: c,
-                            category: "fc_Solid".into(),
-                            anti_alias: true,
-                            feather: 0,
-                            pattern: None,
-                            dither: None,
-                            dither_transparent: false,
-                            gradient: None,
-                            texture: None,
-                            texture_amount: 0,
-                            texture_transparent: false,
-                        })
-                    }
+                    (Some(c), f) => *f = Some(fills::solid_fill(c)),
                 }
             }
         }

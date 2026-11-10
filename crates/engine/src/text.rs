@@ -1151,6 +1151,38 @@ mod tests {
         );
     }
 
+    /// The Tools panel's Fill and Stroke boxes show and change selected text (gym3's main text).
+    #[test]
+    fn the_tools_colour_boxes_show_and_change_selected_text() {
+        let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));
+        let r = d.start_new_text(new_text((20.0, 20.0, 21.0, 40.0), true, &ToolOptions::default()));
+        d.change_text(r, |t| insert(t, 0, "Hi", None));
+        d.commit_live_edit();
+        d.selection = vec![r];
+        let own = d.text_at(r).and_then(|t| t.runs.first()).map(|run| run.color);
+        let (fill, stroke) = d.selected_attributes().expect("text counts");
+        assert_eq!(
+            fill.map(|f| (f.category, Some(f.color))),
+            Some(("fc_Solid".into(), own))
+        );
+        assert!(stroke.is_none());
+        let red = Rgba::new(255, 0, 0, 255);
+        d.set_colors("Swap Colors", Some(Rgba::WHITE), Some(red));
+        let t = d.text_at(r).expect("text");
+        assert!(t.runs.iter().all(|run| run.color == red));
+        assert_eq!(t.stroke.as_ref().map(|s| s.color), Some(Rgba::WHITE));
+        // Text always has a fill: No Fill leaves it.
+        d.set_fill_color(None);
+        assert!(
+            d.text_at(r)
+                .is_some_and(|t| t.runs.iter().all(|run| run.color == red))
+        );
+        assert_eq!(
+            d.selected_attributes().and_then(|(f, _)| f).map(|f| f.color),
+            Some(red)
+        );
+    }
+
     #[test]
     fn a_stroke_on_text_draws_around_the_characters_and_converts_with_them() {
         let mut d = DocState::new(firecraft_doc::Document::new(300, 200, 72.0, None));

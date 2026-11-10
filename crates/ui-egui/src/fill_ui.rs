@@ -170,7 +170,7 @@ pub(crate) fn tools_fill_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let selected = app
         .session
         .active_doc()
-        .and_then(|d| d.selected_fill().map(|f| f.cloned()));
+        .and_then(|d| d.selected_attributes().map(|(f, _)| f));
     let target = if selected.is_some() {
         Target::Selection
     } else {
@@ -216,7 +216,7 @@ pub(crate) fn tools_stroke_box(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let selected = app
         .session
         .active_doc()
-        .and_then(|d| d.selected_path_attributes().map(|(_, s)| s.cloned()));
+        .and_then(|d| d.selected_attributes().map(|(_, s)| s));
     let o = &app.session.options;
     let (color, placement) = match &selected {
         Some(s) => (s.as_ref().map(|s| s.color), s.as_ref().map(|s| s.placement)),
@@ -273,7 +273,7 @@ pub(crate) fn stroke_window(app: &mut FireCraftApp, ctx: &egui::Context) {
         && app
             .session
             .active_doc()
-            .is_none_or(|d| d.selected_path_attributes().is_none());
+            .is_none_or(|d| d.selected_attributes().is_none());
     if lost {
         return;
     }
@@ -306,7 +306,7 @@ pub(crate) fn stroke_window(app: &mut FireCraftApp, ctx: &egui::Context) {
 /// The Tools panel's colour buttons: new objects' colours and the selection's, in one step.
 pub(crate) fn set_tool_colors(app: &mut FireCraftApp, label: &str, stroke: Option<Rgba>, fill: Option<Rgba>) {
     if let Some(d) = app.session.active_doc_mut()
-        && d.selected_path_attributes().is_some()
+        && d.selected_attributes().is_some()
     {
         d.set_colors(label, stroke, fill);
     }
@@ -320,7 +320,7 @@ pub(crate) fn tools_no_fill(app: &mut FireCraftApp) {
     let target = if app
         .session
         .active_doc()
-        .is_some_and(|d| d.selected_path_attributes().is_some())
+        .is_some_and(|d| d.selected_attributes().is_some())
     {
         Target::Selection
     } else {

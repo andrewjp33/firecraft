@@ -440,18 +440,13 @@ impl FireCraftApp {
         let Some(d) = self.session.active_doc() else {
             return;
         };
-        let Some((fill, stroke)) = d.selected_path_attributes() else {
+        let Some(owned) = d.selected_attributes() else {
             self.adopted = None;
             return;
         };
-        if self
-            .adopted
-            .as_ref()
-            .is_some_and(|(f, s)| f.as_ref() == fill && s.as_ref() == stroke)
-        {
+        if self.adopted.as_ref() == Some(&owned) {
             return;
         }
-        let owned = (fill.cloned(), stroke.cloned());
         self.session.options.adopt_fill(owned.0.as_ref());
         self.session.options.adopt_stroke(owned.1.as_ref());
         self.adopted = Some(owned);

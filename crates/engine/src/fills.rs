@@ -201,6 +201,23 @@ pub const GRADIENT_PRESETS: [(&str, &[(f32, u32)]); 13] = [
 ];
 
 /// A preset's colour stops.
+/// A plain fill of one colour.
+pub fn solid_fill(color: Rgba) -> Fill {
+    Fill {
+        color,
+        category: "fc_Solid".into(),
+        anti_alias: true,
+        feather: 0,
+        pattern: None,
+        dither: None,
+        dither_transparent: false,
+        gradient: None,
+        texture: None,
+        texture_amount: 0,
+        texture_transparent: false,
+    }
+}
+
 pub fn preset_colors(stops: &[(f32, u32)]) -> Vec<(f32, Rgba)> {
     stops
         .iter()
@@ -462,14 +479,19 @@ impl DocState {
         self.set_fill_handles(live, h.start, turn(h.end), turn(h.side));
     }
 
-    /// The first selected path's fill and stroke; `None` with no path selected.
-    pub fn selected_path_attributes(&self) -> Option<(Option<&Fill>, Option<&firecraft_doc::Stroke>)> {
-        self.selection
-            .iter()
-            .find_map(|r| match self.element(*r).map(|e| &e.kind) {
-                Some(ElementKind::Path(p)) => Some((p.fill.as_ref(), p.stroke.as_ref())),
-                _ => None,
-            })
+    /// The first selected path's or text object's fill and stroke, for the Tools panel; plain
+    /// text has a solid fill in its first character's colour. `None` with neither selected.
+    pub fn selected_attributes(&self) -> Option<(Option<Fill>, Option<firecraft_doc::Stroke>)> {
+        self.selection.iter().find_map(|r| {
+            let e = self.element(*r)?;
+            let fill = match &e.kind {
+                ElementKind::Text(t) if t.fill.is_none() => {
+                    Some(solid_fill(t.runs.first().map_or(t.color, |r| r.color)))
+                }
+                _ => e.fill_slot()?.cloned(),
+            };
+            Some((fill, e.stroke_slot()?.cloned()))
+        })
     }
 
     /// Move the selected fills' handles (`live`: part of a live edit already begun).
@@ -768,10 +790,10 @@ mod tests {
             (0.0, 0.0, 1.0, 1.0),
         ));
         d.set_fill_category(PATTERN, &o);
-        let (fill, stroke) = d.selected_path_attributes().expect("a path");
+        let (fill, stroke) = d.selected_attributes().expect("a path");
         let mut tools = ToolOptions::default();
-        tools.adopt_fill(fill);
-        tools.adopt_stroke(stroke);
+        tools.adopt_fill(fill.as_ref());
+        tools.adopt_stroke(stroke.as_ref());
         let new = tools.new_fill((0.0, 0.0, 16.0, 16.0)).expect("a fill");
         assert_eq!(new.category, PATTERN);
         let q = new.pattern.expect("a pattern");
