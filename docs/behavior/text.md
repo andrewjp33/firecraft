@@ -43,6 +43,18 @@ replacement for Prototype).
 Range kerning (`RKNf`) is an em fraction in Fireworks MX (`0.34`: letters 34% of the size apart); Fireworks CS
 records count tenths of that. FireCraft keeps MX's unit and converts CS records when reading and writing.
 
+## Orientation
+
+`ORIi`: 0 horizontal, 2 horizontal right to left, 3 vertical with columns left to right, 1 vertical with columns
+right to left; set from the Property inspector's orientation menu. Measured with Fireworks MX's Convert to Paths
+(Arial 24): vertical text stacks the characters upright, one column per line, each column one em wide and each
+character one em tall less its pair kerning (MX kerns down the column too). A character sits at
+`round(column left + (em - advance) / 2)`; the baselines start at `top + 0.8 em`; MX's whole pixels are C casts,
+`(int)(v + 0.5)`. The alignment (Top, Centered Vertically, Bottom; the same `JSTi` values, also in Text > Align)
+places a column in the block's height, unrounded. The block is the columns. Right-to-left horizontal text mirrors each
+line. FireCraft matches MX's positions exactly for top-aligned columns, within 1 px otherwise. Text turned
+horizontal again grows with its text; the Text Editor shows it horizontally.
+
 ## Text on a path
 
 Fireworks MX keeps text on a path as one object: the text's record keeps its block (`LFT`..`BOT`, as typed) and gets
@@ -87,8 +99,8 @@ pairs and whole lines): exact advances accumulate along the line and each charac
 pair kerning comes from the `kern` table only (as Windows applies it, not GPOS) and is scaled by the font's cell height
 (`usWinAscent + usWinDescent`, Arial 2288 units), not its em. FireCraft does this for MX text: 494 of 507 positions on
 the test lines exact, the rest within 1 px; across the reference files the mean difference from MX's stored images fell
-from 46% to 35%. Two MX-under-Wine results don't fit and may be Wine's: no kerning for " A" (Wine reports a space pair
-under the no-break space, which shares its glyph) and a 2 px kerning for "St", which Arial doesn't define. Fireworks CS
+from 46% to 35%. Two results don't fit, and Fireworks MX on Windows shows them too (`kerning_check_win2.png`): no kerning for
+" A" (while " T" is kerned) and a 2 px kerning for "St", which Arial doesn't define. FireCraft doesn't reproduce them yet. Fireworks CS
 records keep FirePixel's per-character rounding. MX's synthetic bold (a font without a bold file) keeps the outlines'
 curves and is narrower than FireCraft's (roadmap).
 

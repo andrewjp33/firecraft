@@ -571,6 +571,9 @@ pub struct Text {
     pub fill: Option<Fill>,
     /// A stroke along the characters' outlines (the brush, placement and texture of a path's).
     pub stroke: Option<Stroke>,
+    /// `ORIi`: 0 horizontal, 1 vertical with columns right to left, 2 horizontal right to left,
+    /// 3 vertical with columns left to right.
+    pub orientation: u8,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates

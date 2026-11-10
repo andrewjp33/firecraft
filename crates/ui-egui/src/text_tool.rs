@@ -778,14 +778,56 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 apply(app, "Text Style", &move |r| r.underline = !underline);
             }
         });
+        let orientation = app
+            .session
+            .active_doc()
+            .and_then(|d| d.selected_text_orientation());
+        let vertical = matches!(orientation, Some(1 | 3));
         ui.horizontal(|ui| {
-            for (value, label, tip) in [
-                (0u8, "Left", "Align left"),
-                (1, "Center", "Center"),
-                (2, "Right", "Align right"),
-                (3, "Justify", "Justify"),
-                (4, "Stretch", "Stretch"),
-            ] {
+            let names: [(u8, &str, &str); 5] = if vertical {
+                [
+                    (0, "Top", "Align top"),
+                    (1, "Center", "Center vertically"),
+                    (2, "Bottom", "Align bottom"),
+                    (3, "Justify", "Justify vertically"),
+                    (4, "Stretch", "Stretch vertically"),
+                ]
+            } else {
+                [
+                    (0, "Left", "Align left"),
+                    (1, "Center", "Center"),
+                    (2, "Right", "Align right"),
+                    (3, "Justify", "Justify"),
+                    (4, "Stretch", "Stretch"),
+                ]
+            };
+            // Fireworks MX's text orientation (the selected text objects).
+            if let Some(o) = orientation {
+                const ORIENTATIONS: [(u8, &str); 4] = [
+                    (0, "Horizontal, left to right"),
+                    (2, "Horizontal, right to left"),
+                    (3, "Vertical, left to right"),
+                    (1, "Vertical, right to left"),
+                ];
+                let mut pick = None;
+                let name = ORIENTATIONS.iter().find(|(v, _)| *v == o).map_or("", |(_, n)| n);
+                ComboBox::from_id_salt("text_orientation")
+                    .width(160.0)
+                    .selected_text(name)
+                    .show_ui(ui, |ui| {
+                        for (v, n) in ORIENTATIONS {
+                            if ui.selectable_label(v == o, n).clicked() {
+                                pick = Some(v);
+                            }
+                        }
+                    });
+                if let Some(v) = pick
+                    && let Some(d) = app.session.active_doc_mut()
+                {
+                    d.set_text_orientation(v);
+                }
+            }
+            for (value, label, tip) in names {
                 if ui
                     .selectable_label(style.align == value && !mix.align, label)
                     .on_hover_text(tip)

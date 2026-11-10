@@ -129,15 +129,30 @@ pub fn menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         }
         ui.separator();
-        // For vertical text, which FireCraft doesn't lay out yet.
-        for label in [
-            "Top",
-            "Centered Vertically",
-            "Bottom",
-            "Justified Vertically",
-            "Stretched Vertically",
+        // For vertical text (same alignment values, down the columns).
+        let vertical = matches!(
+            app.session
+                .active_doc()
+                .and_then(|d| d.selected_text_orientation()),
+            Some(1 | 3)
+        );
+        for (value, label) in [
+            (0u8, "Top"),
+            (1, "Centered Vertically"),
+            (2, "Bottom"),
+            (3, "Justified Vertically"),
+            (4, "Stretched Vertically"),
         ] {
-            todo(ui, label, "");
+            let clicked = ui
+                .add_enabled(
+                    vertical,
+                    Button::selectable(vertical && style.align == value, label),
+                )
+                .clicked();
+            if clicked {
+                ui.close();
+                align(app, value);
+            }
         }
     });
     ui.separator();

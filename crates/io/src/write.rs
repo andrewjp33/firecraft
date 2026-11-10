@@ -787,7 +787,7 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
                 put(&mut n, Node::float(tag, 0.0));
             }
         }
-        put(&mut n, Node::int("ORI", 0));
+        put(&mut n, Node::int("ORI", i64::from(t.orientation)));
         put(&mut n, Node::int("XFM", 0));
         put(&mut n, Node::int("TAA", i64::from(t.anti_alias)));
         put(&mut n, Node::bool("ATE", false));
@@ -1770,6 +1770,26 @@ mod primitive_tests {
             (s.diameter, s.placement, s.color),
             (4.0, 2, Rgba::new(0, 0, 204, 255))
         );
+    }
+
+    #[test]
+    fn a_text_objects_orientation_is_saved() {
+        let raw = text_record([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let mut t = crate::read::text_from_node(&raw);
+        t.orientation = 3;
+        t.edited = true;
+        let mut e = rect_path(0.0);
+        e.kind = ElementKind::Text(t);
+        e.raw = Some(raw);
+        let mut doc = Document::new(800, 600, 72.0, Some(Rgba::WHITE));
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            cell.push(e);
+        }
+        let back = round_trip(&doc);
+        let ElementKind::Text(b) = &first(&back).kind else {
+            panic!("text")
+        };
+        assert_eq!(b.orientation, 3);
     }
 
     #[test]

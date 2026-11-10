@@ -100,7 +100,7 @@ pub fn text_block(t: &Text) -> TextBlock {
             .collect(),
         auto_kern: t.auto_kern,
         story_kerning: None,
-        orientation: Orientation::HorizontalLtr,
+        orientation: Orientation::from_orii(i64::from(t.orientation)),
         antialias: AntiAlias::from_tags(i64::from(t.anti_alias), 192, 64, 8, None),
         kind: if path.is_some() { FrameKind::OnPath } else { kind },
         path,
@@ -550,7 +550,8 @@ pub fn refresh(t: &mut Text) {
         t.cached = if t.text.is_empty() { None } else { rasterize(t) };
         return;
     }
-    if t.anchor.is_some() {
+    // Vertical text: the block is the columns it lays out (Fireworks MX).
+    if t.anchor.is_some() || (!t.cs_layout && matches!(t.orientation, 1 | 3)) {
         let f = layout_of(t).frame;
         if !t.text.is_empty() {
             t.rect = (
@@ -581,14 +582,16 @@ pub fn refresh(t: &mut Text) {
 /// Changing only the colour of text whose font is missing keeps its glyphs: the stored image is
 /// recoloured rather than redrawn in a replacement font. Whether it did that.
 fn recolor_stored_image(before: &Text, t: &mut Text) -> bool {
-    let plain = |x: &Text| -> Vec<TextRun> {
-        x.runs
-            .iter()
-            .map(|r| TextRun {
-                color: Rgba::BLACK,
-                ..r.clone()
-            })
-            .collect()
+    // Everything but the colours (and the drawing itself).
+    let plain = |x: &Text| -> Text {
+        let mut c = x.clone();
+        c.cached = None;
+        c.color = Rgba::BLACK;
+        c.edited = false;
+        for r in &mut c.runs {
+            r.color = Rgba::BLACK;
+        }
+        c
     };
     let Some(color) = t.runs.first().map(|r| r.color) else {
         return false;
@@ -630,6 +633,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         matrix: Affine::IDENTITY,
         fill: None,
         stroke: None,
+        orientation: 0,
         anchor: None,
         on_path: false,
         path: None,
@@ -998,6 +1002,26 @@ impl DocState {
         });
     }
 
+    /// The first selected text object's orientation (`ORIi`).
+    pub fn selected_text_orientation(&self) -> Option<u8> {
+        self.selection
+            .iter()
+            .find_map(|r| self.editable_text_at(*r).map(|t| t.orientation))
+    }
+
+    /// Set the selected text objects' orientation (0 horizontal, 1 vertical right to left, 2
+    /// horizontal right to left, 3 vertical left to right). Text turned horizontal again grows
+    /// with its text, so it doesn't wrap at the column's width.
+    pub fn set_text_orientation(&mut self, orientation: u8) {
+        self.change_selected_text_objects("Text Orientation", &move |t| {
+            let was_vertical = matches!(t.orientation, 1 | 3);
+            t.orientation = orientation.min(3);
+            if was_vertical && !matches!(t.orientation, 1 | 3) {
+                t.auto_width = true;
+            }
+        });
+    }
+
     /// Whether Text > Convert to Paths has something to do.
     pub fn can_convert_text(&self) -> bool {
         self.selection.iter().any(|r| self.editable_text_at(*r).is_some())
@@ -1123,6 +1147,43 @@ mod tests {
             children
                 .iter()
                 .all(|c| matches!(&c.kind, ElementKind::Path(p) if p.stroke.is_some()))
+        );
+    }
+
+    #[test]
+    fn vertical_text_stacks_upright_columns_and_turns_back() {
+        let mut d = DocState::new(firecraft_doc::Document::new(400, 400, 72.0, None));
+        let r = d.start_new_text(new_text((20.0, 20.0, 21.0, 44.0), true, &ToolOptions::default()));
+        d.change_text(r, |t| insert(t, 0, "Abc\rDe", None));
+        d.change_text(r, |t| t.runs.iter_mut().for_each(|run| run.size = 24.0));
+        d.commit_live_edit();
+        d.selection = vec![r];
+        d.set_text_orientation(3);
+        let t = d.text_at(r).expect("text");
+        // Two columns one em wide, three rows one em tall.
+        assert_eq!((t.rect.2 - t.rect.0, t.rect.3 - t.rect.1), (48.0, 72.0));
+        let lay = layout_of(t);
+        let a = &lay.glyphs[0];
+        let b = &lay.glyphs[1];
+        assert_eq!(
+            (a.y, b.y - a.y),
+            (39.0, 24.0),
+            "baselines a whole em apart from top + 0.8 em"
+        );
+        assert!(
+            lay.glyphs.iter().any(|g| g.ch == 'D' && g.x >= 44.0),
+            "the second line is the right column"
+        );
+        d.set_text_orientation(1);
+        let lay = layout_of(d.text_at(r).expect("text"));
+        assert!(
+            lay.glyphs.iter().any(|g| g.ch == 'A' && g.x >= 44.0),
+            "right to left: the first line on the right"
+        );
+        d.set_text_orientation(0);
+        assert!(
+            d.text_at(r)
+                .is_some_and(|t| t.auto_width && t.rect.2 - t.rect.0 > 40.0)
         );
     }
 

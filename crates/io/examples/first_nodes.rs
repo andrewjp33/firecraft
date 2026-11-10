@@ -10,7 +10,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let xs: Vec<String> = c
             .iter()
             .filter_map(|e| match &e.kind {
-                ElementKind::Path(p) => p.contours.first()?.points.first().map(|q| format!("{:.4}", q.x)),
+                ElementKind::Path(p) => p
+                    .contours
+                    .first()?
+                    .points
+                    .first()
+                    .map(|q| format!("{:.2},{:.2}", q.x, q.y)),
                 _ => None,
             })
             .collect();

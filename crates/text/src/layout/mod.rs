@@ -133,7 +133,114 @@ pub fn layout_simple(block: &TextBlock) -> TextLayout {
 /// Setzt einen Textblock. Fehlende Schriften werden durch die Rückfall-Schrift ersetzt (Name in
 /// [`TextLayout::missing_fonts`]); ohne jede Schrift entsteht ein Layout ohne Glyphen.
 pub fn layout(block: &TextBlock, fonts: &FontDb, opts: &LayoutOptions) -> TextLayout {
+    // Fireworks MX's vertical and right-to-left text: laid out as horizontal lines, then placed.
+    if block.em_box_lines && block.orientation != Orientation::HorizontalLtr && block.path.is_none() {
+        let mut flat = TextBlock {
+            orientation: Orientation::HorizontalLtr,
+            ..block.clone()
+        };
+        // Vertical columns break only at line breaks.
+        if block.orientation.is_vertical() {
+            flat.bounds.right = flat.bounds.left + 1.0e6;
+        }
+        let mut lay = Builder::new(&flat, fonts, opts).run();
+        mx_orient(&mut lay, block);
+        return lay;
+    }
     Builder::new(block, fonts, opts).run()
+}
+
+/// Fireworks MX's other orientations (measured with its Convert to Paths, Arial 24):
+/// vertical text stacks the characters upright, one column per line, each column one em wide
+/// (left to right, `ORIi` 3, or right to left, 1) and each character one em tall, centred in the
+/// column at `round(left + (em - advance) / 2)`, the baselines whole pixels one em apart from
+/// `top + 0.8 em`; the alignment places a column within the block's height. Right-to-left
+/// horizontal text (`ORIi` 2) mirrors each line's characters.
+fn mx_orient(lay: &mut TextLayout, block: &TextBlock) {
+    let b = block.bounds;
+    let (left, top) = (f64::from(b.left), f64::from(b.top));
+    lay.orientation = block.orientation;
+    lay.decorations.clear();
+    if block.orientation == Orientation::HorizontalRtl {
+        for line in &lay.lines {
+            let (start, end) = (line.start, line.start + line.width);
+            for g in &mut lay.glyphs[line.glyphs.clone()] {
+                let x = start + end - (g.x + g.advance);
+                g.transform.e += x - g.x;
+                g.x = x;
+            }
+        }
+        return;
+    }
+    let n = lay.lines.len().max(1);
+    let em = |g: &PositionedGlyph| g.size;
+    let mut right = left;
+    let mut bottom = top;
+    for (li, line) in lay.lines.iter_mut().enumerate() {
+        let glyphs = &mut lay.glyphs[line.glyphs.clone()];
+        let size = glyphs.iter().map(em).fold(0.0, f64::max);
+        let size = if size > 0.0 {
+            size
+        } else {
+            block.runs.first().map_or(12.0, |r| r.attrs.size)
+        };
+        let col = if block.orientation == Orientation::VerticalRtl {
+            n - 1 - li
+        } else {
+            li
+        };
+        let col_left = left + col as f64 * size;
+        let rows = glyphs
+            .iter()
+            .map(|g| g.char_index.saturating_sub(line.chars.start) + 1)
+            .max()
+            .unwrap_or(0) as f64;
+        // The alignment along the column, within the block's height.
+        let free = (f64::from(b.bottom) - top - rows * size).max(0.0);
+        let align = glyphs
+            .first()
+            .and_then(|g| block.runs.get(g.run))
+            .map(|r| r.attrs.alignment)
+            .unwrap_or_default();
+        let shift = match align {
+            Alignment::Center => free / 2.0,
+            Alignment::Right => free,
+            _ => 0.0,
+        };
+        // Whole pixels as a C cast rounds them: `(int)(v + 0.5)`, towards zero for negatives
+        // (measured: a centred column's first baseline at -44 from -44.8).
+        let pixel = |v: f64| (v + 0.5).trunc();
+        // Down the column: one em a character, less the pair kerning (MX applies it here too,
+        // scaled as across: "Ve" in Arial 24 puts the e 1 px higher).
+        let mut down = top + shift + 0.8 * size;
+        let mut prev: Option<(usize, u16, Arc<Font>)> = None;
+        for g in glyphs.iter_mut() {
+            let row = g.char_index.saturating_sub(line.chars.start);
+            if let Some((r, gid, font)) = &prev {
+                down += (row - r) as f64 * size;
+                if row == r + 1 && block.auto_kern && Arc::ptr_eq(font, &g.font) {
+                    down +=
+                        f64::from(font.legacy_kerning(*gid, g.glyph_id) as i16) * font.kerning_scale(g.size);
+                }
+            } else {
+                down += row as f64 * size;
+            }
+            prev = Some((row, g.glyph_id, g.font.clone()));
+            let exact = g.font.advance(g.glyph_id) as f64 * g.size / g.font.units_per_em() as f64 * g.h_scale;
+            let x = pixel(col_left + (size - exact) / 2.0);
+            let y = pixel(down) - (line.baseline - g.y);
+            g.transform.e += x - g.x;
+            g.transform.f += y - g.y;
+            g.x = x;
+            g.y = y;
+        }
+        line.baseline = col_left + size / 2.0;
+        line.start = top + shift;
+        right = right.max(col_left + size);
+        bottom = bottom.max(top + shift + rows * size);
+    }
+    lay.frame = Rect::new(b.left, b.top, right as f32, bottom as f32);
+    lay.frame_exact = [left, top, right, bottom];
 }
 
 struct Builder<'a> {

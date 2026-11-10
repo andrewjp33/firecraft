@@ -52,6 +52,8 @@ pub fn open(app: &mut FireCraftApp) {
         anchor: None,
         on_path: false,
         path: None,
+        // The editor shows the text across, whatever its orientation.
+        orientation: 0,
         auto_width: false,
         rect: (MARGIN, MARGIN, 400.0, MARGIN + t.size),
         cached: None,

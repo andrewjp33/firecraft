@@ -41,7 +41,7 @@ Other items keep their numbers.
 3. **Crop tool**; Lasso and Polygon Lasso
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
-5. **Text**: vertical text (and the vertical Align items), text in a path (Fireworks CS), the "St" and " A" kerning seen under Wine (check on Windows), synthetic bold like MX's (curves kept, narrower), Check Spelling (last).
+5. **Text**: text in a path (Fireworks CS), Fireworks MX's kerning quirks (no " A", an "St" Arial lacks; map them with MX under Wine, which reproduces Windows), synthetic bold like MX's (curves kept, narrower), Check Spelling (last).
 6. **Fills**: the Gradient tool's exact behaviour against Fireworks MX
 7. **Optimize panel + Export**: GIF/JPEG/PNG-8 with palettes, 2-Up/4-Up previews
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
