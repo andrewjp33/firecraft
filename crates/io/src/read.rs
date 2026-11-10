@@ -742,6 +742,19 @@ pub(crate) fn text_move(n: &Node) -> Option<(f64, f64)> {
     (plain && n.child("LFA").is_none() && (m.e != 0.0 || m.f != 0.0)).then_some((m.e, m.f))
 }
 
+/// A text object's matrix in canvas space: a scale, rotation, skew or distortion (a plain move
+/// goes into the block, see [`text_move`]). Fireworks MX's records only, like `text_move`.
+fn text_matrix(n: &Node, ctx: &Ctx) -> Affine {
+    let m = matrix_of(n.child("MTX"));
+    if n.child("LFA").is_some() || firecraft_doc::element::plain_move(&m).is_some() {
+        return Affine::IDENTITY;
+    }
+    let (ox, oy) = ctx.origin;
+    Affine::translate(-ox, -oy)
+        .then(&m)
+        .then(&Affine::translate(ox, oy))
+}
+
 fn read_text(n: &Node, ctx: &Ctx) -> Text {
     let base = TextRun {
         text: String::new(),
@@ -829,6 +842,7 @@ fn read_text(n: &Node, ctx: &Ctx) -> Text {
         // FireCraft extension (Fireworks MX ignores unknown nodes).
         auto_width: n.int_of("FAW") == Some(1),
         cs_layout: n.child("LFA").is_some(),
+        matrix: text_matrix(n, ctx),
         edited: false,
         cached: n.child("IMG").and_then(|i| read_bitmap(i, ctx)),
     }

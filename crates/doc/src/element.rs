@@ -552,6 +552,9 @@ pub struct Text {
     pub anti_alias: u8,
     /// Laid out by Fireworks CS's rules (its record's block) rather than Fireworks MX's.
     pub cs_layout: bool,
+    /// How the block is drawn on the canvas, as Fireworks MX keeps it (`MTXv`): scaled, rotated,
+    /// skewed or distorted text keeps its block and formatting and is drawn through this.
+    pub matrix: Affine,
     /// The block grows with its text instead of wrapping (a click, not a drag, made it).
     pub auto_width: bool,
     /// Fireworks CS point text (`TFTi` 0): its first baseline's start, canvas coordinates
@@ -572,6 +575,31 @@ pub struct Text {
     /// Fireworks stores a pre-rendered image of the text; used until FireCraft's own text
     /// engine renders it (a text engine is on the roadmap).
     pub cached: Option<Bitmap>,
+}
+
+impl Text {
+    /// Move the text by (`dx`, `dy`) canvas pixels: its block, or its matrix once it has one.
+    pub fn shift(&mut self, dx: f64, dy: f64) {
+        if self.matrix == Affine::IDENTITY {
+            self.rect = (
+                self.rect.0 + dx,
+                self.rect.1 + dy,
+                self.rect.2 + dx,
+                self.rect.3 + dy,
+            );
+            self.anchor = self.anchor.map(|(x, y)| (x + dx, y + dy));
+        } else {
+            self.matrix = Affine::translate(dx, dy).then(&self.matrix);
+        }
+    }
+}
+
+/// The offset `m` moves by, if that's all it does.
+pub fn plain_move(m: &Affine) -> Option<(f64, f64)> {
+    let plain = [m.a - 1.0, m.b, m.c, m.d - 1.0, m.g, m.h, m.i - 1.0]
+        .iter()
+        .all(|v| v.abs() < 1e-9);
+    plain.then_some((m.e, m.f))
 }
 
 /// A stretch of text with one set of attributes.
@@ -739,8 +767,7 @@ impl Element {
     pub fn translate(&mut self, dx: f64, dy: f64) {
         match &mut self.kind {
             ElementKind::Text(t) => {
-                t.rect = (t.rect.0 + dx, t.rect.1 + dy, t.rect.2 + dx, t.rect.3 + dy);
-                t.anchor = t.anchor.map(|(x, y)| (x + dx, y + dy));
+                t.shift(dx, dy);
                 if let Some(b) = &mut t.cached {
                     b.x = (b.x as f64 + dx).round() as i64;
                     b.y = (b.y as f64 + dy).round() as i64;
@@ -808,28 +835,11 @@ impl Element {
                 if let Some(b) = &mut t.cached {
                     map_bitmap(b);
                 }
-                let (l, top, r, bottom) = t.rect;
-                let (x, y, w, h) = m.map_rect(l, top, r - l, bottom - top);
-                t.rect = (x, y, x + w, y + h);
-                t.anchor = t.anchor.map(|(ax, ay)| m.apply(ax, ay));
-                // A plain scale carries into the formatting, so editing keeps the size.
-                if m.is_affine() && m.b.abs() < 1e-9 && m.c.abs() < 1e-9 {
-                    let (sx, sy) = ((m.a / m.i).abs(), (m.d / m.i).abs());
-                    if (sx - 1.0).abs() > 1e-9 || (sy - 1.0).abs() > 1e-9 {
-                        for run in &mut t.runs {
-                            run.size *= sy;
-                            run.h_scale *= sx / sy;
-                            run.baseline_shift *= sy;
-                            run.indent *= sx;
-                            run.space_before *= sy;
-                            run.space_after *= sy;
-                            if run.leading_px {
-                                run.leading *= sy;
-                            }
-                        }
-                        t.size *= sy;
-                        t.edited = true;
-                    }
+                // As in Fireworks MX, the block and its formatting stay as they were and the
+                // transformation joins the text's matrix.
+                match plain_move(m) {
+                    Some((dx, dy)) => t.shift(dx, dy),
+                    None => t.matrix = m.then(&t.matrix),
                 }
             }
             ElementKind::Bitmap(b) => map_bitmap(b),

@@ -819,6 +819,12 @@ impl DocState {
                 if let Some(e) = s.element_mut(r) {
                     let mut t = orig;
                     t.transform(&m);
+                    // Edited text is drawn again through its new matrix rather than resampled.
+                    if let ElementKind::Text(text) = &mut t.kind
+                        && text.edited
+                    {
+                        crate::text::refresh(text);
+                    }
                     *e = t;
                 }
             }

@@ -73,9 +73,12 @@ impl TextTool {
     }
 }
 
+/// The character position under canvas point (`x`, `y`).
 fn caret_at(d: &DocState, r: ElementRef, x: f64, y: f64) -> usize {
-    d.text_at(r)
-        .map_or(0, |t| engine::layout_of(t).hit_test(x, y).char_index)
+    d.text_at(r).map_or(0, |t| {
+        let (x, y) = engine::to_block(t, x, y);
+        engine::layout_of(t).hit_test(x, y).char_index
+    })
 }
 
 /// Replace the selection with `s`.
@@ -305,6 +308,7 @@ pub fn canvas(
         let (x, y) = to_doc(p);
         let inside = state.editing.as_ref().is_some_and(|e| {
             d.text_at(e.r).is_some_and(|t| {
+                let (x, y) = engine::to_block(t, x, y);
                 x >= t.rect.0 - 3.0 && x <= t.rect.2 + 3.0 && y >= t.rect.1 - 3.0 && y <= t.rect.3 + 3.0
             })
         });
@@ -404,30 +408,40 @@ pub fn canvas(
     if let Some(e) = &state.editing
         && let Some(t) = d.text_at(e.r)
     {
+        // Drawn through the text's matrix: a scaled or rotated block shows as it is on the canvas.
+        let at = |x: f64, y: f64| {
+            let (x, y) = engine::from_block(t, x, y);
+            to_screen(x, y)
+        };
+        let quad = |l: f64, top: f64, r: f64, b: f64| vec![at(l, top), at(r, top), at(r, b), at(l, b)];
         let (l, top, r, b) = t.rect;
-        painter.rect_stroke(
-            Rect::from_min_max(to_screen(l, top), to_screen(r, b)),
-            0.0,
+        painter.add(egui::Shape::closed_line(
+            quad(l - 1.0, top - 1.0, r + 1.0, b + 1.0),
             Stroke::new(1.0, Color32::from_rgb(0x33, 0x99, 0xff)),
-            egui::StrokeKind::Outside,
-        );
+        ));
         let layout = engine::layout_of(t);
         let range = e.range();
         if !range.is_empty() {
             for s in layout.selection_rects(range.start, range.end) {
-                let rect = Rect::from_min_max(
-                    to_screen(f64::from(s.left), f64::from(s.top)),
-                    to_screen(f64::from(s.right), f64::from(s.bottom)),
+                let corners = quad(
+                    f64::from(s.left),
+                    f64::from(s.top),
+                    f64::from(s.right),
+                    f64::from(s.bottom),
                 );
-                painter.rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(0x33, 0x99, 0xff, 90));
+                painter.add(egui::Shape::convex_polygon(
+                    corners,
+                    Color32::from_rgba_unmultiplied(0x33, 0x99, 0xff, 90),
+                    Stroke::NONE,
+                ));
             }
         }
         let blink_on = (ctx.input(|i| i.time) * 1.6).fract() < 0.6;
         if blink_on && range.is_empty() {
             let (a, b) = match layout.caret(e.caret) {
-                Some(c) => (to_screen(c.top[0], c.top[1]), to_screen(c.bottom[0], c.bottom[1])),
+                Some(c) => (at(c.top[0], c.top[1]), at(c.bottom[0], c.bottom[1])),
                 // Empty text has no lines yet.
-                None => (to_screen(l, top), to_screen(l, top + t.size)),
+                None => (at(l, top), at(l, top + t.size)),
             };
             painter.line_segment([a, b], Stroke::new(1.0, Color32::BLACK));
         }

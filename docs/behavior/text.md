@@ -16,8 +16,13 @@ is 0, across Arial 10-12, Prototype 18, Trebuchet MS 36 and MoolBoran 59-200, wh
 it too; blocks from Fireworks CS records keep CS's rule (first baseline at the font's own Latin ascent).
 
 MX keeps a text object's move in its matrix (`MTXv`) and leaves the block where it was typed. A plain move is applied to the
-block on opening and cleared on save, which MX reads as the same position. Scaled or rotated text keeps its matrix, so
-editing it doesn't yet land in the right place.
+block on opening and cleared on save, which MX reads as the same position. Any other matrix (scale, rotation, skew,
+distortion) stays with the text, as in MX: the block and its formatting are untouched, Scale/Skew/Distort/rotate add to
+the matrix, and the text is drawn through it (glyph outlines transformed; a perspective matrix bends the flat drawing).
+Editing works in the block's own space: clicks go through the inverse, and the outline, selection and caret through the
+matrix. Checked both ways with MX (rotated 30°, scaled 1.5×0.7, skewed, distorted Arial 24): FireCraft draws MX's objects
+in place (shift 0, the remaining difference is anti-aliasing), and MX redraws FireCraft's at the same place.
+Fireworks CS records keep ignoring the matrix until a CS file shows what it does.
 
 ## Stored image first
 

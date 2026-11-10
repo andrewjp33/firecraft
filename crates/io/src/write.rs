@@ -643,6 +643,24 @@ fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
 
 /// A text object: its position and stored image always, the rest when it has been edited or made
 /// here. Unedited text keeps the record Fireworks wrote.
+/// A Fireworks matrix node (`MTXv`, row vectors).
+fn matrix_node(m: &Affine) -> Node {
+    Node::vector(
+        "MTX",
+        vec![
+            Node::float("M00", m.a),
+            Node::float("M01", m.b),
+            Node::float("M02", m.g),
+            Node::float("M10", m.c),
+            Node::float("M11", m.d),
+            Node::float("M12", m.h),
+            Node::float("M20", m.e),
+            Node::float("M21", m.f),
+            Node::float("M22", m.i),
+        ],
+    )
+}
+
 fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut n = raw.cloned().unwrap_or_else(|| Node::vector("TXT", vec![]));
     let (ox, oy) = w.origin;
@@ -654,12 +672,12 @@ fn write_text(t: &firecraft_doc::Text, raw: Option<&Node>, w: &mut Writer) -> No
     ] {
         put(&mut n, Node::float(tag, v));
     }
-    // The block above already includes a move read from the matrix.
-    if crate::read::text_move(&n).is_some()
-        && let Some(m) = n.children.iter_mut().find(|c| c.is("MTX"))
-    {
-        put(m, Node::float("M20", 0.0));
-        put(m, Node::float("M21", 0.0));
+    // The matrix, in document space (a move read from it is already in the block above).
+    if n.child("LFA").is_none() && (t.matrix != Affine::IDENTITY || n.child("MTX").is_some()) {
+        let m = Affine::translate(ox, oy)
+            .then(&t.matrix)
+            .then(&Affine::translate(-ox, -oy));
+        put(&mut n, matrix_node(&m));
     }
     // Fireworks CS's own record of where the block is.
     if n.child("LFA").is_some() {
@@ -1573,9 +1591,26 @@ mod primitive_tests {
     }
 
     #[test]
-    fn a_scaled_text_objects_block_is_left_alone() {
-        let t = crate::read::text_from_node(&text_record([0.69, 0.0, 0.0, 0.69, 392.0, 344.0]));
+    fn a_scaled_text_object_keeps_its_block_and_matrix() {
+        let raw = text_record([0.69, 0.0, 0.0, 0.69, 392.0, 344.0]);
+        let t = crate::read::text_from_node(&raw);
         assert_eq!(t.rect, (111.0, 87.0, 518.5, 429.0));
+        assert_eq!(
+            (t.matrix.a, t.matrix.d, t.matrix.e, t.matrix.f),
+            (0.69, 0.69, 392.0, 344.0)
+        );
+        let mut e = rect_path(0.0);
+        e.kind = ElementKind::Text(t.clone());
+        e.raw = Some(raw);
+        let mut doc = Document::new(800, 600, 72.0, Some(Rgba::WHITE));
+        if let Some(cell) = doc.layers[0].elements_mut(0) {
+            cell.push(e);
+        }
+        let back = round_trip(&doc);
+        let ElementKind::Text(b) = &first(&back).kind else {
+            panic!("text")
+        };
+        assert_eq!((b.rect, b.matrix), (t.rect, t.matrix));
     }
 
     #[test]

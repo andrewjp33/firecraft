@@ -3,6 +3,7 @@
 //! appearance survives even when its fonts aren't installed.
 
 use firecraft_doc::{Bitmap, Element, ElementKind, Text, TextRun};
+use firecraft_raster::transform::{Affine, transform_image};
 use firecraft_raster::{Rgba, RgbaImage};
 use firecraft_text::support::{Rect, Rgba8};
 use firecraft_text::{
@@ -78,9 +79,44 @@ pub fn layout_of(t: &Text) -> TextLayout {
     firecraft_text::layout(&text_block(t), &FontDb::shared(), &LayoutOptions::default())
 }
 
-/// The text drawn with the fonts available here.
+/// A canvas point in the text block's own space (before its matrix).
+pub fn to_block(t: &Text, x: f64, y: f64) -> (f64, f64) {
+    if t.matrix == Affine::IDENTITY {
+        return (x, y);
+    }
+    t.matrix.invert().map_or((x, y), |m| m.apply(x, y))
+}
+
+/// A point in the text block's own space on the canvas.
+pub fn from_block(t: &Text, x: f64, y: f64) -> (f64, f64) {
+    t.matrix.apply(x, y)
+}
+
+/// The text drawn with the fonts available here, through its matrix.
 pub fn rasterize(t: &Text) -> Option<Bitmap> {
-    let layout = layout_of(t);
+    let mut layout = layout_of(t);
+    let m = t.matrix;
+    let warp = m != Affine::IDENTITY && !m.is_affine();
+    // Glyph outlines follow an affine matrix exactly; a perspective one bends the flat drawing.
+    if m != Affine::IDENTITY && m.is_affine() {
+        let k = m.i;
+        let tm = firecraft_text::raster::Affine {
+            a: m.a / k,
+            b: m.b / k,
+            c: m.c / k,
+            d: m.d / k,
+            e: m.e / k,
+            f: m.f / k,
+        };
+        for g in &mut layout.glyphs {
+            g.transform = g.transform.then(&tm);
+        }
+        for d in &mut layout.decorations {
+            for p in &mut d.quad {
+                *p = tm.apply(*p);
+            }
+        }
+    }
     let img = firecraft_text::render::render(&layout, None);
     let b = img.bounds();
     let (w, h) = (img.width() as u32, img.height() as u32);
@@ -96,11 +132,12 @@ pub fn rasterize(t: &Text) -> Option<Bitmap> {
             Rgba::new(p[0], p[1], p[2], p[3]),
         );
     }
-    Some(Bitmap {
-        x: i64::from(b.left),
-        y: i64::from(b.top),
-        image,
-    })
+    let (x, y) = (i64::from(b.left), i64::from(b.top));
+    if warp {
+        let (image, x, y) = transform_image(&image, x, y, &m)?;
+        return Some(Bitmap { x, y, image });
+    }
+    Some(Bitmap { x, y, image })
 }
 
 /// Formatting for new text.
@@ -336,6 +373,7 @@ pub fn new_text(rect: (f64, f64, f64, f64), auto: bool, opts: &ToolOptions) -> T
         anti_alias: opts.text_anti_alias,
         auto_width: auto,
         cs_layout: false,
+        matrix: Affine::IDENTITY,
         anchor: None,
         on_path: false,
         edited: true,
