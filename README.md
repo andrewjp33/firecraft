@@ -12,41 +12,120 @@ and Linux (macOS should work too) and in the browser via WebAssembly.
 
 ## Status (November 2026)
 
-FireCraft opens, edits and saves real Fireworks documents. Working today:
+FireCraft opens, edits and saves real Fireworks documents, and draws most of them very close to how
+Fireworks MX does. It is in active development. Vector and bitmap editing, text, fills, strokes, effects and
+symbols are in place. Web export (Optimize, GIF/JPEG), frame editing and slices are not yet
+([what's next](#not-done-yet)).
+
+**Rendering parity** on 88 reference files, scored against Fireworks' own render of each file
+(10 November 2026): 37 match 100%, 13 more are above 99%, 20 are between 90% and 99%, and 18 are
+below 90%. The average is 93.1%. Every file survives the lossless round trip and a FireCraft save
+that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
+
+### Recently added
+
+- **Text**: the Text tool and the whole Text menu except spelling.
+  - Fonts, size, bold/italic/underline, alignment, kerning, leading, the Text Editor.
+  - Text on a path (Attach, Detach, Orientation, Reverse Direction).
+  - Vertical and right-to-left text.
+  - Scaled, rotated, skewed and distorted text.
+  - Gradient, pattern and texture fills, and strokes on text, with *Draw fill over stroke*.
+  - Convert to Paths.
+  - Characters are placed exactly where Fireworks MX places them (its kerning and rounding,
+    measured in MX).
+  - Missing fonts can keep Fireworks' saved appearance.
+  - On the web, installed fonts can be used with the browser's permission.
+  ([docs/behavior/text.md](docs/behavior/text.md))
+- **Fills**: gradient editing with stops, opacity and presets; handles on the canvas; the
+  Gradient tool; Pattern and Web Dither fills; fill textures; Hard, Anti-Alias and Feather edges
+  ([docs/behavior/gradients.md](docs/behavior/gradients.md)).
+- **Strokes**: Fireworks' own brush engine with its 54 presets, stroke textures, placement, the
+  Edit Stroke dialog, and Fireworks CS-style stroke controls
+  ([docs/behavior/strokes.md](docs/behavior/strokes.md)).
+- **Painting**: Brush, Pencil, Eraser and Paint Bucket, using Fireworks' brush tips and
+  sensitivities ([docs/behavior/painting.md](docs/behavior/painting.md)).
+- **Pen tool** with Fireworks MX's curve drawing and point editing; Subselection improvements.
+- **Perspective symbols**: a per-document choice between drawing them as Fireworks MX does or
+  pixel-correct ([docs/behavior/symbols.md](docs/behavior/symbols.md)).
+  - Fireworks MX mode maps each object, then applies its effects at canvas size.
+  - Strokes keep their width under perspective.
+  - Fill textures stay anchored to the canvas, as Fireworks MX draws them.
+- **Effects accuracy**: Gaussian Blur computed as Fireworks computes it, Fireworks'
+  triangle-filter softness for shadows and glows, and smooth bevel edges.
+- **Tools panel** colour boxes follow the selection, text included; tool keys for Paint
+  Bucket/Gradient (G), Eraser (E) and Pencil (Y). Fields with mixed values across the selection
+  show blank, as in Fireworks MX.
+- **History**: every drag is one undo step, recorded on mouse up, as in Fireworks MX.
+- **Web**: real file pickers for Open, Save and Export; Fonts, Textures and Patterns folders;
+  Ctrl+Alt+N/W/T alternatives for shortcuts the browser keeps for itself.
+
+### Working today
 
 - **Fireworks PNG** read and write, verified against real Fireworks MX (and Fireworks CS5 by
-  hand): re-saved Fireworks files and new documents open in Fireworks MX with their layers,
-  frames, bitmaps, paths, groups, masks, symbols and effects
-  ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet (text
-  editing, slices, presets) is carried through a save untouched.
-- **Rendering** of Fireworks documents: blend modes, all 11 MX gradient types, masks, symbol
-  instances (with perspective), animation frames, and the Live Effects (Gaussian/Motion/Radial
-  Blur, Drop Shadow, Glow, Inner Glow, Bevels and Embosses, Hue/Saturation, Levels, Curves and
-  more, plus built-in versions of the bundled Eye Candy 4000 LE / Splat LE filters). Scores
-  against Fireworks' own renders are tracked in [docs/parity.md](docs/parity.md).
-- **Workspace** in the style of Fireworks MX: menus, sectioned Tools panel with press-and-hold
-  flyouts, Property inspector, Layers, Frames/History, Library; document windows (move,
-  resize from any edge, minimise/maximise, Cascade/Tile) or **documents in tabs**.
-- **Tools**: Pointer and Select Behind, **Subselection** (points of paths, members inside
-  groups), Scale, Skew, Distort and rotate (live preview), the **9-slice Scaling tool** from
-  Fireworks CS5, Marquee and Oval Marquee, **Magic Wand**, Line, **Pen**, Rectangle (Fireworks
-  rectangle primitives with roundness), Ellipse, Eyedropper, Hand, Zoom
-  ([docs/behavior/paths.md](docs/behavior/paths.md)).
-- **Objects**: Cut/Copy/Paste, including **between FireCraft and Fireworks** (Windows, and
-  Linux through Wine), Duplicate/Clone, Group/Ungroup, Arrange, Align, Rotate/Flip, Numeric
-  Transform, names, per-object show/hide and **lock** (from Fireworks CS); Layers panel
-  reordering by drag; Select > Superselect/Subselect
-  ([docs/behavior/objects.md](docs/behavior/objects.md)).
+  hand). Re-saved Fireworks files and new documents open in Fireworks MX with their layers,
+  frames, bitmaps, paths, text, groups, masks, symbols and effects
+  ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet
+  (slices, presets) is carried through a save untouched.
+- **Rendering**:
+  - Blend modes and all 11 MX gradient types.
+  - Masks, symbol instances (with perspective) and animation frames.
+  - Text with Fireworks MX's layout.
+  - Live Effects: Gaussian/Motion/Radial Blur, Drop Shadow, Glow, Inner Glow, Bevels and
+    Embosses, Hue/Saturation, Levels, Curves and more.
+  - Built-in versions of the bundled Eye Candy 4000 LE / Splat LE filters.
+- **Workspace** in the style of Fireworks MX:
+  - Menus, a sectioned Tools panel with press-and-hold flyouts, the Property inspector, Layers,
+    Frames/History and the Library.
+  - Document windows (move, resize from any edge, minimise/maximise, Cascade/Tile), or
+    **documents in tabs**.
+- **Tools** ([docs/behavior/paths.md](docs/behavior/paths.md)):
+  - Selection: Pointer, Select Behind, **Subselection** (points of paths, members inside
+    groups).
+  - Transform: Scale, Skew, Distort and rotate (live preview), the **9-slice Scaling tool**
+    from Fireworks CS5.
+  - Bitmap: Marquee, Oval Marquee, **Magic Wand**, Brush, Pencil, Eraser, Paint Bucket,
+    Gradient.
+  - Vector: Line, **Pen**, Rectangle (Fireworks rectangle primitives with roundness), Ellipse,
+    **Text**.
+  - Eyedropper, Hand, Zoom.
+- **Objects** ([docs/behavior/objects.md](docs/behavior/objects.md)):
+  - Cut/Copy/Paste, including **between FireCraft and Fireworks** (Windows, and Linux through
+    Wine).
+  - Duplicate/Clone, Group/Ungroup, Arrange, Align, Rotate/Flip, Numeric Transform.
+  - Names, per-object show/hide and **lock** (from Fireworks CS).
+  - Layers panel reordering by drag; Select > Superselect/Subselect.
 - **Live Effects editor** in the Property inspector, with live preview, OK/Cancel and fine
   sliders ([docs/behavior/effects.md](docs/behavior/effects.md)).
-- **Symbols**: Convert to Symbol, Library panel, Symbol Editor (live updates, Done button),
-  Break Apart, and **9-slice symbols** from Fireworks CS that keep their slices under any
-  transform ([docs/behavior/symbols.md](docs/behavior/symbols.md)).
-- Edit > Insert > Bitmap via Cut/Copy, Select All/Deselect/Inverse/Feather, Canvas Size/Colour,
-  layers (new, delete, show/hide, lock), undo/redo (100 steps by default, up to 999 in
-  Preferences) with a History panel, animation playback, PNG export, drag-and-drop open.
-- Preferences: live dragging ("Show objects while moving them", off for slower PCs), tool
-  cursor style, Fireworks-exact or high-precision colour math, and more.
+- **Symbols** ([docs/behavior/symbols.md](docs/behavior/symbols.md)):
+  - Convert to Symbol, Library panel, Break Apart.
+  - Symbol Editor, nested editors included, with live updates and a Done button.
+  - **9-slice symbols** from Fireworks CS that keep their slices under any transform.
+- **Edit and document**:
+  - Edit > Insert > Bitmap via Cut/Copy.
+  - Select All, Deselect, Select Inverse, Feather.
+  - Canvas Size and Canvas Colour.
+  - Layers: new, delete, show/hide, lock.
+  - Undo/redo (100 steps by default, up to 999 in Preferences) with a History panel.
+  - Animation playback, PNG export, drag-and-drop open.
+- **Preferences**:
+  - Live dragging ("Show objects while moving them", off for slower PCs).
+  - Tool cursor style.
+  - Fireworks-exact or high-precision colour math.
+  - Perspective symbols drawn as Fireworks MX does or pixel-correct.
+  - Fonts, Textures and Patterns folders.
+
+### Not done yet
+
+From [docs/roadmap.md](docs/roadmap.md), roughly in order:
+- Combine/Alter Path, Knife, Polygon/Star.
+- Crop and Lasso tools.
+- Blur, Sharpen, Dodge, Burn, Smudge and Rubber Stamp.
+- Optimize panel and GIF/JPEG/PNG-8 export.
+- Editing frames (adding, removing, timing) and animated GIF export.
+- Slices, hotspots and HTML export.
+- Styles and the Filters menu.
+- `.jsf` commands.
+- Check Spelling, last.
 
 ### The Magic Wand anti-alias fix
 
@@ -58,8 +137,6 @@ leaking. This was measured in Fireworks MX itself
 incompatibility. FireCraft's default **Smooth** anti-alias computes real edge coverage instead,
 independent of tolerance. **Classic** reproduces Fireworks MX exactly (pick it in the Property
 inspector or Preferences).
-
-See [docs/roadmap.md](docs/roadmap.md) for what's next.
 
 ### File compatibility
 
@@ -81,6 +158,8 @@ make run FILE=x.png
 make windows      # Windows .exe only (needs: sudo apt install mingw-w64)
 make test         # all tests
 make parity       # compare renders with Fireworks for ../ref_fw_images; results in ../parity_runs
+make web-debug    # web build (unoptimized, with debug info) -> dist/web
+make web          # web build, optimized
 make clean        # remove FireCraft's own build outputs; compiled dependencies stay (fast rebuild)
 make distclean    # remove everything (the next build compiles all dependencies again)
 make size         # disk used by target/ and dist/
@@ -125,6 +204,7 @@ crates/
   fwpng      L0  Fireworks PNG container: chunks, tagged document tree, pixel tiles (no deps)
   raster     L0  pixels, masks, magic wand, marquees, feather, vector rasterization
   stroke     L0  Fireworks' brush engine (adapted from FirePixel, Apache-2.0)
+  text       L0  fonts, layout and rasterising with Fireworks MX's rules (adapted from FirePixel)
   doc        L1  document model: canvas, layers, frames, bitmap/path/text/group elements
   io         L2  Document <-> Fireworks PNG, flat PNG import/export
   engine     L3  session, tools, selection, commands, undo history
