@@ -61,9 +61,9 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### Working today
 
-- **Fireworks PNG** read and write, verified against real Fireworks MX (and Fireworks CS5 by
-  hand). Re-saved Fireworks files and new documents open in Fireworks MX with their layers,
-  frames, bitmaps, paths, text, groups, masks, symbols and effects
+- **Fireworks PNG** read and write, verified against real Fireworks MX (and by hand in Fireworks
+  CS5 and CS6). Re-saved Fireworks files and new documents open in Fireworks MX with their
+  layers, frames, bitmaps, paths, text, groups, masks, symbols and effects
   ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet
   (slices, presets) is carried through a save untouched.
 - **Rendering**:
@@ -130,9 +130,14 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 
 ### File compatibility
 
-Every save is a **Fireworks MX file**: it opens in Fireworks MX and later versions. Features MX
-doesn't have are baked into ordinary objects or stored in data MX safely ignores. An opt-in
-Fireworks CS6 save mode is planned for documents that need CS6 to understand them
+Every save is a **Fireworks MX file** that **Fireworks CS5 and CS6 read as well**. Features MX
+doesn't have are baked into ordinary objects or stored in data MX safely ignores.
+
+Features from the CS versions are written the way Fireworks CS writes them, so they're forward
+compatible: **9-slice symbol guides** and **per-object locks** open in Fireworks CS as its own,
+while Fireworks MX opens the same file without them. The one exception is a skewed or perspective
+9-slice instance, which Fireworks CS can't make: FireCraft keeps its guides where CS doesn't look,
+so CS opens the file with 9-slice off for that symbol instead of hanging
 ([docs/fireworks-png.md](docs/fireworks-png.md#compatibility-levels-design)).
 
 New documents use FireCraft's improved drawing by default: *Precise* colour math and
