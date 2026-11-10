@@ -1221,14 +1221,15 @@ impl DocState {
         }
     }
 
-    /// The first selected text object's or fillable path's "Fill over stroke" (`FOTb`), if one is
-    /// selected. Lines (paths with no closed contour) have no fill to put over the stroke.
+    /// The first selected text object's or filled path's "Fill over stroke" (`FOTb`), if one is
+    /// selected. Fireworks MX offers it for any path, but it only matters with a fill; a path
+    /// keeps its setting while it has none (it's stored in its record).
     pub fn selected_fill_over_stroke(&self) -> Option<bool> {
         self.selection.iter().find_map(|r| {
             let e = self.element(*r)?;
             match &e.kind {
                 ElementKind::Text(t) => Some(t.fill_over_stroke),
-                ElementKind::Path(p) if p.contours.iter().any(|c| c.closed) => {
+                ElementKind::Path(p) if p.fill.is_some() => {
                     Some(e.raw.as_ref().and_then(|n| n.bool_of("FOT")).unwrap_or(false))
                 }
                 _ => None,

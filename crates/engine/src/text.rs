@@ -1317,24 +1317,13 @@ mod tests {
         assert_eq!(path.raw.as_ref().and_then(|n| n.bool_of("FOT")), Some(true));
         assert_eq!(d.selected_fill_over_stroke(), Some(true));
         assert!(d.history.can_undo());
-        // A line has no fill to draw over its stroke: no option.
-        let open = Path {
-            contours: vec![Contour {
-                closed: false,
-                points: vec![BezierPoint::corner(10.0, 120.0), BezierPoint::corner(90.0, 120.0)],
-            }],
-            fill: None,
-            stroke: None,
-            rect: None,
-            pcl: None,
-            texture_origin: None,
-        };
-        if let Some(cell) = d.doc.layers[0].elements_mut(0) {
-            cell.push(Element::new(ElementKind::Path(open)));
-        }
-        let n = d.doc.layers[0].elements(0).len();
-        d.selection = vec![ElementRef::new(0, n - 1)];
+        // Without a fill there's nothing to draw over the stroke: the option is hidden, and its
+        // setting kept for when the path has a fill again.
+        d.selection = vec![ElementRef::new(0, 0)];
+        d.set_fill_color(None);
         assert_eq!(d.selected_fill_over_stroke(), None);
+        d.set_fill_color(Some(Rgba::new(255, 0, 0, 255)));
+        assert_eq!(d.selected_fill_over_stroke(), Some(true));
     }
 
     #[test]
