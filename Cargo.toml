@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
-repository = "https://github.com/storytold/firecraft"
+repository = "https://github.com/andrewjp33/firecraft"
 
 [workspace.dependencies]
 # internal (layers: L0 fwpng raster, L1 doc, L2 io, L3 engine, L4 ui-egui; see docs/architecture.md)
