@@ -31,6 +31,8 @@ thiserror = { workspace = true }
 jxl-oxide = { version = "0.12", features = ["moxcms"] }
 # WebP export: libwebp (BSD), compiled from C, so not in the browser build.
 webp = "0.3"
+# Lossless PNG optimization on export (OptiPNG-style levels; links libdeflate, C).
+oxipng = { version = "10.2", default-features = false, features = ["zopfli", "parallel"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 jxl-oxide = { version = "0.12", default-features = false, features = ["moxcms"] }

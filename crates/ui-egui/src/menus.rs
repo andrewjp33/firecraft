@@ -437,9 +437,9 @@ pub fn export(app: &mut FireCraftApp) {
     let Some(d) = app.session.active_doc() else { return };
     // With the Optimize panel's settings, named after the document with the format's extension.
     let name = firecraft_io::export::file_name(&d.doc.title(), d.doc.export.format);
-    match firecraft_io::export::export(&d.doc, &d.doc.export) {
-        Ok(e) => {
-            let status = app.platform.export_file(&name, &e.bytes);
+    match firecraft_io::export::export_file(&d.doc, &d.doc.export) {
+        Ok(bytes) => {
+            let status = app.platform.export_file(&name, &bytes);
             app.save_status(SaveTarget::Export, status);
         }
         Err(e) => app.error(format!("Export failed: {e}")),

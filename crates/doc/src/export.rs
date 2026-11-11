@@ -65,9 +65,14 @@ impl ExportFormat {
         }
     }
 
-    /// Exports through a colour palette (GIF, PNG 8).
+    /// Exports through a color palette (GIF, PNG 8).
     pub fn indexed(self) -> bool {
         matches!(self, Self::Gif | Self::AnimatedGif | Self::Png8)
+    }
+
+    /// A PNG export (the PNG optimizer applies).
+    pub fn png(self) -> bool {
+        matches!(self, Self::Png8 | Self::Png24 | Self::Png32)
     }
 
     /// FireCraft's own formats, with Quality and Alpha Quality.
@@ -76,12 +81,12 @@ impl ExportFormat {
     }
 }
 
-/// How an indexed export picks its colours (Fireworks MX's palette menu).
+/// How an indexed export picks its colors (Fireworks MX's palette menu).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum PaletteKind {
-    Adaptive,
-    /// Adaptive, with colours close to a Web 216 colour snapped to it.
     #[default]
+    Adaptive,
+    /// Adaptive, with colors close to a Web 216 color snapped to it.
     WebAdaptive,
     Web216,
     Exact,
@@ -125,7 +130,7 @@ impl PaletteKind {
 pub enum Transparency {
     #[default]
     None,
-    /// The canvas colour (or a chosen colour) becomes the transparent index.
+    /// The canvas color (or a chosen color) becomes the transparent index.
     Index,
     /// Transparent where the image is: one transparent index for GIF (pixels under half
     /// opacity), a palette with alpha for PNG 8.
@@ -149,25 +154,37 @@ impl Transparency {
 pub struct ExportSettings {
     pub format: ExportFormat,
     pub palette: PaletteKind,
-    /// Maximum colours of an indexed export (2..256).
+    /// Maximum colors of an indexed export (2..256).
     pub colors: u16,
-    /// WebSnap Adaptive: how close (per channel) a colour must be to snap to Web 216.
+    /// WebSnap Adaptive: how close (per channel) a color must be to snap to Web 216.
     pub websnap_tolerance: u8,
     /// Diffusion dither, percent (0 = none).
     pub dither: u8,
     pub transparency: Transparency,
-    /// Colour under semi-transparent pixels where the format can't keep them. `None`: the
-    /// canvas colour, or white when the canvas is transparent.
+    /// PNG 8 with Alpha Transparency (Adaptive, WebSnap Adaptive or Exact palettes): keep each
+    /// pixel's alpha as it is. Off, as in Fireworks MX: alpha is rounded to 16 levels (steps of
+    /// 17), so the faintest pixels (under 9) vanish.
+    pub exact_alpha: bool,
+    /// Color under semi-transparent pixels where the format can't keep them. `None`: the
+    /// canvas color, or white when the canvas is transparent.
     pub matte: Option<Rgba>,
     pub interlaced: bool,
+    /// PNG exports: lossless optimization after encoding, like OptiPNG's -o levels: 0 off,
+    /// 1 (fast) to 7 (slowest, smallest).
+    pub png_optimize: u8,
     /// Animated GIF: times to play, 0 = forever.
     pub loops: u16,
+    /// Animated GIF: each frame only covers what changed since the previous one (Fireworks MX's
+    /// Export Wizard > Animation > Auto Crop).
+    pub auto_crop: bool,
+    /// Animated GIF: pixels a frame doesn't change are left transparent (Auto Difference).
+    pub auto_difference: bool,
     /// JPEG quality 0..100.
     pub jpeg_quality: u8,
     /// JPEG smoothing 0..8 (blurs before compressing).
     pub jpeg_smoothing: u8,
     pub progressive: bool,
-    /// JPEG: full-resolution colour (no 4:2:0 subsampling), as Fireworks MX writes JPEGs.
+    /// JPEG: full-resolution color (no 4:2:0 subsampling), as Fireworks MX writes JPEGs.
     pub jpeg_full_color: bool,
     /// WebP / JPEG XL quality 0..100.
     pub quality: u8,
@@ -180,19 +197,24 @@ pub struct ExportSettings {
 }
 
 impl Default for ExportSettings {
-    /// A new document in Fireworks MX: GIF, WebSnap Adaptive, 128 colours, no dither, no
-    /// transparency (read with the oracle from `dom.exportOptions`).
+    /// A new document: GIF, Adaptive, 256 colors, no dither, no transparency. (Fireworks MX
+    /// starts with WebSnap Adaptive and 128 colors, read with the oracle from
+    /// `dom.exportOptions`; FireCraft prefers the plain adaptive palette at full size.)
     fn default() -> Self {
         Self {
             format: ExportFormat::Gif,
-            palette: PaletteKind::WebAdaptive,
-            colors: 128,
+            palette: PaletteKind::Adaptive,
+            colors: 256,
             websnap_tolerance: 14,
             dither: 0,
             transparency: Transparency::None,
+            exact_alpha: false,
             matte: None,
             interlaced: false,
+            png_optimize: 2,
             loops: 0,
+            auto_crop: true,
+            auto_difference: true,
             jpeg_quality: 80,
             jpeg_smoothing: 0,
             progressive: false,
@@ -248,6 +270,8 @@ impl ExportSettings {
             },
             "Animated GIF WebSnap 128" => Self {
                 format: ExportFormat::AnimatedGif,
+                palette: PaletteKind::WebAdaptive,
+                colors: 128,
                 ..d
             },
             "PNG 32" => Self {
@@ -290,14 +314,19 @@ impl ExportSettings {
                     && self.dither == other.dither
                     && self.transparency == other.transparency
                     && self.interlaced == other.interlaced
-                    && (self.format != ExportFormat::AnimatedGif || self.loops == other.loops)
+                    && (self.format != ExportFormat::Png8
+                        || (self.exact_alpha == other.exact_alpha && self.png_optimize == other.png_optimize))
+                    && (self.format != ExportFormat::AnimatedGif
+                        || (self.loops == other.loops
+                            && self.auto_crop == other.auto_crop
+                            && self.auto_difference == other.auto_difference))
             }
             ExportFormat::Jpeg => {
                 self.jpeg_quality == other.jpeg_quality
                     && self.jpeg_smoothing == other.jpeg_smoothing
                     && self.progressive == other.progressive
             }
-            ExportFormat::Png24 | ExportFormat::Png32 => self.interlaced == other.interlaced,
+            ExportFormat::Png24 | ExportFormat::Png32 => self.png_optimize == other.png_optimize,
             ExportFormat::WebP | ExportFormat::JpegXl => {
                 self.quality == other.quality
                     && self.alpha_quality == other.alpha_quality

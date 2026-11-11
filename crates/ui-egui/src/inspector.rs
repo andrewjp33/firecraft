@@ -178,7 +178,7 @@ fn pencil(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.checkbox(&mut o.paint.pencil_anti_alias, "Anti-Aliased")
             .on_hover_text("Smooths the edges of the lines you draw");
         ui.checkbox(&mut o.paint.pencil_auto_erase, "Auto Erase")
-            .on_hover_text("Pressing on a pixel of the stroke colour draws in the fill colour");
+            .on_hover_text("Pressing on a pixel of the stroke color draws in the fill color");
     });
     ui.separator();
     paint_mix(ui, &mut o.paint);

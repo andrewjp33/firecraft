@@ -101,7 +101,9 @@ pub fn histogram(pixels: &[Entry]) -> HashMap<u32, u32> {
 /// enough, otherwise a weighted median cut. `alpha`: alpha takes part as a fourth channel.
 pub fn adaptive(hist: &HashMap<u32, u32>, n: usize, alpha: bool) -> Vec<Entry> {
     let n = n.max(1);
+    // In a fixed order (a hash map's order varies between runs), so an export is the same every time.
     let mut colors: Vec<(Entry, u32)> = hist.iter().map(|(&k, &c)| (unkey(k), c)).collect();
+    colors.sort_unstable_by_key(|c| key(c.0));
     if colors.len() <= n {
         colors.sort_by_key(|c| std::cmp::Reverse(c.1));
         return colors.into_iter().map(|c| c.0).collect();
@@ -331,6 +333,17 @@ mod tests {
         assert_eq!(pal, vec![[255, 0, 0, 255], [0, 0, 255, 255]]);
         let idx = map(&px, 3, &pal, 0, false, &|_| false, 0);
         assert_eq!(idx, vec![0, 1, 0]);
+    }
+
+    #[test]
+    fn adaptive_palettes_are_the_same_every_time() {
+        let px: Vec<Entry> = (0..4000u32)
+            .map(|i| [(i * 7 % 256) as u8, (i * 13 % 256) as u8, (i * 29 % 256) as u8, 255])
+            .collect();
+        let first = adaptive(&histogram(&px), 16, false);
+        for _ in 0..5 {
+            assert_eq!(adaptive(&histogram(&px), 16, false), first);
+        }
     }
 
     #[test]

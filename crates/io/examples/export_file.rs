@@ -59,6 +59,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let e = firecraft_io::export::export(&doc, &s)?;
     std::fs::write(out, &e.bytes)?;
-    println!("{} bytes, {} palette colours", e.bytes.len(), e.palette.len());
+    println!("{} bytes, {} palette colors", e.bytes.len(), e.palette.len());
     Ok(())
 }

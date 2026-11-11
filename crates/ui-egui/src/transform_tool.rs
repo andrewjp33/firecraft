@@ -585,9 +585,9 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
         ui.label(match tool {
             Tool::Skew => "Drag a side handle to slant; a corner handle to taper (perspective).",
             Tool::Distort => "Drag any corner or side handle freely.",
-            _ => "Drag a handle to resize (Shift: keep proportions, Alt: from the centre).",
+            _ => "Drag a handle to resize (Shift: keep proportions, Alt: from the center).",
         });
-        ui.weak("Drag inside the box to move, outside it to rotate (Shift: 15 degree steps) about the pivot. Drag the pivot to move it: it snaps to the box's corners, sides and centre (Ctrl: no snapping; Shift: grab the handle under the pivot).");
+        ui.weak("Drag inside the box to move, outside it to rotate (Shift: 15 degree steps) about the pivot. Drag the pivot to move it: it snaps to the box's corners, sides and center (Ctrl: no snapping; Shift: grab the handle under the pivot).");
         let has = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
         if !has {
             ui.weak("Select one or more objects first.");

@@ -1743,5 +1743,5 @@ fn union_rects(items: &mut dyn Iterator<Item = (f64, f64, f64, f64)>) -> Option<
         x1 = x1.max(bx + bw);
         y1 = y1.max(by + bh);
     }
-    (x0 <= x1).then_some((x0, y0, x1 - x0, y1 - y0))
+    if x0 <= x1 { Some((x0, y0, x1 - x0, y1 - y0)) } else { None }
 }

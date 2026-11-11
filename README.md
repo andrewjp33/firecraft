@@ -68,8 +68,10 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   (slices, presets) is carried through a save untouched.
 - **Optimize panel and Export**: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's palettes
   (Adaptive, WebSnap, Web 216, Exact, Windows, Macintosh, Grayscale, Uniform), dither and
-  transparency, kept in the document as Fireworks MX keeps them; plus **WebP** and **JPEG XL** with
-  Quality and Alpha Quality. The Preview tab shows the export and its file size
+  transparency, Auto Crop/Auto Difference for animations, kept in the document as Fireworks MX
+  keeps them; plus **WebP** and **JPEG XL** with Quality and Alpha Quality, exact alpha for PNG 8
+  and a lossless **PNG optimizer** (OptiPNG-style levels). The Preview tab shows the export and its
+  file size
   ([docs/behavior/export.md](docs/behavior/export.md)).
 - **Opening images**: PNG, JPEG, GIF, BMP, TIFF, Targa, WebP and JPEG XL open as Fireworks MX
   opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;

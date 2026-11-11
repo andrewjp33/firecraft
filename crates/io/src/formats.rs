@@ -110,6 +110,8 @@ struct Layout {
     delays: Option<Vec<u32>>,
     canvas: Option<Rgba>,
     resolution: (f64, bool),
+    /// The canvas size when the file states one (a GIF's screen); otherwise the pictures' extent.
+    size: Option<(u32, u32)>,
 }
 
 /// Open a flat image file of any supported format as a document.
@@ -143,37 +145,51 @@ pub fn open_flat(bytes: &[u8], name: Option<String>) -> Result<Document> {
 }
 
 /// The export settings an opened image starts with, as Fireworks MX chooses them (measured with
-/// `dom.exportOptions`): a JPEG exports as JPEG at the quality it was saved with, a GIF as GIF
-/// (animated if it has frames) with its exact palette; FireCraft keeps PNG, WebP and JPEG XL
-/// files in their own format.
+/// `dom.exportOptions`): a JPEG exports as JPEG at the quality it was saved with; a GIF or PNG 8
+/// with its exact palette and its own color count (PP-8.png: 32, win-8.png: 16). FireCraft also
+/// keeps their transparency, which Fireworks MX drops (it reports none), and exact alpha for a
+/// PNG 8 with partly transparent entries, so the file exports back as it was. PNG 24/32, WebP
+/// and JPEG XL files keep their own format.
 fn export_settings_for(format: Format, bytes: &[u8], doc: &Document) -> firecraft_doc::ExportSettings {
-    use firecraft_doc::{ExportFormat, ExportSettings, PaletteKind};
+    use firecraft_doc::{ExportFormat, ExportSettings, PaletteKind, Transparency};
     let d = ExportSettings::default();
+    let clear = |a: bool| if a { Transparency::Alpha } else { Transparency::None };
     match format {
         Format::Jpeg => ExportSettings {
             format: ExportFormat::Jpeg,
             jpeg_quality: jpeg_quality(bytes).map_or(80, crate::export::mx_quality),
             ..d
         },
-        Format::Gif => ExportSettings {
-            format: if doc.frames.len() > 1 {
-                ExportFormat::AnimatedGif
-            } else {
-                ExportFormat::Gif
+        Format::Gif => {
+            let (colors, transparent) = visible_colors(doc);
+            ExportSettings {
+                format: if doc.frames.len() > 1 {
+                    ExportFormat::AnimatedGif
+                } else {
+                    ExportFormat::Gif
+                },
+                palette: PaletteKind::Exact,
+                colors: colors.clamp(2, 256) as u16,
+                transparency: clear(transparent),
+                ..d
+            }
+        }
+        Format::Png => match png_palette(bytes) {
+            Some((entries, alphas)) => ExportSettings {
+                format: ExportFormat::Png8,
+                palette: PaletteKind::Exact,
+                colors: entries.clamp(2, 256) as u16,
+                transparency: clear(alphas.iter().any(|&a| a < 255)),
+                exact_alpha: alphas.iter().any(|&a| a > 0 && a < 255),
+                ..d
             },
-            palette: PaletteKind::Exact,
-            colors: 256,
-            ..d
-        },
-        Format::Png => ExportSettings {
-            format: match png_color_type(bytes) {
-                Some(png::ColorType::Indexed) => ExportFormat::Png8,
-                Some(png::ColorType::Rgb | png::ColorType::Grayscale) => ExportFormat::Png24,
-                _ => ExportFormat::Png32,
+            None => ExportSettings {
+                format: match png_color_type(bytes) {
+                    Some(png::ColorType::Rgb | png::ColorType::Grayscale) => ExportFormat::Png24,
+                    _ => ExportFormat::Png32,
+                },
+                ..d
             },
-            palette: PaletteKind::Exact,
-            colors: 256,
-            ..d
         },
         Format::WebP => ExportSettings {
             format: ExportFormat::WebP,
@@ -190,6 +206,34 @@ fn export_settings_for(format: Format, bytes: &[u8], doc: &Document) -> firecraf
 fn png_color_type(bytes: &[u8]) -> Option<png::ColorType> {
     let r = png::Decoder::new(Cursor::new(bytes)).read_info().ok()?;
     Some(r.info().color_type)
+}
+
+/// A palette PNG's number of palette entries and their alphas (`tRNS`).
+fn png_palette(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
+    let r = png::Decoder::new(Cursor::new(bytes)).read_info().ok()?;
+    let info = r.info();
+    if info.color_type != png::ColorType::Indexed {
+        return None;
+    }
+    let entries = info.palette.as_ref().map_or(0, |p| p.len() / 3);
+    let alphas = info.trns.as_ref().map(|t| t.to_vec()).unwrap_or_default();
+    Some((entries, alphas))
+}
+
+/// The distinct opaque colors over every frame, and whether any pixel is transparent.
+fn visible_colors(doc: &Document) -> (usize, bool) {
+    let mut seen = std::collections::HashSet::new();
+    let mut transparent = false;
+    for f in 0..doc.frames.len().max(1) {
+        for p in doc.render(f).pixels() {
+            if p.a < 255 {
+                transparent = true;
+            } else if seen.len() <= 256 {
+                seen.insert((p.r, p.g, p.b));
+            }
+        }
+    }
+    (seen.len(), transparent)
 }
 
 /// A JPEG's quality, estimated from its luminance quantization table against the IJG standard
@@ -215,8 +259,10 @@ pub(crate) fn jpeg_quality(bytes: &[u8]) -> Option<u8> {
             } else {
                 bytes
                     .get(at + 5..at + 133)?
-                    .chunks_exact(2)
-                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&c| u16::from_be_bytes(c))
                     .collect()
             };
             // Tables are stored in zig-zag order; the standard table above is in natural order.
@@ -243,20 +289,21 @@ pub(crate) fn jpeg_quality(bytes: &[u8]) -> Option<u8> {
 }
 
 fn build(layout: Layout, name: Option<String>) -> Document {
-    let width = layout
+    let extent_w = layout
         .layers
         .iter()
         .flat_map(|l| &l.2)
         .map(|p| p.x.max(0) as u32 + p.image.width())
         .max()
         .unwrap_or(1);
-    let height = layout
+    let extent_h = layout
         .layers
         .iter()
         .flat_map(|l| &l.2)
         .map(|p| p.y.max(0) as u32 + p.image.height())
         .max()
         .unwrap_or(1);
+    let (width, height) = layout.size.unwrap_or((extent_w, extent_h));
     let (res, cm) = layout.resolution;
     let mut doc = Document::new(width, height, res, layout.canvas);
     doc.resolution_cm = cm;
@@ -309,6 +356,7 @@ fn single(image: RgbaImage, layer_1: bool, resolution: (f64, bool)) -> Layout {
         delays: None,
         canvas: None,
         resolution,
+        size: None,
     }
 }
 
@@ -325,6 +373,7 @@ fn animation(format: &str, frames: Vec<(RgbaImage, u32)>, resolution: (f64, bool
         delays: Some(delays),
         canvas: None,
         resolution,
+        size: None,
     }
 }
 
@@ -529,6 +578,7 @@ fn gif_frames_layout(w: u32, h: u32, frames: Vec<GifFrame>, background: Option<R
         delays: Some(delays.clone()),
         canvas,
         resolution: (72.0, false),
+        size: Some((w, h)),
     };
     if frames.len() == 1 {
         let pictures = frames.into_iter().map(|f| own_picture(w, h, f)).collect();

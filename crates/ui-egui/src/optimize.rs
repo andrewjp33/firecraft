@@ -29,9 +29,12 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
             Ok((bytes, colors)) => {
                 let mut line = format!("{}  {}", s.format.label(), crate::canvas::file_size(*bytes));
                 if s.format.indexed() {
-                    line += &format!("  {colors} colours");
+                    line += &format!("  {colors} colors");
                 }
                 ui.label(line);
+                if s.format.png() && s.png_optimize > 0 && firecraft_io::export::png_optimizer_available() {
+                    ui.weak("Export optimizes the PNG further (smaller than shown).");
+                }
             }
             Err(e) => {
                 ui.colored_label(egui::Color32::from_rgb(170, 30, 30), e);
@@ -89,13 +92,16 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
         ExportFormat::Png24 | ExportFormat::Png32 => {}
         ExportFormat::WebP | ExportFormat::JpegXl => modern(ui, s),
     }
+    if s.format.png() && firecraft_io::export::png_optimizer_available() {
+        png_optimizer(ui, s);
+    }
 }
 
 fn matte(ui: &mut Ui, s: &mut ExportSettings) {
     let mut on = s.matte.is_some();
     if ui
         .checkbox(&mut on, "Matte")
-        .on_hover_text("Colour under semi-transparent edges where the format can't keep them (off: the canvas colour, or white)")
+        .on_hover_text("Color under semi-transparent edges where the format can't keep them (off: the canvas color, or white)")
         .changed()
     {
         s.matte = on.then_some(Rgba::new(255, 255, 255, 255));
@@ -120,17 +126,16 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
             });
     });
     ui.horizontal(|ui| {
-        ui.label("Colours:");
+        ui.label("Colors:");
         let fixed = s.palette == PaletteKind::BlackWhite;
-        ComboBox::from_id_salt("opt_colors")
-            .selected_text(if fixed { "2".to_owned() } else { s.colors.to_string() })
-            .width(56.0)
-            .show_ui(ui, |ui| {
-                for n in [2u16, 4, 8, 16, 32, 64, 128, 256] {
-                    ui.selectable_value(&mut s.colors, n, n.to_string());
-                }
-            });
-        ui.add_enabled(!fixed, DragValue::new(&mut s.colors).range(2..=256));
+        ui.add_enabled_ui(!fixed, |ui| {
+            if fixed {
+                let mut two = 2u16;
+                number_combo(ui, "opt_colors", &mut two, &COLOR_COUNTS, 2..=256);
+            } else {
+                number_combo(ui, "opt_colors", &mut s.colors, &COLOR_COUNTS, 2..=256);
+            }
+        });
     });
     ui.horizontal(|ui| {
         ui.label("Dither:");
@@ -139,7 +144,7 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
     if s.palette == PaletteKind::WebAdaptive {
         ui.horizontal(|ui| {
             ui.label("WebSnap tolerance:")
-                .on_hover_text("Palette colours this close to a Web 216 colour snap to it");
+                .on_hover_text("Palette colors this close to a Web 216 color snap to it");
             ui.add(DragValue::new(&mut s.websnap_tolerance).range(0..=50));
         });
     }
@@ -151,10 +156,23 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                 ui.selectable_value(&mut s.transparency, t, t.label());
             }
         });
+    let alpha_palette = matches!(
+        s.palette,
+        PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact
+    );
+    if s.format == ExportFormat::Png8 && s.transparency == Transparency::Alpha && alpha_palette {
+        ui.checkbox(&mut s.exact_alpha, "Exact alpha").on_hover_text(
+            "Keep every pixel's transparency as it is. Off (as in Fireworks MX), alpha is rounded to 16 levels and the faintest pixels vanish.",
+        );
+    }
     if s.format != ExportFormat::Png8 {
         ui.checkbox(&mut s.interlaced, "Interlaced");
     }
     if s.format == ExportFormat::AnimatedGif {
+        ui.checkbox(&mut s.auto_crop, "Auto Crop")
+            .on_hover_text("Each frame only covers the area that changed since the previous frame");
+        ui.checkbox(&mut s.auto_difference, "Auto Difference")
+            .on_hover_text("Pixels a frame doesn't change are left transparent, so the file is smaller");
         ui.horizontal(|ui| {
             ui.label("Loops:");
             ui.add(DragValue::new(&mut s.loops).range(0..=1000))
@@ -164,6 +182,57 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
             }
         });
     }
+}
+
+/// The preset color counts of the Colors box.
+const COLOR_COUNTS: [u16; 8] = [2, 4, 8, 16, 32, 64, 128, 256];
+
+/// A number box with a drop-down of preset values attached, like Fireworks' editable combo
+/// boxes: type (or drag) any value, or pick one from the list.
+fn number_combo(
+    ui: &mut Ui,
+    id: &str,
+    value: &mut u16,
+    presets: &[u16],
+    range: std::ops::RangeInclusive<u16>,
+) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add(DragValue::new(value).range(range).speed(0.25));
+        ComboBox::from_id_salt(id)
+            .selected_text("")
+            .width(14.0)
+            .show_ui(ui, |ui| {
+                for &n in presets {
+                    ui.selectable_value(value, n, n.to_string());
+                }
+            });
+    });
+}
+
+/// The lossless PNG optimizer's level (applied by File > Export, after the Preview).
+fn png_optimizer(ui: &mut Ui, s: &mut ExportSettings) {
+    let label = |l: u8| match l {
+        0 => "Off".to_owned(),
+        1 => "1 (fastest)".to_owned(),
+        7 => "7 (smallest, slow)".to_owned(),
+        l => l.to_string(),
+    };
+    ui.horizontal(|ui| {
+        ui.label("Optimize PNG:").on_hover_text(
+            "Lossless recompression on export, like OptiPNG's -o levels: higher levels try more \
+             filters, bit depths and palette reductions and compress harder. 7 adds Zopfli and \
+             can take a long time on large images. The pixels never change.",
+        );
+        ComboBox::from_id_salt("opt_png_level")
+            .selected_text(label(s.png_optimize))
+            .width(120.0)
+            .show_ui(ui, |ui| {
+                for l in 0..=7u8 {
+                    ui.selectable_value(&mut s.png_optimize, l, label(l));
+                }
+            });
+    });
 }
 
 fn jpeg(ui: &mut Ui, s: &mut ExportSettings) {
@@ -187,7 +256,7 @@ fn jpeg(ui: &mut Ui, s: &mut ExportSettings) {
             });
     });
     ui.checkbox(&mut s.progressive, "Progressive JPEG");
-    ui.checkbox(&mut s.jpeg_full_color, "Full-resolution colour")
+    ui.checkbox(&mut s.jpeg_full_color, "Full-resolution color")
         .on_hover_text("No chroma subsampling (as Fireworks MX writes JPEGs); off: smaller 4:2:0 files");
 }
 

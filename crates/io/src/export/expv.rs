@@ -7,7 +7,8 @@
 //! `PTNi` transparency (0 none, 1 index, 2 index alpha, 3 rgba), `APSb` WebSnap Adaptive,
 //! `ASTi` its tolerance, `PLDi` dither percent, `GFIb` interlaced, `GLTi` GIF loss, `JPQi`
 //! JPEG quality, `JPSi` smoothing, `JPPb` progressive, `FLPi` animation repeats (0 forever),
-//! `FNLv` the frames. FireCraft's own options use `FC..` fields, which Fireworks ignores.
+//! `FNLv` the frames, `AACb`/`AADb` the animation's Auto Crop and Auto Difference. FireCraft's
+//! own options use `FC..` fields, which Fireworks ignores (`FCOi`: the PNG optimization level).
 
 use firecraft_doc::{ExportFormat, ExportSettings, Frame, PaletteKind, Transparency};
 use firecraft_fwpng::Node;
@@ -35,7 +36,7 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         _ => {}
     }
     let colors = int("PLR").map_or(d.colors, |v| v.clamp(2, 256) as u16);
-    let snap = exp.bool_of("APS").unwrap_or(true);
+    let snap = exp.bool_of("APS").unwrap_or(false);
     let palette = match int("PLT") {
         Some(2) => PaletteKind::Uniform,
         Some(3) if colors <= 2 => PaletteKind::BlackWhite,
@@ -60,12 +61,16 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         websnap_tolerance: byte("AST", d.websnap_tolerance),
         dither: byte("PLD", 0).min(100),
         transparency,
+        exact_alpha: exp.bool_of("FCX").unwrap_or(false),
+        png_optimize: byte("FCO", d.png_optimize).min(7),
         matte: int("FCM").map(|v| {
             let v = v as u32;
             Rgba::new((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
         }),
         interlaced: exp.bool_of("GFI").unwrap_or(false),
         loops: int("FLP").map_or(0, |v| v.clamp(0, 65535) as u16),
+        auto_crop: exp.bool_of("AAC").unwrap_or(true),
+        auto_difference: exp.bool_of("AAD").unwrap_or(true),
         jpeg_quality: byte("JPQ", d.jpeg_quality).min(100),
         jpeg_smoothing: byte("JPS", 0).min(8),
         progressive: exp.bool_of("JPP").unwrap_or(false),
@@ -133,8 +138,10 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     set(&mut n, Node::bool("JPP", s.progressive));
     set(&mut n, Node::bool("GFI", s.interlaced));
     set(&mut n, Node::int("FLP", i64::from(s.loops)));
+    set(&mut n, Node::bool("AAC", s.auto_crop));
+    set(&mut n, Node::bool("AAD", s.auto_difference));
     // FireCraft's own fields, at the end (Fireworks ignores fields it doesn't know).
-    n.children.retain(|c| !["FCF", "FCQ", "FCA", "FCL", "FCJ", "FCM"].iter().any(|t| c.is(t)));
+    n.children.retain(|c| !["FCF", "FCQ", "FCA", "FCL", "FCJ", "FCM", "FCX", "FCO"].iter().any(|t| c.is(t)));
     match s.format {
         ExportFormat::WebP => n.children.push(Node::int("FCF", FC_WEBP)),
         ExportFormat::JpegXl => n.children.push(Node::int("FCF", FC_JPEG_XL)),
@@ -144,6 +151,8 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     n.children.push(Node::int("FCA", i64::from(s.alpha_quality.min(100))));
     n.children.push(Node::bool("FCL", s.lossless));
     n.children.push(Node::bool("FCJ", s.jpeg_full_color));
+    n.children.push(Node::bool("FCX", s.exact_alpha));
+    n.children.push(Node::int("FCO", i64::from(s.png_optimize.min(7))));
     if let Some(m) = s.matte {
         let v = (u32::from(m.r) << 16) | (u32::from(m.g) << 8) | u32::from(m.b);
         n.children.push(Node::int("FCM", i64::from(v)));
@@ -251,6 +260,8 @@ mod tests {
                 colors: 64,
                 dither: 37,
                 transparency: Transparency::Alpha,
+                exact_alpha: true,
+                png_optimize: 5,
                 interlaced: true,
                 ..ExportSettings::default()
             },
@@ -274,6 +285,8 @@ mod tests {
                 palette: PaletteKind::BlackWhite,
                 colors: 2,
                 loops: 3,
+                auto_crop: false,
+                auto_difference: false,
                 ..ExportSettings::default()
             },
         ] {
