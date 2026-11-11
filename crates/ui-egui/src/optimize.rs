@@ -156,6 +156,18 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                 ui.selectable_value(&mut s.transparency, t, t.label());
             }
         });
+    let alpha_palette = matches!(
+        s.palette,
+        PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact
+    );
+    if s.format == ExportFormat::Png8 && s.transparency == Transparency::Alpha && alpha_palette {
+        ui.checkbox(&mut s.smooth_alpha, "Smoother alpha").on_hover_text(
+            "When the colors and their transparency don't all fit the color count, keep every \
+             transparency level (smoother soft edges, colors a little coarser) instead of \
+             rounding it to 16 levels as Fireworks MX does. When everything fits, transparency \
+             is always kept exactly.",
+        );
+    }
     if s.format != ExportFormat::Png8 {
         ui.checkbox(&mut s.interlaced, "Interlaced");
     }

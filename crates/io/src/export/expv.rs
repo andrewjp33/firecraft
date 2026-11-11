@@ -62,6 +62,7 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         dither: byte("PLD", 0).min(100),
         transparency,
         png_optimize: byte("FCO", d.png_optimize).min(7),
+        smooth_alpha: exp.bool_of("FCX").unwrap_or(false),
         matte: int("FCM").map(|v| {
             let v = v as u32;
             Rgba::new((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
@@ -151,6 +152,7 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     n.children.push(Node::bool("FCL", s.lossless));
     n.children.push(Node::bool("FCJ", s.jpeg_full_color));
     n.children.push(Node::int("FCO", i64::from(s.png_optimize.min(7))));
+    n.children.push(Node::bool("FCX", s.smooth_alpha));
     if let Some(m) = s.matte {
         let v = (u32::from(m.r) << 16) | (u32::from(m.g) << 8) | u32::from(m.b);
         n.children.push(Node::int("FCM", i64::from(v)));
@@ -259,6 +261,7 @@ mod tests {
                 dither: 37,
                 transparency: Transparency::Alpha,
                 png_optimize: 5,
+                smooth_alpha: true,
                 interlaced: true,
                 ..ExportSettings::default()
             },

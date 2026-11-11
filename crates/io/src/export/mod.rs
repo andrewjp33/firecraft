@@ -143,6 +143,9 @@ enum Clear {
     /// A palette with alpha (PNG 8, adaptive palettes); `exact`: alpha as it is, otherwise in
     /// Fireworks MX's 16 levels.
     Palette { exact: bool },
+    /// PNG 8 with a fixed palette: its colors, each with the alphas the image needs, when they
+    /// fit (see `fixed_with_alpha`); otherwise [`Clear::Cut`].
+    FixedAlpha,
 }
 
 fn clear_mode(s: &ExportSettings, png8: bool) -> Clear {
@@ -153,13 +156,9 @@ fn clear_mode(s: &ExportSettings, png8: bool) -> Clear {
     match s.transparency {
         Transparency::None => Clear::None,
         Transparency::Index => Clear::Key,
-        // Exact keeps alpha as it is (when the colors fit, see `index`); Adaptive and WebSnap
-        // round it to 16 levels like Fireworks MX, which spends fewer palette entries on alpha
-        // (on a soft-shadowed image: as good at 256 colors, better at 64 and 16). Fireworks MX's
-        // own Exact keeps only fully clear and fully opaque pixels.
-        Transparency::Alpha if png8 && alpha_palette => Clear::Palette {
-            exact: s.palette == PaletteKind::Exact,
-        },
+        // Alpha as it is while every color+alpha fits; otherwise rounded (see `index`).
+        Transparency::Alpha if png8 && alpha_palette => Clear::Palette { exact: true },
+        Transparency::Alpha if png8 => Clear::FixedAlpha,
         Transparency::Alpha => Clear::Cut,
     }
 }
@@ -246,12 +245,28 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
     } else {
         usize::from(s.colors.clamp(2, 256))
     };
-    // Exact alpha only when every color fits; otherwise the palette is adaptive, and rounded
-    // alpha suits it better.
-    if mode == (Clear::Palette { exact: true })
-        && quantize::histogram(&prepared.iter().flatten().copied().collect::<Vec<_>>()).len() > limit_colors
-    {
+    // Alpha stays exact when every color+alpha combination fits the color count (each gets its
+    // own entry: nothing is lost). Otherwise the palette is a median cut, and alpha rounded to
+    // Fireworks MX's 16 levels spends fewer entries on alpha (on a soft-shadowed image: as good at
+    // 256 colors, better at 64 and 16), unless Smoother Alpha keeps it. Fireworks MX itself always
+    // rounds with Adaptive, and keeps only clear and opaque pixels with Exact.
+    let fits = |px: &[Vec<Entry>]| {
+        quantize::histogram(&px.iter().flatten().copied().collect::<Vec<_>>()).len() <= limit_colors
+    };
+    if mode == (Clear::Palette { exact: true }) && !s.smooth_alpha && !fits(&prepared) {
         mode = Clear::Palette { exact: false };
+        prepared = prep(mode);
+    }
+    // A fixed palette keeps alpha (exact, else rounded) when its colors with their alphas fit;
+    // otherwise Fireworks MX's cut at alpha 16.
+    if mode == Clear::FixedAlpha {
+        for exact in [true, false] {
+            let px = prep(Clear::Palette { exact });
+            if let Some(ix) = fixed_with_alpha(&px, images, s, limit_colors) {
+                return ix;
+            }
+        }
+        mode = Clear::Cut;
         prepared = prep(mode);
     }
     let cut = mode == Clear::Cut;
@@ -320,6 +335,47 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
         frames,
         transparent,
     }
+}
+
+/// A fixed palette (Web 216, Windows, Grayscale...) with alpha: each pixel takes its nearest
+/// palette color and keeps its alpha, as long as the (color, alpha) pairs fit `limit` entries.
+fn fixed_with_alpha(px: &[Vec<Entry>], images: &[&RgbaImage], s: &ExportSettings, limit: usize) -> Option<Indexed> {
+    let opaque: Vec<Entry> = px
+        .iter()
+        .flatten()
+        .filter(|p| p[3] > 0)
+        .map(|p| [p[0], p[1], p[2], 255])
+        .collect();
+    let base = palette_for(&opaque, s, limit, false);
+    if base.is_empty() {
+        return None;
+    }
+    let mut nearest: std::collections::HashMap<[u8; 3], [u8; 3]> = std::collections::HashMap::new();
+    let mut snap = |p: Entry| -> Entry {
+        if p[3] == 0 {
+            return [0, 0, 0, 0];
+        }
+        let c = *nearest.entry([p[0], p[1], p[2]]).or_insert_with(|| {
+            let i = quantize::nearest(&base, [p[0], p[1], p[2], 255], false);
+            base.get(i).map_or([0, 0, 0], |b| [b[0], b[1], b[2]])
+        });
+        [c[0], c[1], c[2], p[3]]
+    };
+    let snapped: Vec<Vec<Entry>> = px.iter().map(|f| f.iter().map(|&p| snap(p)).collect()).collect();
+    let hist = quantize::histogram(&snapped.iter().flatten().copied().collect::<Vec<_>>());
+    if hist.len() > limit {
+        return None;
+    }
+    let mut palette: Vec<Entry> = hist.keys().map(|&k| k.to_be_bytes()).collect();
+    palette.sort_unstable();
+    // Dithering works on the image's own colors, against these entries.
+    let source = if s.dither > 0 { px } else { &snapped };
+    let frames = map_frames(source, images, &palette, s.dither, true, &|_| false, 0);
+    Some(Indexed {
+        palette,
+        frames,
+        transparent: None,
+    })
 }
 
 fn map_frames(
@@ -850,42 +906,52 @@ mod tests {
             transparency: Transparency::Alpha,
             ..with(ExportFormat::Png8)
         };
+        // Grey, with its alphas 12, 19 and 255, and clear: 4 entries fit, alpha kept exactly.
         let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
-        // As Fireworks MX: transparent below alpha 16, opaque grey (over white) above.
+        assert_eq!(e.preview.get(2, 2).map(|p| p.a), Some(0));
+        assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(12));
+        assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(19));
+        let grey = e.preview.get(20, 2).expect("a pixel");
+        assert!(grey.a == 255 && grey.r == grey.g && grey.g == grey.b, "{grey:?}");
+        let back = crate::formats::open_flat(&e.bytes, None).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(back.render(0).get(2, 2).map(|p| p.a), Some(0));
+        // 2 colors: neither exact nor rounded alpha fits, so Fireworks MX's cut: transparent
+        // below alpha 16, opaque grey (over white) above.
+        let two = ExportSettings { colors: 2, ..s };
+        let e = export(&d, &two).unwrap_or_else(|e| unreachable!("{e}"));
         assert_eq!(e.preview.get(2, 2).map(|p| p.a), Some(0));
         assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(0));
         assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(255));
-        assert_eq!(e.preview.get(20, 2).map(|p| p.a), Some(255));
-        let back = crate::formats::open_flat(&e.bytes, None).unwrap_or_else(|e| unreachable!("{e}"));
-        assert_eq!(back.render(0).get(2, 2).map(|p| p.a), Some(0));
     }
 
     #[test]
-    fn adaptive_rounds_alpha_and_exact_keeps_it() {
+    fn alpha_is_exact_when_it_fits_and_rounded_when_not() {
         let d = soft();
-        let s = ExportSettings {
-            palette: PaletteKind::Adaptive,
-            transparency: Transparency::Alpha,
-            ..with(ExportFormat::Png8)
-        };
-        let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
-        // Fireworks MX's 16 levels: 12 and 19 both become 17.
-        assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(17));
-        assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(17));
-        let exact = ExportSettings {
-            palette: PaletteKind::Exact,
-            ..s.clone()
-        };
-        let e = export(&d, &exact).unwrap_or_else(|e| unreachable!("{e}"));
-        assert_eq!(e.preview.get(10, 2), Some(Rgba::new(40, 90, 200, 12)));
-        assert_eq!(e.preview.get(11, 2), Some(Rgba::new(40, 90, 200, 19)));
-        assert_eq!(e.preview.get(2, 2).map(|p| p.a), Some(0));
-        // Too many colors for Exact (alphas 0, 12, 19, 255 in 3 colors): rounded alpha, which
-        // fits (12 and 19 both become 17).
-        let few = ExportSettings { colors: 3, ..exact };
-        let e = export(&d, &few).unwrap_or_else(|e| unreachable!("{e}"));
-        assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(17));
-        assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(17));
+        for palette in [PaletteKind::Adaptive, PaletteKind::Exact] {
+            let s = ExportSettings {
+                palette,
+                transparency: Transparency::Alpha,
+                ..with(ExportFormat::Png8)
+            };
+            // 4 color+alpha combinations fit 256 colors: kept as they are.
+            let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+            assert_eq!(e.preview.get(10, 2), Some(Rgba::new(40, 90, 200, 12)), "{palette:?}");
+            assert_eq!(e.preview.get(11, 2), Some(Rgba::new(40, 90, 200, 19)), "{palette:?}");
+            assert_eq!(e.preview.get(2, 2).map(|p| p.a), Some(0), "{palette:?}");
+            // Not in 3 colors: Fireworks MX's 16 levels (12 and 19 both become 17), which fit.
+            let few = ExportSettings { colors: 3, ..s };
+            let e = export(&d, &few).unwrap_or_else(|e| unreachable!("{e}"));
+            assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(17), "{palette:?}");
+            assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(17), "{palette:?}");
+            // Smoother Alpha: not rounded; the median cut merges 12 and 19 to their mean.
+            let smooth = ExportSettings {
+                smooth_alpha: true,
+                ..few
+            };
+            let e = export(&d, &smooth).unwrap_or_else(|e| unreachable!("{e}"));
+            let a = e.preview.get(10, 2).map_or(0, |p| p.a);
+            assert!(a != 17 && (12..=19).contains(&a), "{palette:?}: {a}");
+        }
     }
 
     #[test]

@@ -55,7 +55,7 @@ comparing the records:
 
 FireCraft adds `FCFi` (1 WebP, 2 JPEG XL; `FMTi`/`CLRi` then say PNG 32, which Fireworks MX
 exports instead), `FCQi`/`FCAi` (quality, alpha quality), `FCLb` (lossless), `FCJb` (full-resolution
-JPEG color), `FCMi` (matte), `FCOi` (PNG optimizer level). A record read from a file is kept exactly while its settings are
+JPEG color), `FCMi` (matte), `FCOi` (PNG optimizer level), `FCXb` (Smoother alpha). A record read from a file is kept exactly while its settings are
 unchanged; a new document gets Fireworks MX's default record (now with its frame delays, which new
 documents didn't carry to Fireworks MX before). Fireworks MX reads FireCraft's records back as set
 (checked for GIF, JPEG, PNG 8 with alpha, animated GIF with the Windows palette, WebP).
@@ -83,19 +83,26 @@ Opened files, as Fireworks MX opens them:
 * **Index Transparency** is a color key: everything is flattened onto the matte (white when the
   canvas is transparent) and the matte's palette entry becomes transparent, so opaque white pixels
   vanish too.
-* **Alpha Transparency**, GIF, and PNG 8 with a fixed palette (Grayscale, Web 216...): pixels
-  under alpha 16 become transparent (12 did, 19 didn't); the rest are flattened onto the matte.
-  The palette is n−1 colors plus a transparent entry. (FireCraft used to map the clear pixels to
-  the nearest gray, black.)
-* **Alpha Transparency**, PNG 8 with Adaptive or WebSnap: a palette with alpha, rounded to 16
-  levels (multiples of 17: 6 → 0, 12 and 19 → 17). Measured on a soft-shadowed image (RMS error
-  composited over white / black): at 256 colors 3.14 / 3.03 rounded against 3.07 / 2.99 unrounded,
-  at 64 colors 5.74 / 5.39 against 6.06 / 5.48, at 16 colors 11.70 / 11.58 against 12.09 / 11.06:
-  rounding spends fewer palette entries on alpha, so FireCraft rounds too.
-* **Alpha Transparency**, PNG 8 with **Exact**: Fireworks MX keeps only fully clear and fully opaque
-  pixels (its exports of the PNG 8 references lost their soft edges). FireCraft keeps alpha exactly
-  when every color fits the color count, and otherwise rounds it as Adaptive does. The transparent
-  entry (and Auto Difference's) is added on top of Exact's colors, up to 256.
+* **Alpha Transparency**, GIF: pixels under alpha 16 become transparent (12 did, 19 didn't in
+  Fireworks MX); the rest are flattened onto the matte. The palette is n−1 colors plus a
+  transparent entry.
+
+PNG 8 with Alpha Transparency keeps alpha in its palette. Fireworks MX: Adaptive rounds alpha to
+16 levels (multiples of 17: 6 → 0, 12 and 19 → 17); Exact keeps only fully clear and fully opaque
+pixels (its exports of the PNG 8 references lost their soft edges); fixed palettes cut at 16 as
+GIF does. FireCraft:
+
+* **When every color+alpha combination fits the color count, alpha is kept exactly**, whatever
+  the palette: each combination gets its own entry, so nothing is lost. With a fixed palette
+  (Web 216, Windows, Grayscale...) the combinations are the palette colors the pixels map to,
+  each with the alphas it needs.
+* **When they don't fit**, Adaptive, WebSnap and Exact build a median-cut palette with alpha
+  rounded to 16 levels, as Fireworks MX does: it spends fewer entries on alpha. Measured on a
+  soft-shadowed image (RMS error composited over white / black): at 256 colors 3.14 / 3.03 rounded
+  against 3.07 / 2.99 unrounded, at 64 colors 5.74 / 5.39 against 6.06 / 5.48, at 16 colors 11.70 /
+  11.58 against 12.09 / 11.06. **Smoother alpha** keeps alpha unrounded instead (smoother soft
+  edges, coarser colors). Fixed palettes try rounded alpha, then Fireworks MX's cut at 16.
+* The transparent entry (and Auto Difference's) is added on top of Exact's colors, up to 256.
 
 ## Animation
 
