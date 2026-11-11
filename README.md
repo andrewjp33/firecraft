@@ -16,6 +16,16 @@ and Linux (macOS should work too) and in the browser via WebAssembly.
 > Fireworks is a trademark of Adobe. Behavior is learned from documentation and by measuring the
 > original program (see [docs/clean-room.md](docs/clean-room.md)).
 
+## Try it
+
+- **In your browser**, nothing to install: **https://andrewjp33.github.io/firecraft/**
+- **Windows and Linux**: download the latest build from
+  [Releases](https://github.com/andrewjp33/firecraft/releases/latest), extract it and run
+  `firecraft.exe` or `./firecraft`. On Windows, SmartScreen may say it "protected your PC" from an
+  Unknown publisher. If this happens, click *More info → Run anyway*.
+
+Or [build it from source](#build-and-run).
+
 ## Status (November 2026)
 
 FireCraft opens, edits and saves real Fireworks documents, and draws most of them very close to how
