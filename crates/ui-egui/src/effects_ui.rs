@@ -565,12 +565,13 @@ const DEFS: &[EffectDef] = &[
 /// The definition matching an entry (by MoaID, and BevelType for the bevel/glow family).
 fn def_for(e: &EffectEntry) -> Option<&'static EffectDef> {
     let bevel = e.get("BevelType");
-    // A FireCraft effect stored as a Fireworks one: matched by its marker.
-    let own = e.get("firecraft_effect");
+    // A FireCraft effect stored as a Fireworks one: matched while it still is one (edited in
+    // Fireworks MX, it's that Fireworks effect even though the marker stays).
+    let own = matches!(e.effect(), Some(firecraft_raster::effects::Effect::Grayscale)).then_some("grayscale");
     DEFS.iter().find(|d| {
         let marker = d.defaults.iter().find(|(k, _)| *k == "firecraft_effect").map(|(_, v)| *v);
         d.moa == e.moa_id()
-            && marker == own.as_deref()
+            && marker == own
             && match bevel {
                 Some(t) => d.defaults.iter().any(|(k, v)| *k == "BevelType" && *v == t),
                 None => true,

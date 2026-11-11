@@ -85,6 +85,11 @@ impl EffectEntry {
     }
 
     /// Whether FireCraft renders it (shown and understood).
+    /// The effect FireCraft renders for this entry, visible or not.
+    pub fn effect(&self) -> Option<&Effect> {
+        self.effect.as_ref()
+    }
+
     pub fn active(&self) -> Option<&Effect> {
         self.effect.as_ref().filter(|_| self.visible())
     }

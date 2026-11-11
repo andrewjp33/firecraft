@@ -161,8 +161,17 @@ impl Effect {
         let truthy = |k: &str| p.get(k).is_some_and(|v| v == "true" || v == "1");
         let name = p.get("name").map(String::as_str).unwrap_or("");
         let id = p.get("EffectMoaID").map(String::as_str).unwrap_or("");
-        // FireCraft's own effects, stored as a Fireworks effect Fireworks MX renders instead.
-        if p.get(FIRECRAFT_EFFECT).is_some_and(|v| v == "grayscale") {
+        // FireCraft's own effects, stored as a Fireworks effect Fireworks MX renders instead:
+        // only while the record is still exactly what FireCraft wrote. Fireworks MX keeps the
+        // marker when the effect is edited there, but renames it "Hue/Saturation..." and stores
+        // the new values (minions_banana2_gray.png: saturation -60), and then it's that effect.
+        let is = |k: &str, v: &str| p.get(k).map(String::as_str) == Some(v);
+        let untouched = name == "Grayscale"
+            && num("saturation_amount", 0.0) == -100.0
+            && num("hue_amount", 0.0) == 0.0
+            && num("lightness_amount", 0.0) == 0.0
+            && !truthy("hls_colorize");
+        if is(FIRECRAFT_EFFECT, "grayscale") && untouched && id == HUE_SAT {
             return Some(Effect::Grayscale);
         }
         Some(match id {
@@ -1184,7 +1193,31 @@ mod tests {
             ("saturation_amount", "-100"),
             (FIRECRAFT_EFFECT, "grayscale"),
         ]);
-        assert_eq!(Effect::parse(&p, &HashMap::new()), Some(Effect::Grayscale));
+        let plain = Effect::HueSaturation {
+            hue: 0.0,
+            saturation: -100.0,
+            lightness: 0.0,
+            colorize: false,
+        };
+        assert_eq!(Effect::parse(&p, &HashMap::new()), Some(plain), "no Grayscale name");
+        let mine = params(&[
+            ("EffectMoaID", HUE_SAT),
+            ("name", "Grayscale"),
+            ("saturation_amount", "-100"),
+            (FIRECRAFT_EFFECT, "grayscale"),
+        ]);
+        assert_eq!(Effect::parse(&mine, &HashMap::new()), Some(Effect::Grayscale));
+        // Edited in Fireworks MX (minions_banana2_gray.png): renamed, new saturation, marker kept.
+        let edited = params(&[
+            ("EffectMoaID", HUE_SAT),
+            ("name", "Hue/Saturation..."),
+            ("saturation_amount", "-60"),
+            (FIRECRAFT_EFFECT, "grayscale"),
+        ]);
+        assert!(matches!(
+            Effect::parse(&edited, &HashMap::new()),
+            Some(Effect::HueSaturation { saturation, .. }) if saturation == -60.0
+        ));
     }
 
     #[test]
