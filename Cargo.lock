@@ -1160,7 +1160,7 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "firecraft"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ab_glyph",
  "eframe",
@@ -1177,7 +1177,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-doc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "firecraft-fwpng",
  "firecraft-raster",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "firecraft-doc",
  "firecraft-fwpng",
@@ -1199,7 +1199,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-fwpng"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flate2",
  "thiserror 2.0.21",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-io"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "firecraft-doc",
  "firecraft-fwpng",
@@ -1227,15 +1227,15 @@ dependencies = [
 
 [[package]]
 name = "firecraft-raster"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "firecraft-stroke"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "firecraft-sysclip"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clipboard-win",
  "x11rb",
@@ -1243,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-text"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "firecraft-stroke",
  "rustybuzz",
@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-ui-egui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "egui",
  "firecraft-doc",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "firecraft-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eframe",
  "egui",
