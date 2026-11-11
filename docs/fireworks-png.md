@@ -189,36 +189,52 @@ dictionary the host stores without understanding it). Fireworks MX loads the who
 the effect's dialog change only the keys it knows, and writes the whole dictionary back.
 
 **What was tested.** FireCraft wrote a carrier onto a bitmap (rainbow.png), each case its own file
-opened in its own Fireworks MX session (a blocking dialog would have shown as a timeout; none did),
-listed through the scripting API, saved by Fireworks MX, and read back with `dump_tree`:
+opened in its own Fireworks MX session, listed through the scripting API, saved by Fireworks MX, and
+read back with `dump_tree`. A dialog was caught by screenshot and dismissed by a click.
 
-| Carrier | Opens | Listed by Fireworks MX | Picture | Keys after re-save |
+| Carrier | Opens | In Fireworks MX | Picture | Keys after re-save |
 | --- | --- | --- | --- | --- |
-| effect with an unknown `EffectMoaID` (`{f12ec7af-...}`), visible | yes, no dialog | no: dropped silently | unchanged | lost |
-| the same, `EffectIsVisible false` | yes, no dialog | no: dropped silently | unchanged | lost |
-| Hue/Saturation (all 0), `EffectIsVisible false`, extra keys including a 4096-character value | yes | yes, as a disabled Hue/Saturation; scripts read the extra keys (`effect.fc_payload`) | unchanged in Fireworks MX and FireCraft | kept, byte for byte |
-| the same on a hidden 1×1 transparent bitmap named "FireCraft data" | yes | the object kept, hidden, with its name | unchanged | kept |
+| unknown `EffectMoaID`, without `mkbFile_WriteOnly_TemporaryEffectUiName`, on or off | yes, no dialog | dropped silently | unchanged | lost |
+| unknown `EffectMoaID` **with** `mkbFile_WriteOnly_TemporaryEffectUiName` "FireCraft Data" (a plug-in-host ID `{d810e821-f86b-11d0-4669726543726166}` or any other, `{f12ec7af-...}`) | yes, with the missing-effects dialog | kept, listed as "FireCraft Data" | unchanged | kept, a 4096-character value byte for byte |
+| a real plug-in effect (Splat LE Edges) whose plug-in isn't installed, plus extra keys | yes, with the missing-effects dialog | kept | unchanged | kept, extra keys too |
+| Hue/Saturation (all 0), `EffectIsVisible false`, extra keys incl. a 4096-character value | yes, no dialog | kept, a disabled Hue/Saturation; scripts read the keys (`effect.fc_payload`) | unchanged | kept, byte for byte |
+| the same on a hidden 1×1 transparent bitmap named "FireCraft data" | yes, no dialog | the object kept, hidden, named | unchanged | kept |
+
+**Missing effects.** Fireworks MX keeps an effect it can't load (a plug-in that isn't installed:
+removing EyeCandy4000.8bf and Splat LE-eng.8bf from a copy of the install kept all 45 effects of
+plugin_test_windows.png and their 462 plug-in keys through a re-save) and says so on opening:
+*"This document uses live effects or filters that are not currently installed. Objects using
+missing effects are editable, but will not display the effects."*, listing them by their
+`mkbFile_WriteOnly_TemporaryEffectUiName`. Without that key an effect it can't load is dropped
+silently. Not a plug-in cache: deleting Fireworks.mch changed nothing. (FireCraft writes the key on
+every effect it creates; effects it reads keep the record as it was.)
 
 Earlier, with the Grayscale effect: Fireworks MX keeps the extra key when the user *edits* that
 effect in Fireworks MX; it renames the effect ("Hue/Saturation...") and stores its new values
 (minions_banana2_gray.png).
 
-**The recipe** (not used yet, apart from Grayscale):
+**Two recipes** (not used yet, apart from Grayscale):
 
-* Carrier effect: `EffectMoaID {3439b08d-1922-11d3-9bde00e02910d580}` (Hue/Saturation),
-  `EffectIsVisible false`, `name Hue/Saturation...`, `category Adjust Color`,
-  `MB_filter_preview_tile_size -1 -1`, `hue_amount 0`, `saturation_amount 0`, `lightness_amount 0`,
-  `hls_colorize false`, then FireCraft's keys. Must be a real, built-in Fireworks MX effect:
-  unknown IDs are dropped. Disabled and neutral, so it draws nothing even if a user enables it.
-* Object data: the carrier on that object (it travels with it: duplicated, moved, deleted with it).
-* Document data: the carrier on a hidden 1×1 transparent bitmap, named so a user can tell what it
-  is.
+1. *Named missing effect*: any `EffectMoaID` no Fireworks has (e.g. `{d810e821-f86b-11d0-4669726543726166}`,
+   "FireCraf" in the plug-in host's format), `EffectIsVisible true`, `name` and
+   `mkbFile_WriteOnly_TemporaryEffectUiName` "FireCraft Data", then FireCraft's keys. Clear to a
+   user (it says what it is) but Fireworks MX shows the missing-effects dialog every time the file
+   opens.
+2. *Disabled neutral effect*: `EffectMoaID {3439b08d-1922-11d3-9bde00e02910d580}` (Hue/Saturation),
+   `EffectIsVisible false`, `name Hue/Saturation...`, `category Adjust Color`,
+   `MB_filter_preview_tile_size -1 -1`, `hue_amount 0`, `saturation_amount 0`, `lightness_amount 0`,
+   `hls_colorize false`, then FireCraft's keys. No dialog, draws nothing even if enabled, but looks
+   like an ordinary (disabled) Hue/Saturation.
+
+Either one on an object carries object data (it travels with the object: duplicated, moved,
+deleted with it); on a hidden 1×1 transparent bitmap, named so a user can tell what it is, it
+carries document data.
 
 **Design rules for using it** (from the tests and the Grayscale case):
 
-* Users see it in Fireworks MX: a disabled Hue/Saturation in the object's effect list, the carrier
-  object (hidden) in the Layers panel. They can delete it, move it or enable it. Write it only when
-  there's FireCraft-only data to keep, never on every file.
+* Users see it in Fireworks MX: the effect in the object's effect list (and, for recipe 1, the
+  dialog on every open), the carrier object (hidden) in the Layers panel. They can delete it, move
+  it or enable it. Write it only when there's FireCraft-only data to keep, never on every file.
 * Fireworks MX keeps the keys even when the user changes what they describe. Store, next to the
   data, what it was written for (for document settings: the Fireworks MX values saved alongside,
   e.g. the `EXPv` format), and use the data only while that still holds; otherwise Fireworks MX's
@@ -226,12 +242,15 @@ effect in Fireworks MX; it renames the effect ("Hue/Saturation...") and stores i
 * Prefix keys (`firecraft_...`), include a version key, keep values text (they're `DCVs` strings;
   4 KB tested).
 * Reading back: FireCraft finds the carrier, applies its data, and doesn't show the carrier object
-  or the disabled effect as ordinary content (it would rewrite them on save).
+  or effect as ordinary content (it would rewrite them on save).
 
 **Not tested yet:** copy and paste in Fireworks MX, symbols and groups, Fireworks CS5/CS6 (not
-runnable here; CS may differ), values much larger than 4 KB.
+runnable here; CS may differ), values much larger than 4 KB, whether the missing-effects dialog can
+be avoided for recipe 1.
 
-**Re-running the test:** build a file with the carrier (a short `firecraft-engine` example that opens
+**Re-running the test:** to simulate a missing plug-in, copy the Fireworks MX folder and move its
+`.8bf` files out of the copy's `Plug-Ins`, then run that copy; the dialog needs a click on OK
+(`tools/fwmx-oracle/xin.py click`) before a script continues. Build a file with the carrier (a short `firecraft-engine` example that opens
 an image, pushes an `EffectEntry::from_pairs(...)` onto its objects and saves), open it in Fireworks
 MX with a script per file (`tools/fwmx-oracle/fw_inspect.sh` pattern: `fw.openDocument`, read
 `element.effectList.effects[k].<key>`, `fw.saveDocument`, then `fw.quitApplication`), and check the
