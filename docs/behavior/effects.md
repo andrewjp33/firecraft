@@ -10,7 +10,9 @@ the object's raw node, so saving never loses an effect.
 | Gaussian Blur | **exact** (FirePixel's reconstruction, adapted, Apache-2.0): sigma = `gaussian_blur_radius` (0.1-70; above 70 as 70); separable kernel to ceil(3 sigma), `f32` weights, horizontal then vertical pass each rounding down to 8 bits; colour averaged over pixels with alpha > 0 (not alpha-weighted); output ceil(2.5 sigma) beyond the object. Above 200: no blur; the object's pixel rectangle (bounds of its pixels with alpha > 0) is filled fully opaque with the plain average of every pixel in it, transparent ones counting as white (FirePixel's rule; verified in Fireworks MX with circleBlur.png: a red circle becomes a (255, 53, 53) square. An earlier FireCraft measurement used a rectangle, whose shape can't change, and wrongly concluded the shape is kept) |
 | Drop Shadow | **measured**: offset = trunc(distance x (cos a, -sin a)), hard edges at softness 0; softness = triangle filter of radius `ShadowBlur` (see below) |
 | Hue/Saturation | **bit-exact** (read from `0x7d7433` with REA, verified on 48 renders): byte HSL; hue byte -> whole degrees (x360/256), + `hue_amount`, back (x256/360, wraps); saturation/lightness move by (255-x)*k for k>0, x*k for k<0 (k = amount/100), truncated. Colorize is still approximate |
-| Brightness/Contrast, Levels, Auto Levels, Curves, Invert, Convert to Alpha, Color Fill | implemented from parameters; not yet measured |
+| Brightness/Contrast | **measured** (grey ramp, 14 settings; every value within one level, 90.8% exact): brightness added and clamped first; contrast scales around 128 by 100/(100−c) for c > 0 (50 doubles, 75 quadruples), (100+c)/100 for c < 0 (−100: flat 128); 100 is a hard threshold at 128 (Fireworks MX's 99 is gentler, slope ~11); rounded |
+| Convert to Alpha | **measured**: black, alpha 255 − Rec. 709 luma (grey and color ramps exact) |
+| Levels, Auto Levels, Curves, Invert, Color Fill | implemented from parameters; not yet measured |
 | Glow / Inner Glow | **measured**: `BevelType` 4; colour `OuterBevelColor`, gap `GlowStartDistance`, opacity `BevelContrast`, softness a triangle filter of radius `MaskSoftness`. **Glow** (oracle probe, 2026-11-10, below): every visible pixel is the object (alpha 1 glows like 255); hard, the band is anti-aliased, coverage `clamp(width + 1 − d, 0, 1)` at Euclidean distance d; softened, a hard band `d ≤ width + 1`; with no gap the object's pixels feed the softening and the glow is painted under them too (it shows through semi-transparent pixels); opacity is taken as a byte (65% = 165) and the product truncated. Within 1 level (hard) and 2 (softness 12) of Fireworks MX. **Inner Glow**: a hard band `offset < d ≤ offset + width` inside the half-alpha edge (not re-measured) |
 | Motion Blur, Radial Blur | approximations |
 | Inner/Outer Bevel, Raised/Inset Emboss (`BevelType` 0-3) | **read from the binary + measured**, see bevel.md: within 2-8 levels without softness; mitred corners with softness still differ |
@@ -28,6 +30,11 @@ saved render.
 `ref_fw_images/minions_banana2_glow.png`'s Glow (width 5, 65%, `#df0000`) by `dom.applyEffects` at
 softness 0 and 12, saved by Fireworks MX and compared pixel by pixel. That file (a WebP's soft
 floor shadow, which glows in Fireworks) and gym, gym2, gym3 and circles_hi now match at 100.0%.
+
+**Effects of a rectangle.** A rectangle primitive's record (`PTHv > PRIv`) carries its own copy of
+the effect list (`EFLv`, between `MTXv` and `RCTv`), and Fireworks MX takes a rectangle's effects from
+there: FireCraft wrote only the path's copy, so a rectangle saved by FireCraft opened in Fireworks MX
+with no effects (smoke_fc.png: 4 rectangles, 0 effects each; 2 each once written).
 
 **Effects in a text's stored image.** Fireworks draws a text object's Live Effects into the image
 it stores with it (`IMGv`; a glowing text made in Fireworks MX by script stores the glow). An

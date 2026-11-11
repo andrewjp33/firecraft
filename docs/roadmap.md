@@ -51,6 +51,10 @@ Other items keep their numbers.
      ([behavior/strokes.md](behavior/strokes.md), Not yet)
 5. **Text**: text in a path (Fireworks CS), Fireworks MX's kerning quirks (no " A", an "St" Arial lacks; map them with MX under Wine, which reproduces Windows), synthetic bold like MX's (curves kept, narrower), Check Spelling (last).
 6. **Fills**: the Gradient tool's exact behaviour against Fireworks MX
+   - Pattern fills from JPEG patterns (smoke_fc.png, Bubbles): Fireworks MX redraws a pattern from its
+     own Patterns folder, decoded by libjpeg; FireCraft's JPEG decoder (zune-jpeg) differs by up to 4
+     levels on half the pixels (jpeg-decoder: 3). Also measure where Fireworks MX puts a new pattern's
+     handles on an odd-sized object (FireCraft: on the half pixel)
 7. **Optimize panel + Export, the rest**: 2-Up/4-Up and Export Preview; GIF Loss (lossy LZW); custom
    palettes and the Color Table panel; Selective JPEG quality; Fireworks MX's own adaptive palette and
    dither pattern; animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and

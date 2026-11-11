@@ -98,19 +98,18 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
 }
 
 fn matte(ui: &mut Ui, s: &mut ExportSettings) {
-    let mut on = s.matte.is_some();
-    if ui
-        .checkbox(&mut on, "Matte")
-        .on_hover_text("Color under semi-transparent edges where the format can't keep them (off: the canvas color, or white)")
-        .changed()
-    {
-        s.matte = on.then_some(Rgba::new(255, 255, 255, 255));
-    }
-    if let Some(m) = &mut s.matte {
-        let mut c = [m.r, m.g, m.b];
-        if ui.color_edit_button_srgb(&mut c).changed() {
-            *m = Rgba::new(c[0], c[1], c[2], 255);
+    use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
+    ui.label("Matte:").on_hover_text(
+        "The color semi-transparent edges are blended onto where the format can't keep them. \
+         None: the canvas color, or white when the canvas is transparent.",
+    );
+    match cp::color_box(ui, "opt_matte", egui::vec2(22.0, 14.0), s.matte, Footer::NoneOnly) {
+        Some(ColorChoice::Color(c)) => {
+            let c = cp::to_rgba(c);
+            s.matte = Some(Rgba { a: 255, ..c });
         }
+        Some(ColorChoice::None) => s.matte = None,
+        _ => {}
     }
 }
 

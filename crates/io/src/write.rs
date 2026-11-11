@@ -580,6 +580,7 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         None => n.children.retain(|c| !c.is("OBN")),
     }
     write_effect_list(&mut n, &el.effects);
+    mirror_effects_into_rect(&mut n);
     // Blend mode: Normal is written as an absent tag (as Fireworks does).
     if el.blend != firecraft_raster::BlendMode::Normal {
         let bld = Node::int("BLD", el.blend.fw_code());
@@ -601,6 +602,26 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
     }
     mx_order(&mut n);
     n
+}
+
+/// A rectangle primitive's record (`PRIv`) carries its own copy of the effect list, between
+/// `MTXv` and `RCTv`, and Fireworks MX takes a rectangle's effects from there: without it the
+/// rectangle opens with none (smoke_fc.png). Written as the path's list, or removed with it.
+fn mirror_effects_into_rect(n: &mut Node) {
+    if !n.is("PTH") {
+        return;
+    }
+    let efl = n.child("EFL").cloned();
+    let Some(pri) = n.child_mut("PRI") else { return };
+    pri.children.retain(|c| !c.is("EFL"));
+    if let Some(efl) = efl {
+        let at = pri
+            .children
+            .iter()
+            .position(|c| c.is("RCT"))
+            .unwrap_or(pri.children.len());
+        pri.children.insert(at, efl);
+    }
 }
 
 /// Put a path's or bitmap's children in Fireworks MX's order (verified with

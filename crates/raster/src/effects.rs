@@ -317,10 +317,7 @@ impl Effect {
             } => map_rgb(img, |c| hue_saturation(c, *hue, *saturation, *lightness, true)),
             Effect::BrightnessContrast { brightness, contrast } => {
                 let (b, c) = (*brightness, *contrast);
-                let k = (100.0 + c) / 100.0;
-                map_rgb(img, |v| {
-                    v.map(|x| ((x + b - 127.5) * k + 127.5).clamp(0.0, 255.0))
-                })
+                map_rgb(img, |v| v.map(|x| brightness_contrast(x, b, c)))
             }
             Effect::Levels { channels } => {
                 let lut = |ch: [f32; 5]| -> [f32; 256] {
@@ -593,6 +590,24 @@ fn edt_1d(f: &[f32], d: &mut [f32]) {
         let p = v[k];
         *dq = (q as f32 - p as f32).powi(2) + f[p];
     }
+}
+
+/// Brightness/Contrast on one channel, as Fireworks MX does it (measured on a grey ramp at 14
+/// settings: every value within one level, 90.8% exact): brightness is added and clamped first;
+/// contrast then scales around 128 by 100 / (100 − c) (c > 0; 50 doubles, 75 quadruples) or
+/// (100 + c) / 100 (c < 0; −100 gives flat grey 128), and 100 is a hard threshold at 128.
+/// (Fireworks MX's 99 is gentler than the formula: a slope of about 11, not 100.)
+fn brightness_contrast(x: f32, brightness: f32, contrast: f32) -> f32 {
+    let v = (x + brightness).clamp(0.0, 255.0);
+    if contrast >= 100.0 {
+        return if v >= 128.0 { 255.0 } else { 0.0 };
+    }
+    let k = if contrast > 0.0 {
+        100.0 / (100.0 - contrast)
+    } else {
+        (100.0 + contrast.max(-100.0)) / 100.0
+    };
+    ((v - 128.0) * k + 128.0 + 0.5).floor().clamp(0.0, 255.0)
 }
 
 fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
@@ -1100,6 +1115,25 @@ mod tests {
             }
         }
         img
+    }
+
+    #[test]
+    fn brightness_contrast_matches_fireworks_mx() {
+        // Fireworks MX's output for inputs 0, 64, 112, 127, 128, 144, 192, 255 (measured).
+        let cases: [(f32, f32, [f32; 8]); 6] = [
+            (81.0, 0.0, [81.0, 145.0, 193.0, 208.0, 209.0, 225.0, 255.0, 255.0]),
+            (-50.0, 0.0, [0.0, 14.0, 62.0, 77.0, 78.0, 94.0, 142.0, 205.0]),
+            (0.0, 50.0, [0.0, 0.0, 96.0, 126.0, 128.0, 160.0, 255.0, 255.0]),
+            (0.0, 75.0, [0.0, 0.0, 64.0, 124.0, 128.0, 192.0, 255.0, 255.0]),
+            (0.0, 100.0, [0.0, 0.0, 0.0, 0.0, 255.0, 255.0, 255.0, 255.0]),
+            (81.0, 100.0, [0.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0]),
+        ];
+        for (b, c, want) in cases {
+            for (x, w) in [0.0, 64.0, 112.0, 127.0, 128.0, 144.0, 192.0, 255.0].iter().zip(want) {
+                let got = brightness_contrast(*x, b, c);
+                assert!((got - w).abs() <= 1.0, "b {b} c {c} x {x}: {got} vs Fireworks MX {w}");
+            }
+        }
     }
 
     #[test]

@@ -822,8 +822,11 @@ impl FireCraftApp {
                 .show(ui, |ui| tools_panel::show(self, ui));
         }
         if self.prefs.show_dock {
+            // A minimum width keeps a width saved from an earlier session (or a drag) from
+            // squeezing the panels' text and controls.
             egui::Panel::right("dock")
-                .default_size(230.0)
+                .default_size(250.0)
+                .size_range(230.0..=520.0)
                 .frame(theme::dock_frame())
                 .show(ui, |ui| panels::dock(self, ui));
         }
