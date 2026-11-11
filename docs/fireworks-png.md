@@ -174,3 +174,25 @@ nodes, and drops them if it re-saves the file.
 | `FCMi` | Colour math: `1` = high precision (double-precision blend modes and Hue/Saturation). Absent = Fireworks-exact. |
 | `FNGv` (in `MSTv`) | 9-slice guides of a symbol that has a skewed or perspective instance, in place of `NGSv` (same `NGCf` values), because such an instance hangs Fireworks CS5. CS and MX ignore it; FireCraft reads either. |
 
+## Data that survives a Fireworks MX re-save (tested 2026-11-10)
+
+Fireworks MX rewrites the records it understands from its own structures on save, so FireCraft's
+extra fields there (root `FCMi`/`FCPi`, `EXPv` `FC..`) are dropped when a file is re-saved in
+Fireworks MX (opening it is safe: they're ignored). An effect's parameters are different: an `EPSv`
+is an open list of `DCEv{DCKs key, DCVs value}` pairs (a plug-in parameter dictionary), which
+Fireworks MX loads whole, lets the effect's dialog change only the keys it knows, and writes back
+whole. Tested on a bitmap, each in its own Fireworks MX session:
+
+| Carrier | Opens | Listed | Picture | Keys after re-save |
+| --- | --- | --- | --- | --- |
+| effect with an unknown `EffectMoaID`, on or off | yes, no dialog | no (dropped) | unchanged | lost |
+| Hue/Saturation (all 0), `EffectIsVisible false`, extra keys incl. a 4 KB value | yes | yes, as a disabled Hue/Saturation; scripts read the keys | unchanged | kept, byte for byte |
+| the same on a hidden 1×1 bitmap named "FireCraft data" | yes | object kept, hidden, named | unchanged | kept |
+
+So a disabled real effect can carry FireCraft data through Fireworks MX, per object (it travels
+with the object) or for the document (on a hidden carrier object). Users see it in Fireworks MX:
+the disabled effect in the object's effect list, the carrier object in the Layers panel. Fireworks
+MX keeps the extra keys even when the effect itself is edited (Grayscale, effects.md), so data
+describing something Fireworks MX can change needs a check that it still applies. Untested: copy
+and paste, Fireworks CS5/CS6, values much larger than 4 KB.
+
