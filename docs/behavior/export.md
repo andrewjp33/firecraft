@@ -10,7 +10,7 @@ Preview tab shows (the exported file decoded back, with its size). Code: `crates
 | Format | Encoder | Options |
 | --- | --- | --- |
 | GIF, Animated GIF | `gif` crate | palette, colors, dither, transparency, interlaced; loops, Auto Crop, Auto Difference |
-| PNG 8 | `png` crate (1/2/4/8-bit by palette size, unfiltered) | palette, colors, dither, transparency, exact alpha, PNG optimizer |
+| PNG 8 | `png` crate (1/2/4/8-bit by palette size, unfiltered) | palette, colors, dither, transparency, PNG optimizer |
 | PNG 24, PNG 32 | `png` crate | matte (PNG 24), PNG optimizer |
 | JPEG | `jpeg-encoder` | quality (Fireworks MX's scale), smoothing, progressive, full-resolution color |
 | WebP (FireCraft) | libwebp via the `webp` crate; desktop only | quality, alpha quality, lossless |
@@ -21,11 +21,14 @@ Apache-2.0). The browser build has no C compiler for libwebp, so WebP export is 
 
 **PNG optimizer.** File > Export can recompress PNG 8/24/32 losslessly with `oxipng` (MIT; an
 OptiPNG-style optimizer linking libdeflate, so desktop only): levels 1-6 are its presets 0-5, 7 its
-strongest with Zopfli. The Preview shows the plain encoding (fast); the export is smaller. On
-PP-8.png, win-8.png and transparent-minions-dvd-vc-rating3.png (Fireworks MX files, 2145, 2878 and
-7346 bytes) FireCraft's re-export is pixel-identical at 2294, 3096, 7906 bytes unoptimized, 2215,
-2959, 7519 at level 2 (the default, as OptiPNG's), 2131, 2905, 7512 at 5 and 2098, 2900, 7360 at 7
-(0.06-1.4 s).
+strongest with Zopfli. The Preview shows the plain encoding (fast); the export is smaller.
+
+Sizes on the PNG 8 references (pixel-identical in every case; the reference files themselves had
+been through OptiPNG, so they're not Fireworks MX's sizes): Fireworks MX re-exporting them (Adaptive,
+Alpha Transparency, which reproduces them exactly) writes 2719, 3136 and 8034 bytes for PP-8.png,
+win-8.png and transparent-minions-dvd-vc-rating3.png. FireCraft writes 2294, 3096, 7906 with the
+optimizer off, 2215, 2959, 7519 at level 2 (the default, as OptiPNG's) and 2098, 2900, 7360 at 7
+(0.06-1.4 s); the OptiPNG'd files are 2145, 2878, 7346.
 
 ## Stored in the document: `MKBv > EXPv`
 
@@ -52,7 +55,7 @@ comparing the records:
 
 FireCraft adds `FCFi` (1 WebP, 2 JPEG XL; `FMTi`/`CLRi` then say PNG 32, which Fireworks MX
 exports instead), `FCQi`/`FCAi` (quality, alpha quality), `FCLb` (lossless), `FCJb` (full-resolution
-JPEG color), `FCMi` (matte), `FCXb` (exact alpha), `FCOi` (PNG optimizer level). A record read from a file is kept exactly while its settings are
+JPEG color), `FCMi` (matte), `FCOi` (PNG optimizer level). A record read from a file is kept exactly while its settings are
 unchanged; a new document gets Fireworks MX's default record (now with its frame delays, which new
 documents didn't carry to Fireworks MX before). Fireworks MX reads FireCraft's records back as set
 (checked for GIF, JPEG, PNG 8 with alpha, animated GIF with the Windows palette, WebP).
@@ -71,8 +74,8 @@ Opened files, as Fireworks MX opens them:
   transparent-minions-dvd-vc-rating3.png 256; Fireworks MX picks Grayscale for PP-8's gray
   palette, FireCraft keeps it Exact so the file exports back unchanged).
 * Fireworks MX reports no transparency for these PNG 8s although they have some; FireCraft keeps
-  Alpha Transparency, with exact alpha when entries are partly transparent: all three export back
-  pixel-identical.
+  Alpha Transparency: all three export back pixel-identical. An opened GIF's color count includes
+  its transparent entry, as a PNG 8's palette size does.
 * FireCraft: other PNGs export as PNG 24/32 by their color type, WebP and JPEG XL as themselves.
 
 ## Transparency (measured on a soft-edged image with alphas 0, 6, 12, 19...)
@@ -84,17 +87,31 @@ Opened files, as Fireworks MX opens them:
   under alpha 16 become transparent (12 did, 19 didn't); the rest are flattened onto the matte.
   The palette is n−1 colors plus a transparent entry. (FireCraft used to map the clear pixels to
   the nearest gray, black.)
-* **Alpha Transparency**, PNG 8 with Adaptive, WebSnap or Exact: a palette with alpha, rounded to
-  16 levels (multiples of 17: 6 → 0, 12 and 19 → 17). FireCraft's **Exact alpha** option keeps
-  alpha as it is.
+* **Alpha Transparency**, PNG 8 with Adaptive or WebSnap: a palette with alpha, rounded to 16
+  levels (multiples of 17: 6 → 0, 12 and 19 → 17). Measured on a soft-shadowed image (RMS error
+  composited over white / black): at 256 colors 3.14 / 3.03 rounded against 3.07 / 2.99 unrounded,
+  at 64 colors 5.74 / 5.39 against 6.06 / 5.48, at 16 colors 11.70 / 11.58 against 12.09 / 11.06:
+  rounding spends fewer palette entries on alpha, so FireCraft rounds too.
+* **Alpha Transparency**, PNG 8 with **Exact**: Fireworks MX keeps only fully clear and fully opaque
+  pixels (its exports of the PNG 8 references lost their soft edges). FireCraft keeps alpha exactly
+  when every color fits the color count, and otherwise rounds it as Adaptive does. The transparent
+  entry (and Auto Difference's) is added on top of Exact's colors, up to 256.
 
 ## Animation
 
-Auto Crop: an opaque animation's frames cover only what changed since the previous frame
-(disposal "keep"). Auto Difference: inside that, pixels equal to the previous frame are the
-transparent entry (one palette entry is reserved for it). Frames with transparent pixels must
-clear what was drawn before (disposal "background"): Auto Crop then keeps each frame to its visible
-pixels and Auto Difference doesn't apply. Opening such a GIF back gives the same frames.
+A GIF frame can paint pixels or leave them as they are (its transparent entry), never turn a shown
+pixel transparent again; only a frame's disposal can, by clearing its own rectangle once it has
+been shown ("background"). So frame by frame:
+
+* when the next frame turns a visible pixel transparent, this frame covers everything visible
+  and clears it afterwards; the next frame starts from an empty canvas;
+* otherwise the frame stays ("keep") and the next one builds on it: Auto Crop writes only the area
+  that changed, Auto Difference writes unchanged pixels inside it as the transparent entry (one
+  palette entry is reserved for it), which compresses well.
+
+An opaque animation never clears; a transparent one only at the frames that remove something.
+`anim2.gif` exported back this way plays the same four frames in ImageMagick, pixel for pixel, in
+17893 bytes (the original: 18500).
 
 Opening GIFs: the document takes the GIF's screen size (it used to take the frames' extent, which
 was too small when every frame was cropped).

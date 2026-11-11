@@ -147,9 +147,9 @@ pub fn open_flat(bytes: &[u8], name: Option<String>) -> Result<Document> {
 /// The export settings an opened image starts with, as Fireworks MX chooses them (measured with
 /// `dom.exportOptions`): a JPEG exports as JPEG at the quality it was saved with; a GIF or PNG 8
 /// with its exact palette and its own color count (PP-8.png: 32, win-8.png: 16). FireCraft also
-/// keeps their transparency, which Fireworks MX drops (it reports none), and exact alpha for a
-/// PNG 8 with partly transparent entries, so the file exports back as it was. PNG 24/32, WebP
-/// and JPEG XL files keep their own format.
+/// keeps their transparency, which Fireworks MX drops (it reports none); with the Exact palette
+/// a PNG 8's partly transparent entries stay as they are, so the file exports back unchanged.
+/// PNG 24/32, WebP and JPEG XL files keep their own format.
 fn export_settings_for(format: Format, bytes: &[u8], doc: &Document) -> firecraft_doc::ExportSettings {
     use firecraft_doc::{ExportFormat, ExportSettings, PaletteKind, Transparency};
     let d = ExportSettings::default();
@@ -169,7 +169,8 @@ fn export_settings_for(format: Format, bytes: &[u8], doc: &Document) -> firecraf
                     ExportFormat::Gif
                 },
                 palette: PaletteKind::Exact,
-                colors: colors.clamp(2, 256) as u16,
+                // Counted like a palette: the transparent entry too.
+                colors: (colors + usize::from(transparent)).clamp(2, 256) as u16,
                 transparency: clear(transparent),
                 ..d
             }
@@ -180,7 +181,6 @@ fn export_settings_for(format: Format, bytes: &[u8], doc: &Document) -> firecraf
                 palette: PaletteKind::Exact,
                 colors: entries.clamp(2, 256) as u16,
                 transparency: clear(alphas.iter().any(|&a| a < 255)),
-                exact_alpha: alphas.iter().any(|&a| a > 0 && a < 255),
                 ..d
             },
             None => ExportSettings {

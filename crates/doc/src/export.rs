@@ -161,10 +161,6 @@ pub struct ExportSettings {
     /// Diffusion dither, percent (0 = none).
     pub dither: u8,
     pub transparency: Transparency,
-    /// PNG 8 with Alpha Transparency (Adaptive, WebSnap Adaptive or Exact palettes): keep each
-    /// pixel's alpha as it is. Off, as in Fireworks MX: alpha is rounded to 16 levels (steps of
-    /// 17), so the faintest pixels (under 9) vanish.
-    pub exact_alpha: bool,
     /// Color under semi-transparent pixels where the format can't keep them. `None`: the
     /// canvas color, or white when the canvas is transparent.
     pub matte: Option<Rgba>,
@@ -208,7 +204,6 @@ impl Default for ExportSettings {
             websnap_tolerance: 14,
             dither: 0,
             transparency: Transparency::None,
-            exact_alpha: false,
             matte: None,
             interlaced: false,
             png_optimize: 2,
@@ -314,8 +309,7 @@ impl ExportSettings {
                     && self.dither == other.dither
                     && self.transparency == other.transparency
                     && self.interlaced == other.interlaced
-                    && (self.format != ExportFormat::Png8
-                        || (self.exact_alpha == other.exact_alpha && self.png_optimize == other.png_optimize))
+                    && (self.format != ExportFormat::Png8 || self.png_optimize == other.png_optimize)
                     && (self.format != ExportFormat::AnimatedGif
                         || (self.loops == other.loops
                             && self.auto_crop == other.auto_crop

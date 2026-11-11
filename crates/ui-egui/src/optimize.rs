@@ -156,15 +156,6 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                 ui.selectable_value(&mut s.transparency, t, t.label());
             }
         });
-    let alpha_palette = matches!(
-        s.palette,
-        PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact
-    );
-    if s.format == ExportFormat::Png8 && s.transparency == Transparency::Alpha && alpha_palette {
-        ui.checkbox(&mut s.exact_alpha, "Exact alpha").on_hover_text(
-            "Keep every pixel's transparency as it is. Off (as in Fireworks MX), alpha is rounded to 16 levels and the faintest pixels vanish.",
-        );
-    }
     if s.format != ExportFormat::Png8 {
         ui.checkbox(&mut s.interlaced, "Interlaced");
     }

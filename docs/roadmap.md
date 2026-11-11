@@ -28,7 +28,7 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 - Clean-room oracle tooling and UI test helpers (`tools/fwmx-oracle`)
 - Optimize panel, Preview and File > Export: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's
   palettes and settings (stored in `EXPv` as Fireworks MX does), plus WebP and JPEG XL with Quality and
-  Alpha Quality; Auto Crop/Auto Difference; exact alpha for PNG 8; lossless PNG optimizer (OptiPNG-style
+  Alpha Quality; Auto Crop/Auto Difference; exact alpha with the Exact palette; lossless PNG optimizer (OptiPNG-style
   levels) ([behavior/export.md](behavior/export.md))
 - Opening flat images as Fireworks MX does: PNG, JPEG, GIF (animated GIFs as frames), BMP, TIFF,
   Targa, plus WebP, JPEG XL and animated PNG ([behavior/opening-files.md](behavior/opening-files.md))
@@ -55,8 +55,7 @@ Other items keep their numbers.
    palettes and the Color Table panel; Selective JPEG quality; Fireworks MX's own adaptive palette and
    dither pattern; animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and
    libdeflate need a C-to-wasm compiler); export in the background (the PNG optimizer's level 7 can
-   take a while on large images, and the app waits for it); PNG 8 palette order like Fireworks MX's
-   (its files are still 2-7% smaller than FireCraft's unoptimized ones)
+   take a while on large images, and the app waits for it)
    - **16-bit colour (PNG 48/64 export)**: layers, effects and the renderer work in 8 bits per
      channel today (Precise colour math computes in `f64` but stores 8 bits between steps), so a
      16-bit export would only hold 8-bit values. Needs 16-bit (or float) images through the

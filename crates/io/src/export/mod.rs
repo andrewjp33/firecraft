@@ -153,8 +153,12 @@ fn clear_mode(s: &ExportSettings, png8: bool) -> Clear {
     match s.transparency {
         Transparency::None => Clear::None,
         Transparency::Index => Clear::Key,
+        // Exact keeps alpha as it is (when the colors fit, see `index`); Adaptive and WebSnap
+        // round it to 16 levels like Fireworks MX, which spends fewer palette entries on alpha
+        // (on a soft-shadowed image: as good at 256 colors, better at 64 and 16). Fireworks MX's
+        // own Exact keeps only fully clear and fully opaque pixels.
         Transparency::Alpha if png8 && alpha_palette => Clear::Palette {
-            exact: s.exact_alpha,
+            exact: s.palette == PaletteKind::Exact,
         },
         Transparency::Alpha => Clear::Cut,
     }
@@ -211,8 +215,6 @@ struct Indexed {
     frames: Vec<Vec<u8>>,
     /// The transparent entry (Index or Alpha Transparency, or Auto Difference).
     transparent: Option<u8>,
-    /// Some pixels are transparent (frames have to clear what was under them).
-    has_clear: bool,
 }
 
 impl Indexed {
@@ -228,21 +230,33 @@ impl Indexed {
 
 /// `reserve`: keep a transparent entry even if no pixel needs one (an animation's Auto Difference).
 fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, reserve: bool) -> Indexed {
-    let mode = clear_mode(s, png8);
+    let mut mode = clear_mode(s, png8);
     let alpha_palette = matches!(mode, Clear::Palette { .. });
     let grey = matches!(s.palette, PaletteKind::Grayscale | PaletteKind::BlackWhite);
-    let prepared: Vec<Vec<Entry>> = images
-        .iter()
-        .map(|img| prepare(img, matte, mode))
-        .map(|px| if grey { px.into_iter().map(luma).collect() } else { px })
-        .collect();
-    let cut = mode == Clear::Cut;
-    let has_cut = cut && prepared.iter().flatten().any(|p| p[3] == 0);
-    let limit = if s.palette == PaletteKind::BlackWhite {
+    let prep = |mode| -> Vec<Vec<Entry>> {
+        images
+            .iter()
+            .map(|img| prepare(img, matte, mode))
+            .map(|px| if grey { px.into_iter().map(luma).collect() } else { px })
+            .collect()
+    };
+    let mut prepared = prep(mode);
+    let limit_colors = if s.palette == PaletteKind::BlackWhite {
         2
     } else {
         usize::from(s.colors.clamp(2, 256))
     };
+    // Exact alpha only when every color fits; otherwise the palette is adaptive, and rounded
+    // alpha suits it better.
+    if mode == (Clear::Palette { exact: true })
+        && quantize::histogram(&prepared.iter().flatten().copied().collect::<Vec<_>>()).len() > limit_colors
+    {
+        mode = Clear::Palette { exact: false };
+        prepared = prep(mode);
+    }
+    let cut = mode == Clear::Cut;
+    let has_cut = cut && prepared.iter().flatten().any(|p| p[3] == 0);
+    let limit = limit_colors;
     let all: Vec<Entry> = prepared.iter().flatten().copied().collect();
     if alpha_palette {
         // Transparency is in the palette itself.
@@ -251,17 +265,22 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
             palette.push([0, 0, 0, 0]);
         }
         let frames = map_frames(&prepared, images, &palette, s.dither, true, &|_| false, 0);
-        let has_clear = palette.iter().any(|c| c[3] < 255);
         return Indexed {
             palette,
             frames,
             transparent: None,
-            has_clear,
         };
     }
     let key = mode == Clear::Key;
     let extra = usize::from(has_cut || key || reserve);
-    let mut palette = palette_for(&all, s, limit.saturating_sub(extra).max(1), false);
+    // The transparent entry takes a palette slot; Exact gets it on top of its colors (up to 256),
+    // so its colors stay exact.
+    let room = if s.palette == PaletteKind::Exact {
+        limit.min(256 - extra)
+    } else {
+        limit.saturating_sub(extra)
+    };
+    let mut palette = palette_for(&all, s, room.max(1), false);
     if palette.is_empty() {
         palette.push([0, 0, 0, 255]);
     }
@@ -274,12 +293,10 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
         });
         let frames = map_frames(&prepared, images, &palette, s.dither, false, &|_| false, 0);
         let t = at.min(255) as u8;
-        let has_clear = frames.iter().flatten().any(|&i| i == t);
         return Indexed {
             palette,
             frames,
             transparent: Some(t),
-            has_clear,
         };
     }
     let transparent = (has_cut || reserve).then(|| {
@@ -302,7 +319,6 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
         palette,
         frames,
         transparent,
-        has_clear: has_cut,
     }
 }
 
@@ -354,14 +370,31 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Rgba) -> Result<E
     };
     let images: Vec<&RgbaImage> = frames.iter().map(|f| &f.0).collect();
     let animated = frames.len() > 1;
-    // Auto Difference marks unchanged pixels with the transparent entry: keep one free for it
-    // (the index is decided before knowing whether the frames have transparency of their own).
-    let reserve = animated && s.auto_difference && s.transparency == Transparency::None;
+    // Auto Difference marks unchanged pixels with the transparent entry: keep one for it.
+    let reserve = animated && s.auto_difference;
     let ix = index(&images, s, matte, false, reserve);
     let mut rgb: Vec<u8> = ix.palette.iter().flat_map(|c| [c[0], c[1], c[2]]).collect();
     // GIF color tables hold a power of two of entries.
     let size = ix.palette.len().next_power_of_two().max(2);
     rgb.resize(size * 3, 0);
+    let t = ix.transparent;
+    let visible = |v: u8| Some(v) != t;
+    // A GIF frame can paint pixels or leave them, never make a shown pixel transparent again:
+    // only its disposal can, by clearing its own rectangle after it was shown. So where the next
+    // frame turns a visible pixel transparent, this frame covers everything visible and clears
+    // it afterwards ("background"); every other frame stays ("keep") for the next to build on,
+    // which is where Auto Crop and Auto Difference save space.
+    let clears_next: Vec<bool> = (0..ix.frames.len())
+        .map(|j| {
+            match (ix.frames.get(j), ix.frames.get(j + 1)) {
+                (Some(a), Some(b)) => t.is_some() && a.iter().zip(b).any(|(&x, &y)| visible(x) && !visible(y)),
+                _ => false,
+            }
+        })
+        .collect();
+    let len = (w * h) as usize;
+    // What the viewer shows before each frame (transparent at first).
+    let mut canvas: Vec<u8> = vec![t.unwrap_or(0); len];
     let mut out = Vec::new();
     {
         let mut enc = gif::Encoder::new(&mut out, gw, gh, &rgb).map_err(err)?;
@@ -373,30 +406,29 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Rgba) -> Result<E
             };
             enc.set_repeat(repeat).map_err(err)?;
         }
-        // Frames with transparent pixels must clear what the previous frame drew (disposal
-        // "background"), so Auto Crop keeps each frame to its visible pixels and Auto Difference
-        // can't apply. Opaque frames build on the previous one ("keep"): Auto Crop writes only
-        // the area that changed, Auto Difference leaves unchanged pixels transparent.
-        let clears = ix.has_clear;
-        let mut prev: Option<&Vec<u8>> = None;
-        for (i, data) in ix.frames.iter().enumerate() {
-            let rect = if !animated || !s.auto_crop {
-                None
-            } else if clears {
-                visible_rect(data, ix.transparent, w, h)
+        for (j, data) in ix.frames.iter().enumerate() {
+            let clear_after = clears_next.get(j).copied().unwrap_or(false);
+            // The first frame of a GIF without transparency covers the whole image.
+            let full = !animated || !s.auto_crop || (j == 0 && t.is_none());
+            let (left, top, fw, fh) = if full {
+                (0, 0, w, h)
             } else {
-                prev.map(|p| changed_rect(p, data, w, h).unwrap_or((0, 0, 1, 1)))
+                let changed = bounding(w, h, |i| canvas.get(i) != data.get(i));
+                let rect = if clear_after {
+                    union(changed, bounding(w, h, |i| data.get(i).is_some_and(|&v| visible(v))))
+                } else {
+                    changed
+                };
+                rect.unwrap_or((0, 0, 1, 1))
             };
-            let (left, top, fw, fh) = rect.unwrap_or((0, 0, w, h));
-            let difference = (!clears && s.auto_difference).then_some(ix.transparent).flatten();
+            let difference = if j > 0 && s.auto_difference { t } else { None };
             let mut buf = Vec::with_capacity((fw * fh) as usize);
             for y in top..top + fh {
                 for x in left..left + fw {
                     let at = (y * w + x) as usize;
                     let v = data.get(at).copied().unwrap_or(0);
-                    let same = prev.is_some_and(|p| p.get(at) == Some(&v));
                     buf.push(match difference {
-                        Some(t) if same => t,
+                        Some(tr) if canvas.get(at) == Some(&v) => tr,
                         _ => v,
                     });
                 }
@@ -407,9 +439,9 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Rgba) -> Result<E
                 width: fw as u16,
                 height: fh as u16,
                 buffer: Cow::Owned(buf),
-                transparent: ix.transparent,
-                delay: frames.get(i).map_or(0, |f| f.1.min(65535) as u16),
-                dispose: if clears {
+                transparent: t,
+                delay: frames.get(j).map_or(0, |f| f.1.min(65535) as u16),
+                dispose: if clear_after {
                     gif::DisposalMethod::Background
                 } else {
                     gif::DisposalMethod::Keep
@@ -418,7 +450,11 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Rgba) -> Result<E
                 ..gif::Frame::default()
             };
             enc.write_frame(&frame).map_err(err)?;
-            prev = Some(data);
+            if clear_after {
+                canvas.iter_mut().for_each(|c| *c = t.unwrap_or(0));
+            } else {
+                canvas.clone_from(data);
+            }
         }
     }
     let shown = ix.shown();
@@ -430,17 +466,23 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Rgba) -> Result<E
     })
 }
 
-/// The smallest rectangle (left, top, width, height) holding every pixel that differs.
-fn changed_rect(a: &[u8], b: &[u8], w: u32, h: u32) -> Option<(u32, u32, u32, u32)> {
-    bounding(w, h, |i| a.get(i) != b.get(i))
+type Rect = (u32, u32, u32, u32);
+
+/// The smallest rectangle holding both.
+fn union(a: Option<Rect>, b: Option<Rect>) -> Option<Rect> {
+    match (a, b) {
+        (Some((ax, ay, aw, ah)), Some((bx, by, bw, bh))) => {
+            let (x0, y0) = (ax.min(bx), ay.min(by));
+            let (x1, y1) = ((ax + aw).max(bx + bw), (ay + ah).max(by + bh));
+            Some((x0, y0, x1 - x0, y1 - y0))
+        }
+        (a, None) => a,
+        (None, b) => b,
+    }
 }
 
-/// The smallest rectangle holding every pixel that isn't transparent (at least 1x1).
-fn visible_rect(data: &[u8], transparent: Option<u8>, w: u32, h: u32) -> Option<(u32, u32, u32, u32)> {
-    Some(bounding(w, h, |i| data.get(i).copied() != transparent).unwrap_or((0, 0, 1, 1)))
-}
-
-fn bounding(w: u32, h: u32, hit: impl Fn(usize) -> bool) -> Option<(u32, u32, u32, u32)> {
+/// The smallest rectangle (left, top, width, height) holding every pixel `hit` picks.
+fn bounding(w: u32, h: u32, hit: impl Fn(usize) -> bool) -> Option<Rect> {
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
     for y in 0..h {
         for x in 0..w {
@@ -819,10 +861,10 @@ mod tests {
     }
 
     #[test]
-    fn png8_alpha_palettes_round_alpha_unless_exact() {
+    fn adaptive_rounds_alpha_and_exact_keeps_it() {
         let d = soft();
         let s = ExportSettings {
-            palette: PaletteKind::Exact,
+            palette: PaletteKind::Adaptive,
             transparency: Transparency::Alpha,
             ..with(ExportFormat::Png8)
         };
@@ -830,11 +872,20 @@ mod tests {
         // Fireworks MX's 16 levels: 12 and 19 both become 17.
         assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(17));
         assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(17));
-        let exact = ExportSettings { exact_alpha: true, ..s };
+        let exact = ExportSettings {
+            palette: PaletteKind::Exact,
+            ..s.clone()
+        };
         let e = export(&d, &exact).unwrap_or_else(|e| unreachable!("{e}"));
         assert_eq!(e.preview.get(10, 2), Some(Rgba::new(40, 90, 200, 12)));
         assert_eq!(e.preview.get(11, 2), Some(Rgba::new(40, 90, 200, 19)));
         assert_eq!(e.preview.get(2, 2).map(|p| p.a), Some(0));
+        // Too many colors for Exact (alphas 0, 12, 19, 255 in 3 colors): rounded alpha, which
+        // fits (12 and 19 both become 17).
+        let few = ExportSettings { colors: 3, ..exact };
+        let e = export(&d, &few).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(e.preview.get(10, 2).map(|p| p.a), Some(17));
+        assert_eq!(e.preview.get(11, 2).map(|p| p.a), Some(17));
     }
 
     #[test]
@@ -902,6 +953,42 @@ mod tests {
         };
         let f = gif_frames(&export(&d, &plain).map(|e| e.bytes).unwrap_or_default());
         assert_eq!((f[1].2, f[1].3, f[1].4), (20, 20, None));
+    }
+
+    #[test]
+    fn transparent_animations_build_up_without_clearing() {
+        // On a transparent canvas, each frame adds a square: nothing turns transparent, so every
+        // frame keeps the previous one and covers only its new square.
+        let mut d = Document::new(30, 10, 72.0, None);
+        d.frames.push(firecraft_doc::Frame::default());
+        d.frames.push(firecraft_doc::Frame::default());
+        for frame in 0..3usize {
+            if let Some(c) = d.layers[0].elements_mut(frame) {
+                for k in 0..=frame {
+                    c.push(firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
+                        firecraft_doc::Bitmap {
+                            x: 2 + 10 * k as i64,
+                            y: 2,
+                            image: RgbaImage::new(4, 4, Rgba::new(200, 40 * k as u8, 0, 255)),
+                        },
+                    )));
+                }
+            }
+        }
+        let s = ExportSettings {
+            transparency: Transparency::Alpha,
+            ..with(ExportFormat::AnimatedGif)
+        };
+        let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        let f = gif_frames(&e.bytes);
+        assert_eq!(f.len(), 3);
+        assert!(f.iter().all(|fr| fr.5 == gif::DisposalMethod::Keep));
+        assert_eq!((f[1].0, f[1].1, f[1].2, f[1].3), (12, 2, 4, 4));
+        assert_eq!((f[2].0, f[2].1, f[2].2, f[2].3), (22, 2, 4, 4));
+        let back = crate::formats::open_flat(&e.bytes, None).unwrap_or_else(|e| unreachable!("{e}"));
+        for i in 0..3 {
+            assert_eq!(back.render(i), d.render(i), "frame {i}");
+        }
     }
 
     #[test]

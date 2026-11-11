@@ -61,7 +61,6 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         websnap_tolerance: byte("AST", d.websnap_tolerance),
         dither: byte("PLD", 0).min(100),
         transparency,
-        exact_alpha: exp.bool_of("FCX").unwrap_or(false),
         png_optimize: byte("FCO", d.png_optimize).min(7),
         matte: int("FCM").map(|v| {
             let v = v as u32;
@@ -151,7 +150,6 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     n.children.push(Node::int("FCA", i64::from(s.alpha_quality.min(100))));
     n.children.push(Node::bool("FCL", s.lossless));
     n.children.push(Node::bool("FCJ", s.jpeg_full_color));
-    n.children.push(Node::bool("FCX", s.exact_alpha));
     n.children.push(Node::int("FCO", i64::from(s.png_optimize.min(7))));
     if let Some(m) = s.matte {
         let v = (u32::from(m.r) << 16) | (u32::from(m.g) << 8) | u32::from(m.b);
@@ -260,7 +258,6 @@ mod tests {
                 colors: 64,
                 dither: 37,
                 transparency: Transparency::Alpha,
-                exact_alpha: true,
                 png_optimize: 5,
                 interlaced: true,
                 ..ExportSettings::default()
