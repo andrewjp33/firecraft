@@ -30,6 +30,10 @@ pub enum Effect {
     },
     Invert,
     ConvertToAlpha,
+    /// FireCraft's Adjust Color > Grayscale: each pixel's perceived lightness, from its
+    /// luminance (see [`perceptual_gray`]). Stored as Hue/Saturation at saturation −100 with a
+    /// `firecraft_effect` marker, so Fireworks MX shows its own desaturation instead.
+    Grayscale,
     ColorFill {
         color: Rgba,
         opacity: f32,
@@ -77,6 +81,8 @@ pub enum Effect {
 }
 
 const HUE_SAT: &str = "{3439b08d-1922-11d3-9bde00e02910d580}";
+/// The parameter naming a FireCraft effect stored as a Fireworks one (Fireworks ignores it).
+pub const FIRECRAFT_EFFECT: &str = "firecraft_effect";
 const BRIGHT_CONTRAST: &str = "{3439b08c-1921-11d3-9bde00e02910d580}";
 const CURVES: &str = "{3439b08e-1923-11d3-9bde00e02910d580}";
 const LEVELS: &str = "{d04ef8c2-71b5-11d1-8c8200a024cdc039}";
@@ -137,6 +143,7 @@ impl Effect {
                 | Effect::Curves { .. }
                 | Effect::Invert
                 | Effect::ConvertToAlpha
+                | Effect::Grayscale
                 | Effect::ColorFill { .. }
         )
     }
@@ -154,6 +161,10 @@ impl Effect {
         let truthy = |k: &str| p.get(k).is_some_and(|v| v == "true" || v == "1");
         let name = p.get("name").map(String::as_str).unwrap_or("");
         let id = p.get("EffectMoaID").map(String::as_str).unwrap_or("");
+        // FireCraft's own effects, stored as a Fireworks effect Fireworks MX renders instead.
+        if p.get(FIRECRAFT_EFFECT).is_some_and(|v| v == "grayscale") {
+            return Some(Effect::Grayscale);
+        }
         Some(match id {
             HUE_SAT => Effect::HueSaturation {
                 hue: num("hue_amount", 0.0),
@@ -359,6 +370,14 @@ impl Effect {
                 })
             }
             Effect::Invert => map_rgb(img, |v| v.map(|x| 255.0 - x)),
+            Effect::Grayscale => {
+                let lin = srgb_to_linear_table();
+                map_rgb(img, |v| {
+                    let at = |x: f32| lin.get(x as usize).copied().unwrap_or(0.0);
+                    let y = perceptual_gray(at(v[0]), at(v[1]), at(v[2]));
+                    [y; 3]
+                })
+            }
             Effect::ConvertToAlpha => {
                 for p in img.pixels_mut() {
                     let luma = (p.r as u32 * 109 + p.g as u32 * 366 + p.b as u32 * 37) >> 9;
@@ -608,6 +627,32 @@ fn brightness_contrast(x: f32, brightness: f32, contrast: f32) -> f32 {
         (100.0 + contrast.max(-100.0)) / 100.0
     };
     ((v - 128.0) * k + 128.0 + 0.5).floor().clamp(0.0, 255.0)
+}
+
+/// The 256 sRGB levels in linear light (IEC 61966-2-1).
+fn srgb_to_linear_table() -> [f32; 256] {
+    std::array::from_fn(|i| {
+        let c = i as f64 / 255.0;
+        (if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }) as f32
+    })
+}
+
+/// The grey (0..255, sRGB) that looks as light as a color given in linear light: its luminance
+/// Y = 0.2126 R + 0.7152 G + 0.0722 B (the sRGB / Rec. 709 primaries), encoded back to sRGB.
+/// Weighting the gamma-encoded values instead (the usual shortcut, and Fireworks MX's
+/// desaturation) makes saturated blues too dark and greens too light.
+fn perceptual_gray(r: f32, g: f32, b: f32) -> f32 {
+    let y = (0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b)).clamp(0.0, 1.0);
+    let e = if y <= 0.003_130_8 {
+        12.92 * y
+    } else {
+        1.055 * y.powf(1.0 / 2.4) - 0.055
+    };
+    (e * 255.0) as f32
 }
 
 fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
@@ -1115,6 +1160,31 @@ mod tests {
             }
         }
         img
+    }
+
+    #[test]
+    fn grayscale_keeps_perceived_lightness() {
+        let gray = |c: [u8; 3]| {
+            let mut img = RgbaImage::new(1, 1, Rgba::new(c[0], c[1], c[2], 255));
+            Effect::Grayscale.apply(&mut img);
+            let p = img.get(0, 0).expect("a pixel");
+            assert!(p.r == p.g && p.g == p.b, "{p:?}");
+            p.r
+        };
+        // Greys stay as they are; white and black too.
+        for v in [0u8, 1, 50, 128, 200, 255] {
+            assert_eq!(gray([v, v, v]), v);
+        }
+        // Luminance of the primaries (Y 0.2126, 0.7152, 0.0722) encoded as sRGB.
+        assert_eq!(gray([255, 0, 0]), 127);
+        assert_eq!(gray([0, 255, 0]), 220);
+        assert_eq!(gray([0, 0, 255]), 76);
+        let p = params(&[
+            ("EffectMoaID", HUE_SAT),
+            ("saturation_amount", "-100"),
+            (FIRECRAFT_EFFECT, "grayscale"),
+        ]);
+        assert_eq!(Effect::parse(&p, &HashMap::new()), Some(Effect::Grayscale));
     }
 
     #[test]

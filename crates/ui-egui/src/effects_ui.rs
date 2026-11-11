@@ -285,6 +285,23 @@ const DEFS: &[EffectDef] = &[
         filter: true,
         plugin_category: None,
     },
+    // FireCraft's: stored as Hue/Saturation at saturation -100 (what Fireworks MX shows), marked
+    // so FireCraft renders perceived lightness.
+    EffectDef {
+        category: "Adjust Color",
+        name: "Grayscale",
+        moa: "{3439b08d-1922-11d3-9bde00e02910d580}",
+        defaults: &[
+            ("lightness_amount", "0"),
+            ("hls_colorize", "false"),
+            ("saturation_amount", "-100"),
+            ("hue_amount", "0"),
+            ("firecraft_effect", "grayscale"),
+        ],
+        fields: &[],
+        filter: true,
+        plugin_category: None,
+    },
     EffectDef {
         category: "Adjust Color",
         name: "Invert",
@@ -548,8 +565,12 @@ const DEFS: &[EffectDef] = &[
 /// The definition matching an entry (by MoaID, and BevelType for the bevel/glow family).
 fn def_for(e: &EffectEntry) -> Option<&'static EffectDef> {
     let bevel = e.get("BevelType");
+    // A FireCraft effect stored as a Fireworks one: matched by its marker.
+    let own = e.get("firecraft_effect");
     DEFS.iter().find(|d| {
+        let marker = d.defaults.iter().find(|(k, _)| *k == "firecraft_effect").map(|(_, v)| *v);
         d.moa == e.moa_id()
+            && marker == own.as_deref()
             && match bevel {
                 Some(t) => d.defaults.iter().any(|(k, v)| *k == "BevelType" && *v == t),
                 None => true,
