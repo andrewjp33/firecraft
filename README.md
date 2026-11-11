@@ -6,6 +6,12 @@ the Fireworks PNG file format. It is written in pure Rust with egui, the same st
 [Craft apps](https://getartcraft.com/apps) (PhotoCraft, VectorCraft, ...), and runs natively on Windows
 and Linux (macOS should work too) and in the browser via WebAssembly.
 
+
+<p align="center">
+  <img src="docs/images/fc.jpg" alt="FireCraft" width="100%">
+</p>
+
+
 > FireCraft is an independent, clean-room project. It contains no Macromedia/Adobe code or artwork.
 > Fireworks is a trademark of Adobe. Behavior is learned from documentation and by measuring the
 > original program (see [docs/clean-room.md](docs/clean-room.md)).
