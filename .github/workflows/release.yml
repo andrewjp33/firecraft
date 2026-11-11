@@ -1,0 +1,125 @@
+# Builds FireCraft for Linux, Windows and the web, then
+# - on a version tag (git tag v0.1.0 && git push origin v0.1.0): attaches the downloads to a
+#   draft GitHub release (review and publish it on the Releases page), and
+# - publishes the web version to GitHub Pages (https://andrewjp33.github.io/firecraft/).
+# Run it by hand from the Actions tab (Run workflow) to test the builds without a release: the
+# downloads are kept as the run's artifacts, and Pages is only updated if you tick the box.
+#
+# One-time setup: Settings > Pages > Source: GitHub Actions; and Settings > Environments >
+# github-pages > Deployment branches and tags: add a tag rule `v*` (by default only main may
+# deploy, which refuses a deploy started by a tag).
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_web:
+        description: Also publish this build of the web version to GitHub Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.kind }}
+    # Ubuntu 22.04's older glibc: the Linux build then runs on most current distributions.
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: linux
+            target: x86_64-unknown-linux-gnu
+            make: release
+          - kind: windows
+            target: x86_64-pc-windows-gnu
+            make: windows-release
+          - kind: web
+            target: wasm32-unknown-unknown
+            make: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v=${GITHUB_REF_NAME#v}
+          else v=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)-dev.${GITHUB_SHA::7}; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install mingw-w64 (Windows cross-compiler)
+        if: matrix.kind == 'windows'
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - name: Install trunk
+        if: matrix.kind == 'web'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.kind }}
+
+      - name: Build
+        run: make ${{ matrix.make }}
+
+      - name: Package
+        run: scripts/package-release.sh ${{ matrix.kind }} ${{ steps.version.outputs.version }} packages
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: firecraft-${{ matrix.kind }}
+          path: packages/*
+          if-no-files-found: error
+
+      - name: Keep the web build for Pages
+        if: matrix.kind == 'web'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist/web
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: packages
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          generate_release_notes: true
+          files: packages/*
+
+  pages:
+    name: Publish web version
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.publish_web
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5
