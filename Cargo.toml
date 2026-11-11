@@ -68,15 +68,29 @@ opt-level = 3
 [profile.dev.package.firecraft-doc]
 opt-level = 3
 
+# Release builds are what users download: whole-program optimization (slower to build, smaller and
+# faster to run) and no symbol tables.
 [profile.release]
-lto = "thin"
+lto = "fat"
 codegen-units = 1
+strip = true
 
 # Browser build (apps/firecraft-web).
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
 lto = "fat"
+
+# ...except the pixel work (rendering, effects, strokes, compositing), optimised for speed as in
+# debug builds.
+[profile.wasm-release.package.firecraft-raster]
+opt-level = 3
+
+[profile.wasm-release.package.firecraft-doc]
+opt-level = 3
+
+[profile.wasm-release.package.firecraft-stroke]
+opt-level = 3
 
 # The Craft suite's egui/winit fork (same pins as PhotoCraft), so craft-ui and FireCraft agree.
 [patch.crates-io]
