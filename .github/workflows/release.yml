@@ -101,6 +101,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          # Only the downloads, not the Pages bundle (artifact.tar).
+          pattern: firecraft-*
           path: packages
           merge-multiple: true
       - uses: softprops/action-gh-release@v3
