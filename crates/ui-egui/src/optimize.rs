@@ -100,8 +100,9 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
 fn matte(ui: &mut Ui, s: &mut ExportSettings) {
     use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
     ui.label("Matte:").on_hover_text(
-        "The color semi-transparent edges are blended onto where the format can't keep them. \
-         None: the canvas color, or white when the canvas is transparent.",
+        "The color semi-transparent edges are blended onto where the format can't keep them \
+         (for an image going on that background color). None (as in Fireworks MX): edges keep \
+         their own color, and fully transparent areas become the canvas color, or white.",
     );
     match cp::color_box(ui, "opt_matte", egui::vec2(22.0, 14.0), s.matte, Footer::NoneOnly) {
         Some(ColorChoice::Color(c)) => {

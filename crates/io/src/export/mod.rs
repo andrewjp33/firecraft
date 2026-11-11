@@ -21,11 +21,46 @@ pub struct Exported {
     pub palette: Vec<Entry>,
 }
 
-/// The color semi-transparent pixels are flattened onto when the format can't keep them.
-pub fn matte(doc: &Document, s: &ExportSettings) -> Rgba {
-    s.matte
-        .or(doc.canvas.filter(|c| c.a == 255))
-        .unwrap_or(Rgba::new(255, 255, 255, 255))
+/// How pixels a format can't keep transparent are made opaque.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Matte {
+    /// The Matte color: semi-transparent edges are blended onto it. `None` (Fireworks MX's
+    /// default): they keep their own color, drawn opaque (measured: 769_edit2.png exported by
+    /// Fireworks MX as GIF, PNG 8, PNG 24 and JPEG, every edge pixel in its own color).
+    pub blend: Option<Rgba>,
+    /// What fully transparent pixels become: the canvas color, or white on a transparent canvas.
+    pub background: Rgba,
+}
+
+impl Matte {
+    /// A pixel made opaque.
+    fn opaque(self, p: Rgba) -> Rgba {
+        match (p.a, self.blend) {
+            (255, _) => p,
+            (_, Some(m)) => Rgba { a: 255, ..m }.over(p, 255),
+            (0, None) => Rgba { a: 255, ..self.background },
+            (_, None) => Rgba { a: 255, ..p },
+        }
+    }
+
+    /// The color Index Transparency keys out.
+    fn key(self) -> Rgba {
+        Rgba {
+            a: 255,
+            ..self.blend.unwrap_or(self.background)
+        }
+    }
+}
+
+/// The document's [`Matte`] for these settings.
+pub fn matte(doc: &Document, s: &ExportSettings) -> Matte {
+    Matte {
+        blend: s.matte,
+        background: doc
+            .canvas
+            .filter(|c| c.a == 255)
+            .unwrap_or(Rgba::new(255, 255, 255, 255)),
+    }
 }
 
 /// Whether this build can write `format` (WebP needs libwebp, which the browser build lacks).
@@ -119,11 +154,10 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
     }
 }
 
-/// The image composited onto `matte` (fully opaque).
-fn flatten(img: &RgbaImage, matte: Rgba) -> RgbaImage {
-    let mut out = RgbaImage::new(img.width(), img.height(), Rgba { a: 255, ..matte });
-    out.draw(img, 0, 0, 255);
-    out
+/// The image made fully opaque with `matte`.
+fn flatten(img: &RgbaImage, matte: Matte) -> RgbaImage {
+    let px: Vec<Rgba> = img.pixels().iter().map(|&p| matte.opaque(p)).collect();
+    RgbaImage::from_pixels(img.width(), img.height(), px).unwrap_or_else(|| img.clone())
 }
 
 /// Below this alpha a pixel is transparent in a GIF, or a PNG 8 with a fixed palette, under
@@ -164,7 +198,7 @@ fn clear_mode(s: &ExportSettings, png8: bool) -> Clear {
 }
 
 /// Pixels ready for a palette.
-fn prepare(img: &RgbaImage, matte: Rgba, mode: Clear) -> Vec<Entry> {
+fn prepare(img: &RgbaImage, matte: Matte, mode: Clear) -> Vec<Entry> {
     img.pixels()
         .iter()
         .map(|&p| match mode {
@@ -178,9 +212,8 @@ fn prepare(img: &RgbaImage, matte: Rgba, mode: Clear) -> Vec<Entry> {
                 if a == 0 { [0, 0, 0, 0] } else { [p.r, p.g, p.b, a] }
             }
             Clear::Cut if p.a < ALPHA_CUT => [0, 0, 0, 0],
-            _ if p.a == 255 => [p.r, p.g, p.b, 255],
             _ => {
-                let c = Rgba { a: 255, ..matte }.over(p, 255);
+                let c = matte.opaque(p);
                 [c.r, c.g, c.b, 255]
             }
         })
@@ -228,18 +261,18 @@ impl Indexed {
 }
 
 /// `reserve`: keep a transparent entry even if no pixel needs one (an animation's Auto Difference).
-fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, reserve: bool) -> Indexed {
+fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Matte, png8: bool, reserve: bool) -> Indexed {
     let mut mode = clear_mode(s, png8);
     let alpha_palette = matches!(mode, Clear::Palette { .. });
     let grey = matches!(s.palette, PaletteKind::Grayscale | PaletteKind::BlackWhite);
-    let prep = |mode| -> Vec<Vec<Entry>> {
+    let prep = |mode, matte| -> Vec<Vec<Entry>> {
         images
             .iter()
             .map(|img| prepare(img, matte, mode))
             .map(|px| if grey { px.into_iter().map(luma).collect() } else { px })
             .collect()
     };
-    let mut prepared = prep(mode);
+    let mut prepared = prep(mode, matte);
     let limit_colors = if s.palette == PaletteKind::BlackWhite {
         2
     } else {
@@ -255,19 +288,25 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
     };
     if mode == (Clear::Palette { exact: true }) && !s.smooth_alpha && !fits(&prepared) {
         mode = Clear::Palette { exact: false };
-        prepared = prep(mode);
+        prepared = prep(mode, matte);
     }
     // A fixed palette keeps alpha (exact, else rounded) when its colors with their alphas fit;
     // otherwise Fireworks MX's cut at alpha 16.
     if mode == Clear::FixedAlpha {
         for exact in [true, false] {
-            let px = prep(Clear::Palette { exact });
+            let px = prep(Clear::Palette { exact }, matte);
             if let Some(ix) = fixed_with_alpha(&px, images, s, limit_colors) {
                 return ix;
             }
         }
+        // Fireworks MX blends these edges onto the matte, white when there's none (measured on
+        // a soft-edged image exported as PNG 8 Grayscale with alpha).
         mode = Clear::Cut;
-        prepared = prep(mode);
+        let onto = Matte {
+            blend: Some(matte.key()),
+            ..matte
+        };
+        prepared = prep(mode, onto);
     }
     let cut = mode == Clear::Cut;
     let has_cut = cut && prepared.iter().flatten().any(|p| p[3] == 0);
@@ -301,7 +340,8 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Rgba, png8: bool, res
     }
     if key {
         // The matte's entry is the transparent one; pixels nearest it vanish.
-        let m = [matte.r, matte.g, matte.b, 255];
+        let k = matte.key();
+        let m = [k.r, k.g, k.b, 255];
         let at = palette.iter().position(|&c| c == m).unwrap_or_else(|| {
             palette.push(m);
             palette.len() - 1
@@ -414,7 +454,7 @@ fn render_indexed(idx: &[u8], palette: &[Entry], w: u32, h: u32) -> RgbaImage {
 
 // --- GIF ---------------------------------------------------------------------------------------
 
-fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Rgba) -> Result<Exported> {
+fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte) -> Result<Exported> {
     let err = |e: gif::EncodingError| Error::Png(format!("GIF: {e}"));
     let Some(first) = frames.first() else {
         return Err(Error::Unsupported("no frame to export".into()));
@@ -589,7 +629,7 @@ fn png_rgb(img: &RgbaImage, ppi: f64, alpha: bool) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn png8(img: &RgbaImage, s: &ExportSettings, matte: Rgba, ppi: f64) -> Result<Exported> {
+fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<Exported> {
     let err = |e: png::EncodingError| Error::Png(e.to_string());
     let ix = index(&[img], s, matte, true, false);
     let (w, h) = (img.width(), img.height());
@@ -644,7 +684,7 @@ fn png8(img: &RgbaImage, s: &ExportSettings, matte: Rgba, ppi: f64) -> Result<Ex
 
 // --- JPEG --------------------------------------------------------------------------------------
 
-fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Rgba, ppi: f64) -> Result<Exported> {
+fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<Exported> {
     let mut flat = flatten(img, matte);
     if s.jpeg_smoothing > 0 {
         // Smoothing blurs before compressing (an approximation of Fireworks MX's levels 1-8).
@@ -951,6 +991,28 @@ mod tests {
             let e = export(&d, &smooth).unwrap_or_else(|e| unreachable!("{e}"));
             let a = e.preview.get(10, 2).map_or(0, |p| p.a);
             assert!(a != 17 && (12..=19).contains(&a), "{palette:?}: {a}");
+        }
+    }
+
+    #[test]
+    fn no_matte_keeps_edge_colors_and_a_matte_blends_them() {
+        let d = soft();
+        for f in [ExportFormat::Gif, ExportFormat::Png8, ExportFormat::Png24] {
+            let s = ExportSettings {
+                transparency: Transparency::Index,
+                ..with(f)
+            };
+            // No matte (Fireworks MX's default): the soft edge (alpha 12, 19) in its own color.
+            let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+            assert_eq!(e.preview.get(11, 2), Some(Rgba::new(40, 90, 200, 255)), "{f:?}");
+            // A white matte: the edge fades to white.
+            let white = ExportSettings {
+                matte: Some(Rgba::new(255, 255, 255, 255)),
+                ..s
+            };
+            let e = export(&d, &white).unwrap_or_else(|e| unreachable!("{e}"));
+            let p = e.preview.get(11, 2).expect("a pixel");
+            assert!(p.r > 230 && p.g > 230, "{f:?}: {p:?}");
         }
     }
 

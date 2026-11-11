@@ -78,13 +78,24 @@ Opened files, as Fireworks MX opens them:
   its transparent entry, as a PNG 8's palette size does.
 * FireCraft: other PNGs export as PNG 24/32 by their color type, WebP and JPEG XL as themselves.
 
+## Matte
+
+Fireworks MX's Matte isn't stored in the document (no `EXPv` field); its default is none. With no
+matte, a pixel a format can't keep transparent is drawn **opaque in its own color**, down to alpha 1,
+and only fully transparent pixels take a color (white on a transparent canvas, or the canvas color):
+measured on 769_edit2.png exported by Fireworks MX as GIF (no, Index and Alpha transparency), PNG 8
+with Index transparency (`769_edit2_out-8index.png`), PNG 24 and JPEG, every edge pixel in its own
+color. A matte color blends the edges onto it instead (for an image going on that background).
+FireCraft does the same (its PNG 8 Index export of 769_edit2.png: transparency 99.99% the same as
+Fireworks MX's, every edge pixel within 16 levels). It used to treat no matte as white.
+
 ## Transparency (measured on a soft-edged image with alphas 0, 6, 12, 19...)
 
-* **Index Transparency** is a color key: everything is flattened onto the matte (white when the
-  canvas is transparent) and the matte's palette entry becomes transparent, so opaque white pixels
-  vanish too.
+* **Index Transparency** is a color key: everything is made opaque as above, and the entry of the
+  matte color (white when there's none and the canvas is transparent) becomes transparent, so
+  opaque white pixels vanish too.
 * **Alpha Transparency**, GIF: pixels under alpha 16 become transparent (12 did, 19 didn't in
-  Fireworks MX); the rest are flattened onto the matte. The palette is n−1 colors plus a
+  Fireworks MX); the rest are made opaque as above. The palette is n−1 colors plus a
   transparent entry.
 
 PNG 8 with Alpha Transparency keeps alpha in its palette. Fireworks MX: Adaptive rounds alpha to
