@@ -86,6 +86,13 @@ Other items keep their numbers.
 15. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
 
+## When needed
+
+- Keep FireCraft-only document settings (Precise colour math, pixel-correct perspective, WebP/JPEG XL
+  export settings) through a Fireworks MX re-save, which drops them today: a disabled Hue/Saturation
+  effect on a hidden carrier object survives (tested; recipe and rules in
+  [fireworks-png.md](fireworks-png.md#data-that-survives-a-fireworks-mx-re-save-tested-2026-11-10)).
+
 ## Lowest priority
 
 - Infinite Symbol Editor canvas (as in later Fireworks): render only the visible region. For

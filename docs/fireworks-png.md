@@ -166,33 +166,73 @@ Fireworks CS5 opens FireCraft's MX-format files, including CS features stored th
 
 ## FireCraft extensions
 
-Stored as extra nodes in the root `mkTS` tree. Fireworks MX opens such files normally, ignores the
-nodes, and drops them if it re-saves the file.
+FireCraft's own data, written as extra nodes or keys. Fireworks MX opens such files normally and
+ignores what it doesn't know; whether the data survives Fireworks MX re-saving the file depends on
+where it is (next section).
 
-| Node | Meaning |
-|---|---|
-| `FCMi` | Colour math: `1` = high precision (double-precision blend modes and Hue/Saturation). Absent = Fireworks-exact. |
-| `FNGv` (in `MSTv`) | 9-slice guides of a symbol that has a skewed or perspective instance, in place of `NGSv` (same `NGCf` values), because such an instance hangs Fireworks CS5. CS and MX ignore it; FireCraft reads either. |
+| Where | Node / key | Meaning | After a Fireworks MX re-save |
+|---|---|---|---|
+| root `MKBv` | `FCMi` | Colour math: `1` = high precision (double-precision blend modes and Hue/Saturation). Absent = Fireworks-exact. | lost (tested) |
+| root `MKBv` | `FCPi` | `1` = perspective symbol instances use the pixel-correct warp. Absent = Fireworks MX's. | lost (tested) |
+| `EXPv` | `FCFi` `FCQi` `FCAi` `FCLb` `FCJb` `FCMi` `FCOi` `FCXb` | Export: WebP/JPEG XL format, quality, alpha quality, lossless, full-resolution JPEG color, matte, PNG optimizer level, Smoother alpha ([behavior/export.md](behavior/export.md)) | lost (tested) |
+| `TXTv` | `FAWi` | `1` = the text block grows with its text (made with a click, not a drag) | untested; probably lost (Fireworks MX rewrites text records) |
+| `MSTv` | `FNGv` | 9-slice guides of a symbol that has a skewed or perspective instance, in place of `NGSv` (same `NGCf` values), because such an instance hangs Fireworks CS5. CS and MX ignore it; FireCraft reads either. | untested |
+| effect `EPSv` | `firecraft_effect` key | A FireCraft effect stored as a Fireworks one (`grayscale`: Hue/Saturation at −100, [behavior/effects.md](behavior/effects.md)) | **kept** (tested), even when the effect is edited |
 
 ## Data that survives a Fireworks MX re-save (tested 2026-11-10)
 
-Fireworks MX rewrites the records it understands from its own structures on save, so FireCraft's
-extra fields there (root `FCMi`/`FCPi`, `EXPv` `FC..`) are dropped when a file is re-saved in
-Fireworks MX (opening it is safe: they're ignored). An effect's parameters are different: an `EPSv`
-is an open list of `DCEv{DCKs key, DCVs value}` pairs (a plug-in parameter dictionary), which
-Fireworks MX loads whole, lets the effect's dialog change only the keys it knows, and writes back
-whole. Tested on a bitmap, each in its own Fireworks MX session:
+**Why most extensions are lost.** On save, Fireworks MX writes the records it understands (the
+document root, `EXPv`, text...) from its own internal structures, so fields it doesn't model are
+dropped. An effect's parameters are the exception: an `EPSv` is an open dictionary of
+`DCEv{DCKs key, DCVs value}` pairs (Fireworks effects are MOA plug-ins, and their parameters a
+dictionary the host stores without understanding it). Fireworks MX loads the whole dictionary, lets
+the effect's dialog change only the keys it knows, and writes the whole dictionary back.
 
-| Carrier | Opens | Listed | Picture | Keys after re-save |
+**What was tested.** FireCraft wrote a carrier onto a bitmap (rainbow.png), each case its own file
+opened in its own Fireworks MX session (a blocking dialog would have shown as a timeout; none did),
+listed through the scripting API, saved by Fireworks MX, and read back with `dump_tree`:
+
+| Carrier | Opens | Listed by Fireworks MX | Picture | Keys after re-save |
 | --- | --- | --- | --- | --- |
-| effect with an unknown `EffectMoaID`, on or off | yes, no dialog | no (dropped) | unchanged | lost |
-| Hue/Saturation (all 0), `EffectIsVisible false`, extra keys incl. a 4 KB value | yes | yes, as a disabled Hue/Saturation; scripts read the keys | unchanged | kept, byte for byte |
-| the same on a hidden 1×1 bitmap named "FireCraft data" | yes | object kept, hidden, named | unchanged | kept |
+| effect with an unknown `EffectMoaID` (`{f12ec7af-...}`), visible | yes, no dialog | no: dropped silently | unchanged | lost |
+| the same, `EffectIsVisible false` | yes, no dialog | no: dropped silently | unchanged | lost |
+| Hue/Saturation (all 0), `EffectIsVisible false`, extra keys including a 4096-character value | yes | yes, as a disabled Hue/Saturation; scripts read the extra keys (`effect.fc_payload`) | unchanged in Fireworks MX and FireCraft | kept, byte for byte |
+| the same on a hidden 1×1 transparent bitmap named "FireCraft data" | yes | the object kept, hidden, with its name | unchanged | kept |
 
-So a disabled real effect can carry FireCraft data through Fireworks MX, per object (it travels
-with the object) or for the document (on a hidden carrier object). Users see it in Fireworks MX:
-the disabled effect in the object's effect list, the carrier object in the Layers panel. Fireworks
-MX keeps the extra keys even when the effect itself is edited (Grayscale, effects.md), so data
-describing something Fireworks MX can change needs a check that it still applies. Untested: copy
-and paste, Fireworks CS5/CS6, values much larger than 4 KB.
+Earlier, with the Grayscale effect: Fireworks MX keeps the extra key when the user *edits* that
+effect in Fireworks MX; it renames the effect ("Hue/Saturation...") and stores its new values
+(minions_banana2_gray.png).
 
+**The recipe** (not used yet, apart from Grayscale):
+
+* Carrier effect: `EffectMoaID {3439b08d-1922-11d3-9bde00e02910d580}` (Hue/Saturation),
+  `EffectIsVisible false`, `name Hue/Saturation...`, `category Adjust Color`,
+  `MB_filter_preview_tile_size -1 -1`, `hue_amount 0`, `saturation_amount 0`, `lightness_amount 0`,
+  `hls_colorize false`, then FireCraft's keys. Must be a real, built-in Fireworks MX effect:
+  unknown IDs are dropped. Disabled and neutral, so it draws nothing even if a user enables it.
+* Object data: the carrier on that object (it travels with it: duplicated, moved, deleted with it).
+* Document data: the carrier on a hidden 1×1 transparent bitmap, named so a user can tell what it
+  is.
+
+**Design rules for using it** (from the tests and the Grayscale case):
+
+* Users see it in Fireworks MX: a disabled Hue/Saturation in the object's effect list, the carrier
+  object (hidden) in the Layers panel. They can delete it, move it or enable it. Write it only when
+  there's FireCraft-only data to keep, never on every file.
+* Fireworks MX keeps the keys even when the user changes what they describe. Store, next to the
+  data, what it was written for (for document settings: the Fireworks MX values saved alongside,
+  e.g. the `EXPv` format), and use the data only while that still holds; otherwise Fireworks MX's
+  change wins.
+* Prefix keys (`firecraft_...`), include a version key, keep values text (they're `DCVs` strings;
+  4 KB tested).
+* Reading back: FireCraft finds the carrier, applies its data, and doesn't show the carrier object
+  or the disabled effect as ordinary content (it would rewrite them on save).
+
+**Not tested yet:** copy and paste in Fireworks MX, symbols and groups, Fireworks CS5/CS6 (not
+runnable here; CS may differ), values much larger than 4 KB.
+
+**Re-running the test:** build a file with the carrier (a short `firecraft-engine` example that opens
+an image, pushes an `EffectEntry::from_pairs(...)` onto its objects and saves), open it in Fireworks
+MX with a script per file (`tools/fwmx-oracle/fw_inspect.sh` pattern: `fw.openDocument`, read
+`element.effectList.effects[k].<key>`, `fw.saveDocument`, then `fw.quitApplication`), and check the
+re-saved file with `cargo run -p firecraft-fwpng --example dump_tree -- file.png | grep DCKs`.
