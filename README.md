@@ -260,6 +260,13 @@ tools/fwmx-oracle  scripts that measure the original Fireworks MX under Wine, an
                    helpers that drive FireCraft (ui_session.sh, uimap.py, xin.py)
 ```
 
+## AI and agent usage
+
+- **AI-assisted**: FireCraft's code and documentation are written with the assistance of AI coding
+  agents.
+- **Human oversight**: People are responsible for reviewing, testing and validating everything
+  made with AI tools and agents.
+
 ## License
 
 MIT ([LICENSE-MIT](LICENSE-MIT)) or Apache-2.0 ([LICENSE-APACHE](LICENSE-APACHE)), at your option.
