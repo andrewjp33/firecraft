@@ -7,23 +7,42 @@ the Fireworks PNG file format. It is written in pure Rust with egui, the same st
 and Linux (macOS should work too) and in the browser via WebAssembly.
 
 > FireCraft is an independent, clean-room project. It contains no Macromedia/Adobe code or artwork.
-> Fireworks is a trademark of Adobe. Behaviour is learned from documentation and by measuring the
+> Fireworks is a trademark of Adobe. Behavior is learned from documentation and by measuring the
 > original program (see [docs/clean-room.md](docs/clean-room.md)).
 
 ## Status (November 2026)
 
 FireCraft opens, edits and saves real Fireworks documents, and draws most of them very close to how
-Fireworks MX does. It is in active development. Vector and bitmap editing, text, fills, strokes, effects and
-symbols are in place. Web export (Optimize, GIF/JPEG), frame editing and slices are not yet
-([what's next](#not-done-yet)).
+Fireworks MX does. It is in active development. Vector and bitmap editing, text, fills, strokes, effects,
+symbols, opening common image formats and exporting (the Optimize panel: GIF, JPEG, PNG, WebP, JPEG XL)
+are in place. Frame editing, slices and some tools are not yet ([what's next](#not-done-yet)).
 
-**Rendering parity** on 87 reference files, scored against Fireworks' own render of each file
-(10 November 2026): 37 match 100%, 13 more are above 99%, 20 are between 90% and 99%, and 17 are
-below 90%. The average is 93.8%. Every file survives the lossless round trip and a FireCraft save
+**Rendering parity** on 81 Fireworks reference files, scored against Fireworks' own render of each
+file (10 November 2026): 39 match 100%, 11 more are above 99%, 18 are between 90% and 99%, and 13 are
+below 90%. The average is 94.1%. Every file survives the lossless round trip and a FireCraft save
 that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### Recently added
 
+- **Export and the Optimize panel**: GIF and animated GIF, JPEG, PNG 8/24/32, WebP and JPEG XL,
+  with a Preview tab that shows the exported file and its size
+  ([docs/behavior/export.md](docs/behavior/export.md)).
+  - Fireworks MX's palettes (its Windows and Macintosh tables, Web 216, Uniform: pixel for pixel
+    as MX exports them), Adaptive, WebSnap, Exact, Grayscale, dither, transparency and matte, all
+    measured against Fireworks MX; settings kept in the document where Fireworks MX keeps them.
+  - Animated GIF with Auto Crop and Auto Difference.
+  - PNG 8 keeps transparency exactly whenever the colors fit (Smoother alpha for when they don't).
+  - WebP and JPEG XL with Quality and Alpha Quality; a lossless PNG optimizer (OptiPNG-style
+    levels) on export.
+- **Opening images**: JPEG, GIF (animations as frames), PNG, BMP, TIFF, Targa, WebP and JPEG XL,
+  laid out as Fireworks MX opens them, keeping the file's resolution and its palette for re-export
+  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
+- **Adjust Color > Grayscale** (FireCraft's own): gray by perceived lightness (luminance), stored so
+  Fireworks MX keeps it and shows its own desaturation.
+- **Effects measured in Fireworks MX**: Glow (faint pixels, glow under semi-transparent pixels,
+  anti-aliased edge), Brightness/Contrast, Convert to Alpha; effects baked into a text's stored image
+  are no longer drawn twice; rectangles keep their effects in Fireworks MX.
+- **Pointer**: a symbol's stroke and glow can be clicked, perspective symbols included.
 - **Text**: the Text tool and the whole Text menu except spelling.
   - Fonts, size, bold/italic/underline, alignment, kerning, leading, the Text Editor.
   - Text on a path (Attach, Detach, Orientation, Reverse Direction).
@@ -52,7 +71,8 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   - Fill textures stay anchored to the canvas, as Fireworks MX draws them.
 - **Effects accuracy**: Gaussian Blur computed as Fireworks computes it, Fireworks'
   triangle-filter softness for shadows and glows, and smooth bevel edges.
-- **Tools panel** colour boxes follow the selection, text included; tool keys for Paint
+- **Strokes**: random multi-tip brushes (Outline) color their tips as Fireworks MX does.
+- **Tools panel** color boxes follow the selection, text included; tool keys for Paint
   Bucket/Gradient (G), Eraser (E) and Pencil (Y). Fields with mixed values across the selection
   show blank, as in Fireworks MX.
 - **History**: every drag is one undo step, recorded on mouse up, as in Fireworks MX.
@@ -61,8 +81,8 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### Working today
 
-- **Fireworks PNG** read and write, verified against real Fireworks MX (and by hand in Fireworks
-  CS5 and CS6). Re-saved Fireworks files and new documents open in Fireworks MX with their
+- **Fireworks PNG** read and write, verified against real Fireworks MX (and also more modern Fireworks versions).
+  Re-saved Fireworks files and new documents open in Fireworks MX with their
   layers, frames, bitmaps, paths, text, groups, masks, symbols and effects
   ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet
   (slices, presets) is carried through a save untouched.
@@ -82,12 +102,13 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   - Masks, symbol instances (with perspective) and animation frames.
   - Text with Fireworks MX's layout.
   - Live Effects: Gaussian/Motion/Radial Blur, Drop Shadow, Glow, Inner Glow, Bevels and
-    Embosses, Hue/Saturation, Levels, Curves and more.
+    Embosses, Hue/Saturation, Brightness/Contrast, Levels, Curves, Convert to Alpha and more, plus
+    FireCraft's Grayscale.
   - Built-in versions of the bundled Eye Candy 4000 LE / Splat LE filters.
 - **Workspace** in the style of Fireworks MX:
   - Menus, a sectioned Tools panel with press-and-hold flyouts, the Property inspector, Layers,
     Frames/History and the Library.
-  - Document windows (move, resize from any edge, minimise/maximise, Cascade/Tile), or
+  - Document windows (move, resize from any edge, minimize/maximize, Cascade/Tile), or
     **documents in tabs**.
 - **Tools** ([docs/behavior/paths.md](docs/behavior/paths.md)):
   - Selection: Pointer, Select Behind, **Subselection** (points of paths, members inside
@@ -115,14 +136,14 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 - **Edit and document**:
   - Edit > Insert > Bitmap via Cut/Copy.
   - Select All, Deselect, Select Inverse, Feather.
-  - Canvas Size and Canvas Colour.
+  - Canvas Size and Canvas Color.
   - Layers: new, delete, show/hide, lock.
   - Undo/redo (100 steps by default, up to 999 in Preferences) with a History panel.
-  - Animation playback, PNG export, drag-and-drop open.
+  - Animation playback, drag-and-drop open, opening files given on the command line.
 - **Preferences**:
   - Live dragging ("Show objects while moving them", off for slower PCs).
   - Tool cursor style.
-  - Colour math for new documents: Precise (default) or Fireworks MX's exact formulas.
+  - Color math for new documents: Precise (default) or Fireworks MX's exact formulas.
   - Perspective symbols in new documents: pixel-correct (default) or drawn as Fireworks MX does.
   - Fonts, Textures and Patterns folders.
 
@@ -132,8 +153,9 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Combine/Alter Path, Knife, Polygon/Star.
 - Crop and Lasso tools.
 - Blur, Sharpen, Dodge, Burn, Smudge and Rubber Stamp.
-- 2-Up/4-Up previews, GIF loss and custom palettes; 16-bit (PNG 64) export.
-- Editing frames (adding, removing, timing) and animated GIF export.
+- Export: 2-Up/4-Up previews, GIF loss, custom palettes, animated WebP; WebP and the PNG
+  optimizer in the browser version; 16-bit (PNG 64) export, which needs a 16-bit pipeline.
+- Editing frames (adding, removing, timing).
 - Slices, hotspots and HTML export.
 - Styles and the Filters menu.
 - `.jsf` commands.
@@ -143,9 +165,8 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 
 ### File compatibility
 
-Every save is a **Fireworks MX file** that **Fireworks CS5 and CS6 read as well**. Features MX
-doesn't have are baked into ordinary objects or stored in data MX safely ignores.
-
+Every save is a **Fireworks MX PNG file** that **more modern Fireworks CS5 and CS6 read as well**.
+Features MX doesn't have are baked into ordinary objects or stored in data MX safely ignores.
 Features from the CS versions are written the way Fireworks CS writes them, so they're forward
 compatible: **9-slice symbol guides** and **per-object locks** open in Fireworks CS as its own,
 while Fireworks MX opens the same file without them. The one exception is a skewed or perspective
@@ -153,11 +174,15 @@ while Fireworks MX opens the same file without them. The one exception is a skew
 so CS opens the file with 9-slice off for that symbol instead of hanging
 ([docs/fireworks-png.md](docs/fireworks-png.md#compatibility-levels-design)).
 
-New documents use FireCraft's improved drawing by default: *Precise* colour math and
+New documents use FireCraft's improved drawing by default: *Precise* color math and
 *Pixel-correct* perspective symbols (both can be changed in Preferences, and per document in the
 Property inspector). Files from Fireworks open in the Fireworks MX modes, so they look as they
 were saved. A FireCraft file keeps its modes in data Fireworks ignores, so Fireworks MX draws it
-with its own rules, which can differ slightly from FireCraft's improved modes.
+with its own rules, which can differ slightly from FireCraft's improved modes. If Fireworks MX
+re-saves the file, it drops that data (and FireCraft's WebP/JPEG XL export settings): the file then
+opens in FireCraft in the Fireworks MX modes. Effects are kept whole, including FireCraft's
+Grayscale, which Fireworks MX shows as its own desaturation
+([docs/fireworks-png.md](docs/fireworks-png.md#data-that-survives-a-fireworks-mx-re-save-tested-2026-11-10)).
 
 Some pieces are adapted from [FirePixel](https://github.com/Zignixx/firepixel) (Apache-2.0); see
 [ATTRIBUTION.md](ATTRIBUTION.md).
@@ -179,6 +204,9 @@ make clean        # remove FireCraft's own build outputs; compiled dependencies 
 make distclean    # remove everything (the next build compiles all dependencies again)
 make size         # disk used by target/ and dist/
 ```
+
+WebP export (libwebp) and the PNG optimizer (libdeflate) compile C code: the Linux build uses the
+system C compiler and `make windows` the mingw one; the browser build leaves them out.
 
 Finished binaries are copied to `dist/` (release builds: `dist/linux-release/`,
 `dist/windows-release/`; web: `dist/web/`). Cargo's `target/` holds the compiled dependencies,
@@ -219,9 +247,9 @@ crates/
   fwpng      L0  Fireworks PNG container: chunks, tagged document tree, pixel tiles (no deps)
   raster     L0  pixels, masks, magic wand, marquees, feather, vector rasterization
   stroke     L0  Fireworks' brush engine (adapted from FirePixel, Apache-2.0)
-  text       L0  fonts, layout and rasterising with Fireworks MX's rules (adapted from FirePixel)
+  text       L0  fonts, layout and rasterizing with Fireworks MX's rules (adapted from FirePixel)
   doc        L1  document model: canvas, layers, frames, bitmap/path/text/group elements
-  io         L2  Document <-> Fireworks PNG, flat PNG import/export
+  io         L2  Document <-> Fireworks PNG; opening images; export (GIF, JPEG, PNG, WebP, JPEG XL)
   engine     L3  session, tools, selection, commands, undo history
   sysclip    --  system clipboard ("PNG" format shared with Fireworks): X11 and Win32
   ui-egui    L4  the Fireworks-style workspace (egui); only talks to engine
