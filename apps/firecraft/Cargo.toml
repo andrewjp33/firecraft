@@ -21,3 +21,7 @@ winit = "0.30"
 softbuffer = "0.4"
 ab_glyph = "0.2"
 epaint_default_fonts = "0.37"
+
+# Windows version information and manifest, embedded in firecraft.exe (build.rs).
+[build-dependencies]
+embed-resource = "3"

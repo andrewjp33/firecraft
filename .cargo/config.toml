@@ -4,3 +4,8 @@ linker = "x86_64-w64-mingw32-gcc"
 # Link the MinGW runtime statically so firecraft.exe needs no extra DLLs.
 rustflags = ["-C", "target-feature=+crt-static"]
 
+
+# The MSVC build (release workflow on Windows; `make windows-msvc` cross-compiles with cargo-xwin).
+[target.x86_64-pc-windows-msvc]
+# Link the C runtime statically: no Visual C++ Redistributable (VCRUNTIME140.dll) needed.
+rustflags = ["-C", "target-feature=+crt-static"]

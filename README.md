@@ -212,6 +212,7 @@ make              # Linux + Windows debug builds -> dist/linux/firecraft, dist/w
 make build        # Linux debug build only
 make run FILE=x.png
 make windows      # Windows .exe only (needs: sudo apt install mingw-w64)
+make windows-msvc # Windows .exe with the MSVC toolchain, as the downloads (cargo-xwin, see below)
 make test         # all tests
 make parity       # compare renders with Fireworks for ../ref_fw_images; results in ../parity_runs
 make web-debug    # web build (unoptimized, with debug info) -> dist/web
@@ -222,7 +223,8 @@ make size         # disk used by target/ and dist/
 ```
 
 WebP export (libwebp) and the PNG optimizer (libdeflate) compile C code: the Linux build uses the
-system C compiler and `make windows` the mingw one; the browser build leaves them out.
+system C compiler, `make windows` the mingw one and `make windows-msvc` clang-cl; the browser
+build leaves them out.
 
 Finished binaries are copied to `dist/` (release builds: `dist/linux-release/`,
 `dist/windows-release/`; web: `dist/web/`). Cargo's `target/` holds the compiled dependencies,
@@ -250,6 +252,18 @@ Windows: `cargo build -p firecraft` on Windows (MSVC toolchain), or cross-compil
 sudo apt install mingw-w64          # once
 make windows                        # -> dist/windows/firecraft.exe
 ```
+
+The release downloads are built with the MSVC toolchain on Windows (the release workflow):
+antivirus heuristics flag MinGW-built programs more often. To build the same way from Linux:
+
+```sh
+sudo apt install clang lld llvm                 # once: clang-cl, lld-link, llvm-rc
+cargo install --locked cargo-xwin               # once; downloads Microsoft's SDK libraries on first use
+make windows-msvc                               # -> dist/windows-msvc/firecraft.exe
+```
+
+Both Windows builds embed version information and an application manifest
+(`apps/firecraft/build.rs`, `apps/firecraft/windows/firecraft.manifest`).
 
 Startup: a small software-drawn splash shows (at least 2 s) while the GPU renderer starts
 (`FIRECRAFT_NO_SPLASH=1` disables it). Renderer: wgpu on Vulkan/DX12/Metal; if the only such

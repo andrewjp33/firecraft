@@ -30,21 +30,32 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.kind }}
-    # Ubuntu 22.04's older glibc: the Linux build then runs on most current distributions.
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Ubuntu 22.04's older glibc: the Linux build then runs on most current distributions.
           - kind: linux
+            os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            make: release
+            build: make release
+          # Built on Windows with Microsoft's toolchain (MSVC) rather than cross-compiled with
+          # MinGW: antivirus heuristics flag MinGW-built programs far more often.
           - kind: windows
-            target: x86_64-pc-windows-gnu
-            make: windows-release
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: >-
+              cargo build --release -p firecraft --target x86_64-pc-windows-msvc &&
+              mkdir -p dist/windows-release &&
+              cp target/x86_64-pc-windows-msvc/release/firecraft.exe dist/windows-release/
           - kind: web
+            os: ubuntu-22.04
             target: wasm32-unknown-unknown
-            make: web
+            build: make web
     steps:
       - uses: actions/checkout@v7
 
@@ -59,10 +70,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install mingw-w64 (Windows cross-compiler)
-        if: matrix.kind == 'windows'
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
-
       - name: Install trunk
         if: matrix.kind == 'web'
         uses: taiki-e/install-action@v2
@@ -74,7 +81,7 @@ jobs:
           key: ${{ matrix.kind }}
 
       - name: Build
-        run: make ${{ matrix.make }}
+        run: ${{ matrix.build }}
 
       - name: Package
         run: scripts/package-release.sh ${{ matrix.kind }} ${{ steps.version.outputs.version }} packages

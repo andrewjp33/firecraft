@@ -14,6 +14,8 @@ export RUSTC_WRAPPER ?= sccache
 endif
 CARGO ?= cargo
 WIN_TARGET := x86_64-pc-windows-gnu
+# The release downloads' Windows build (MSVC toolchain).
+MSVC_TARGET := x86_64-pc-windows-msvc
 WASM_TARGET := wasm32-unknown-unknown
 # FireCraft's own packages: `make clean` removes only these, keeping compiled dependencies.
 OWN_PACKAGES := firecraft firecraft-web firecraft-ui-egui firecraft-engine firecraft-io firecraft-doc firecraft-raster firecraft-fwpng
@@ -27,7 +29,7 @@ PARITY_OUT ?= target/parity
 PARITY_KEEP ?= 10
 DIST := dist
 
-.PHONY: all help build release run windows windows-release web web-serve test lint check parity clean distclean size
+.PHONY: all help build release run windows windows-release windows-msvc windows-msvc-release web web-serve test lint check parity clean distclean size
 
 all: build windows
 
@@ -38,6 +40,8 @@ help:
 	@echo "  make windows          Windows debug build    -> $(DIST)/windows/firecraft.exe"
 	@echo "  make release          Linux optimized build  -> $(DIST)/linux-release/firecraft"
 	@echo "  make windows-release  Windows optimized      -> $(DIST)/windows-release/firecraft.exe"
+	@echo "  make windows-msvc     Windows debug, MSVC    -> $(DIST)/windows-msvc/firecraft.exe (cargo-xwin)"
+	@echo "  make windows-msvc-release  as the downloads  -> $(DIST)/windows-msvc-release/firecraft.exe"
 	@echo "  make web              Browser build (trunk)  -> $(DIST)/web/"
 	@echo "  make web-debug        Browser debug build (dev profile, function names; larger)"
 	@echo "  make web-serve        Serve the browser build at http://127.0.0.1:8766"
@@ -76,6 +80,20 @@ windows-release:
 	@mkdir -p $(DIST)/windows-release
 	@cp target/$(WIN_TARGET)/release/firecraft.exe $(DIST)/windows-release/firecraft.exe
 	@echo "Built: $(DIST)/windows-release/firecraft.exe"
+
+# The MSVC toolchain, as the release workflow builds the downloads (on Windows); from Linux
+# with cargo-xwin (see the script for the one-time setup).
+windows-msvc:
+	scripts/build-windows-msvc.sh
+	@mkdir -p $(DIST)/windows-msvc
+	@cp target/$(MSVC_TARGET)/debug/firecraft.exe $(DIST)/windows-msvc/firecraft.exe
+	@echo "Built: $(DIST)/windows-msvc/firecraft.exe"
+
+windows-msvc-release:
+	scripts/build-windows-msvc.sh --release
+	@mkdir -p $(DIST)/windows-msvc-release
+	@cp target/$(MSVC_TARGET)/release/firecraft.exe $(DIST)/windows-msvc-release/firecraft.exe
+	@echo "Built: $(DIST)/windows-msvc-release/firecraft.exe"
 
 # Keep the builder's home folder out of the paths embedded in the browser build.
 WEB_ENV := RUSTFLAGS="--remap-path-prefix=$(HOME)=~"

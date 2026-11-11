@@ -38,6 +38,8 @@ case $kind in
         tar -C "$stage" -czf "$out/$name.tar.gz" "$name"
         echo "$out/$name.tar.gz" ;;
     *)
-        (cd "$stage" && zip -qr9 "$out/$name.zip" "$name")
+        # zip, or 7-Zip on the Windows build machines (Git Bash has no zip).
+        if command -v zip >/dev/null; then (cd "$stage" && zip -qr9 "$out/$name.zip" "$name")
+        else (cd "$stage" && 7z a -tzip -mx=9 -bd "$out/$name.zip" "$name" >/dev/null); fi
         echo "$out/$name.zip" ;;
 esac
