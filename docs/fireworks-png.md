@@ -46,7 +46,7 @@ LAYv  BKGb, URLb (web layer), LNMs name, MSLb (unknown; 1 on the Web Layer), MCL
 IMGv  XOFf YOFf XLCf YLCf (document space), WPXi HPXi, TSZi, TILv { TIDi* }
       pixel buffer/tile grid at (XLC, YLC) sized WPX x HPX; visible image rect is
       (XLC+XOF, YLC+YOF)..(XLC+WPX, YLC+HPX): XOF/YOF hide the buffer's top-left strip
-      (read from the bitmap constructor 0x62acd0 in Fireworks.exe; reader at 0x7b4ff9)
+      (Fireworks MX's bitmap constructor 0x62acd0; reader 0x7b4ff9)
 PTHv  PATv { BCLi stroke ARGB, FCLi fill ARGB, BPLv brush preset, FPLv fill preset, TXBv/TXFv textures },
       BRPi, PTTi, FOTb, RNDi, TOXf.., PSXf..PFYf (gradient handles), EFLv effects,
       PBLv { PBPv* { ISCb closed, BSLf, PPCi, PBTv* { XLCf YLCf [XPCf YPCf] [XSCf YSCf] ... } } },

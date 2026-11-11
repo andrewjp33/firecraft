@@ -4,7 +4,7 @@
 2 Raised Emboss, 3 Inset Emboss (4 is the Glow, see effects.md). Implemented in
 `crates/raster/src/bevel.rs`.
 
-Sources: disassembly of `Fireworks.exe` (edge-shape function `0x5dcad0`, lighting `0x5dcbc0`,
+Sources: Fireworks MX's routines (addresses for reference: edge-shape function `0x5dcad0`, lighting `0x5dcbc0`,
 integer atan2 `0x5649f0` with its table at `0xe83f64`/`0xe83fa4`, distance-vector passes
 `0x5d9260`/`0x5d9d10`/`0x5d9f90`, driver `0x5de1a0`), then fitted and checked against Fireworks
 renders of 60x60 squares (`tools/fwmx-oracle`, grids of every type, edge shape, button state,

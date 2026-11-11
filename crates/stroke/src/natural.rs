@@ -1,8 +1,8 @@
 //! Natürliche Pinsel (`BRTi = 0`), Mehrfachspitzen, Empfindlichkeiten, alphaRemap und Strichtextur
 //! (Spezifikation 07 §6.3–§6.8). Die Python-Referenz hat dafür keinen Läufer; umgesetzt ist der
-//! Code-Befund der Spezifikation, geprüft an den Laufzeit-Testdateien T2 (`re\_testdateien\07\t2_*`).
+//! Befund der Spezifikation, geprüft an den Laufzeit-Testdateien T2 (`re\_testdateien\07\t2_*`).
 //!
-//! **Stand Phase 5 (B, Disassemblierung + eigene Laufzeitdateien `re\_testdateien\phase5\pinsel`,
+//! **Stand Phase 5 (B, Analyse + eigene Laufzeitdateien `re\_testdateien\phase5\pinsel`,
 //! Prüfung `fp-render\tests\brush_fit.rs`; T2 28/28 Dateien pixelgenau):**
 //!
 //! **Läufer natural** (`@787db0`, je Segment):

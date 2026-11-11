@@ -6,13 +6,14 @@ FireCraft reimplements behaviour, not code. Sources, in order of preference:
 2. **Measurement**: run the original under Wine and observe inputs → outputs
    (`tools/fwmx-oracle`). Results are written down as specifications in `docs/behavior/` and
    encoded as unit tests with the measured numbers.
-3. **Binary inspection, when 1-2 can't answer a question**: used to find *what* to measure
+3. **Static analysis, only when 1-2 can't answer a question**: used to find *what* to measure
    (e.g. which preferences and script functions drive the Magic Wand). Findings are recorded as
-   behaviour in prose; decompiled code is never copied or transliterated into FireCraft.
+   behaviour in prose (with function addresses for reference); no code is copied or
+   transliterated into FireCraft.
 4. **File formats** are learned from files the original writes and verified by having it open
    files FireCraft writes (interoperability).
 5. **Later versions** (Fireworks CS3-CS6 features such as 9-slice symbols and per-object locks):
-   learned from files they write, a Fireworks CS5 executable inspected statically (it isn't run
+   learned from files they write, a Fireworks CS5 executable examined (it isn't run
    here), and files checked by hand in Fireworks CS5 on Windows.
 
 No Macromedia/Adobe artwork, icons, presets or sample files are committed. Screenshots of the

@@ -410,7 +410,7 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
     let tsz = n.int_of("TSZ").unwrap_or(IMAGE_TILE as i64).clamp(1, 4096) as u32;
     // The pixel buffer (and its tile grid) starts at XLCf/YLCf and is WPXi x HPXi. XOFf/YOFf crop
     // its top-left: Fireworks' image rectangle is (XLC + XOF, YLC + YOF) .. (XLC + W, YLC + H)
-    // (from the bitmap constructor at 0x62acd0 in Fireworks.exe). Hidden pixels are dropped.
+    // (Fireworks MX's bitmap constructor, `0x62acd0`). Hidden pixels are dropped.
     let x = (n.float_of("XLC").unwrap_or(0.0) - ctx.origin.0).round() as i64;
     let y = (n.float_of("YLC").unwrap_or(0.0) - ctx.origin.1).round() as i64;
     let xof = n.float_of("XOF").unwrap_or(0.0).round().clamp(0.0, w as f64) as u32;

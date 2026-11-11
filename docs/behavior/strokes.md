@@ -3,7 +3,7 @@
 FireCraft draws path strokes with Fireworks' brush engine as reproduced by FirePixel
 (`crates/stroke`, adapted from FirePixel's `fp-vector`/`fp-geom`, Apache-2.0; see
 ATTRIBUTION.md). Its module comments (in German) describe the Fireworks behaviour each piece
-reproduces; FirePixel derived it from the Fireworks binary and verified it against Fireworks
+reproduces; FirePixel derived it from Fireworks and verified it against Fireworks
 renders.
 
 ## Checked against Fireworks MX

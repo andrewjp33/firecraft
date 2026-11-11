@@ -1,8 +1,8 @@
-# Blend modes (Fireworks MX, measured and read from the binary)
+# Blend modes (Fireworks MX, measured)
 
 Measured with a scripted Fireworks MX document: 6 base x 6 blend colours per mode, rendered and
-saved by Fireworks (`setBlendMode`). The Tint formula and the luma weights were then read from
-`Fireworks.exe` with REA: the blend-function selector at `0x56d9c4` maps each mode value to a
+saved by Fireworks (`setBlendMode`). The Tint formula and the luma weights were then pinned down exactly
+(addresses for reference: the blend-function selector at `0x56d9c4` maps each mode value to a
 function (Tint `0x56d6b0`, Luminosity `0x56d580`, Hue `0x56d270`, Color `0x56d480`, ...).
 
 | Mode | `BLDi` | FireCraft formula | Max error vs Fireworks (0-255) |
@@ -23,7 +23,7 @@ function (Tint `0x56d6b0`, Luminosity `0x56d580`, Hue `0x56d270`, Color `0x56d48
 `luma(c) = (109 R + 366 G + 37 B) >> 9`: Rec. 709 weights 0.2125/0.7154/0.0721 scaled by 512,
 computed once at startup in Fireworks.
 
-Mode value 4 has a function in the binary (`0x56cc80`) but no menu entry in MX.
+Mode value 4 has a blend function in Fireworks MX (`0x56cc80`) but no menu entry.
 
 All modes are bit-exact on the measured grid. Fireworks has two colour models, both ported in
 `crates/raster/src/fwhsl.rs`:

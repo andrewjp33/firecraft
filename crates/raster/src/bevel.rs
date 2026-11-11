@@ -1,7 +1,7 @@
 //! Fireworks MX's Bevel and Emboss effect (`BevelType` 0-3: Inner Bevel, Outer Bevel, Raised
 //! Emboss, Inset Emboss). BevelType 4 is the Glow, see `effects`.
 //!
-//! Read from `Fireworks.exe` with REA/disassembly and checked against Fireworks renders
+//! Fireworks MX's routines (addresses for reference), fitted and checked against Fireworks renders
 //! (docs/behavior/bevel.md):
 //!
 //! - every pixel in the band (inside the object for Inner Bevel, outside it otherwise) at

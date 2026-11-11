@@ -1,4 +1,4 @@
-//! Fireworks MX's byte-quantized colour models, read from `Fireworks.exe` with REA.
+//! Fireworks MX's byte-quantized colour models (its function addresses for reference).
 //!
 //! HSL: RGB -> HSL at `0x564e70`, HSL -> RGB at `0x565110`, used by the Hue/Saturation effect
 //! (`0x7d7433`) and the Hue blend mode (`0x56d270`).

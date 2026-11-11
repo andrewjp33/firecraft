@@ -1,7 +1,7 @@
 # Gradient fills (Fireworks MX)
 
-Read from Fireworks.exe's gradient position function (`0x61ea90`, a switch on the fill type at
-`0x61eb37`) and checked against Fireworks renders of every type with a black-to-white ramp:
+Fireworks MX's gradient position function (`0x61ea90`, a switch on the fill type at
+`0x61eb37`), reproduced and checked against Fireworks renders of every type with a black-to-white ramp:
 FireCraft matches all 11 within 1 level on every pixel. Implemented in
 `crates/raster/src/gradient.rs`.
 

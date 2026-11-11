@@ -2,7 +2,7 @@
 //!
 //! Colour modes work in HSV (not Photoshop's luminosity model): Hue/Saturation/Color keep the
 //! base colour's HSV value; Luminosity sets the HSV value to the blend colour's luma. Tint and the
-//! luma weights come from Fireworks.exe itself (blend function table at 0x56d9c4).
+//! luma weights are Fireworks MX's own (its blend function table: `0x56d9c4`).
 
 use crate::colormath::{self, ColorMath};
 use crate::fwhsl;
@@ -314,7 +314,7 @@ mod tests {
             BlendMode::Erase.composite(op(1, 2, 3), op(9, 9, 9), 255),
             Rgba::TRANSPARENT
         );
-        // Tint: exact (formula from Fireworks.exe, values measured in Fireworks MX).
+        // Tint: exact (Fireworks MX's formula, values measured in Fireworks MX).
         for (base, top, want) in [
             (op(200, 40, 40), op(255, 0, 0), op(239, 12, 12)),
             (op(40, 180, 60), op(255, 0, 0), op(136, 100, 33)),
