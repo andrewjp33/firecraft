@@ -77,17 +77,20 @@ windows-release:
 	@cp target/$(WIN_TARGET)/release/firecraft.exe $(DIST)/windows-release/firecraft.exe
 	@echo "Built: $(DIST)/windows-release/firecraft.exe"
 
+# Keep the builder's home folder out of the paths embedded in the browser build.
+WEB_ENV := RUSTFLAGS="--remap-path-prefix=$(HOME)=~"
+
 web:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
-	cd apps/firecraft-web && trunk build --release
+	cd apps/firecraft-web && $(WEB_ENV) trunk build --release
 
 web-debug:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
-	cd apps/firecraft-web && trunk build
+	cd apps/firecraft-web && $(WEB_ENV) trunk build
 
 web-serve:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
-	cd apps/firecraft-web && trunk serve --release
+	cd apps/firecraft-web && $(WEB_ENV) trunk serve --release
 
 test:
 	$(CARGO) test --workspace

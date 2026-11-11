@@ -262,4 +262,4 @@ tools/fwmx-oracle  scripts that measure the original Fireworks MX under Wine, an
 
 ## License
 
-MIT OR Apache-2.0.
+MIT ([LICENSE-MIT](LICENSE-MIT)) or Apache-2.0 ([LICENSE-APACHE](LICENSE-APACHE)), at your option.
