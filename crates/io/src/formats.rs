@@ -814,6 +814,96 @@ mod tests {
         }
     }
 
+    // --- JPEG XL ---
+
+    /// 6x4 lossless JPEG XL codestream (testdata/README.md).
+    const JXL_6X4: &[u8] = include_bytes!("../testdata/6x4.jxl");
+    /// An Exif box's payload: TIFF header offset 0, then a TIFF whose one tag is Orientation = 6
+    /// ("rotate 90 degrees clockwise").
+    const EXIF_ROTATE_90: [u8; 30] = [
+        0, 0, 0, 0, b'M', b'M', 0, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0,
+        0, 0, 0, 0,
+    ];
+    /// `EXIF_ROTATE_90` Brotli-compressed (Python's brotli module, quality 11).
+    const EXIF_ROTATE_90_BROTLI: [u8; 29] = [
+        0x1b, 0x1d, 0x00, 0xf8, 0x8f, 0xd4, 0x51, 0x8d, 0xcb, 0xdd, 0x10, 0x37, 0xb6, 0x23, 0x88,
+        0xd9, 0xda, 0x1f, 0x2a, 0x31, 0x51, 0x20, 0x70, 0x68, 0xe1, 0x24, 0x6f, 0x10, 0x0b,
+    ];
+
+    /// A JPEG XL container: signature and `ftyp` boxes, then `boxes` (type, payload).
+    fn jxl_container(boxes: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+        let mut out = b"\0\0\0\x0cJXL \r\n\x87\n\0\0\0\x14ftypjxl \0\0\0\0jxl ".to_vec();
+        for (ty, payload) in boxes {
+            out.extend_from_slice(&(8 + payload.len() as u32).to_be_bytes());
+            out.extend_from_slice(*ty);
+            out.extend_from_slice(payload);
+        }
+        out
+    }
+
+    /// A `brob` box's payload: Brotli-compressed contents of a box of type `ty`.
+    fn brob(ty: &[u8; 4], compressed: &[u8]) -> Vec<u8> {
+        [ty.as_slice(), compressed].concat()
+    }
+
+    fn assert_jxl_6x4(bytes: &[u8], what: &str) {
+        let doc = open_flat(bytes, Some("x.jxl".into())).unwrap_or_else(|e| unreachable!("{what}: {e}"));
+        assert_eq!((doc.width, doc.height), (6, 4), "{what}");
+        let img = doc.render(0);
+        assert_eq!(img.get(0, 0), Some(Rgba::new(0, 0, 255, 255)), "{what}");
+        assert_eq!(img.get(5, 3), Some(Rgba::new(200, 180, 125, 255)), "{what}");
+    }
+
+    #[test]
+    fn opens_jpeg_xl_codestreams_and_containers() {
+        assert_jxl_6x4(JXL_6X4, "codestream");
+        assert_jxl_6x4(&jxl_container(&[(b"jxlc", JXL_6X4)]), "container");
+    }
+
+    #[test]
+    fn jpeg_xl_brotli_compressed_exif_decodes_but_does_not_turn_the_picture() {
+        let bytes = jxl_container(&[
+            (b"brob", &brob(b"Exif", &EXIF_ROTATE_90_BROTLI)),
+            (b"jxlc", JXL_6X4),
+        ]);
+        // The Brotli decoder (brotli-decompressor, via jxl-oxide) gives back the Exif exactly.
+        let image = jxl_oxide::JxlImage::builder()
+            .read(Cursor::new(&bytes))
+            .unwrap_or_else(|e| unreachable!("{e}"));
+        let exif = image.aux_boxes().first_exif().unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(exif.has_data());
+        assert_eq!(exif.unwrap().payload(), EXIF_ROTATE_90.get(4..).unwrap_or_default());
+        // The picture's orientation is the codestream header's (upright here), not the Exif's.
+        assert_jxl_6x4(&bytes, "Brotli-compressed Exif");
+    }
+
+    #[test]
+    fn damaged_jpeg_xl_metadata_is_an_error_not_a_crash() {
+        let mut flipped = EXIF_ROTATE_90_BROTLI;
+        for b in flipped.iter_mut().skip(2) {
+            *b ^= 0x5a;
+        }
+        let truncated = EXIF_ROTATE_90_BROTLI.get(..12).unwrap_or_default();
+        let garbage = [0xffu8; 64];
+        for (what, ty, payload) in [
+            ("flipped Brotli Exif", b"brob", brob(b"Exif", &flipped)),
+            ("truncated Brotli Exif", b"brob", brob(b"Exif", truncated)),
+            ("garbage Brotli XML", b"brob", brob(b"xml ", &garbage)),
+            ("garbage JPEG reconstruction data", b"jbrd", garbage.to_vec()),
+        ] {
+            for bytes in [
+                jxl_container(&[(ty, &payload), (b"jxlc", JXL_6X4)]),
+                jxl_container(&[(b"jxlc", JXL_6X4), (ty, &payload)]),
+            ] {
+                // Either outcome is fine; panicking (or hanging) is not.
+                match open_flat(&bytes, Some("x.jxl".into())) {
+                    Ok(doc) => assert_eq!((doc.width, doc.height), (6, 4), "{what}"),
+                    Err(e) => assert!(e.to_string().contains("JPEG XL"), "{what}: {e}"),
+                }
+            }
+        }
+    }
+
     #[test]
     fn jpeg_quality_is_estimated_from_its_tables() {
         for q in [30u8, 50, 75, 86, 95] {

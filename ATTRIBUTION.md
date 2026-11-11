@@ -56,6 +56,7 @@ their notices; among them:
   part on the work of the Independent JPEG Group."
 - libwebp (WebP export, via the `webp` crate): BSD-3-Clause.
 - `jixel` (JPEG XL export): BSD-3-Clause or Apache-2.0. `jxl-oxide` (JPEG XL import): MIT or
-  Apache-2.0.
+  Apache-2.0; it and its `jxl-jbr` are vendored in `vendor/` with one dependency version changed
+  (`vendor/README.md`). Their Brotli decoder, `brotli-decompressor`: BSD-3-Clause or MIT.
 - `oxipng` (PNG optimizer): MIT, with libdeflate (MIT) and `zopfli` (Apache-2.0).
 

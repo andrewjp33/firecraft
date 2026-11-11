@@ -2,6 +2,8 @@
 resolver = "3"
 members = ["crates/*", "apps/*"]
 default-members = ["crates/*", "apps/firecraft"]
+# Patched copies of other projects' crates (see vendor/README.md): not FireCraft's own code.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -104,3 +106,9 @@ egui-wgpu = { git = "https://github.com/storytold/egui.git", rev = "6d518fc79968
 egui_glow = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 eframe = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }
+# jxl-oxide 0.12.6 and jxl-jbr 0.2.1 with brotli-decompressor 6.3.1 instead of 5.x, which has
+# the block-switch bug of CVE-2026-111497 ("Broccoli2Shell"). Remove once jxl-oxide releases
+# with brotli-decompressor 6.2 or later (Cargo then warns that the patch is unused). See
+# vendor/README.md.
+jxl-oxide = { path = "vendor/jxl-oxide" }
+jxl-jbr = { path = "vendor/jxl-jbr" }
