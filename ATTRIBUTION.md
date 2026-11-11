@@ -26,6 +26,9 @@ Adapted:
 - `crates/raster/src/bevel.rs` (AngleSoftness): direction averaging and map softening as measured in
   FirePixel's `fp-effects/src/bevel.rs`.
 - `crates/text`: fonts, layout and rasterising, adapted from FirePixel's `fp-text` crate.
+- `crates/doc/src/brush_presets.rs`: Fireworks' stroke presets with their brush settings, from
+  FirePixel's `fp-engine/src/commands/panel.rs` (`BRUSH_PRESETS`) and the English names from its
+  `fp-i18n` en locale (FireCraft added the sensitivities it lacked, read back from Fireworks MX).
 - `crates/raster/src/pattern.rs`: how Pattern and Web Dither fills map to pixels, as measured in
   FirePixel's `crates/fp-vector/src/paint.rs`.
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in
@@ -43,3 +46,16 @@ Adapted:
   `crates/fp-render/src/nine.rs`. FireCraft added the inverse mapping and bitmap resampling.
 - `docs/fireworks-png.md`: the names of CS-era 9-slice nodes (`NGSv` with `NGLb`, `NGKi`, four
   `NGCf` guides, `NGMv`, `NGVv`) follow FirePixel's reader (`crates/fp-fwpng/src/read.rs`).
+
+## Third-party libraries
+
+FireCraft's dependencies keep their own licences (see `Cargo.lock`). Binary releases must carry
+their notices; among them:
+
+- `jpeg-encoder` (JPEG export): MIT or Apache-2.0, and the IJG licence: "This software is based in
+  part on the work of the Independent JPEG Group."
+- libwebp (WebP export, via the `webp` crate): BSD-3-Clause.
+- `jixel` (JPEG XL export): BSD-3-Clause or Apache-2.0. `jxl-oxide` (JPEG XL import): MIT or
+  Apache-2.0.
+- `oxipng` (PNG optimizer): MIT, with libdeflate (MIT) and `zopfli` (Apache-2.0).
+
