@@ -8,7 +8,7 @@ and Linux (macOS should work too) and in the browser via WebAssembly.
 
 
 <p align="center">
-  <img src="docs/images/fc.jpg" alt="FireCraft" width="100%">
+  <img src="docs/images/fc2.jpg" alt="FireCraft" width="100%">
 </p>
 
 
