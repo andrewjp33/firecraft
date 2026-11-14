@@ -53,6 +53,10 @@ tools/fwcs6-oracle/cs6_inspect.sh out/ a.png b.png   # what CS6 sees; out/cs6_*.
 tools/fwcs6-oracle/cs6_launch.sh [file.png]          # interactive, with the mouse-drag fix
 ```
 
+* **One CS6 per prefix.** The prefix is shared between the user's desktop session and agents'
+  virtual-display runs. Both scripts refuse with "already running" and name the display that holds
+  CS6 (`:0` = the desktop), so whoever sees it asks the other to finish. Don't start CS6 with plain
+  `wine Fireworks.exe` in a shared prefix: it bypasses the check and hands files to the running instance.
 * **Mouse drags** do nothing (and strokes stay open until the next click) under plain Wine 9:
   CS6's worker thread captures the mouse with an owned overlay window, and Wine doesn't attach
   the input queues of threads with cross-thread owned windows as Windows does. `cs6helper.exe`

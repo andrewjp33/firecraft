@@ -13,7 +13,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/cs6_lib.sh"
 cs6_build_helper || exit 1
-if cs6_running; then echo "Fireworks CS6 is already running in $CS6_PREFIX; close it first" >&2; exit 1; fi
+if cs6_running; then cs6_busy_message; exit 1; fi
 O=$(cd "$1" && pwd); shift; U="file:///Z|$O/"; rm -f "$O/log.txt"
 LIST=$(printf '"%s",' "$@"); LIST="[${LIST%,}]"
 cat > "$O/inspect.jsf" <<EOF

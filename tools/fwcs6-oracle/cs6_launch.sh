@@ -9,7 +9,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/cs6_lib.sh"
 cs6_build_helper || exit 1
-if cs6_running; then echo "Fireworks CS6 is already running in $CS6_PREFIX" >&2; exit 1; fi
+if cs6_running; then cs6_busy_message; exit 1; fi
 ARGS=()
 for f in "$@"; do ARGS+=("$(winepath -w "$(realpath "$f")")"); done
 cd "$CS6_DIR"

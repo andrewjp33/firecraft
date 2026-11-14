@@ -13,11 +13,23 @@ cs6_build_helper() {
 }
 
 # True when Fireworks CS6 already runs in this prefix (a second start would hand our files and
-# scripts to that instance, wherever it is displayed).
+# scripts to that instance, wherever it is displayed). Sets CS6_RUNNING_DISPLAY.
 cs6_running() {
-    local p
+    local p env
     for p in $(pgrep -f 'Fireworks\.exe'); do
-        tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null | grep -qx "WINEPREFIX=$CS6_PREFIX" && return 0
+        env=$(tr '\0' '\n' <"/proc/$p/environ" 2>/dev/null) || continue
+        if grep -qx "WINEPREFIX=$CS6_PREFIX" <<<"$env"; then
+            CS6_RUNNING_DISPLAY=$(sed -n 's/^DISPLAY=//p' <<<"$env")
+            return 0
+        fi
     done
     return 1
+}
+
+# The prefix is shared (the user on the desktop, agents on virtual displays): say who has it.
+cs6_busy_message() {
+    local who="virtual display ${CS6_RUNNING_DISPLAY:-?} (probably an agent's cs6_inspect.sh or UI session)"
+    [ "$CS6_RUNNING_DISPLAY" = ":0" ] && who="the desktop (display :0)"
+    echo "Fireworks CS6 is already running in $CS6_PREFIX on $who." >&2
+    echo "Ask whoever is using it to wrap up and close it, then try again." >&2
 }
