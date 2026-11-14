@@ -1009,7 +1009,13 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             egui::ScrollArea::vertical()
                 .max_height(room)
                 .min_scrolled_height(room)
+                // The full width of the box, so the scroll bar sits at its right edge.
+                .auto_shrink([false, true])
                 .show(ui, |ui| {
+                    // Compact rows (16 px, 1 px apart), as in Fireworks MX's list, so three
+                    // effects show without scrolling.
+                    ui.spacing_mut().item_spacing.y = 1.0;
+                    ui.spacing_mut().interact_size.y = 16.0;
                     for (i, e) in list.iter().enumerate() {
                         let known = e.effect.is_some();
                         let editable = def_for(e).is_some_and(has_editor);
