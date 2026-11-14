@@ -55,3 +55,22 @@ white match Fireworks MX only with `round((s*a + d*(255-a))/255)` (21,600 pixels
 truncated before. It raised parity on gym.png and spectrum_wave.png by ~7 points each (pixels
 within 2 levels) but lowered ball.png, sun.png and tm.png by 0.3-1.3: effect-heavy files, so
 Fireworks probably truncates when compositing effect results. Open question.
+
+## Fireworks CS6 differs (measured 2026-11-14)
+
+CS6 keeps the blend mode of MX files (it reads `color` etc. and saves it back) but renders Hue,
+Saturation, Color and Luminosity with the Photoshop/W3C non-separable formulas instead of MX's
+HSL/HSV: Rec. 601 `Lum = 0.3 R + 0.59 G + 0.11 B`, `SetLum` + `ClipColor`, `SetSat`. Probe: four
+bases (white, grey 128, peach (255,208,176), navy (32,64,128)) under an orange (224,96,16) rectangle,
+`tools/fwcs6-oracle`; CS6 matches those formulas within 2 levels:
+
+| Base | MX/FireCraft Color (HSV, approx.) | CS6 Color |
+|---|---|---|
+| (255,255,255) | (255,109,18) | (255,255,255) |
+| (128,128,128) | (128,55,9) | (226,98,18) |
+| (255,208,176) | (255,109,18) | (255,209,180) |
+
+A white base under Color stays white in CS6 but takes the colour in MX, so circles_hi.png (a
+Color-blended gradient over light circles) looks washed out in CS6. Nothing in the file selects
+the math: CS6 applies its own to MX files. FireCraft keeps the MX math; CS6-made files using these
+four modes therefore look different in FireCraft. The separable modes weren't compared.

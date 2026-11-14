@@ -288,6 +288,8 @@ apps/
   firecraft-web   browser app (eframe + trunk)
 tools/fwmx-oracle  scripts that measure the original Fireworks MX under Wine, and UI test
                    helpers that drive FireCraft (ui_session.sh, uimap.py, xin.py)
+tools/fwcs6-oracle Fireworks CS6 under Wine for file-compatibility checks (cs6_inspect.sh,
+                   cs6_launch.sh with a mouse-drag fix for Wine)
 ```
 
 ## AI and agent usage

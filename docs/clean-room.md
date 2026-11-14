@@ -41,6 +41,29 @@ Notes learned the hard way:
   native one in the prefix: `winetricks -q comctl32`. GPU settings don't matter: Fireworks MX draws
   with GDI only.
 
+## Fireworks CS6 (file compatibility)
+
+FireCraft follows Fireworks MX, but files saved by CS6 (the last release) should open in it, so
+CS6 runs under Wine too, in its own 32-bit prefix (`tools/fwcs6-oracle`; needs
+`i686-w64-mingw32-gcc` for a small helper built into `target/`):
+
+```sh
+export CS6_PREFIX=$HOME/Documents/work/CS6
+tools/fwcs6-oracle/cs6_inspect.sh out/ a.png b.png   # what CS6 sees; out/cs6_*.png = CS6's render
+tools/fwcs6-oracle/cs6_launch.sh [file.png]          # interactive, with the mouse-drag fix
+```
+
+* **Mouse drags** do nothing (and strokes stay open until the next click) under plain Wine 9:
+  CS6's worker thread captures the mouse with an owned overlay window, and Wine doesn't attach
+  the input queues of threads with cross-thread owned windows as Windows does. `cs6helper.exe`
+  (started by both scripts) calls `AttachThreadInput` for them. Not a GPU or Wine-setting issue.
+* "Missing Fonts" stops every file with text that uses fonts the prefix lacks; `cs6_inspect.sh`
+  answers it with "No Change" (`CS6_NOFONTS=1` does the same for `cs6_launch.sh`).
+* On Xvfb, resize the main window (`xin.py move 600 400 resize 1600 1000`) to see the docked
+  Layers/Properties panels. New rectangles from scripts take the current stroke; `setBrush(null)`.
+* CS6 renders Hue/Saturation/Color/Luminosity with different math from MX (see
+  behavior/blend-modes.md), so MX files with those modes look different in CS6.
+
 ## Testing FireCraft's UI
 
 `tools/fwmx-oracle/ui_session.sh OUTDIR FILE 'COMMANDS'` starts FireCraft on a virtual display
