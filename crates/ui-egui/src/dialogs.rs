@@ -590,7 +590,6 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     let platform = &mut app.platform;
     dialog("Preferences").show(ctx, |ui| {
         ui.strong("Workspace");
-        scale_commit = ui_scale_row(ui, scale_edit, in_use, saved, overridden);
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
         ui.horizontal(|ui| {
             ui.label("Tool cursors:");
@@ -604,6 +603,7 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         })
         .response
         .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
+        scale_commit = ui_scale_row(ui, scale_edit, in_use, saved, overridden);
         ui.separator();
         ui.strong("Editing");
         ui.checkbox(&mut prefs.mouse_highlight, "Mouse highlight")
@@ -721,8 +721,8 @@ fn ui_scale_row(
             || boxed.drag_stopped()
             || (boxed.changed() && !boxed.dragged() && !boxed.has_focus());
         reset = ui
-            .add_enabled(in_use != 100 || saved != 100, egui::Button::new("100%"))
-            .on_hover_text("Back to the system's display scaling")
+            .add_enabled(in_use != 100 || saved != 100, egui::Button::new("Reset"))
+            .on_hover_text("Back to 100%: the system's display scaling")
             .clicked();
     });
     if let Some(o) = overridden {

@@ -44,6 +44,18 @@ fn group(ui: &mut egui::Ui, g: Group, title: &str, default: bool, body: impl FnO
 }
 
 pub fn dock(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    // The panels are laid out in a child area that never reports more than the dock's width:
+    // egui keeps a resizable panel as wide as its contents, and at fractional scales (UI Scale
+    // 140-150%) a full-width row rounds up by part of a pixel, so the dock grew a little on
+    // every repaint. Anything wider is clipped instead.
+    let rect = ui.available_rect_before_wrap();
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(*ui.layout()));
+    child.shrink_clip_rect(rect);
+    dock_contents(app, &mut child);
+    ui.allocate_rect(rect, egui::Sense::hover());
+}
+
+fn dock_contents(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
