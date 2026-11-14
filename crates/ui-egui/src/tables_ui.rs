@@ -86,7 +86,10 @@ fn paint_histogram(ui: &Ui, r: Rect, hist: Option<[u64; 256]>, color: Color32) {
         }
         let x = r.left() + (i as f32 + 0.5) * r.width() / 256.0;
         let len = (v as f32 / scale).min(1.0) * r.height();
-        p.line_segment([pos2(x, r.bottom()), pos2(x, r.bottom() - len)], Stroke::new(r.width() / 256.0, color));
+        p.line_segment(
+            [pos2(x, r.bottom()), pos2(x, r.bottom() - len)],
+            Stroke::new(r.width() / 256.0, color),
+        );
     }
 }
 
@@ -173,14 +176,28 @@ pub fn levels(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
     ui.horizontal(|ui| {
         ui.label("Input Levels:");
         let hi = l.high;
-        ui.add(egui::DragValue::new(&mut l.low).range(0.0..=(hi - 2.0).max(0.0)).max_decimals(0));
-        ui.add(egui::DragValue::new(&mut l.gamma).range(0.1..=9.99).speed(0.01).fixed_decimals(2));
+        ui.add(
+            egui::DragValue::new(&mut l.low)
+                .range(0.0..=(hi - 2.0).max(0.0))
+                .max_decimals(0),
+        );
+        ui.add(
+            egui::DragValue::new(&mut l.gamma)
+                .range(0.1..=9.99)
+                .speed(0.01)
+                .fixed_decimals(2),
+        );
         let lo = l.low;
-        ui.add(egui::DragValue::new(&mut l.high).range((lo + 2.0).min(255.0)..=255.0).max_decimals(0));
+        ui.add(
+            egui::DragValue::new(&mut l.high)
+                .range((lo + 2.0).min(255.0)..=255.0)
+                .max_decimals(0),
+        );
     });
     let (r, _) = ui.allocate_exact_size(vec2(GRAPH, 110.0), Sense::hover());
     ui.painter().rect_filled(r, 0.0, Color32::WHITE);
-    ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, Color32::GRAY), egui::StrokeKind::Inside);
+    ui.painter()
+        .rect_stroke(r, 0.0, Stroke::new(1.0, Color32::GRAY), egui::StrokeKind::Inside);
     paint_histogram(ui, r.shrink(1.0), st.shown(), Color32::from_gray(40));
     let (track, _) = ui.allocate_exact_size(vec2(GRAPH, 12.0), Sense::hover());
     let mid = gamma_to_pos(l.gamma, l.low, l.high);
@@ -196,8 +213,16 @@ pub fn levels(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label("Output Levels:");
-        ui.add(egui::DragValue::new(&mut l.out_low).range(0.0..=255.0).max_decimals(0));
-        ui.add(egui::DragValue::new(&mut l.out_high).range(0.0..=255.0).max_decimals(0));
+        ui.add(
+            egui::DragValue::new(&mut l.out_low)
+                .range(0.0..=255.0)
+                .max_decimals(0),
+        );
+        ui.add(
+            egui::DragValue::new(&mut l.out_high)
+                .range(0.0..=255.0)
+                .max_decimals(0),
+        );
     });
     let (track, _) = ui.allocate_exact_size(vec2(GRAPH, 12.0), Sense::hover());
     ui.painter().rect_filled(
@@ -301,10 +326,25 @@ pub fn curves(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
     for i in 1..4 {
         let t = i as f32 / 4.0;
         let g = Stroke::new(1.0, Color32::from_gray(205));
-        painter.line_segment([pos2(r.left() + t * r.width(), r.top()), pos2(r.left() + t * r.width(), r.bottom())], g);
-        painter.line_segment([pos2(r.left(), r.top() + t * r.height()), pos2(r.right(), r.top() + t * r.height())], g);
+        painter.line_segment(
+            [
+                pos2(r.left() + t * r.width(), r.top()),
+                pos2(r.left() + t * r.width(), r.bottom()),
+            ],
+            g,
+        );
+        painter.line_segment(
+            [
+                pos2(r.left(), r.top() + t * r.height()),
+                pos2(r.right(), r.top() + t * r.height()),
+            ],
+            g,
+        );
     }
-    painter.line_segment([r.left_bottom(), r.right_top()], Stroke::new(1.0, Color32::from_gray(215)));
+    painter.line_segment(
+        [r.left_bottom(), r.right_top()],
+        Stroke::new(1.0, Color32::from_gray(215)),
+    );
     painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::GRAY), egui::StrokeKind::Inside);
 
     // Mouse: press on a point picks it, near the curve adds one; dragging moves it.
@@ -320,7 +360,10 @@ pub fn curves(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
         let (x, y) = to_curve(r, p);
         if let Some(i) = hit {
             st.selected = Some(i);
-            st.drag = Some(Drag { idx: i, removed: false });
+            st.drag = Some(Drag {
+                idx: i,
+                removed: false,
+            });
         } else {
             let tab = filters::curve_table(&pts);
             let near = (x - GAP).max(0.0) as usize..=(x + GAP).min(255.0) as usize;
@@ -333,7 +376,10 @@ pub fn curves(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
             {
                 pts.insert(k, (x, y));
                 st.selected = Some(k);
-                st.drag = Some(Drag { idx: k, removed: false });
+                st.drag = Some(Drag {
+                    idx: k,
+                    removed: false,
+                });
             }
         }
     } else if resp.dragged()
@@ -345,7 +391,11 @@ pub fn curves(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
         if !dr.removed && (i == 0 || i + 1 == n) {
             let mut nx = x.clamp(0.0, 255.0);
             if n >= 2 {
-                nx = if i == 0 { nx.min(pts[1].0 - GAP) } else { nx.max(pts[n - 2].0 + GAP) };
+                nx = if i == 0 {
+                    nx.min(pts[1].0 - GAP)
+                } else {
+                    nx.max(pts[n - 2].0 + GAP)
+                };
             }
             pts[i] = (nx, y.clamp(0.0, 255.0));
         } else if i > 0 {
@@ -395,9 +445,15 @@ pub fn curves(ui: &mut Ui, e: &mut EffectEntry, st: &mut TableEditor) -> bool {
         let sel = st.selected.filter(|&i| i < pts.len());
         let (mut x, mut y) = sel.map_or((0.0, 0.0), |i| pts[i]);
         ui.label("Input:");
-        let ix = ui.add_enabled(sel.is_some(), egui::DragValue::new(&mut x).range(0.0..=255.0).max_decimals(0));
+        let ix = ui.add_enabled(
+            sel.is_some(),
+            egui::DragValue::new(&mut x).range(0.0..=255.0).max_decimals(0),
+        );
         ui.label("Output:");
-        let iy = ui.add_enabled(sel.is_some(), egui::DragValue::new(&mut y).range(0.0..=255.0).max_decimals(0));
+        let iy = ui.add_enabled(
+            sel.is_some(),
+            egui::DragValue::new(&mut y).range(0.0..=255.0).max_decimals(0),
+        );
         if (ix.changed() || iy.changed())
             && let Some(i) = sel
         {

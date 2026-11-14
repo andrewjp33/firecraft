@@ -311,7 +311,11 @@ fn has_editor(d: &EffectDef) -> bool {
 }
 
 const DEFS: &[EffectDef] = &[
-    plain_filter!("Adjust Color", "Auto Levels", "{d04ef8c1-71b4-11d1-8c8200a024cdc039}"),
+    plain_filter!(
+        "Adjust Color",
+        "Auto Levels",
+        "{d04ef8c1-71b4-11d1-8c8200a024cdc039}"
+    ),
     EffectDef {
         category: "Adjust Color",
         name: "Brightness/Contrast...",
@@ -681,7 +685,11 @@ fn def_for(e: &EffectEntry) -> Option<&'static EffectDef> {
     // Fireworks MX, it's that Fireworks effect even though the marker stays).
     let own = matches!(e.effect(), Some(firecraft_raster::effects::Effect::Grayscale)).then_some("grayscale");
     DEFS.iter().find(|d| {
-        let marker = d.defaults.iter().find(|(k, _)| *k == "firecraft_effect").map(|(_, v)| *v);
+        let marker = d
+            .defaults
+            .iter()
+            .find(|(k, _)| *k == "firecraft_effect")
+            .map(|(_, v)| *v);
         d.moa == e.moa_id()
             && marker == own
             && match bevel {
@@ -903,6 +911,9 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
     }
 }
 
+/// The effects list box's border width.
+const LIST_BORDER: f32 = 1.0;
+
 /// The effects list in the Property inspector (right column).
 pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
@@ -981,66 +992,78 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             new_list = Some((l, "Reorder Effects"));
         }
     });
-    // The list: checkbox (on/off), name, (i) for settings.
+    // The list: checkbox (on/off), name, (i) for settings. It fills the room left in the
+    // Property inspector (a fixed height) and scrolls, so its box is never cut off: a fixed
+    // 70 px list overflowed the panel by a few pixels once it held three effects.
+    // Measured against the clip rectangle (the panel's visible area): inside the inspector's
+    // row layout the available height isn't bounded by the panel.
+    let below = ui.clip_rect().bottom() - ui.cursor().top() - 2.0;
+    let room = (ui.available_height().min(below) - 2.0 * LIST_BORDER).clamp(24.0, 70.0);
     egui::Frame::new()
         .fill(Color32::WHITE)
-        .stroke(egui::Stroke::new(1.0, theme::BORDER))
+        .stroke(egui::Stroke::new(LIST_BORDER, theme::BORDER))
         .show(ui, |ui| {
             ui.set_width(190.0);
-            ui.set_min_height(40.0);
-            egui::ScrollArea::vertical().max_height(70.0).show(ui, |ui| {
-                for (i, e) in list.iter().enumerate() {
-                    let known = e.effect.is_some();
-                    let editable = def_for(e).is_some_and(has_editor);
-                    let selected = state.selected == Some(i);
-                    let row = ui.horizontal(|ui| {
-                        let mut on = e.visible();
-                        if ui
-                            .checkbox(&mut on, "")
-                            .on_hover_text("Show/hide this effect")
-                            .changed()
-                        {
-                            let mut l = list.clone();
-                            if let Some(x) = l.get_mut(i) {
-                                x.set_visible(on);
+            ui.set_min_height(room);
+            // egui scrolls no shorter than 64 px unless told: that alone overflowed the panel.
+            egui::ScrollArea::vertical()
+                .max_height(room)
+                .min_scrolled_height(room)
+                .show(ui, |ui| {
+                    for (i, e) in list.iter().enumerate() {
+                        let known = e.effect.is_some();
+                        let editable = def_for(e).is_some_and(has_editor);
+                        let selected = state.selected == Some(i);
+                        let row = ui.horizontal(|ui| {
+                            let mut on = e.visible();
+                            if ui
+                                .checkbox(&mut on, "")
+                                .on_hover_text("Show/hide this effect")
+                                .changed()
+                            {
+                                let mut l = list.clone();
+                                if let Some(x) = l.get_mut(i) {
+                                    x.set_visible(on);
+                                }
+                                new_list = Some((l, "Effect On/Off"));
                             }
-                            new_list = Some((l, "Effect On/Off"));
-                        }
-                        let mut text = egui::RichText::new(e.name());
-                        if !known {
-                            text = text.color(Color32::GRAY);
-                        }
-                        if selected {
-                            text = text.background_color(theme::SELECT_BLUE).color(Color32::WHITE);
-                        }
-                        let name = ui.add(egui::Label::new(text).sense(Sense::click()));
-                        let name = if known {
-                            name
-                        } else {
-                            name.on_hover_text("Kept in the file; FireCraft doesn't render this effect yet")
-                        };
-                        if name.clicked() {
-                            state.selected = Some(i);
-                        }
-                        if name.double_clicked() && editable {
-                            open_editor = Some(i);
-                        }
-                        if editable
-                            && ui
-                                .add(egui::Button::new("i").small())
-                                .on_hover_text("Edit settings")
-                                .clicked()
-                        {
-                            state.selected = Some(i);
-                            open_editor = Some(i);
-                        }
-                    });
-                    let _ = row;
-                }
-                if list.is_empty() {
-                    ui.weak("No effects. Click + to add one.");
-                }
-            });
+                            let mut text = egui::RichText::new(e.name());
+                            if !known {
+                                text = text.color(Color32::GRAY);
+                            }
+                            if selected {
+                                text = text.background_color(theme::SELECT_BLUE).color(Color32::WHITE);
+                            }
+                            let name = ui.add(egui::Label::new(text).sense(Sense::click()));
+                            let name = if known {
+                                name
+                            } else {
+                                name.on_hover_text(
+                                    "Kept in the file; FireCraft doesn't render this effect yet",
+                                )
+                            };
+                            if name.clicked() {
+                                state.selected = Some(i);
+                            }
+                            if name.double_clicked() && editable {
+                                open_editor = Some(i);
+                            }
+                            if editable
+                                && ui
+                                    .add(egui::Button::new("i").small())
+                                    .on_hover_text("Edit settings")
+                                    .clicked()
+                            {
+                                state.selected = Some(i);
+                                open_editor = Some(i);
+                            }
+                        });
+                        let _ = row;
+                    }
+                    if list.is_empty() {
+                        ui.weak("No effects. Click + to add one.");
+                    }
+                });
         });
     let Some(d) = app.session.active_doc_mut() else {
         return;
@@ -1053,9 +1076,8 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             .map_or(list.get(i), |(l, _)| l.get(i))
             .and_then(def_for)
             .is_some_and(|d| d.name == LEVELS || d.name == CURVES);
-        app.effects_ui.tables = crate::tables_ui::TableEditor::new(
-            tables.then(|| d.effect_input(i)).flatten().as_ref(),
-        );
+        app.effects_ui.tables =
+            crate::tables_ui::TableEditor::new(tables.then(|| d.effect_input(i)).flatten().as_ref());
     }
     match (new_list, open_editor) {
         (Some((l, _)), Some(i)) if adding => {
@@ -1111,7 +1133,9 @@ pub fn filters_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     // Fireworks' own filters, then the plug-ins.
     let mut plugins_started = false;
     for cat in categories {
-        let plugin = DEFS.iter().any(|d| d.category == cat && d.plugin_category.is_some());
+        let plugin = DEFS
+            .iter()
+            .any(|d| d.category == cat && d.plugin_category.is_some());
         if plugin && !plugins_started {
             plugins_started = true;
             ui.separator();
@@ -1130,7 +1154,9 @@ pub fn filters_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 
 /// A Filters menu choice: applied at once when it has no settings, otherwise its popup opens.
 fn start_filter(app: &mut FireCraftApp, d: &'static EffectDef) {
-    let Some(doc) = app.session.active_doc_mut() else { return };
+    let Some(doc) = app.session.active_doc_mut() else {
+        return;
+    };
     // The last settings of the same filter, as Fireworks remembers them.
     let mut entry = match &app.effects_ui.last_filter {
         Some(e) if e.name() == d.name && e.moa_id() == d.moa => e.clone(),
@@ -1164,7 +1190,9 @@ fn start_filter(app: &mut FireCraftApp, d: &'static EffectDef) {
 
 /// Filters > Repeat Filter: the last filter again, with the same settings.
 fn repeat_filter(app: &mut FireCraftApp) {
-    let Some(e) = app.effects_ui.last_filter.clone() else { return };
+    let Some(e) = app.effects_ui.last_filter.clone() else {
+        return;
+    };
     if let (Some(d), Some(fx)) = (app.session.active_doc_mut(), e.effect()) {
         d.apply_filter(fx, e.name().trim_end_matches("..."));
     }
@@ -1183,7 +1211,9 @@ pub fn filter_shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
 /// The Filters menu's popup: Fireworks' question before converting objects to bitmaps, then the
 /// filter's settings, previewed on the canvas. OK applies (one undo step), Cancel restores.
 pub fn filter_dialog(app: &mut FireCraftApp, ctx: &egui::Context) {
-    let Some(mut fd) = app.effects_ui.filter.take() else { return };
+    let Some(mut fd) = app.effects_ui.filter.take() else {
+        return;
+    };
     let Some(d) = app.session.docs.iter_mut().find(|d| d.id == fd.doc) else {
         return;
     };
