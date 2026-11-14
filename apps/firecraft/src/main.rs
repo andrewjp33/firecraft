@@ -153,7 +153,7 @@ fn native_options(renderer: eframe::Renderer) -> eframe::NativeOptions {
     options
 }
 
-fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> eframe::Result {
+fn run(renderer: eframe::Renderer, launch: Launch, splash: SplashHandle) -> eframe::Result {
     eframe::run_native(
         "FireCraft",
         native_options(renderer),
@@ -166,7 +166,10 @@ fn run(renderer: eframe::Renderer, files: Vec<String>, splash: SplashHandle) -> 
             {
                 app.set_prefs(firecraft_ui_egui::Prefs::parse(&text));
             }
-            for f in files {
+            if let Some(v) = launch.ui_scale {
+                app.set_ui_scale_override(v);
+            }
+            for f in launch.files {
                 match std::fs::read(&f) {
                     Ok(bytes) => app.open_bytes(f, &bytes),
                     Err(e) => log::warn!("{f}: {e}"),
@@ -194,6 +197,40 @@ fn primary_adapters_are_software() -> bool {
         .all(|a| a.get_info().device_type == wgpu::DeviceType::Cpu)
 }
 
+/// What FireCraft was started with: files to open, and a UI scale overriding the preference.
+#[derive(Clone)]
+struct Launch {
+    files: Vec<String>,
+    ui_scale: Option<u32>,
+}
+
+/// The command line: files, and `--ui-scale N` / `--ui-scale=N` (percent, 50-200; "150%" and
+/// "1.5" work too), which overrides Preferences > UI Scale for this session, so a scale too
+/// large or small to use can be set back in Preferences.
+fn launch_args(args: impl Iterator<Item = String>) -> (Vec<String>, Option<u32>) {
+    let mut files = Vec::new();
+    let mut scale = None;
+    let mut args = args.peekable();
+    while let Some(a) = args.next() {
+        let value = if a == "--ui-scale" {
+            args.next()
+        } else if let Some(v) = a.strip_prefix("--ui-scale=") {
+            Some(v.to_owned())
+        } else {
+            files.push(a);
+            continue;
+        };
+        match value.as_deref().and_then(firecraft_ui_egui::parse_ui_scale) {
+            Some(v) => scale = Some(v),
+            None => log::warn!(
+                "--ui-scale needs a percentage from 50 to 200 (e.g. --ui-scale 100), not {:?}",
+                value.unwrap_or_default()
+            ),
+        }
+    }
+    (files, scale)
+}
+
 fn main() -> eframe::Result {
     if std::env::args().nth(1).as_deref() == Some("--splash") {
         splash::run();
@@ -201,29 +238,29 @@ fn main() -> eframe::Result {
     }
     env_logger_init();
     let splash: SplashHandle = Arc::new(Mutex::new(splash::spawn()));
-    let files: Vec<String> = std::env::args().skip(1).collect();
-    let result = run_with_fallback(files, &splash);
+    let (files, ui_scale) = launch_args(std::env::args().skip(1));
+    let result = run_with_fallback(Launch { files, ui_scale }, &splash);
     close_splash(&splash);
     result
 }
 
-fn run_with_fallback(files: Vec<String>, splash: &SplashHandle) -> eframe::Result {
+fn run_with_fallback(launch: Launch, splash: &SplashHandle) -> eframe::Result {
     let forced = std::env::var("FIRECRAFT_RENDERER")
         .ok()
         .map(|v| v.to_ascii_lowercase());
     let (first, second) = match forced.as_deref() {
-        Some("glow" | "gl" | "opengl") => return run(eframe::Renderer::Glow, files, splash.clone()),
-        Some("wgpu") => return run(eframe::Renderer::Wgpu, files, splash.clone()),
+        Some("glow" | "gl" | "opengl") => return run(eframe::Renderer::Glow, launch, splash.clone()),
+        Some("wgpu") => return run(eframe::Renderer::Wgpu, launch, splash.clone()),
         _ if std::env::var_os("WGPU_BACKEND").is_some() => (eframe::Renderer::Wgpu, eframe::Renderer::Glow),
         // No hardware Vulkan/DX12/Metal: OpenGL (glow) can still use the GPU; software wgpu is the fallback.
         _ if primary_adapters_are_software() => (eframe::Renderer::Glow, eframe::Renderer::Wgpu),
         _ => (eframe::Renderer::Wgpu, eframe::Renderer::Glow),
     };
-    match run(first, files.clone(), splash.clone()) {
+    match run(first, launch.clone(), splash.clone()) {
         Ok(()) => Ok(()),
         Err(e) => {
             log::warn!("{first:?} renderer unavailable ({e}); retrying with {second:?}");
-            run(second, files, splash.clone())
+            run(second, launch, splash.clone())
         }
     }
 }
@@ -270,4 +307,22 @@ fn env_logger_init() {
     let all = std::env::var("FIRECRAFT_LOG").is_ok_and(|v| v == "all");
     let logger = Box::leak(Box::new(L { all, file }));
     let _ = log::set_logger(logger).map(|()| log::set_max_level(log::LevelFilter::Warn));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_args;
+
+    fn args(a: &[&str]) -> (Vec<String>, Option<u32>) {
+        launch_args(a.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn ui_scale_option() {
+        assert_eq!(args(&["a.png", "--ui-scale", "150"]), (vec!["a.png".to_owned()], Some(150)));
+        assert_eq!(args(&["--ui-scale=100%", "b.png"]), (vec!["b.png".to_owned()], Some(100)));
+        assert_eq!(args(&["--ui-scale=1.25"]).1, Some(125));
+        assert_eq!(args(&["--ui-scale", "900"]).1, None);
+        assert_eq!(args(&["--ui-scale"]), (vec![], None));
+    }
 }

@@ -191,6 +191,24 @@ pub struct Prefs {
     pub patterns_dir: String,
     /// A folder of fonts to use besides the installed ones.
     pub fonts_dir: String,
+    /// Edit > Preferences > UI Scale, in percent ([`UI_SCALE_RANGE`]): the whole interface drawn
+    /// this much larger or smaller than the system's display scaling would draw it (100: as the
+    /// system scales it, whatever the monitor's DPI). The `--ui-scale` launch option overrides it
+    /// for one session.
+    pub ui_scale: u32,
+}
+
+/// The UI Scale preference's range, in percent.
+pub const UI_SCALE_RANGE: std::ops::RangeInclusive<u32> = 50..=200;
+
+/// A UI scale given as text ("150", "150%", "1.5"): percent, `None` if it isn't a number in
+/// [`UI_SCALE_RANGE`] (a bare number up to 4 is read as a factor: "1.5" is 150%).
+pub fn parse_ui_scale(text: &str) -> Option<u32> {
+    let t = text.trim().trim_end_matches('%').trim();
+    let v: f64 = t.parse().ok().filter(|v: &f64| v.is_finite())?;
+    let pct = if v <= 4.0 && !text.contains('%') { v * 100.0 } else { v };
+    let pct = pct.round();
+    (pct >= *UI_SCALE_RANGE.start() as f64 && pct <= *UI_SCALE_RANGE.end() as f64).then_some(pct as u32)
 }
 
 impl Prefs {
@@ -208,7 +226,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -227,6 +245,7 @@ impl Prefs {
             self.patterns_dir.replace(['\n', '\r'], ""),
             self.mx_perspective,
             self.fonts_dir.replace(['\n', '\r'], ""),
+            self.ui_scale,
         )
     }
 
@@ -266,6 +285,11 @@ impl Prefs {
                 "textures_dir" | "fireworks_dir" => p.textures_dir = v.trim().to_owned(),
                 "patterns_dir" => p.patterns_dir = v.trim().to_owned(),
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
+                "ui_scale" => {
+                    if let Ok(n) = v.trim().parse::<u32>() {
+                        p.ui_scale = n.clamp(*UI_SCALE_RANGE.start(), *UI_SCALE_RANGE.end());
+                    }
+                }
                 "aa_style" => {
                     p.aa_style = if v.trim() == "classic" {
                         firecraft_raster::AntiAliasStyle::Classic
@@ -316,6 +340,7 @@ impl Default for Prefs {
             textures_dir: String::new(),
             patterns_dir: String::new(),
             fonts_dir: String::new(),
+            ui_scale: 100,
         }
     }
 }
@@ -402,6 +427,9 @@ pub struct FireCraftApp {
     /// Textures offered for strokes, and the Fireworks folder setting they were read for.
     textures: firecraft_io::textures::TextureLibrary,
     textures_for: Option<(String, u64)>,
+    /// The UI scale given at launch (`--ui-scale`), overriding the preference for this session
+    /// until a new UI Scale is chosen in Preferences.
+    ui_scale_override: Option<u32>,
 }
 
 impl FireCraftApp {
@@ -442,6 +470,7 @@ impl FireCraftApp {
             quit_prompt: false,
             textures: Default::default(),
             textures_for: None,
+            ui_scale_override: None,
         }
     }
 
@@ -713,6 +742,29 @@ impl FireCraftApp {
         }
     }
 
+    /// Override the UI Scale preference for this session (the `--ui-scale` launch option, a way
+    /// back from a scale too large or small to use). The preference itself stays as saved.
+    pub fn set_ui_scale_override(&mut self, percent: u32) {
+        self.ui_scale_override =
+            Some(percent.clamp(*UI_SCALE_RANGE.start(), *UI_SCALE_RANGE.end()));
+    }
+
+    /// The UI scale in use, in percent: the launch override if any, else the preference.
+    pub fn ui_scale(&self) -> u32 {
+        self.ui_scale_override.unwrap_or(self.prefs.ui_scale)
+    }
+
+    /// Whether the launch option overrides the preference.
+    pub fn ui_scale_overridden(&self) -> bool {
+        self.ui_scale_override.is_some()
+    }
+
+    /// Set the UI Scale preference (Preferences); it applies at once, ending a launch override.
+    pub fn set_ui_scale(&mut self, percent: u32) {
+        self.prefs.ui_scale = percent.clamp(*UI_SCALE_RANGE.start(), *UI_SCALE_RANGE.end());
+        self.ui_scale_override = None;
+    }
+
     pub fn set_prefs(&mut self, prefs: Prefs) {
         self.session.options.aa_style = prefs.aa_style;
         self.dialogs.set_new_doc(prefs.new_doc);
@@ -720,6 +772,15 @@ impl FireCraftApp {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // UI Scale: egui's zoom on top of the system's display scaling (1.0 = as the system
+        // scales). Its own Ctrl+Plus/Minus zoom is off, so only the preference sets it.
+        let zoom = self.ui_scale() as f32 / 100.0;
+        if ui.ctx().options(|o| o.zoom_with_keyboard) {
+            ui.ctx().options_mut(|o| o.zoom_with_keyboard = false);
+        }
+        if (ui.ctx().zoom_factor() - zoom).abs() > 1e-4 {
+            ui.ctx().set_zoom_factor(zoom);
+        }
         // Tool options the preferences remember.
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
@@ -874,6 +935,42 @@ impl FireCraftApp {
 #[cfg(test)]
 mod prefs_tests {
     use super::*;
+
+    struct NoPlatform;
+    impl Platform for NoPlatform {
+        fn open_file(&mut self) -> Option<(String, Vec<u8>)> {
+            None
+        }
+        fn save_file(&mut self, _: &str, _: &[u8]) -> SaveStatus {
+            SaveStatus::Cancelled
+        }
+    }
+
+    #[test]
+    fn ui_scale_pref_and_override() {
+        assert_eq!(Prefs::default().ui_scale, 100);
+        let p = Prefs {
+            ui_scale: 150,
+            ..Prefs::default()
+        };
+        assert_eq!(Prefs::parse(&p.serialize()).ui_scale, 150);
+        // Out of range values are clamped, junk ignored.
+        assert_eq!(Prefs::parse("ui_scale=900").ui_scale, 200);
+        assert_eq!(Prefs::parse("ui_scale=abc").ui_scale, 100);
+        assert_eq!(parse_ui_scale("125"), Some(125));
+        assert_eq!(parse_ui_scale("125%"), Some(125));
+        assert_eq!(parse_ui_scale("1.5"), Some(150));
+        assert_eq!(parse_ui_scale("2"), Some(200));
+        assert_eq!(parse_ui_scale("30"), None);
+        assert_eq!(parse_ui_scale("nope"), None);
+        let mut app = FireCraftApp::new(Box::new(NoPlatform));
+        app.set_prefs(p);
+        app.set_ui_scale_override(100);
+        assert_eq!((app.ui_scale(), app.prefs.ui_scale), (100, 150));
+        // Choosing a scale in Preferences ends the override and is saved.
+        app.set_ui_scale(120);
+        assert_eq!((app.ui_scale(), app.ui_scale_overridden(), app.prefs.ui_scale), (120, false, 120));
+    }
 
     #[test]
     fn prefs_round_trip() {

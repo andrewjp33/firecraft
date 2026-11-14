@@ -691,6 +691,16 @@ export async function writeTo(handle, bytes) {
                         {
                             app.set_prefs(firecraft_ui_egui::Prefs::parse(&text));
                         }
+                        // `?ui_scale=100` in the address: the desktop's `--ui-scale`, a way back
+                        // from a UI Scale too large or small to use.
+                        if let Some(v) = web_sys::window()
+                            .and_then(|w| w.location().search().ok())
+                            .and_then(|q| web_sys::UrlSearchParams::new_with_str(&q).ok())
+                            .and_then(|p| p.get("ui_scale"))
+                            .and_then(|v| firecraft_ui_egui::parse_ui_scale(&v))
+                        {
+                            app.set_ui_scale_override(v);
+                        }
                         Ok(Box::new(App(app)))
                     }),
                 )

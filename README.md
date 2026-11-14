@@ -157,6 +157,7 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   - Undo/redo (100 steps by default, up to 999 in Preferences) with a History panel.
   - Animation playback, drag-and-drop open, opening files given on the command line.
 - **Preferences**:
+  - UI Scale, 50-200% on top of the system's display scaling (`--ui-scale` overrides it at launch).
   - Live dragging ("Show objects while moving them", off for slower PCs).
   - Tool cursor style.
   - Color math for new documents: Precise (default) or Fireworks MX's exact formulas.
@@ -269,6 +270,16 @@ Startup: a small software-drawn splash shows (at least 2 s) while the GPU render
 (`FIRECRAFT_NO_SPLASH=1` disables it). Renderer: wgpu on Vulkan/DX12/Metal; if the only such
 device is a software rasterizer (e.g. VirtualBox) FireCraft uses OpenGL (glow), which can still use
 the GPU. Force one with `FIRECRAFT_RENDERER=glow` or `FIRECRAFT_RENDERER=wgpu`.
+
+UI scale: Edit > Preferences > UI Scale (50-200%) draws the whole interface larger or smaller than
+the system's display scaling; 100% follows the system, whatever the monitor's DPI. If a scale makes
+the interface unusable, start FireCraft with `--ui-scale 100` (also `--ui-scale=100`, `150%` or `1.5`):
+it overrides the setting for that session, so you can set it back in Preferences. In the browser
+version add `?ui_scale=100` to the page address.
+
+```sh
+firecraft --ui-scale 100 [files...]
+```
 
 ## Layout
 

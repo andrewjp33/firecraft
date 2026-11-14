@@ -30,6 +30,9 @@ pub struct Dialogs {
     pub canvas_size: Option<(u32, u32)>,
     pub canvas_color: bool,
     pub prefs: bool,
+    /// Preferences > UI Scale while it's being set (applied on release, Enter or leaving the
+    /// box, not while dragging or typing).
+    pub ui_scale_edit: Option<f64>,
     pub about: bool,
     pub feather: Option<u32>,
     /// Modify > Transform > Numeric Transform.
@@ -218,6 +221,7 @@ impl Default for Dialogs {
             canvas_size: None,
             canvas_color: false,
             prefs: false,
+            ui_scale_edit: None,
             about: false,
             feather: None,
             numeric: None,
@@ -577,10 +581,16 @@ fn folder_row(
 fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     let mut close = false;
     let found = app.textures.has_fireworks();
+    let in_use = app.ui_scale();
+    let overridden = app.ui_scale_overridden().then_some(in_use);
+    let saved = app.prefs.ui_scale;
+    let mut scale_commit: Option<u32> = None;
+    let scale_edit = &mut app.dialogs.ui_scale_edit;
     let prefs = &mut app.prefs;
     let platform = &mut app.platform;
     dialog("Preferences").show(ctx, |ui| {
         ui.strong("Workspace");
+        scale_commit = ui_scale_row(ui, scale_edit, in_use, saved, overridden);
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
         ui.horizontal(|ui| {
             ui.label("Tool cursors:");
@@ -666,7 +676,64 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         ui.separator();
         close = ui.button("OK").clicked();
     });
+    if let Some(v) = scale_commit {
+        app.set_ui_scale(v);
+    }
     if close {
         app.dialogs.prefs = false;
+        app.dialogs.ui_scale_edit = None;
     }
+}
+
+/// Preferences > UI Scale: a slider and a percentage box. Both edit a pending value, which
+/// applies (and is returned) only when the slider is let go, or the box gets Enter or loses
+/// focus: the interface doesn't resize under the mouse mid-drag or while a number is typed.
+fn ui_scale_row(
+    ui: &mut egui::Ui,
+    edit: &mut Option<f64>,
+    in_use: u32,
+    saved: u32,
+    overridden: Option<u32>,
+) -> Option<u32> {
+    let (lo, hi) = (*crate::UI_SCALE_RANGE.start() as f64, *crate::UI_SCALE_RANGE.end() as f64);
+    let mut commit = false;
+    let mut reset = false;
+    ui.horizontal(|ui| {
+        ui.label("UI Scale:");
+        let v = edit.get_or_insert(in_use as f64);
+        ui.spacing_mut().slider_width = 180.0;
+        let slider = ui
+            .add(egui::Slider::new(v, lo..=hi).step_by(1.0).show_value(false))
+            .on_hover_text("How large the whole interface is drawn. 100%: as the system's display scaling draws it.");
+        let boxed = ui.add(
+            DragValue::new(v)
+                .range(lo..=hi)
+                .speed(0.5)
+                .max_decimals(0)
+                .suffix("%")
+                .update_while_editing(false),
+        );
+        commit |= slider.drag_stopped()
+            || slider.clicked()
+            // Arrow keys on the focused slider.
+            || (slider.changed() && !slider.dragged() && !slider.is_pointer_button_down_on());
+        commit |= boxed.lost_focus()
+            || boxed.drag_stopped()
+            || (boxed.changed() && !boxed.dragged() && !boxed.has_focus());
+        reset = ui
+            .add_enabled(in_use != 100 || saved != 100, egui::Button::new("100%"))
+            .on_hover_text("Back to the system's display scaling")
+            .clicked();
+    });
+    if let Some(o) = overridden {
+        ui.weak(format!(
+            "This session uses {o}% from the --ui-scale launch option (saved setting: {saved}%). Choosing a scale here applies and saves it."
+        ));
+    }
+    if reset {
+        *edit = Some(100.0);
+        return Some(100);
+    }
+    let v = edit.unwrap_or(in_use as f64).round().clamp(lo, hi) as u32;
+    (commit && (v != in_use || overridden.is_some() && v != saved)).then_some(v)
 }
