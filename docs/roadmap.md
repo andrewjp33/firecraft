@@ -24,6 +24,9 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Rotate/Flip, Numeric Transform, names, per-object show/hide and lock, Layers panel reordering,
   Superselect/Subselect, live dragging
 - Live Effects editor in the Property inspector
+- All of Fireworks MX's filters as Live Effects and in the Filters menu: Auto Levels, Levels and Curves
+  (editors with histograms and Auto), Blur, Blur More, Sharpen, Sharpen More, Unsharp Mask, Find Edges,
+  Invert; bit-exact except Unsharp Mask and Invert's soft edges ([behavior/effects.md](behavior/effects.md))
 - Symbols: Convert to Symbol, Library, Symbol Editor, Break Apart, 9-slice symbols (`NGSv`)
 - Clean-room oracle tooling and UI test helpers (`tools/fwmx-oracle`)
 - Optimize panel, Preview and File > Export: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's
@@ -68,7 +71,8 @@ Other items keep their numbers.
    Instances; button symbol states
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
-11. Filters menu (Adjust Color, Blur, Sharpen)
+11. Filters menu, the rest: Levels/Curves eyedroppers; check the menu's Sharpen strengths and
+    filters on paths/text against Fireworks MX; Unsharp Mask's exact blur; Invert's soft-edge weight
 12. **Remember last-used values across restarts**: Fireworks keeps the last used colours, stroke settings
     and even effect slider values as preferences, and shows them next time, after an app restart too
 13. JavaScript API compatibility for `.jsf` commands (Commands menu)

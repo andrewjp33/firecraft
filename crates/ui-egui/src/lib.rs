@@ -20,6 +20,7 @@ mod canvas;
 pub mod cursors;
 mod dialogs;
 pub mod effects_ui;
+mod tables_ui;
 mod fill_ui;
 mod font_picker;
 mod fpui;
@@ -847,6 +848,7 @@ impl FireCraftApp {
         fill_ui::window(self, &ctx);
         fill_ui::stroke_window(self, &ctx);
         effects_ui::editor(self, &ctx);
+        effects_ui::filter_dialog(self, &ctx);
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {
                 Color32::from_rgb(180, 0, 0)

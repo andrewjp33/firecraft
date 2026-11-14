@@ -5,6 +5,7 @@ pub mod bevel;
 pub mod blend;
 pub mod colormath;
 pub mod effects;
+pub mod filters;
 pub mod fwhsl;
 pub mod gradient;
 pub mod image;

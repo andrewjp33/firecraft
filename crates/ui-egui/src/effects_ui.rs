@@ -20,6 +20,25 @@ pub struct EffectsUi {
     pub selected: Option<usize>,
     /// The effect whose settings popup is open.
     pub editing: Option<Editing>,
+    /// Levels/Curves popup state.
+    pub tables: crate::tables_ui::TableEditor,
+    /// The Filters menu's settings popup, while open.
+    pub filter: Option<FilterDialog>,
+    /// The last filter applied from the Filters menu (Repeat Filter; its popup starts from
+    /// these settings next time).
+    pub last_filter: Option<EffectEntry>,
+}
+
+/// A filter from the Filters menu being set up: previewed on the document (a live edit begun
+/// when the popup opened), applied on OK.
+#[derive(Clone, Debug)]
+pub struct FilterDialog {
+    doc: u64,
+    entry: EffectEntry,
+    /// Fireworks asks before turning objects that aren't bitmaps into bitmaps.
+    confirmed: bool,
+    /// The live edit (and first preview) has begun.
+    started: bool,
 }
 
 /// An open settings popup: OK keeps its changes (one undo step), Cancel restores the
@@ -240,7 +259,59 @@ const INNER_GLOW_FIELDS: &[Field] = &[
 
 const EC: &str = " Eye Candy 4000 LE";
 
+/// A filter with no settings (Blur, Sharpen, Find Edges...), as Fireworks MX stores it.
+macro_rules! plain_filter {
+    ($cat:literal, $name:literal, $moa:literal) => {
+        EffectDef {
+            category: $cat,
+            name: $name,
+            moa: $moa,
+            defaults: &[],
+            fields: &[],
+            filter: true,
+            plugin_category: None,
+        }
+    };
+}
+
+/// Levels' parameters for one channel at their neutral values.
+macro_rules! levels_defaults {
+    () => {
+        &[
+            ("source_low_rgb", "0"),
+            ("source_high_rgb", "255"),
+            ("dest_low_rgb", "0"),
+            ("dest_high_rgb", "255"),
+            ("gamma_rgb", "1"),
+            ("source_low_red", "0"),
+            ("source_high_red", "255"),
+            ("dest_low_red", "0"),
+            ("dest_high_red", "255"),
+            ("gamma_red", "1"),
+            ("source_low_green", "0"),
+            ("source_high_green", "255"),
+            ("dest_low_green", "0"),
+            ("dest_high_green", "255"),
+            ("gamma_green", "1"),
+            ("source_low_blue", "0"),
+            ("source_high_blue", "255"),
+            ("dest_low_blue", "0"),
+            ("dest_high_blue", "255"),
+            ("gamma_blue", "1"),
+        ]
+    };
+}
+
+/// Effects edited in a popup of their own (`tables_ui`), not a list of fields.
+const LEVELS: &str = "Levels...";
+const CURVES: &str = "Curves...";
+
+fn has_editor(d: &EffectDef) -> bool {
+    !d.fields.is_empty() || d.name == LEVELS || d.name == CURVES
+}
+
 const DEFS: &[EffectDef] = &[
+    plain_filter!("Adjust Color", "Auto Levels", "{d04ef8c1-71b4-11d1-8c8200a024cdc039}"),
     EffectDef {
         category: "Adjust Color",
         name: "Brightness/Contrast...",
@@ -264,6 +335,15 @@ const DEFS: &[EffectDef] = &[
             field("Blendmode", "Blend mode", Kind::Choice(BLENDS)),
         ],
         filter: false,
+        plugin_category: None,
+    },
+    EffectDef {
+        category: "Adjust Color",
+        name: CURVES,
+        moa: "{3439b08e-1923-11d3-9bde00e02910d580}",
+        defaults: &[],
+        fields: &[],
+        filter: true,
         plugin_category: None,
     },
     EffectDef {
@@ -312,6 +392,15 @@ const DEFS: &[EffectDef] = &[
         plugin_category: None,
     },
     EffectDef {
+        category: "Adjust Color",
+        name: LEVELS,
+        moa: "{d04ef8c2-71b5-11d1-8c8200a024cdc039}",
+        defaults: levels_defaults!(),
+        fields: &[],
+        filter: true,
+        plugin_category: None,
+    },
+    EffectDef {
         category: "Bevel and Emboss",
         name: "Inner Bevel",
         moa: "{7fe61102-6ce2-11d1-8c76000502701850}",
@@ -347,6 +436,8 @@ const DEFS: &[EffectDef] = &[
         filter: false,
         plugin_category: None,
     },
+    plain_filter!("Blur", "Blur", "{f1cfce41-718e-11d1-8c8200a024cdc039}"),
+    plain_filter!("Blur", "Blur More", "{f1cfce42-718e-11d1-8c8200a024cdc039}"),
     EffectDef {
         category: "Blur",
         name: "Gaussian Blur...",
@@ -365,6 +456,7 @@ const DEFS: &[EffectDef] = &[
         filter: true,
         plugin_category: None,
     },
+    plain_filter!("Other", "Find Edges", "{fc7093f1-f95c-11d0-8be200a024cdc039}"),
     EffectDef {
         category: "Shadow and Glow",
         name: "Drop Shadow",
@@ -417,6 +509,26 @@ const DEFS: &[EffectDef] = &[
         ],
         fields: INNER_GLOW_FIELDS,
         filter: false,
+        plugin_category: None,
+    },
+    plain_filter!("Sharpen", "Sharpen", "{c20952b1-fc76-11d0-8be700a024cdc039}"),
+    plain_filter!("Sharpen", "Sharpen More", "{1f2f2591-9db7-11d1-8cad00a024cdc039}"),
+    EffectDef {
+        category: "Sharpen",
+        name: "Unsharp Mask...",
+        moa: "{f1cfce44-718e-11d1-8c8200a024cdc039}",
+        // FirePixel's reading of Fireworks' dialog defaults.
+        defaults: &[
+            ("unsharp_mask_amount", "50"),
+            ("unsharp_mask_radius", "4.1"),
+            ("unsharp_mask_threshold", "0"),
+        ],
+        fields: &[
+            num("unsharp_mask_amount", "Sharpen amount (%)", 1.0, 500.0, 0),
+            num_log("unsharp_mask_radius", "Pixel radius", 0.1, 250.0, 1),
+            num("unsharp_mask_threshold", "Threshold", 0.0, 255.0, 0),
+        ],
+        filter: true,
         plugin_category: None,
     },
     EffectDef {
@@ -601,7 +713,11 @@ fn create(d: &EffectDef) -> EffectEntry {
     }
     pairs.push(("mkbFile_WriteOnly_TemporaryEffectUiName", d.name));
     pairs.extend_from_slice(d.defaults);
-    EffectEntry::from_pairs(&pairs)
+    let mut e = EffectEntry::from_pairs(&pairs);
+    if d.name == CURVES {
+        crate::tables_ui::init_curves(&mut e);
+    }
+    e
 }
 
 fn hex(s: &str) -> String {
@@ -815,7 +931,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         if ui.button(d.name).clicked() {
                             let mut l = list.clone();
                             l.push(create(d));
-                            if !d.fields.is_empty() {
+                            if has_editor(d) {
                                 open_editor = Some(l.len() - 1);
                                 adding = true;
                             }
@@ -875,7 +991,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             egui::ScrollArea::vertical().max_height(70.0).show(ui, |ui| {
                 for (i, e) in list.iter().enumerate() {
                     let known = e.effect.is_some();
-                    let editable = def_for(e).is_some_and(|d| !d.fields.is_empty());
+                    let editable = def_for(e).is_some_and(has_editor);
                     let selected = state.selected == Some(i);
                     let row = ui.horizontal(|ui| {
                         let mut on = e.visible();
@@ -930,6 +1046,17 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         return;
     };
     let selection = d.selection.clone();
+    // Levels and Curves show the object's histogram as it reaches the effect.
+    if let Some(i) = open_editor {
+        let tables = new_list
+            .as_ref()
+            .map_or(list.get(i), |(l, _)| l.get(i))
+            .and_then(def_for)
+            .is_some_and(|d| d.name == LEVELS || d.name == CURVES);
+        app.effects_ui.tables = crate::tables_ui::TableEditor::new(
+            tables.then(|| d.effect_input(i)).flatten().as_ref(),
+        );
+    }
     match (new_list, open_editor) {
         (Some((l, _)), Some(i)) if adding => {
             d.begin_live_edit("Add Effect");
@@ -960,6 +1087,191 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 });
             }
         }
+    }
+}
+
+/// The Filters menu's categories and filters (the effects that are filters, as in Fireworks:
+/// Adjust Color, Blur, Other, Sharpen and the plug-ins).
+pub fn filters_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let can = app.session.active_doc().is_some_and(|d| d.can_filter());
+    let repeat = app.effects_ui.last_filter.as_ref().map(EffectEntry::name);
+    let label = repeat.as_deref().map_or("Repeat Filter".to_owned(), |n| {
+        format!("Repeat {}", n.trim_end_matches("..."))
+    });
+    if crate::menus::item(ui, &label, "Ctrl+Alt+Shift+X", can && repeat.is_some()) {
+        repeat_filter(app);
+    }
+    ui.separator();
+    let mut categories: Vec<&str> = Vec::new();
+    for d in DEFS.iter().filter(|d| d.filter) {
+        if !categories.contains(&d.category) {
+            categories.push(d.category);
+        }
+    }
+    // Fireworks' own filters, then the plug-ins.
+    let mut plugins_started = false;
+    for cat in categories {
+        let plugin = DEFS.iter().any(|d| d.category == cat && d.plugin_category.is_some());
+        if plugin && !plugins_started {
+            plugins_started = true;
+            ui.separator();
+        }
+        ui.add_enabled_ui(can, |ui| {
+            ui.menu_button(cat, |ui| {
+                for d in DEFS.iter().filter(|d| d.filter && d.category == cat) {
+                    if crate::menus::item(ui, d.name, "", true) {
+                        start_filter(app, d);
+                    }
+                }
+            });
+        });
+    }
+}
+
+/// A Filters menu choice: applied at once when it has no settings, otherwise its popup opens.
+fn start_filter(app: &mut FireCraftApp, d: &'static EffectDef) {
+    let Some(doc) = app.session.active_doc_mut() else { return };
+    // The last settings of the same filter, as Fireworks remembers them.
+    let mut entry = match &app.effects_ui.last_filter {
+        Some(e) if e.name() == d.name && e.moa_id() == d.moa => e.clone(),
+        _ => create(d),
+    };
+    // The menu's Sharpen and Sharpen More are strengths 4 and 8 (FirePixel's reading of
+    // Fireworks; not yet checked against Fireworks MX). As Live Effects both are 1 (measured).
+    match d.name {
+        "Sharpen" => entry.set("sharpen_amount", "4"),
+        "Sharpen More" => entry.set("sharpen_amount", "8"),
+        _ => {}
+    }
+    let converts = doc.filter_converts();
+    if !has_editor(d) && !converts {
+        if let Some(fx) = entry.effect() {
+            doc.apply_filter(fx, d.name.trim_end_matches("..."));
+        }
+        app.effects_ui.last_filter = Some(entry);
+        return;
+    }
+    if d.name == LEVELS || d.name == CURVES {
+        app.effects_ui.tables = crate::tables_ui::TableEditor::new(doc.filter_input().as_ref());
+    }
+    app.effects_ui.filter = Some(FilterDialog {
+        doc: doc.id,
+        entry,
+        confirmed: !converts,
+        started: false,
+    });
+}
+
+/// Filters > Repeat Filter: the last filter again, with the same settings.
+fn repeat_filter(app: &mut FireCraftApp) {
+    let Some(e) = app.effects_ui.last_filter.clone() else { return };
+    if let (Some(d), Some(fx)) = (app.session.active_doc_mut(), e.effect()) {
+        d.apply_filter(fx, e.name().trim_end_matches("..."));
+    }
+}
+
+/// The Filters menu's keyboard shortcut (Repeat Filter).
+pub fn filter_shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let m = egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT;
+    if ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(m, egui::Key::X)))
+        && app.session.active_doc().is_some_and(|d| d.can_filter())
+    {
+        repeat_filter(app);
+    }
+}
+
+/// The Filters menu's popup: Fireworks' question before converting objects to bitmaps, then the
+/// filter's settings, previewed on the canvas. OK applies (one undo step), Cancel restores.
+pub fn filter_dialog(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(mut fd) = app.effects_ui.filter.take() else { return };
+    let Some(d) = app.session.docs.iter_mut().find(|d| d.id == fd.doc) else {
+        return;
+    };
+    let def = def_for(&fd.entry);
+    let label = fd.entry.name().trim_end_matches("...").to_owned();
+    let (mut ok, mut cancel) =
+        ctx.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+    if !fd.confirmed {
+        egui::Window::new("Fireworks")
+            .id(egui::Id::unique("filter_convert"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.label("Applying filters will convert the selection to a bitmap. Continue?");
+                ui.horizontal(|ui| {
+                    ok |= ui.button("OK").clicked();
+                    cancel |= ui.button("Cancel").clicked();
+                });
+            });
+        if cancel {
+            return;
+        }
+        if ok {
+            fd.confirmed = true;
+            if !def.is_some_and(has_editor) {
+                if let Some(fx) = fd.entry.effect() {
+                    d.apply_filter(fx, &label);
+                }
+                app.effects_ui.last_filter = Some(fd.entry);
+                return;
+            }
+            // The popup opens next frame (Enter must not also press its OK).
+            app.effects_ui.filter = Some(fd);
+            return;
+        }
+        app.effects_ui.filter = Some(fd);
+        return;
+    }
+    let Some(def) = def else { return };
+    if !fd.started {
+        fd.started = true;
+        d.begin_live_edit(&label);
+        if let Some(fx) = fd.entry.effect() {
+            d.preview_filter(fx);
+        }
+    }
+    let mut changed = false;
+    let mut open = true;
+    egui::Window::new(label.clone())
+        .id(egui::Id::unique("filter_dialog"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .default_pos(ctx.content_rect().center() - vec2(160.0, 200.0))
+        .show(ctx, |ui| {
+            ui.spacing_mut().slider_width = 240.0;
+            match def.name {
+                LEVELS => changed |= crate::tables_ui::levels(ui, &mut fd.entry, &mut app.effects_ui.tables),
+                CURVES => changed |= crate::tables_ui::curves(ui, &mut fd.entry, &mut app.effects_ui.tables),
+                _ => {
+                    egui::Grid::new("filter_fields")
+                        .num_columns(2)
+                        .spacing(vec2(8.0, 4.0))
+                        .show(ui, |ui| {
+                            for f in def.fields {
+                                changed |= edit_field(ui, def, f, &mut fd.entry);
+                            }
+                        });
+                }
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                ok |= ui.button("OK").clicked();
+                cancel |= ui.button("Cancel").clicked();
+            });
+        });
+    cancel |= !open;
+    if changed && let Some(fx) = fd.entry.effect() {
+        d.preview_filter(fx);
+    }
+    if cancel {
+        d.cancel_live_edit();
+    } else if ok {
+        d.commit_live_edit();
+        app.effects_ui.last_filter = Some(fd.entry);
+    } else {
+        app.effects_ui.filter = Some(fd);
     }
 }
 
@@ -997,14 +1309,20 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             // Long sliders for fine control (240 px: a 0-100 setting moves ~0.4 per pixel).
             ui.spacing_mut().slider_width = 240.0;
-            egui::Grid::new("fx_fields")
-                .num_columns(2)
-                .spacing(vec2(8.0, 4.0))
-                .show(ui, |ui| {
-                    for f in def.fields {
-                        changed |= edit_field(ui, def, f, &mut e);
-                    }
-                });
+            match def.name {
+                LEVELS => changed |= crate::tables_ui::levels(ui, &mut e, &mut app.effects_ui.tables),
+                CURVES => changed |= crate::tables_ui::curves(ui, &mut e, &mut app.effects_ui.tables),
+                _ => {
+                    egui::Grid::new("fx_fields")
+                        .num_columns(2)
+                        .spacing(vec2(8.0, 4.0))
+                        .show(ui, |ui| {
+                            for f in def.fields {
+                                changed |= edit_field(ui, def, f, &mut e);
+                            }
+                        });
+                }
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 ok |= ui.button("OK").clicked();

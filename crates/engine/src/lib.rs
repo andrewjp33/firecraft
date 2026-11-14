@@ -4,6 +4,8 @@
 //! The UI is a thin shell over this crate: it renders state and turns input into calls here.
 
 mod fills;
+mod filters;
+pub use filters::filter_image;
 mod history;
 mod objects;
 mod paint;
@@ -854,6 +856,15 @@ impl DocState {
     /// The first selected object's Live Effects (what the Property inspector lists).
     pub fn selected_effects(&self) -> Option<Vec<firecraft_doc::EffectEntry>> {
         self.element(*self.selection.first()?).map(|e| e.effects.clone())
+    }
+
+    /// The first selected object's pixels as they reach effect `index` of its list (the
+    /// effects before it applied): what Levels' and Curves' histograms and Auto look at.
+    pub fn effect_input(&self, index: usize) -> Option<RgbaImage> {
+        let r = *self.selection.first()?;
+        let mut e = self.element(r)?.clone();
+        e.effects.truncate(index);
+        self.bake(&[(r, e)]).into_iter().next().map(|(_, _, img, _, _)| img)
     }
 
     /// Replace the selected objects' effect lists (one undo step), as Fireworks' Property

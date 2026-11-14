@@ -34,6 +34,11 @@ Adapted:
 - `crates/raster/src/effects.rs` (`gaussian_blur`): Fireworks' Gaussian blur as reconstructed in
   FirePixel's `crates/fp-raster/src/filters/gauss.rs` (kernel in single precision, separable
   passes rounding down to 8 bits, colour over non-transparent pixels, output margin).
+- `crates/raster/src/filters.rs`: Fireworks' classic filters as reconstructed in FirePixel's
+  `crates/fp-raster/src/filters/convolve.rs` (3x3 filters), `table.rs` (Levels, Auto Levels, Curves
+  with its curve flattening) and `gauss.rs` (Unsharp Mask), checked against Fireworks MX
+  (`docs/behavior/effects.md`). `crates/ui-egui/src/tables_ui.rs`: the Curves point-editing rules from
+  FirePixel's `crates/fp-ui/src/dialogs/curves.rs`.
 - `crates/stroke` (`firecraft-stroke`): FirePixel's stroke engine, from `crates/fp-vector/src`
   (`attrs.rs`, `brush.rs`, `coverage.rs`, `natural.rs`, `stroke.rs`, and `mul` from `paint.rs`) and
   `crates/fp-geom/src/flatten.rs` (FirePixel v0.2.23), with the items they used from `fp-geom`,

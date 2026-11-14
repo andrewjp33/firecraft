@@ -1438,9 +1438,28 @@ impl Element {
             return None;
         }
         let mut buf = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
-        buf.draw(&img, x - bx, y - by, 255);
+        // The object's pixel rectangle, where the classic filters work: a bitmap's own
+        // rectangle (its transparent pixels' colour included: Fireworks' filters see it),
+        // otherwise its visible pixels. Effects that draw outside it widen it for the next.
+        let (dx, dy) = (x - bx, y - by);
+        let mut region = if matches!(self.kind, ElementKind::Bitmap(_)) {
+            buf.copy_from(&img, dx, dy);
+            let (x0, y0) = (dx.max(0), dy.max(0));
+            let x1 = (dx + img.width() as i64).min(bw as i64);
+            let y1 = (dy + img.height() as i64).min(bh as i64);
+            Some((x0 as u32, y0 as u32, (x1 - x0).max(0) as u32, (y1 - y0).max(0) as u32))
+        } else {
+            buf.draw(&img, dx, dy, 255);
+            None
+        };
         for e in &active {
-            e.apply_with(&mut buf, ctx.math);
+            let visible = firecraft_raster::filters::alpha_bounds(&buf);
+            let r = match (region, visible) {
+                (Some(a), Some(b)) => firecraft_raster::filters::union(a, b),
+                (a, b) => a.or(b).unwrap_or((0, 0, 0, 0)),
+            };
+            region = Some(r);
+            e.apply_in(&mut buf, ctx.math, r);
         }
         Some((buf, bx - m, by - m))
     }

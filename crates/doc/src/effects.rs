@@ -63,6 +63,47 @@ impl EffectEntry {
         self.reparse();
     }
 
+    /// A list of points (Curves' `rgb_points` etc.: `GPLv` of `GPTv{XLCf, YLCf}`); `None` when
+    /// missing or not a list.
+    pub fn points(&self, key: &str) -> Option<Vec<(f32, f32)>> {
+        self.params.iter().find(|(k, _)| k == key).and_then(|(_, v)| match v {
+            EffectParam::Node(list) => Some(
+                list.children
+                    .iter()
+                    .map(|p| {
+                        (
+                            p.float_of("XLC").unwrap_or(0.0) as f32,
+                            p.float_of("YLC").unwrap_or(0.0) as f32,
+                        )
+                    })
+                    .collect(),
+            ),
+            EffectParam::Text(_) => None,
+        })
+    }
+
+    /// Set a list of points (appended if new) and re-parse.
+    pub fn set_points(&mut self, key: &str, points: &[(f32, f32)]) {
+        let list = Node::vector(
+            "GPL",
+            points
+                .iter()
+                .map(|&(x, y)| {
+                    Node::vector(
+                        "GPT",
+                        vec![Node::float("XLC", x as f64), Node::float("YLC", y as f64)],
+                    )
+                })
+                .collect(),
+        );
+        let value = EffectParam::Node(list);
+        match self.params.iter_mut().find(|(k, _)| k == key) {
+            Some((_, v)) => *v = value,
+            None => self.params.push((key.to_owned(), value)),
+        }
+        self.reparse();
+    }
+
     /// The checkbox in the effects list (`EffectIsVisible`).
     pub fn visible(&self) -> bool {
         self.get("EffectIsVisible") != Some("false")

@@ -28,8 +28,24 @@ pub enum Effect {
     Levels {
         channels: [[f32; 5]; 4],
     },
+    /// Auto Levels: Levels from the object's own histogram (see [`crate::filters::auto_levels`]).
+    AutoLevels,
     Invert,
     ConvertToAlpha,
+    /// Blur (strength 3) and Blur More (7), a 3x3 filter.
+    SimpleBlur {
+        strength: i32,
+    },
+    /// Sharpen and Sharpen More, a 3x3 filter (`sharpen_amount`; Live Effects store none: 1).
+    Sharpen {
+        strength: i32,
+    },
+    FindEdges,
+    UnsharpMask {
+        radius: f32,
+        amount: f32,
+        threshold: i32,
+    },
     /// FireCraft's Adjust Color > Grayscale: each pixel's perceived lightness, from its
     /// luminance (see [`perceptual_gray`]). Stored as Hue/Saturation at saturation −100 with a
     /// `firecraft_effect` marker, so Fireworks MX shows its own desaturation instead.
@@ -87,6 +103,14 @@ const BRIGHT_CONTRAST: &str = "{3439b08c-1921-11d3-9bde00e02910d580}";
 const CURVES: &str = "{3439b08e-1923-11d3-9bde00e02910d580}";
 const LEVELS: &str = "{d04ef8c2-71b5-11d1-8c8200a024cdc039}";
 const AUTO_LEVELS: &str = "{d04ef8c1-71b4-11d1-8c8200a024cdc039}";
+const INVERT: &str = "{d2541291-70d6-11d1-8c8000a024cdc039}";
+const BLUR: &str = "{f1cfce41-718e-11d1-8c8200a024cdc039}";
+const BLUR_MORE: &str = "{f1cfce42-718e-11d1-8c8200a024cdc039}";
+const SIMPLE_BLUR: &str = "{a2dea491-fd45-11d0-8be900a024cdc039}";
+const SHARPEN: &str = "{c20952b1-fc76-11d0-8be700a024cdc039}";
+const SHARPEN_MORE: &str = "{1f2f2591-9db7-11d1-8cad00a024cdc039}";
+const UNSHARP_MASK: &str = "{f1cfce44-718e-11d1-8c8200a024cdc039}";
+const FIND_EDGES: &str = "{fc7093f1-f95c-11d0-8be200a024cdc039}";
 const GAUSSIAN: &str = "{d04ef8c0-71b3-11d1-8c8200a024cdc039}";
 const MOTION_BLUR: &str = "{538016b6-ffd6-418f-a10c590e6ee841ae}";
 const RADIAL_BLUR: &str = "{d1c33142-2ad8-4215-a39fc5d934c8fc0c}";
@@ -141,6 +165,7 @@ impl Effect {
                 | Effect::BrightnessContrast { .. }
                 | Effect::Levels { .. }
                 | Effect::Curves { .. }
+                | Effect::AutoLevels
                 | Effect::Invert
                 | Effect::ConvertToAlpha
                 | Effect::Grayscale
@@ -185,7 +210,24 @@ impl Effect {
                 brightness: num("brightness_amount", 0.0),
                 contrast: num("contrast_amount", 0.0),
             },
-            LEVELS | AUTO_LEVELS => {
+            AUTO_LEVELS => Effect::AutoLevels,
+            INVERT => Effect::Invert,
+            BLUR => Effect::SimpleBlur { strength: 3 },
+            BLUR_MORE => Effect::SimpleBlur { strength: 7 },
+            SIMPLE_BLUR => Effect::SimpleBlur {
+                strength: num("simple_blur_amount", 1.0) as i32,
+            },
+            // Live Effects store no `sharpen_amount`: both draw with strength 1 (measured).
+            SHARPEN | SHARPEN_MORE => Effect::Sharpen {
+                strength: num("sharpen_amount", 1.0) as i32,
+            },
+            FIND_EDGES => Effect::FindEdges,
+            UNSHARP_MASK => Effect::UnsharpMask {
+                radius: num("unsharp_mask_radius", 4.1),
+                amount: num("unsharp_mask_amount", 50.0),
+                threshold: num("unsharp_mask_threshold", 0.0) as i32,
+            },
+            LEVELS => {
                 let ch = |c: &str| {
                     [
                         num(&format!("source_low_{c}"), 0.0),
@@ -287,6 +329,13 @@ impl Effect {
 
     /// Apply the effect with a choice of colour-math precision.
     pub fn apply_with(&self, img: &mut RgbaImage, math: crate::ColorMath) {
+        let region = crate::filters::alpha_bounds(img).unwrap_or((0, 0, 0, 0));
+        self.apply_in(img, math, region);
+    }
+
+    /// Apply the effect, `region` being the object's pixel rectangle in `img`: the classic
+    /// filters (Blur, Sharpen, Find Edges, Unsharp Mask) work within it and repeat its edges.
+    pub fn apply_in(&self, img: &mut RgbaImage, math: crate::ColorMath, region: crate::filters::Region) {
         match self {
             Effect::HueSaturation {
                 hue,
@@ -340,45 +389,39 @@ impl Effect {
                 map_rgb(img, |v| v.map(|x| brightness_contrast(x, b, c)))
             }
             Effect::Levels { channels } => {
-                let lut = |ch: [f32; 5]| -> [f32; 256] {
-                    let [il, ih, ol, oh, g] = ch;
-                    std::array::from_fn(|i| {
-                        let t = ((i as f32 - il) / (ih - il).max(1.0)).clamp(0.0, 1.0);
-                        ol + (oh - ol) * t.powf(1.0 / g.max(0.01))
-                    })
-                };
-                let all = lut(channels[0]);
-                let per: [[f32; 256]; 3] = [lut(channels[1]), lut(channels[2]), lut(channels[3])];
-                map_rgb(img, |v| {
-                    std::array::from_fn(|i| per[i][all[v[i] as usize] as usize])
-                })
+                let ch = channels.map(|[il, ih, ol, oh, g]| crate::filters::LevelsChannel {
+                    source_low: il as i32,
+                    source_high: ih as i32,
+                    dest_low: ol as i32,
+                    dest_high: oh as i32,
+                    gamma: g as f64,
+                });
+                crate::filters::levels_tables(&ch).apply(img);
             }
-            Effect::Curves { channels } => {
-                let lut = |pts: &Vec<(f32, f32)>| -> [f32; 256] {
-                    if pts.len() < 2 {
-                        return std::array::from_fn(|i| i as f32);
+            Effect::AutoLevels => {
+                let ch = crate::filters::auto_levels(img);
+                crate::filters::levels_tables(&ch).apply(img);
+            }
+            Effect::Curves { channels } => crate::filters::curves_tables(channels).apply(img),
+            // Measured: Fireworks MX draws the inverted pixels over the original ones, so a
+            // semi-transparent pixel gains alpha (60 becomes 106: 1 - (1 - a)^2).
+            Effect::Invert => {
+                let original = img.clone();
+                crate::filters::Tables::invert().apply(img);
+                for (p, o) in img.pixels_mut().iter_mut().zip(original.pixels()) {
+                    if p.a < 255 && p.a > 0 {
+                        *p = o.over(*p, 255);
                     }
-                    let mut p = pts.clone();
-                    p.sort_by(|a, b| a.0.total_cmp(&b.0));
-                    std::array::from_fn(|i| {
-                        let x = i as f32;
-                        let k = p.iter().position(|q| q.0 >= x).unwrap_or(p.len() - 1).max(1);
-                        let (a, b) = (p[k - 1], p[k]);
-                        let t = if b.0 > a.0 {
-                            ((x - a.0) / (b.0 - a.0)).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        };
-                        (a.1 + (b.1 - a.1) * t).clamp(0.0, 255.0)
-                    })
-                };
-                let all = lut(&channels[0]);
-                let per = [lut(&channels[1]), lut(&channels[2]), lut(&channels[3])];
-                map_rgb(img, |v| {
-                    std::array::from_fn(|i| per[i][all[v[i] as usize] as usize])
-                })
+                }
             }
-            Effect::Invert => map_rgb(img, |v| v.map(|x| 255.0 - x)),
+            Effect::SimpleBlur { strength } => crate::filters::simple_blur(img, region, *strength),
+            Effect::Sharpen { strength } => crate::filters::sharpen(img, region, *strength),
+            Effect::FindEdges => crate::filters::find_edges(img, region),
+            Effect::UnsharpMask {
+                radius,
+                amount,
+                threshold,
+            } => crate::filters::unsharp_mask(img, region, *radius, *amount, *threshold),
             Effect::Grayscale => {
                 let lin = srgb_to_linear_table();
                 map_rgb(img, |v| {
