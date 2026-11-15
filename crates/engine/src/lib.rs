@@ -933,8 +933,11 @@ impl DocState {
         });
     }
 
-    /// Edit > Insert > Bitmap via Cut (`cut` = true) or Bitmap via Copy: the selected pixels
-    /// become a new bitmap object above the source.
+    /// Edit > Insert > Bitmap Via Cut (`cut` = true) or Bitmap Via Copy, and the canvas context
+    /// menu's New Bitmap Via Cut/Copy: the selected pixels of the bitmap being edited become a
+    /// new bitmap right above it. As in Fireworks MX (measured 2026-11-15) the marquee stays and
+    /// now applies to the new bitmap, which is selected; one undo step, "New Bitmap Via Cut" or
+    /// "New Bitmap Via Copy".
     pub fn bitmap_via(&mut self, cut: bool) {
         let Some(sel) = self.pixels.clone() else { return };
         let Some(target) = sel.target else { return };
@@ -957,7 +960,7 @@ impl DocState {
             y: src.y + by as i64,
             image: piece,
         }));
-        let label = if cut { "Bitmap via Cut" } else { "Bitmap via Copy" };
+        let label = if cut { "New Bitmap Via Cut" } else { "New Bitmap Via Copy" };
         self.edit(label, |s| {
             if cut {
                 if let Some(Element {
@@ -977,9 +980,13 @@ impl DocState {
             {
                 let at = (target.index + 1).min(cell.len());
                 cell.insert(at, new);
-                s.selection = vec![ElementRef::new(target.layer, at)];
+                let r = ElementRef::new(target.layer, at);
+                s.selection = vec![r];
+                s.doc.current_layer = target.layer;
+                if let Some(p) = s.pixels.as_mut() {
+                    p.target = Some(r);
+                }
             }
-            s.pixels = None;
         });
     }
 
@@ -2315,6 +2322,34 @@ mod tests {
         };
         assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (20, 20, 20, 20));
         assert_eq!(pixel(&d, red, 30, 30), Rgba::new(255, 0, 0, 255));
+    }
+
+    #[test]
+    fn new_bitmap_via_cut_and_copy_keep_the_marquee_on_the_new_bitmap() {
+        // Fireworks MX (2026-11-15): red edited, marquee 30,20 to 90,70 over red and blue,
+        // context menu > New Bitmap Via Cut: red's pixels in the marquee become a new bitmap
+        // right above red, being edited, the marquee still there; blue untouched.
+        let (mut d, red, blue) = red_and_blue();
+        d.selection = vec![red];
+        d.marquee((30.0, 20.0, 90.0, 70.0), false, &ToolOptions::default(), Combine::Replace);
+        d.bitmap_via(true);
+        assert_eq!(d.history.next_undo(), Some("New Bitmap Via Cut"));
+        let new = ElementRef::new(red.layer, red.index + 1);
+        assert_eq!(d.selection, vec![new]);
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(new));
+        let Some(ElementKind::Bitmap(b)) = d.element(new).map(|e| &e.kind) else {
+            panic!("not a bitmap")
+        };
+        // Red covers 10..110 x 10..90: the cut is red's part of the marquee.
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (30, 20, 60, 50));
+        assert_eq!(pixel(&d, red, 50, 40).a, 0, "cut out of red");
+        assert_eq!(pixel(&d, blue, 85, 60).a, 255, "blue untouched");
+        // Copy from the new bitmap: the marquee follows again, the source keeps its pixels.
+        d.bitmap_via(false);
+        assert_eq!(d.history.next_undo(), Some("New Bitmap Via Copy"));
+        assert_eq!(pixel(&d, new, 50, 40).a, 255);
+        let newer = ElementRef::new(red.layer, red.index + 2);
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(newer));
     }
 
     #[test]

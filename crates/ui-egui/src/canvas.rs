@@ -603,10 +603,15 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
         });
     let (rect, resp) =
         ui.allocate_exact_size(ui.available_size().max(vec2(50.0, 50.0)), Sense::click_and_drag());
-    if resp.is_pointer_button_down_on() || resp.clicked() {
+    if resp.is_pointer_button_down_on() || resp.clicked() || resp.secondary_clicked() {
         app.session.active = index;
     }
     canvas(app, ui, index, rect, &resp);
+    // Right-click: Fireworks MX's context menu (not with the Zoom tool: its right-click zooms
+    // out).
+    if app.session.tool != Tool::Zoom {
+        resp.context_menu(|ui| crate::menus::context_menu(app, ui));
+    }
 }
 
 /// The stroke a tool paints by dragging, if it is one of those.

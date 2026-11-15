@@ -108,10 +108,10 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 if item(ui, "Empty Bitmap", "", has_doc) {
                     with_doc(app, |d| d.insert_empty_bitmap());
                 }
-                if item(ui, "Bitmap via Copy", "", has_pixels) {
+                if item(ui, "Bitmap Via Copy", "", has_bitmap_pixels(app)) {
                     with_doc(app, |d| d.bitmap_via(false));
                 }
-                if item(ui, "Bitmap via Cut", "", has_pixels) {
+                if item(ui, "Bitmap Via Cut", "", has_bitmap_pixels(app)) {
                     with_doc(app, |d| d.bitmap_via(true));
                 }
             });
@@ -196,43 +196,9 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Smooth Marquee...", "");
         });
         ui.menu_button("Modify", |ui| {
-            ui.menu_button("Canvas", |ui| {
-                if item(ui, "Canvas Size...", "", has_doc) {
-                    app.dialogs.open_canvas_size(app.session.active_doc());
-                }
-                if item(ui, "Canvas Color...", "", has_doc) {
-                    app.dialogs.canvas_color = true;
-                }
-                todo(ui, "Image Size...", "");
-                todo(ui, "Fit Canvas", "");
-                todo(ui, "Rotate 180°", "");
-            });
+            ui.menu_button("Canvas", |ui| canvas_items(app, ui));
             todo(ui, "Animation", "");
-            ui.menu_button("Symbol", |ui| {
-                if item(ui, "Convert to Symbol...", "F8", has_objects) {
-                    app.dialogs.convert_symbol =
-                        Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic, false));
-                }
-                let instance = app
-                    .session
-                    .active_doc()
-                    .and_then(|d| d.selection.first().and_then(|r| d.instance_symbol(*r)));
-                if item(ui, "Edit Symbol", "", instance.is_some()) {
-                    let i = app.session.active;
-                    if let Some(id) = instance {
-                        app.session.edit_symbol(i, id);
-                    }
-                }
-                todo(ui, "Tween Instances...", "");
-                if item(
-                    ui,
-                    "Break Apart",
-                    "",
-                    app.session.active_doc().is_some_and(|d| d.can_break_apart()),
-                ) {
-                    with_doc(app, |d| d.break_apart());
-                }
-            });
+            ui.menu_button("Symbol", |ui| symbol_items(app, ui, has_objects));
             todo(ui, "Pop-up Menu", "");
             ui.separator();
             todo(ui, "Mask", "");
@@ -242,35 +208,8 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Merge Down", "Ctrl+E");
             todo(ui, "Flatten Layers", "");
             ui.separator();
-            ui.menu_button("Transform", |ui| {
-                for (label, key, tool) in [
-                    ("Free Transform", TRANSFORM_KEY, Tool::Scale),
-                    ("Scale", "", Tool::Scale),
-                    ("Skew", "", Tool::Skew),
-                    ("Distort", "", Tool::Distort),
-                ] {
-                    if item(ui, label, key, has_objects) {
-                        app.session.tool = tool;
-                    }
-                }
-                ui.separator();
-                if item(ui, "Numeric Transform...", "Ctrl+Shift+T", has_objects) {
-                    app.dialogs.open_numeric(app.session.active_doc());
-                }
-                ui.separator();
-                for (label, key, how) in TURNS {
-                    if item(ui, label, key, has_objects) {
-                        with_doc(app, |d| d.turn(how));
-                    }
-                }
-            });
-            ui.menu_button("Arrange", |ui| {
-                for (label, key, how) in ARRANGE {
-                    if item(ui, label, key, has_objects) {
-                        with_doc(app, |d| d.arrange(how));
-                    }
-                }
-            });
+            ui.menu_button("Transform", |ui| transform_items(app, ui, has_objects));
+            ui.menu_button("Arrange", |ui| arrange_items(app, ui, has_objects));
             ui.menu_button("Align", |ui| {
                 for (label, key, how) in ALIGN {
                     let enabled = match how {
@@ -357,6 +296,281 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         });
     });
+}
+
+/// Modify > Canvas (also the canvas context menu's Modify Canvas).
+fn canvas_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let has_doc = app.session.active_doc().is_some();
+    if item(ui, "Canvas Size...", "", has_doc) {
+        app.dialogs.open_canvas_size(app.session.active_doc());
+    }
+    if item(ui, "Canvas Color...", "", has_doc) {
+        app.dialogs.canvas_color = true;
+    }
+    todo(ui, "Image Size...", "");
+    todo(ui, "Fit Canvas", "");
+    todo(ui, "Rotate 180°", "");
+}
+
+/// Modify > Symbol (also in the canvas context menu).
+fn symbol_items(app: &mut FireCraftApp, ui: &mut egui::Ui, has_objects: bool) {
+    if item(ui, "Convert to Symbol...", "F8", has_objects) {
+        app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic, false));
+    }
+    let instance = app
+        .session
+        .active_doc()
+        .and_then(|d| d.selection.first().and_then(|r| d.instance_symbol(*r)));
+    if item(ui, "Edit Symbol", "", instance.is_some()) {
+        let i = app.session.active;
+        if let Some(id) = instance {
+            app.session.edit_symbol(i, id);
+        }
+    }
+    todo(ui, "Tween Instances...", "");
+    if item(
+        ui,
+        "Break Apart",
+        "",
+        app.session.active_doc().is_some_and(|d| d.can_break_apart()),
+    ) {
+        with_doc(app, |d| d.break_apart());
+    }
+}
+
+/// Modify > Transform (also in the canvas context menu).
+fn transform_items(app: &mut FireCraftApp, ui: &mut egui::Ui, has_objects: bool) {
+    for (label, key, tool) in [
+        ("Free Transform", TRANSFORM_KEY, Tool::Scale),
+        ("Scale", "", Tool::Scale),
+        ("Skew", "", Tool::Skew),
+        ("Distort", "", Tool::Distort),
+    ] {
+        if item(ui, label, key, has_objects) {
+            app.session.tool = tool;
+        }
+    }
+    ui.separator();
+    if item(ui, "Numeric Transform...", "Ctrl+Shift+T", has_objects) {
+        app.dialogs.open_numeric(app.session.active_doc());
+    }
+    ui.separator();
+    for (label, key, how) in TURNS {
+        if item(ui, label, key, has_objects) {
+            with_doc(app, |d| d.turn(how));
+        }
+    }
+}
+
+/// Modify > Arrange (also in the canvas context menu).
+fn arrange_items(app: &mut FireCraftApp, ui: &mut egui::Ui, has_objects: bool) {
+    for (label, key, how) in ARRANGE {
+        if item(ui, label, key, has_objects) {
+            with_doc(app, |d| d.arrange(how));
+        }
+    }
+}
+
+/// Pixels selected in a bitmap (Bitmap Via Copy/Cut apply).
+fn has_bitmap_pixels(app: &FireCraftApp) -> bool {
+    app.session
+        .active_doc()
+        .is_some_and(|d| d.pixels.as_ref().is_some_and(|p| p.target.is_some()))
+}
+
+/// The document window's context menu (right-click), as Fireworks MX shows it: one for bitmap
+/// editing (a pixel selection), one for selected objects, one for the empty canvas (measured
+/// 2026-11-15). Items FireCraft doesn't have yet are shown disabled.
+pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let Some(d) = app.session.active_doc() else {
+        ui.close();
+        return;
+    };
+    let has_pixels = d.pixels.is_some();
+    let has_objects = !d.selection.is_empty();
+    let can_ungroup = d.can_ungroup();
+    let can_paste = app.clipboard.is_some() || firecraft_sysclip::available();
+    if has_pixels {
+        ui.menu_button("Edit", |ui| edit_items(app, ui, can_paste, false));
+        ui.menu_button("Magnification", |ui| magnification_items(app, ui));
+        todo(ui, "Crop Selected Bitmap", "");
+        todo(ui, "Crop Document", "");
+        ui.separator();
+        if item(ui, "New Bitmap Via Copy", "", has_bitmap_pixels(app)) {
+            with_doc(app, |d| d.bitmap_via(false));
+        }
+        if item(ui, "New Bitmap Via Cut", "", has_bitmap_pixels(app)) {
+            with_doc(app, |d| d.bitmap_via(true));
+        }
+        todo(ui, "Merge Down", "Ctrl+E");
+        ui.separator();
+        if item(ui, "Select All", "Ctrl+A", true) {
+            with_doc(app, |d| d.select_all());
+        }
+        if item(ui, "Deselect", "Ctrl+D", true) {
+            with_doc(app, |d| d.deselect());
+        }
+        todo(ui, "Select Similar", "");
+        ui.menu_button("Modify Marquee", |ui| {
+            todo(ui, "Expand Marquee...", "");
+            todo(ui, "Contract Marquee...", "");
+            todo(ui, "Border Marquee...", "");
+            todo(ui, "Smooth Marquee...", "");
+        });
+        todo(ui, "Hide Edges", "F9");
+        ui.separator();
+        todo(ui, "Save Selection", "");
+        todo(ui, "Restore Selection", "");
+        todo(ui, "Selective JPEG", "");
+        ui.separator();
+        // Transforming selected pixels isn't built (the transform tools move objects).
+        todo(ui, "Free Transform", TRANSFORM_KEY);
+        todo(ui, "Numeric Transform...", "Ctrl+Shift+T");
+    } else if has_objects {
+        ui.menu_button("Edit", |ui| edit_items(app, ui, can_paste, true));
+        ui.separator();
+        ui.menu_button("Magnification", |ui| magnification_items(app, ui));
+        ui.menu_button("Select", |ui| {
+            if item(ui, "Select All", "Ctrl+A", true) {
+                with_doc(app, |d| d.select_all());
+            }
+            if item(ui, "Deselect", "Ctrl+D", true) {
+                with_doc(app, |d| d.deselect());
+            }
+            if item(ui, "Superselect", "Ctrl+Right", true) {
+                with_doc(app, |d| d.superselect());
+            }
+            if item(ui, "Subselect", "Ctrl+Left", true) {
+                with_doc(app, |d| d.subselect());
+            }
+            todo(ui, "Select Similar", "");
+        });
+        ui.separator();
+        todo(ui, "Hide Selection", "Ctrl+L");
+        todo(ui, "Hide Edges", "F9");
+        ui.separator();
+        ui.menu_button("Arrange", |ui| arrange_items(app, ui, true));
+        ui.menu_button("Transform", |ui| transform_items(app, ui, true));
+        ui.separator();
+        if item(ui, "Group", "Ctrl+G", true) {
+            with_doc(app, |d| d.group());
+        }
+        if item(ui, "Ungroup", "Ctrl+Shift+G", can_ungroup) {
+            with_doc(app, |d| d.ungroup());
+        }
+        ui.separator();
+        if item(ui, "Convert to Symbol", "F8", true) {
+            app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic, false));
+        }
+        todo(ui, "Animation", "");
+        ui.menu_button("Symbol", |ui| symbol_items(app, ui, true));
+    } else {
+        if item(ui, "Paste", "Ctrl+V", can_paste) {
+            paste(app);
+        }
+        todo(ui, "Show All", "Ctrl+Shift+L");
+        ui.separator();
+        ui.menu_button("Magnification", |ui| magnification_items(app, ui));
+        if item(ui, "Select All", "Ctrl+A", true) {
+            with_doc(app, |d| d.select_all());
+        }
+        todo(ui, "Flatten Layers", "");
+        ui.separator();
+        ui.menu_button("Modify Canvas", |ui| canvas_items(app, ui));
+        ui.separator();
+        todo(ui, "Insert New Button...", "Ctrl+Shift+F8");
+        todo(ui, "Insert New Symbol...", "Ctrl+F8");
+        if item(ui, "Insert Empty Bitmap", "", true) {
+            with_doc(app, |d| d.insert_empty_bitmap());
+        }
+        ui.separator();
+        todo(ui, "Import...", "Ctrl+R");
+        if item(ui, "Export...", "Ctrl+Shift+R", true) {
+            export(app);
+        }
+        todo(ui, "Export Preview...", "Ctrl+Shift+X");
+        ui.separator();
+        if item(ui, "Preferences...", "Ctrl+U", true) {
+            app.dialogs.prefs = true;
+        }
+    }
+    if has_pixels || has_objects {
+        // Their own group in the bitmap menu; right after Symbol in the object menu.
+        if has_pixels {
+            ui.separator();
+        }
+        todo(ui, "Insert Hotspot", "Ctrl+Shift+U");
+        todo(ui, "Insert Slice", "Alt+Shift+U");
+    }
+    if has_objects && !has_pixels {
+        // Fireworks MX's own wording.
+        todo(ui, "Export Select Slice...", "");
+        ui.separator();
+        todo(ui, "Flatten Selection", "Ctrl+Alt+Shift+Z");
+        todo(ui, "Merge Down", "Ctrl+E");
+        todo(ui, "Flatten Layers", "");
+    }
+    ui.separator();
+    todo(ui, "Exit Full Screen Mode", "");
+}
+
+/// The context menu's Edit submenu. Duplicate and Clone are for objects (Fireworks MX shows them
+/// disabled while pixels are selected).
+fn edit_items(app: &mut FireCraftApp, ui: &mut egui::Ui, can_paste: bool, objects: bool) {
+    if item(ui, "Cut", "Ctrl+X", true) {
+        copy(app, ui.ctx(), true);
+    }
+    if item(ui, "Copy", "Ctrl+C", true) {
+        copy(app, ui.ctx(), false);
+    }
+    if item(ui, "Paste", "Ctrl+V", can_paste) {
+        paste(app);
+    }
+    ui.separator();
+    todo(ui, "Paste as Mask", "");
+    ui.separator();
+    if item(ui, "Duplicate", "Ctrl+Alt+D", objects) {
+        with_doc(app, |d| d.duplicate(true));
+    }
+    if item(ui, "Clone", "Ctrl+Shift+D", objects) {
+        with_doc(app, |d| d.duplicate(false));
+    }
+}
+
+/// The context menu's Magnification submenu: Fireworks MX's zoom levels.
+fn magnification_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    todo(ui, "Fit Selection", "");
+    if item(ui, "Fit All", "Ctrl+0", true) {
+        fit(app);
+    }
+    ui.separator();
+    let now = app.session.active_doc().map_or(1.0, |d| d.zoom);
+    for (label, z) in [
+        ("6%", 0.0625),
+        ("12%", 0.125),
+        ("25%", 0.25),
+        ("50%", 0.5),
+        ("66%", 0.66),
+        ("100%", 1.0),
+        ("150%", 1.5),
+        ("200%", 2.0),
+        ("300%", 3.0),
+        ("400%", 4.0),
+        ("800%", 8.0),
+        ("1600%", 16.0),
+        ("3200%", 32.0),
+        ("6400%", 64.0),
+    ] {
+        let key = if z == 1.0 { "Ctrl+1" } else { "" };
+        let checked = (now - z).abs() < 1e-3;
+        if ui
+            .add(Button::new(label).shortcut_text(key).selected(checked))
+            .clicked()
+        {
+            with_doc(app, |d| d.zoom = z);
+            ui.close();
+        }
+    }
 }
 
 fn with_doc(app: &mut FireCraftApp, f: impl FnOnce(&mut firecraft_engine::DocState)) {

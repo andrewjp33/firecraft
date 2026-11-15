@@ -49,6 +49,35 @@ tool, the Brush and Pencil included (they paint inside the selection). Edit > In
 Bitmap and the Layers panel's New Bitmap Image keep the selection, which then applies to the new
 bitmap.
 
+## The canvas context menu; New Bitmap Via Copy/Cut
+
+A right-click on the canvas opens one of three menus in Fireworks MX (2026-11-15):
+
+* **While pixels are selected:** Edit ▸ (Cut, Copy, Paste, Paste as Mask, Duplicate, Clone),
+  Magnification ▸ (Fit Selection, Fit All, 6% to 6400%), Crop Selected Bitmap, Crop Document |
+  New Bitmap Via Copy, New Bitmap Via Cut, Merge Down | Select All, Deselect, Select Similar,
+  Modify Marquee ▸, Hide Edges | Save Selection, Restore Selection, Selective JPEG ▸ | Free
+  Transform, Numeric Transform... | Insert Hotspot, Insert Slice | Exit Full Screen Mode.
+* **With objects selected:** Edit ▸ | Magnification ▸, Select ▸ | Hide Selection, Hide Edges |
+  Arrange ▸, Transform ▸ | Group, Ungroup | Convert to Symbol, Animation ▸, Symbol ▸, Insert
+  Hotspot, Insert Slice, Export Select Slice... | Flatten Selection, Merge Down, Flatten Layers |
+  Exit Full Screen Mode.
+* **Nothing selected:** Paste, Show All | Magnification ▸, Select All, Flatten Layers | Modify
+  Canvas ▸ | Insert New Button..., Insert New Symbol..., Insert Empty Bitmap | Import...,
+  Export..., Export Preview... | Toolbars ▸, Panels ▸ | Preferences... | Exit Full Screen Mode.
+
+**New Bitmap Via Copy / Via Cut** (also Edit > Insert > Bitmap Via Copy / Bitmap Via Cut, same undo
+step names): the edited bitmap's pixels inside the marquee become a new bitmap right above it in
+its layer (only that bitmap's pixels, not others under the marquee); Cut clears them from the
+source. The marquee stays and the new bitmap is the one being edited (pencil), selected. Undo
+steps: "New Bitmap Via Copy", "New Bitmap Via Cut".
+
+FireCraft shows the same three menus (`menus::context_menu`; not with the Zoom tool, whose
+right-click zooms out). Items it has are the same commands as in the menu bar; the others are
+disabled. Not captured from Fireworks: the Modify Marquee, Select, Toolbars and Panels
+submenus (FireCraft lists Expand/Contract/Border/Smooth Marquee and its Select menu's items, and
+leaves out Toolbars and Panels).
+
 ## Marquees on empty canvas
 
 | Situation | Fireworks MX |
