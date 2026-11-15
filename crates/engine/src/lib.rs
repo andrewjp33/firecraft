@@ -196,8 +196,9 @@ fn members_mut(e: &mut Element) -> Option<&mut Vec<Element>> {
 /// keeps the marquee where it is and applies it to that bitmap ("Edit Bitmap").
 #[derive(Clone, Debug, PartialEq)]
 pub struct PixelSelection {
-    /// The bitmap being edited.
-    pub target: ElementRef,
+    /// The bitmap being edited; `None` for a marquee drawn on empty canvas with no bitmap being
+    /// edited (Fireworks MX: filling or painting in it makes a new bitmap).
+    pub target: Option<ElementRef>,
     /// Canvas position of the mask's top-left pixel.
     pub x: i64,
     pub y: i64,
@@ -442,7 +443,7 @@ impl DocState {
         let sel = std::mem::take(&mut self.selection);
         self.selection = sel.into_iter().filter(|r| self.element(*r).is_some()).collect();
         let target_ok = |s: &Self, r: ElementRef| matches!(s.element(r).map(|e| &e.kind), Some(ElementKind::Bitmap(_)));
-        if self.pixels.as_ref().is_some_and(|p| !target_ok(self, p.target)) {
+        if self.pixels.as_ref().is_some_and(|p| p.target.is_some_and(|t| !target_ok(self, t))) {
             self.pixels = None;
         }
         self.touch();
@@ -568,19 +569,19 @@ impl DocState {
 
     pub fn select_all(&mut self) {
         let f = self.frame();
-        if let Some(r) = self.pixels.as_ref().map(|p| p.target) {
-            if let Some(ElementKind::Bitmap(b)) = self.element(r).map(|e| &e.kind) {
-                let mut mask = Mask::new(b.image.width(), b.image.height());
-                mask.data_mut().iter_mut().for_each(|v| *v = 255);
-                let all = PixelSelection {
-                    target: r,
-                    x: b.x,
-                    y: b.y,
-                    mask,
-                };
-                self.select_step("Select All", |s| s.pixels = Some(all));
-                return;
-            }
+        if let Some(r) = self.pixels.as_ref().and_then(|p| p.target)
+            && let Some(ElementKind::Bitmap(b)) = self.element(r).map(|e| &e.kind)
+        {
+            let mut mask = Mask::new(b.image.width(), b.image.height());
+            mask.data_mut().iter_mut().for_each(|v| *v = 255);
+            let all = PixelSelection {
+                target: Some(r),
+                x: b.x,
+                y: b.y,
+                mask,
+            };
+            self.select_step("Select All", |s| s.pixels = Some(all));
+            return;
         }
         self.selection = self
             .doc
@@ -660,7 +661,7 @@ impl DocState {
         let Some(mut sel) = self.pixels.clone() else { return };
         let (w, h) = (self.doc.width as i64, self.doc.height as i64);
         sel.cover((0, 0, w, h));
-        if let Some(ElementKind::Bitmap(b)) = self.element(sel.target).map(|e| &e.kind) {
+        if let Some(ElementKind::Bitmap(b)) = sel.target.and_then(|t| self.element(t)).map(|e| &e.kind) {
             sel.cover((b.x, b.y, b.x + b.image.width() as i64, b.y + b.image.height() as i64));
         }
         sel.mask.invert();
@@ -711,7 +712,7 @@ impl DocState {
         }
         self.select_step("Edit Bitmap", |s| {
             if let Some(p) = s.pixels.as_mut() {
-                p.target = r;
+                p.target = Some(r);
             }
             s.selection = vec![r];
             s.doc.current_layer = r.layer;
@@ -746,7 +747,7 @@ impl DocState {
         let (px, py) = ((x - b.x as f64).floor() as i64, (y - b.y as f64).floor() as i64);
         let mask = magic_wand(&b.image, px, py, opts.wand());
         let (bx, by) = (b.x, b.y);
-        self.combine_pixels(target, bx, by, mask, combine);
+        self.combine_pixels(Some(target), bx, by, mask, combine);
     }
 
     /// Rectangular or elliptical marquee in canvas coordinates.
@@ -757,15 +758,15 @@ impl DocState {
             rect.0.max(rect.2),
             rect.1.max(rect.3),
         );
-        let Some(target) = self
-            .pixel_target((x0 + x1) / 2.0, (y0 + y1) / 2.0)
-            .or_else(|| self.pixel_target(x0, y0))
-        else {
-            return;
+        // The bitmap being edited, else one under the marquee; on empty canvas with no bitmap
+        // being edited, none: filling or painting in the marquee then makes a new bitmap
+        // (Fireworks MX).
+        let target = match &self.pixels {
+            Some(p) => p.target,
+            None => self
+                .pixel_target((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+                .or_else(|| self.pixel_target(x0, y0)),
         };
-        if !matches!(self.element(target).map(|e| &e.kind), Some(ElementKind::Bitmap(_))) {
-            return;
-        }
         // The mask covers the marquee (and room for a feathered edge), wherever the bitmap is:
         // it stays put when another bitmap is picked for editing.
         let pad = match opts.marquee_edge {
@@ -805,7 +806,7 @@ impl DocState {
 
     /// A new marquee or wand selection (`mask` at canvas `x`, `y`) combined with the current
     /// one; one undo step, "Select Pixels" (Fireworks MX).
-    fn combine_pixels(&mut self, target: ElementRef, x: i64, y: i64, mask: Mask, combine: Combine) {
+    fn combine_pixels(&mut self, target: Option<ElementRef>, x: i64, y: i64, mask: Mask, combine: Combine) {
         let next = match self.pixels.clone() {
             Some(mut sel) if combine != Combine::Replace => {
                 sel.target = target;
@@ -817,8 +818,10 @@ impl DocState {
         let next = (!next.mask.is_empty()).then_some(next);
         self.select_step("Select Pixels", |s| {
             s.pixels = next;
-            s.selection = vec![target];
-            s.doc.current_layer = target.layer;
+            s.selection = target.into_iter().collect();
+            if let Some(t) = target {
+                s.doc.current_layer = t.layer;
+            }
         });
     }
 
@@ -830,12 +833,14 @@ impl DocState {
     /// [`delete`](Self::delete) recorded as `label` ("Delete", "Cut").
     pub(crate) fn delete_as(&mut self, label: &str) {
         if let Some(sel) = self.pixels.clone() {
+            // A marquee with no bitmap yet: nothing to delete.
+            let Some(target) = sel.target else { return };
             let pixel_label = if label == "Delete" { "Delete Pixels" } else { label };
             self.edit(pixel_label, |s| {
                 if let Some(Element {
                     kind: ElementKind::Bitmap(b),
                     ..
-                }) = s.element_mut(sel.target)
+                }) = s.element_mut(target)
                 {
                     let mask = sel.on(b);
                     b.image.clear_masked(&mask);
@@ -874,10 +879,11 @@ impl DocState {
     /// become a new bitmap object above the source.
     pub fn bitmap_via(&mut self, cut: bool) {
         let Some(sel) = self.pixels.clone() else { return };
+        let Some(target) = sel.target else { return };
         let Some(Element {
             kind: ElementKind::Bitmap(src),
             ..
-        }) = self.element(sel.target)
+        }) = self.element(target)
         else {
             return;
         };
@@ -899,7 +905,7 @@ impl DocState {
                 if let Some(Element {
                     kind: ElementKind::Bitmap(b),
                     ..
-                }) = s.element_mut(sel.target)
+                }) = s.element_mut(target)
                 {
                     b.image.clear_masked(&local);
                 }
@@ -908,12 +914,12 @@ impl DocState {
             if let Some(cell) = s
                 .doc
                 .layers
-                .get_mut(sel.target.layer)
+                .get_mut(target.layer)
                 .and_then(|l| l.elements_mut(f))
             {
-                let at = (sel.target.index + 1).min(cell.len());
+                let at = (target.index + 1).min(cell.len());
                 cell.insert(at, new);
-                s.selection = vec![ElementRef::new(sel.target.layer, at)];
+                s.selection = vec![ElementRef::new(target.layer, at)];
             }
             s.pixels = None;
         });
@@ -960,7 +966,7 @@ impl DocState {
         let f = self.frame();
         let in_use = |r: ElementRef| {
             self.selection.iter().any(|s| s.layer == r.layer && s.index == r.index)
-                || self.pixels.as_ref().is_some_and(|p| p.target == r)
+                || self.pixels.as_ref().is_some_and(|p| p.target == Some(r))
         };
         let mut gone = Vec::new();
         for (li, layer) in self.doc.layers.iter().enumerate() {
@@ -988,7 +994,9 @@ impl DocState {
             };
             self.selection.iter_mut().for_each(shift);
             if let Some(p) = self.pixels.as_mut() {
-                shift(&mut p.target);
+                if let Some(t) = &mut p.target {
+                    shift(t);
+                }
             }
         }
         // The document is as it was before the insert: redraw, but it is not a change.
@@ -997,7 +1005,8 @@ impl DocState {
 
     /// Shrink bitmap `r` to its non-transparent pixels (a pixel selection is anchored to the
     /// canvas, so it stays where it is).
-    pub(crate) fn trim_bitmap(&mut self, r: ElementRef) {
+    /// `keep` (canvas left, top, right, bottom) stays whatever it holds.
+    pub(crate) fn trim_bitmap(&mut self, r: ElementRef, keep: Option<(i64, i64, i64, i64)>) {
         let Some(Element {
             kind: ElementKind::Bitmap(b),
             ..
@@ -1006,7 +1015,13 @@ impl DocState {
             return;
         };
         let (w, h) = (b.image.width() as i64, b.image.height() as i64);
-        let Some((l, t, rr, bb)) = paint::opaque_bounds(&b.image) else {
+        let opaque = paint::opaque_bounds(&b.image);
+        // `keep` in the bitmap's own pixels.
+        let keep = keep.map(|(l, t, r, bb)| (l - b.x, t - b.y, r - b.x, bb - b.y));
+        let Some((l, t, rr, bb)) = (match (opaque, keep) {
+            (Some(o), Some(k)) => Some((o.0.min(k.0), o.1.min(k.1), o.2.max(k.2), o.3.max(k.3))),
+            (o, k) => o.or(k),
+        }) else {
             return;
         };
         if (l, t, rr, bb) == (0, 0, w, h) {
@@ -1745,6 +1760,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PaintTool;
 
     fn undo_steps(d: &DocState) -> usize {
         d.history.labels().count()
@@ -1951,7 +1967,7 @@ mod tests {
         assert_eq!(d.history.next_undo(), Some("Select Pixels"));
         assert!(d.edit_bitmap(blue));
         assert_eq!(d.history.next_undo(), Some("Edit Bitmap"));
-        assert_eq!(d.pixels.as_ref().map(|p| p.target), Some(blue));
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(blue));
         assert_eq!(d.doc.current_layer, blue.layer);
         d.delete();
         assert_eq!(pixel(&d, blue, 100, 70).a, 0, "blue cleared inside");
@@ -1976,10 +1992,10 @@ mod tests {
         // Undo Delete: the pixels come back and the marquee is still on blue.
         d.undo();
         assert_eq!(pixel(&d, blue, 100, 70).a, 255);
-        assert_eq!(d.pixels.as_ref().map(|p| p.target), Some(blue));
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(blue));
         // Undo Edit Bitmap: back on red, same marquee.
         d.undo();
-        assert_eq!(d.pixels.as_ref().map(|p| p.target), Some(red));
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(red));
         assert_eq!(d.pixels.as_ref().map(|p| &p.mask), marquee.as_ref().map(|p| &p.mask));
         assert_eq!(d.selection, vec![red]);
         // Undo Select Pixels: no marquee.
@@ -1990,7 +2006,7 @@ mod tests {
         d.redo();
         d.redo();
         assert_eq!(pixel(&d, blue, 100, 70).a, 0);
-        assert_eq!(d.pixels.as_ref().map(|p| p.target), Some(blue));
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(blue));
     }
 
     #[test]
@@ -2049,6 +2065,84 @@ mod tests {
         let local = d.pixels.as_ref().unwrap().local(0, 0, 200, 150);
         assert_eq!(local.get(25, 25), 0);
         assert_eq!(local.get(65, 65), 255);
+    }
+
+    fn fill_options() -> ToolOptions {
+        ToolOptions {
+            fill: Some(Rgba::new(0, 0, 255, 255)),
+            stroke: Some(Rgba::new(0, 0, 0, 255)),
+            ..ToolOptions::default()
+        }
+    }
+
+    #[test]
+    fn a_marquee_on_empty_canvas_fills_into_a_new_bitmap() {
+        // Fireworks MX (2026-11-15), nothing selected: a marquee from 120,10 to 190,45 on empty
+        // canvas ("Select Pixels"), then the Paint Bucket inside it ("Fill"): a new bitmap on
+        // top of the current layer, being edited, the marquee still there.
+        let (mut d, red, blue) = red_and_blue();
+        d.selection.clear();
+        let o = fill_options();
+        d.marquee((120.0, 10.0, 190.0, 45.0), false, &o, Combine::Replace);
+        let sel = d.pixels.clone().expect("a marquee without a bitmap");
+        assert_eq!(sel.target, None);
+        assert_eq!(d.history.next_undo(), Some("Select Pixels"));
+        let before = d.doc.layers[blue.layer].elements(0).len();
+        d.paint_bucket(150.0, 25.0, &o);
+        let cell = d.doc.layers[blue.layer].elements(0);
+        assert_eq!(cell.len(), before + 1, "a new bitmap on the current layer");
+        let new = ElementRef::new(blue.layer, cell.len() - 1);
+        let Some(ElementKind::Bitmap(b)) = d.element(new).map(|e| &e.kind) else {
+            panic!("not a bitmap")
+        };
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (120, 10, 70, 35));
+        assert!(b.image.pixels().iter().all(|p| *p == Rgba::new(0, 0, 255, 255)));
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(new));
+        assert_eq!(d.selection, vec![new]);
+        assert_eq!(pixel(&d, red, 20, 20).a, 255, "red untouched");
+        // Undo the fill: no new bitmap, the marquee is back without one.
+        d.undo();
+        assert_eq!(d.doc.layers[blue.layer].elements(0).len(), before);
+        assert_eq!(d.pixels.as_ref().map(|p| p.target), Some(None));
+    }
+
+    #[test]
+    fn a_marquee_off_the_edited_bitmap_fills_into_it() {
+        // Fireworks MX: red being edited, a marquee in an empty area (10,100 to 60,140), Paint
+        // Bucket: the fill goes into red (MX grows it to the canvas while editing).
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        let o = fill_options();
+        d.marquee((10.0, 100.0, 60.0, 140.0), false, &o, Combine::Replace);
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(red));
+        let objects = d.doc.layers.iter().map(|l| l.elements(0).len()).sum::<usize>();
+        d.paint_bucket(30.0, 120.0, &o);
+        assert_eq!(d.doc.layers.iter().map(|l| l.elements(0).len()).sum::<usize>(), objects);
+        let Some(ElementKind::Bitmap(b)) = d.element(red).map(|e| &e.kind) else {
+            panic!("not a bitmap")
+        };
+        // Red's old rectangle and the filled area.
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (10, 10, 100, 130));
+        assert_eq!(pixel(&d, red, 30, 120), Rgba::new(0, 0, 255, 255));
+        assert_eq!(pixel(&d, red, 20, 20), Rgba::new(255, 0, 0, 255));
+        assert_eq!(pixel(&d, red, 80, 120).a, 0, "outside the marquee");
+    }
+
+    #[test]
+    fn a_stroke_in_a_marquee_on_empty_canvas_makes_a_bitmap_inside_it() {
+        let mut d = DocState::new(Document::new(100, 80, 72.0, None));
+        let o = fill_options();
+        d.marquee((20.0, 20.0, 40.0, 40.0), false, &o, Combine::Replace);
+        assert!(d.begin_paint(PaintTool::Pencil, 5.0, 30.0, &o));
+        d.extend_paint(90.0, 30.0, false);
+        d.end_paint();
+        let r = d.selection[0];
+        let Some(ElementKind::Bitmap(b)) = d.element(r).map(|e| &e.kind) else {
+            panic!("not a bitmap")
+        };
+        assert_eq!((b.x, b.y, b.image.height()), (20, 30, 1), "only inside the marquee");
+        assert_eq!(b.image.width(), 20);
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(r));
     }
 
     #[test]

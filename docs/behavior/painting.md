@@ -11,6 +11,7 @@ replaying them with `crates/engine/examples/paint_probe.rs`.
 | A bitmap is selected | The stroke goes into it, wherever it starts |
 | Nothing selected, press on a bitmap's pixels | The stroke goes into that bitmap |
 | Nothing selected, press on empty canvas | A new bitmap on the current layer, left selected |
+| A marquee drawn on empty canvas with no bitmap being edited | A new bitmap on the current layer, only inside the marquee ([selection.md](selection.md)) |
 
 So a second stroke elsewhere continues the bitmap the first one made. The Eraser works on the
 selected bitmap or the one under the press and never makes one. A pixel selection confines all

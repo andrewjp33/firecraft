@@ -48,7 +48,7 @@ impl DocState {
             && let Some(Element {
                 kind: ElementKind::Bitmap(b),
                 ..
-            }) = self.element(sel.target)
+            }) = sel.target.and_then(|t| self.element(t))
         {
             return Some(b.image.extract_masked(&sel.on(b)));
         }
@@ -81,7 +81,7 @@ impl DocState {
             let Some(Element {
                 kind: ElementKind::Bitmap(b),
                 ..
-            }) = self.element(sel.target)
+            }) = sel.target.and_then(|t| self.element(t))
             else {
                 return;
             };
@@ -103,7 +103,7 @@ impl DocState {
             if let Some(Element {
                 kind: ElementKind::Bitmap(b),
                 ..
-            }) = self.element_mut(sel.target)
+            }) = sel.target.and_then(|t| self.element_mut(t))
             {
                 b.image = out;
             }

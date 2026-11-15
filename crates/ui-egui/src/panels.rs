@@ -211,7 +211,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut toggle_obj_lock: Option<ElementRef> = None;
     let mut rename: Option<(usize, Option<usize>, String)> = None;
     let mut rows: Vec<(Rect, Row)> = Vec::new();
-    let edited = d.pixels.as_ref().map(|p| p.target);
+    let edited = d.pixels.as_ref().and_then(|p| p.target);
     // A name being edited: Enter or clicking elsewhere keeps it, Escape cancels.
     let name_edit =
         |ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<(usize, Option<usize>, String)>| {

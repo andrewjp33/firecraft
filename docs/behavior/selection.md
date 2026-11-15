@@ -2,8 +2,9 @@
 
 Measured in Fireworks MX under Wine on 2026-11-15. Document: 200 x 150 canvas, a red bitmap at
 10,10 100x80 on Layer 1 and a blue one at 80,50 100x80 on Layer 2. The marquee ran from 60,30 to
-140,110. MX's Layers and History panels only appear when a window manager runs on the test
-display (see `tools/fwmx-oracle`). Step names were read from the Edit menu's Undo item.
+140,110. MX's docked panels (Layers, History, Property inspector) sit right of and below its
+default 1024 x 740 window; on a bare Xvfb they only show once the main window is made bigger
+(`xin.py move 500 300 resize 1280 1000`). Step names were read from the Edit menu's Undo item.
 
 | Action (marquee active) | Fireworks MX | Undo step |
 |---|---|---|
@@ -20,6 +21,23 @@ display (see `tools/fwmx-oracle`). Step names were read from the Edit menu's Und
 
 So a selection belongs to the canvas, not to a bitmap: the same marquee can clear or fill one
 bitmap after another.
+
+## Marquees on empty canvas
+
+| Situation | Fireworks MX |
+|---|---|
+| Nothing selected; marquee 120,10 to 190,45 on empty canvas | A marquee like any other ("Select Pixels") |
+| Then the Paint Bucket inside it | A new bitmap on top of the current layer (Layer 2), filled inside the marquee, being edited (pencil); 0,0 200x150 while edited; the marquee stays ("Fill") |
+| Red being edited; marquee 10,100 to 60,140, away from red's pixels | The marquee applies to red, which becomes 0,0 200x150 while edited |
+| Then the Paint Bucket inside it | The fill goes into red; no new bitmap |
+
+FireCraft: a pixel selection can have no bitmap (`target: None`). The Paint Bucket, the Gradient
+tool and Brush/Pencil strokes then make a new bitmap on top of the current layer, confined to the
+selection, and that bitmap becomes the one the selection applies to. For a bitmap being edited,
+fills and strokes inside the selection may reach past its pixels: FireCraft grows it to cover the
+selection and trims it afterwards to its old rectangle plus what was painted (Fireworks keeps it
+canvas-sized until bitmap editing ends). Undoing the fill removes the new bitmap and leaves the
+marquee without one.
 
 ## FireCraft
 

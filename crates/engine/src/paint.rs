@@ -421,10 +421,11 @@ impl DocState {
     /// The bitmap a stroke pressed at (`x`, `y`) paints into: the one with the pixel selection,
     /// the selected one, the one under the press; `None`: a new bitmap.
     fn paint_target(&self, x: f64, y: f64) -> Option<ElementRef> {
-        self.pixels
-            .as_ref()
-            .map(|p| p.target)
-            .or_else(|| self.pixel_target(x, y))
+        match &self.pixels {
+            // A marquee drawn with no bitmap being edited: a new bitmap.
+            Some(p) => p.target,
+            None => self.pixel_target(x, y),
+        }
     }
 
     /// Start a stroke at the canvas point. `false` if there is nothing to paint on or with.
@@ -483,11 +484,6 @@ impl DocState {
         self.begin_live_edit(tool.label());
         let (cw, ch) = (self.doc.width as i64, self.doc.height as i64);
         let keep_alpha = paint.preserve_transparency && tool != PaintTool::Eraser;
-        // The pixel selection as the bitmap it applies to sees it.
-        let clip = self.pixels.as_ref().and_then(|p| match self.element(p.target).map(|e| &e.kind) {
-            Some(ElementKind::Bitmap(b)) => Some(p.on(b)),
-            _ => None,
-        });
         let (target, new_bitmap, origin, base, old_area) = match target {
             Some(r) => {
                 let Some(ElementKind::Bitmap(b)) = self.element(r).map(|e| &e.kind) else {
@@ -497,8 +493,10 @@ impl DocState {
                 let (bx, by, bw, bh) = (b.x, b.y, b.image.width() as i64, b.image.height() as i64);
                 // An empty bitmap (Insert > Empty Bitmap) is trimmed like a new one.
                 let fresh = self.is_empty_bitmap(r);
-                // Only an unconstrained stroke can make the bitmap bigger.
-                if clip.is_some() || keep_alpha || tool == PaintTool::Eraser {
+                // Erasing or keeping transparency can't make the bitmap bigger; any other stroke
+                // can, inside a pixel selection too (Fireworks MX edits a bitmap as if it covered
+                // the canvas).
+                if keep_alpha || tool == PaintTool::Eraser {
                     let area = (!fresh).then_some((0, 0, bw, bh));
                     (r, false, (bx, by), b.image.clone(), area)
                 } else {
@@ -526,7 +524,11 @@ impl DocState {
                 cell.push(el);
                 let r = ElementRef::new(layer, cell.len() - 1);
                 self.selection = vec![r];
-                self.pixels = None;
+                self.doc.current_layer = layer;
+                // A marquee drawn on empty canvas: the new bitmap is the one it applies to now.
+                if let Some(p) = self.pixels.as_mut() {
+                    p.target = Some(r);
+                }
                 (r, true, (0, 0), buf, None)
             }
         };
@@ -534,6 +536,11 @@ impl DocState {
             self.selection = vec![target];
             self.set_paint_buffer(target, origin, &base);
         }
+        // The pixel selection, in buffer pixels: the stroke stays inside it.
+        let clip = self
+            .pixels
+            .as_ref()
+            .map(|p| p.local(origin.0, origin.1, base.width(), base.height()));
         let seed = point_seed(
             (self.revision as u32) ^ ((x * 16.0) as u32).rotate_left(11) ^ (y * 16.0) as u32,
             0,
@@ -701,16 +708,16 @@ impl DocState {
             self.set_fill_color(Some(color));
             return;
         }
-        let Some((target, mask)) = self.bucket_mask(x, y, opts) else {
+        let Some((area, mask)) = self.bucket_mask(x, y, opts) else {
             return;
         };
-        self.fill_bitmap("Paint Bucket", target, &mask, opts, &|_, _| color);
+        self.fill_area("Paint Bucket", area, &mask, opts, &|_, _| color);
     }
 
     /// Gradient tool on a bitmap, dragged from `a` to `b`: fills as the Paint Bucket does, with
     /// the tool's gradient.
     pub fn gradient_bitmap(&mut self, a: (f64, f64), b: (f64, f64), opts: &ToolOptions) {
-        let Some((target, mask)) = self.bucket_mask(a.0, a.1, opts) else {
+        let Some((area, mask)) = self.bucket_mask(a.0, a.1, opts) else {
             return;
         };
         let (dx, dy) = (b.0 - a.0, b.1 - a.1);
@@ -720,31 +727,77 @@ impl DocState {
             side: (a.0 - dy, a.1 + dx),
             ..opts.gradient_tool.clone()
         };
-        self.fill_bitmap("Gradient", target, &mask, opts, &|x, y| gradient.color_at(x, y));
+        self.fill_area("Gradient", area, &mask, opts, &|x, y| gradient.color_at(x, y));
     }
 
-    /// The bitmap a fill pressed at this point applies to, and which of its pixels.
-    fn bucket_mask(&self, x: f64, y: f64, opts: &ToolOptions) -> Option<(ElementRef, Mask)> {
-        let target = self.paint_target(x, y)?;
+    /// What a fill pressed at this point works on, and the pixels of it the fill can reach
+    /// (`true`: all of them; otherwise only its opaque area).
+    fn fill_target(&self, x: f64, y: f64) -> Option<(FillArea, bool)> {
+        let Some(sel) = &self.pixels else {
+            let target = self.pixel_target(x, y)?;
+            let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
+                return None;
+            };
+            // An empty bitmap (Insert > Empty Bitmap) is all there until it is left.
+            let fresh = self.is_empty_bitmap(target);
+            let trim = if fresh { Trim::Opaque } else { Trim::No };
+            return Some((FillArea { target: Some(target), bitmap: b.clone(), trim }, fresh));
+        };
+        // A pixel selection: Fireworks MX works on the bitmap being edited as if it covered the
+        // canvas, so the selection can reach past its pixels. FireCraft grows it to cover the
+        // selection, and trims it back after the fill.
+        let mask_rect = (
+            sel.x,
+            sel.y,
+            sel.x + sel.mask.width() as i64,
+            sel.y + sel.mask.height() as i64,
+        );
+        let Some(target) = sel.target else {
+            // A marquee drawn on empty canvas: a new bitmap.
+            let (l, t, r, b) = mask_rect;
+            let bitmap = Bitmap {
+                x: l,
+                y: t,
+                image: RgbaImage::new((r - l).max(1) as u32, (b - t).max(1) as u32, Rgba::TRANSPARENT),
+            };
+            return Some((FillArea { target: None, bitmap, trim: Trim::Opaque }, true));
+        };
         let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
             return None;
         };
+        let old = (b.x, b.y, b.x + b.image.width() as i64, b.y + b.image.height() as i64);
+        let (l, t, r, bb) = (
+            old.0.min(mask_rect.0),
+            old.1.min(mask_rect.1),
+            old.2.max(mask_rect.2),
+            old.3.max(mask_rect.3),
+        );
+        let mut image = RgbaImage::new((r - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
+        image.copy_from(&b.image, b.x - l, b.y - t);
+        let trim = if self.is_empty_bitmap(target) {
+            Trim::Opaque
+        } else {
+            Trim::Keep(old)
+        };
+        let bitmap = Bitmap { x: l, y: t, image };
+        Some((FillArea { target: Some(target), bitmap, trim }, true))
+    }
+
+    /// The bitmap a fill pressed at this point applies to, and which of its pixels.
+    fn bucket_mask(&self, x: f64, y: f64, opts: &ToolOptions) -> Option<(FillArea, Mask)> {
+        let (area, whole) = self.fill_target(x, y)?;
+        let b = &area.bitmap;
         let paint = &opts.paint;
-        let selected = self
-            .pixels
-            .as_ref()
-            .filter(|p| p.target == target)
-            .map(|p| p.on(b));
+        let selected = self.pixels.as_ref().map(|p| p.on(b));
         let (px, py) = (x.floor() as i64 - b.x, y.floor() as i64 - b.y);
-        // Fireworks trims a bitmap to its opaque area, so what lies beyond it isn't part of it;
-        // an empty bitmap (Insert > Empty Bitmap) is all there until it is left.
-        let extent = if self.is_empty_bitmap(target) {
+        // Fireworks trims a bitmap to its opaque area, so what lies beyond it isn't part of it.
+        let extent = if whole {
             Some((0, 0, b.image.width() as i64, b.image.height() as i64))
         } else {
             opaque_bounds(&b.image)
         };
         let mask = match selected {
-            Some(sel) if paint.bucket_fill_selection => sel.clone(),
+            Some(sel) if paint.bucket_fill_selection => sel,
             _ => {
                 let inside = extent.is_some_and(|(l, t, r, bb)| px >= l && py >= t && px < r && py < bb);
                 if !inside {
@@ -776,13 +829,15 @@ impl DocState {
                 m
             }
         };
-        (!mask.is_empty()).then_some((target, mask))
+        (!mask.is_empty()).then_some((area, mask))
     }
 
-    fn fill_bitmap(
+    /// Fill `mask` of `area` with `shade`: one undo step. A new bitmap goes on top of the current
+    /// layer and becomes the bitmap being edited.
+    fn fill_area(
         &mut self,
         label: &str,
-        target: ElementRef,
+        area: FillArea,
         mask: &Mask,
         opts: &ToolOptions,
         shade: &dyn Fn(f64, f64) -> Rgba,
@@ -791,30 +846,69 @@ impl DocState {
         let paint = &opts.paint;
         let opacity = percent(paint.opacity);
         let (blend, keep_alpha) = (paint.blend, paint.preserve_transparency);
-        let fresh = self.is_empty_bitmap(target);
+        let FillArea { target, mut bitmap, trim } = area;
+        let (ox, oy) = (bitmap.x as f64, bitmap.y as f64);
+        fill_masked(&mut bitmap.image, mask, (ox, oy), shade, opacity, blend, keep_alpha, math);
+        if target.is_none() && opaque_bounds(&bitmap.image).is_none() {
+            // Nothing to show (Preserve Transparency on a new bitmap, say): no empty object.
+            return;
+        }
+        let layer = match target {
+            Some(t) => t.layer,
+            None => self.writable_layer(),
+        };
         self.edit(label, |s| {
-            if let Some(Element {
-                kind: ElementKind::Bitmap(b),
-                ..
-            }) = s.element_mut(target)
-            {
-                let (ox, oy) = (b.x as f64, b.y as f64);
-                fill_masked(
-                    &mut b.image,
-                    mask,
-                    (ox, oy),
-                    shade,
-                    opacity,
-                    blend,
-                    keep_alpha,
-                    math,
-                );
-            }
-            if fresh {
-                s.trim_bitmap(target);
+            let r = match target {
+                Some(t) => {
+                    if let Some(Element {
+                        kind: ElementKind::Bitmap(b),
+                        ..
+                    }) = s.element_mut(t)
+                    {
+                        *b = bitmap;
+                    }
+                    t
+                }
+                None => {
+                    let f = s.frame();
+                    let Some(cell) = s.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) else {
+                        return;
+                    };
+                    cell.push(Element::new(ElementKind::Bitmap(bitmap)));
+                    let r = ElementRef::new(layer, cell.len() - 1);
+                    s.selection = vec![r];
+                    s.doc.current_layer = layer;
+                    if let Some(p) = s.pixels.as_mut() {
+                        p.target = Some(r);
+                    }
+                    r
+                }
+            };
+            match trim {
+                Trim::No => {}
+                Trim::Opaque => s.trim_bitmap(r, None),
+                Trim::Keep(old) => s.trim_bitmap(r, Some(old)),
             }
         });
     }
+}
+
+/// What a fill works on (see [`DocState::fill_target`]).
+struct FillArea {
+    /// `None`: a new bitmap.
+    target: Option<ElementRef>,
+    /// Its pixels as the fill sees them (an edited bitmap grown to cover the selection).
+    bitmap: Bitmap,
+    trim: Trim,
+}
+
+/// What a filled bitmap is trimmed to afterwards.
+enum Trim {
+    No,
+    /// Its non-transparent pixels (a new or empty bitmap).
+    Opaque,
+    /// Its old rectangle (canvas left, top, right, bottom) and the non-transparent pixels.
+    Keep(Area),
 }
 
 /// Paint `shade(canvas x, canvas y)` through `mask` (bitmap-sized).

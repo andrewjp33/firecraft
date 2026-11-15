@@ -75,7 +75,7 @@ impl DocState {
         let Some(Element {
             kind: ElementKind::Bitmap(src),
             ..
-        }) = self.element(sel.target)
+        }) = sel.target.and_then(|t| self.element(t))
         else {
             return None;
         };
@@ -691,7 +691,9 @@ impl DocState {
                 r.layer = map(r.layer);
             }
             if let Some(p) = &mut s.pixels {
-                p.target.layer = map(p.target.layer);
+                if let Some(t) = &mut p.target {
+                    t.layer = map(t.layer);
+                }
             }
             s.doc.current_layer = map(s.doc.current_layer);
         });
