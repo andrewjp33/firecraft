@@ -1185,7 +1185,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             }
             Tool::Marquee | Tool::OvalMarquee => {
                 if combine == Combine::Replace {
-                    d.pixels = None;
+                    d.deselect_pixels();
                 }
             }
             Tool::Zoom => {
@@ -1296,11 +1296,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             }
         }
         // Pixel selection: marching ants along the mask edge.
-        if let Some(sel) = &d.pixels
-            && let Some(firecraft_doc::ElementKind::Bitmap(b)) = d.element(sel.target).map(|e| &e.kind)
-        {
+        // Anchored to the canvas: it stays put when another bitmap is picked for editing.
+        if let Some(sel) = &d.pixels {
             let phase = (ctx.input(|i| i.time) * 8.0) as usize;
-            marching_ants(&p, &sel.mask, b.x as f64, b.y as f64, &to_screen, phase);
+            marching_ants(&p, &sel.mask, sel.x as f64, sel.y as f64, &to_screen, phase);
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
         // Rubber band for drag tools.

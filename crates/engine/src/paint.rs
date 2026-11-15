@@ -483,7 +483,11 @@ impl DocState {
         self.begin_live_edit(tool.label());
         let (cw, ch) = (self.doc.width as i64, self.doc.height as i64);
         let keep_alpha = paint.preserve_transparency && tool != PaintTool::Eraser;
-        let clip = self.pixels.as_ref().map(|p| p.mask.clone());
+        // The pixel selection as the bitmap it applies to sees it.
+        let clip = self.pixels.as_ref().and_then(|p| match self.element(p.target).map(|e| &e.kind) {
+            Some(ElementKind::Bitmap(b)) => Some(p.on(b)),
+            _ => None,
+        });
         let (target, new_bitmap, origin, base, old_area) = match target {
             Some(r) => {
                 let Some(ElementKind::Bitmap(b)) = self.element(r).map(|e| &e.kind) else {
@@ -671,10 +675,6 @@ impl DocState {
             let mut crop = RgbaImage::new(size.0, size.1, Rgba::TRANSPARENT);
             crop.copy_from(&image, -l, -t);
             self.set_paint_buffer(live.target, (live.origin.0 + l, live.origin.1 + t), &crop);
-            // A pixel selection confined the stroke, so the buffer was the bitmap itself.
-            if live.clip.is_some() {
-                self.crop_pixel_selection(live.target, (l, t), size);
-            }
         }
         self.touch();
         self.commit_live_edit();
@@ -734,7 +734,7 @@ impl DocState {
             .pixels
             .as_ref()
             .filter(|p| p.target == target)
-            .map(|p| &p.mask);
+            .map(|p| p.on(b));
         let (px, py) = (x.floor() as i64 - b.x, y.floor() as i64 - b.y);
         // Fireworks trims a bitmap to its opaque area, so what lies beyond it isn't part of it;
         // an empty bitmap (Insert > Empty Bitmap) is all there until it is left.
@@ -762,7 +762,7 @@ impl DocState {
                     },
                 );
                 if let Some(sel) = selected {
-                    m.combine(sel, Combine::Intersect);
+                    m.combine(&sel, Combine::Intersect);
                 }
                 if let Some((l, t, r, bb)) = extent {
                     let w = b.image.width() as i64;
@@ -969,10 +969,10 @@ mod tests {
         let b = bitmap(&d, r);
         assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (10, 10, 20, 15));
         assert!(b.image.pixels().iter().all(|p| *p == Rgba::new(0, 0, 255, 255)));
-        // The pixel selection followed the trim.
+        // The pixel selection stays on the canvas where it was and covers the trimmed bitmap.
         let sel = d.pixels.as_ref().expect("still selected");
-        assert_eq!((sel.mask.width(), sel.mask.height()), (20, 15));
-        assert_eq!(sel.mask.get(0, 0), 255);
+        let local = sel.on(&b);
+        assert!(local.data().iter().all(|v| *v == 255));
     }
 
     #[test]

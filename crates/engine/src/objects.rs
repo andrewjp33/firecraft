@@ -79,8 +79,9 @@ impl DocState {
         else {
             return None;
         };
-        let (bx, by, bw, bh) = sel.mask.bounds()?;
-        let full = src.image.extract_masked(&sel.mask);
+        let local = sel.on(src);
+        let (bx, by, bw, bh) = local.bounds()?;
+        let full = src.image.extract_masked(&local);
         let mut piece = RgbaImage::new(bw, bh, Rgba::TRANSPARENT);
         piece.draw(&full, -(bx as i64), -(by as i64), 255);
         Some(Element::new(ElementKind::Bitmap(Bitmap {

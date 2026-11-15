@@ -211,6 +211,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut toggle_obj_lock: Option<ElementRef> = None;
     let mut rename: Option<(usize, Option<usize>, String)> = None;
     let mut rows: Vec<(Rect, Row)> = Vec::new();
+    let edited = d.pixels.as_ref().map(|p| p.target);
     // A name being edited: Enter or clicking elsewhere keeps it, Escape cancels.
     let name_edit =
         |ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<(usize, Option<usize>, String)>| {
@@ -316,6 +317,16 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         let lock = icons::glyph_button(ui, Glyph::Lock, 14.0, true);
                         if !el.locked {
                             ui.painter().rect_filled(lock.rect.shrink(1.0), 0.0, theme::PANEL);
+                            // The bitmap the pixel selection applies to shows a pencil in this
+                            // column, as in Fireworks MX.
+                            if edited == Some(r) {
+                                icons::paint_glyph(
+                                    ui.painter(),
+                                    lock.rect.shrink(2.0),
+                                    Glyph::Pencil,
+                                    Color32::from_gray(30),
+                                );
+                            }
                         }
                         if lock.on_hover_text("Lock/Unlock Object").clicked() {
                             toggle_obj_lock = Some(r);
@@ -432,12 +443,18 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         l.disclosed = !l.disclosed;
     }
     if let Some(i) = set_current {
-        d.doc.current_layer = i;
+        d.set_current_layer(i);
     }
-    if let Some(r) = select {
+    // With pixels selected, picking a bitmap keeps the selection and edits that bitmap with
+    // it (Fireworks MX, "Edit Bitmap"); the same selection can then be cleared or filled on
+    // one bitmap after another.
+    let shift = ui.input(|i| i.modifiers.shift);
+    if let Some(r) = select
+        && (shift || !d.edit_bitmap(r))
+    {
         d.doc.current_layer = r.layer;
         // Shift+click adds or removes an object, as on the canvas.
-        if ui.input(|i| i.modifiers.shift) {
+        if shift {
             if let Some(k) = d.selection.iter().position(|s| *s == r) {
                 d.selection.remove(k);
             } else {

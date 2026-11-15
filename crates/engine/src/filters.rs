@@ -50,7 +50,7 @@ impl DocState {
                 ..
             }) = self.element(sel.target)
         {
-            return Some(b.image.extract_masked(&sel.mask));
+            return Some(b.image.extract_masked(&sel.on(b)));
         }
         let r = *self.selection.first()?;
         match &self.element(r)?.kind {
@@ -85,13 +85,14 @@ impl DocState {
             else {
                 return;
             };
+            let mask = sel.on(b);
             let mut filtered = b.image.clone();
             let region = firecraft_raster::filters::whole(&filtered);
             effect.apply_in(&mut filtered, math, region);
             let mut out = b.image.clone();
             for (i, (o, f)) in out.pixels_mut().iter_mut().zip(filtered.pixels()).enumerate() {
-                let (x, y) = ((i as u32 % sel.mask.width()) as i64, (i as u32 / sel.mask.width()) as i64);
-                let k = sel.mask.get(x, y) as u32;
+                let (x, y) = ((i as u32 % mask.width()) as i64, (i as u32 / mask.width()) as i64);
+                let k = mask.get(x, y) as u32;
                 if k == 255 {
                     *o = *f;
                 } else if k > 0 {

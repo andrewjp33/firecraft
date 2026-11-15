@@ -1,7 +1,24 @@
 //! Undo/redo as document snapshots. Snapshots are cheap: bitmaps and the original file's data are
 //! shared copy-on-write, so a step only stores what it changed.
 
+use std::sync::Arc;
+
 use firecraft_doc::Document;
+
+use crate::{ElementRef, PixelSelection};
+
+/// What was selected at an undo step. Undo brings back the pixel selection and the bitmap it
+/// applies to (Fireworks MX: undoing a Delete keeps the marquee; undoing "Edit Bitmap" goes back
+/// to the bitmap edited before).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Selected {
+    pub objects: Vec<ElementRef>,
+    /// Shared between steps while it doesn't change (a mask can be the canvas' size).
+    pub pixels: Option<Arc<PixelSelection>>,
+}
+
+/// One undo step: its label and the document and selection before it.
+type Step = (String, Document, Selected);
 
 /// FireCraft's default number of undo steps (Fireworks MX defaults to 20). Snapshots share
 /// unchanged bitmaps, so long histories stay cheap.
@@ -11,8 +28,8 @@ pub const MAX_UNDO_STEPS: usize = 999;
 
 #[derive(Clone, Debug)]
 pub struct History {
-    undo: Vec<(String, Document)>,
-    redo: Vec<(String, Document)>,
+    undo: Vec<Step>,
+    redo: Vec<Step>,
     pub limit: usize,
 }
 
@@ -27,9 +44,23 @@ impl Default for History {
 }
 
 impl History {
-    /// Remember `before` as the state preceding the step `label`.
-    pub fn push(&mut self, label: &str, before: &Document) {
-        self.undo.push((label.to_owned(), before.clone()));
+    /// The selection to keep with a step, sharing the mask with the newest step when it is
+    /// the same selection.
+    pub fn selected(&self, objects: &[ElementRef], pixels: Option<&PixelSelection>) -> Selected {
+        let newest = self.undo.last().or(self.redo.last()).and_then(|(_, _, s)| s.pixels.as_ref());
+        let pixels = pixels.map(|p| match newest {
+            Some(a) if **a == *p => a.clone(),
+            _ => Arc::new(p.clone()),
+        });
+        Selected {
+            objects: objects.to_vec(),
+            pixels,
+        }
+    }
+
+    /// Remember `before` (and what was selected) as the state preceding the step `label`.
+    pub fn push(&mut self, label: &str, before: &Document, selected: Selected) {
+        self.undo.push((label.to_owned(), before.clone(), selected));
         if self.undo.len() > self.limit {
             self.undo.remove(0);
         }
@@ -50,28 +81,29 @@ impl History {
 
     /// Remove the most recent undo step and return its document (cancelling a live edit).
     pub fn take_last(&mut self) -> Option<Document> {
-        self.undo.pop().map(|(_, d)| d)
+        self.undo.pop().map(|(_, d, _)| d)
     }
 
-    pub fn undo(&mut self, current: &Document) -> Option<Document> {
-        let (label, doc) = self.undo.pop()?;
-        self.redo.push((label, current.clone()));
-        Some(doc)
+    /// Step back: the document and selection before the newest step (`current` goes to redo).
+    pub fn undo(&mut self, current: &Document, selected: Selected) -> Option<(Document, Selected)> {
+        let (label, doc, sel) = self.undo.pop()?;
+        self.redo.push((label, current.clone(), selected));
+        Some((doc, sel))
     }
 
-    pub fn redo(&mut self, current: &Document) -> Option<Document> {
-        let (label, doc) = self.redo.pop()?;
-        self.undo.push((label, current.clone()));
-        Some(doc)
+    pub fn redo(&mut self, current: &Document, selected: Selected) -> Option<(Document, Selected)> {
+        let (label, doc, sel) = self.redo.pop()?;
+        self.undo.push((label, current.clone(), selected));
+        Some((doc, sel))
     }
 
     /// Step labels for the History panel, oldest first.
     pub fn labels(&self) -> impl Iterator<Item = &str> {
-        self.undo.iter().map(|(l, _)| l.as_str())
+        self.undo.iter().map(|(l, _, _)| l.as_str())
     }
 
     pub fn redo_labels(&self) -> impl Iterator<Item = &str> {
-        self.redo.iter().rev().map(|(l, _)| l.as_str())
+        self.redo.iter().rev().map(|(l, _, _)| l.as_str())
     }
 
     pub fn can_undo(&self) -> bool {
@@ -81,9 +113,9 @@ impl History {
         !self.redo.is_empty()
     }
     pub fn next_undo(&self) -> Option<&str> {
-        self.undo.last().map(|(l, _)| l.as_str())
+        self.undo.last().map(|(l, _, _)| l.as_str())
     }
     pub fn next_redo(&self) -> Option<&str> {
-        self.redo.last().map(|(l, _)| l.as_str())
+        self.redo.last().map(|(l, _, _)| l.as_str())
     }
 }

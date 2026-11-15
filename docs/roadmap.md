@@ -16,6 +16,9 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
   Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
+- Pixel selections belong to the canvas: picking another bitmap in the Layers panel keeps the
+  marquee and applies it to that bitmap ("Edit Bitmap"); selection changes are undo steps and undo
+  brings the marquee back ([behavior/selection.md](behavior/selection.md))
 - Empty bitmaps: the Layers panel's New Bitmap Image and Edit > Insert > Empty Bitmap, removed again
   when deselected unused ([behavior/painting.md](behavior/painting.md#empty-bitmaps))
 - Text tool: click or drag to make text, in-place editing, per-character formatting, Property inspector,
@@ -91,6 +94,14 @@ Other items keep their numbers.
     image on the canvas with a click or drag, as in Fireworks).
 15. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
+16. **Masks, editing**: masks render today (vector and bitmap masks, [behavior/masks.md](behavior/masks.md))
+    but can't be made or changed. Fireworks MX's masks are object masks (its help: Photoshop layer
+    masks import as object masks, which item 14's PSD import needs too): the Layers panel's Add Mask
+    button, Modify > Mask (Reveal All, Hide All, Reveal Selection, Hide Selection, Group as Mask,
+    Disable/Delete Mask), Edit > Paste as Mask and Paste Inside, the mask thumbnail and link toggle
+    in the Layers panel, painting on a bitmap
+    mask with the bitmap tools, and the Property inspector's mask settings (alpha channel or
+    grayscale, path outline). Measure each with the oracle first
 
 ## When needed
 
