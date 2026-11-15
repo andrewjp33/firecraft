@@ -404,6 +404,8 @@ pub struct FireCraftApp {
     /// Documents whose fonts have been checked when first shown.
     fonts_checked: std::collections::HashSet<u64>,
     stroke_window: Option<fill_ui::StrokeWindow>,
+    /// The tool at the last update: switching to the Pointer ends bitmap editing.
+    prev_tool: firecraft_engine::Tool,
     /// The fill and stroke of the selected object the tools last took on.
     adopted: Option<(Option<firecraft_doc::Fill>, Option<firecraft_doc::Stroke>)>,
     /// Where a pattern file chosen with Other... goes, once the browser delivers it.
@@ -457,6 +459,7 @@ impl FireCraftApp {
             fonts_loaded_for: None,
             fonts_checked: Default::default(),
             stroke_window: None,
+            prev_tool: firecraft_engine::Tool::Pointer,
             adopted: None,
             awaiting_pattern: None,
             patterns: Default::default(),
@@ -771,6 +774,28 @@ impl FireCraftApp {
         self.prefs = prefs;
     }
 
+    /// Whether Escape belongs to the document now: no dialog, pop-up, text field or text being
+    /// edited, no stroke or live edit in progress, and not the Pen tool (Escape ends its path).
+    fn escape_is_free(&self, ctx: &egui::Context) -> bool {
+        !self.dialogs.any_open()
+            && self.text_editor.is_none()
+            && self.text_tool.editing.is_none()
+            && self.text_tool.other_size.is_none()
+            && self.gradient_popup.is_none()
+            && self.fill_window.is_none()
+            && self.stroke_window.is_none()
+            && self.effects_ui.editing.is_none()
+            && self.effects_ui.filter.is_none()
+            && !crate::fpui::color_picker::any_open(ctx)
+            && !ctx.any_popup_open()
+            && !ctx.egui_wants_keyboard_input()
+            && self.session.tool != firecraft_engine::Tool::Pen
+            && self
+                .session
+                .active_doc()
+                .is_some_and(|d| !d.is_painting() && !d.in_live_edit())
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         // UI Scale: egui's zoom on top of the system's display scaling (1.0 = as the system
         // scales). Its own Ctrl+Plus/Minus zoom is off, so only the preference sets it.
@@ -796,6 +821,18 @@ impl FireCraftApp {
         if let Some(d) = self.session.active_doc_mut() {
             d.drop_empty_bitmaps();
         }
+        // Choosing the Pointer tool ends bitmap editing (Fireworks MX: "Exit Bitmap Mode").
+        if self.session.tool != self.prev_tool {
+            self.prev_tool = self.session.tool;
+            if self.session.tool == firecraft_engine::Tool::Pointer
+                && let Some(d) = self.session.active_doc_mut()
+            {
+                d.exit_bitmap_mode();
+            }
+        }
+        // Whether Escape is free for ending bitmap editing this update, decided before anything
+        // else that takes Escape gets a look at it.
+        let escape_free = self.escape_is_free(&ctx);
         // Selection and vector tools leave the Pen's path open, to resume on returning; any
         // other tool finishes it (Fireworks MX).
         if !matches!(
@@ -914,6 +951,13 @@ impl FireCraftApp {
         fill_ui::stroke_window(self, &ctx);
         effects_ui::editor(self, &ctx);
         effects_ui::filter_dialog(self, &ctx);
+        // Escape that nothing else wanted ends bitmap editing, as in Fireworks MX.
+        if escape_free
+            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+            && let Some(d) = self.session.active_doc_mut()
+        {
+            d.exit_bitmap_mode();
+        }
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {
                 Color32::from_rgb(180, 0, 0)

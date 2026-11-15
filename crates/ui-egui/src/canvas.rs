@@ -1236,7 +1236,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             (Tool::Pointer, true, Some(a), Some(b)) if view.live_move.is_none() => b - a,
             _ => Vec2::ZERO,
         };
-        for r in &d.selection {
+        // While pixels are selected (bitmap editing) only the marquee shows, as in Fireworks MX.
+        let boxed: &[firecraft_engine::ElementRef] = if d.pixels.is_some() { &[] } else { &d.selection };
+        for r in boxed {
             // An empty bitmap (Insert > Empty Bitmap) shows no box, as in Fireworks MX.
             if d.is_empty_bitmap(*r) {
                 continue;

@@ -42,6 +42,23 @@ pub struct Dialogs {
     pub convert_symbol: Option<(String, firecraft_doc::SymbolKind, bool)>,
 }
 
+impl Dialogs {
+    /// Whether one of these dialogs is open (Escape is theirs then).
+    pub fn any_open(&self) -> bool {
+        self.edit_stroke.is_some()
+            || self.message.is_some()
+            || self.missing_fonts.is_some()
+            || self.new_doc
+            || self.canvas_size.is_some()
+            || self.canvas_color
+            || self.prefs
+            || self.about
+            || self.feather.is_some()
+            || self.numeric.is_some()
+            || self.convert_symbol.is_some()
+    }
+}
+
 /// Numeric Transform: scale by percentages, resize to pixel sizes, or rotate by degrees,
 /// about the selection's centre.
 #[derive(Clone, Copy, Debug, PartialEq)]

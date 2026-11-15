@@ -696,6 +696,29 @@ impl DocState {
         self.selection.clear();
     }
 
+    /// End bitmap editing, as choosing the Pointer tool or pressing Escape does in Fireworks MX:
+    /// the pixel selection goes (one undo step, "Exit Bitmap Mode") and the bitmap that was
+    /// being edited stays selected. An empty bitmap (Insert > Empty Bitmap) nothing was put
+    /// into is deselected, so it goes away (on its own that is no undo step, as in Fireworks).
+    /// `false` if no bitmap was being edited.
+    pub fn exit_bitmap_mode(&mut self) -> bool {
+        let empty: Vec<ElementRef> =
+            self.selection.iter().copied().filter(|r| self.is_empty_bitmap(*r)).collect();
+        if self.pixels.is_none() && empty.is_empty() {
+            return false;
+        }
+        if self.pixels.is_some() {
+            self.select_step("Exit Bitmap Mode", |s| {
+                s.pixels = None;
+                s.selection.retain(|r| !empty.contains(r));
+            });
+        } else {
+            self.selection.retain(|r| !empty.contains(r));
+        }
+        self.drop_empty_bitmaps();
+        true
+    }
+
     /// End the pixel selection only (a click with a marquee tool): one undo step, "Deselect".
     pub fn deselect_pixels(&mut self) {
         if self.pixels.is_some() {
@@ -2143,6 +2166,39 @@ mod tests {
         assert_eq!((b.x, b.y, b.image.height()), (20, 30, 1), "only inside the marquee");
         assert_eq!(b.image.width(), 20);
         assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(r));
+    }
+
+    #[test]
+    fn exiting_bitmap_mode_ends_the_marquee_and_keeps_the_bitmap_selected() {
+        // Fireworks MX (2026-11-15): with a marquee on red, choosing the Pointer tool or pressing
+        // Escape removes the marquee, leaves red selected, and records "Exit Bitmap Mode".
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        d.marquee((20.0, 20.0, 40.0, 40.0), false, &ToolOptions::default(), Combine::Replace);
+        assert!(d.exit_bitmap_mode());
+        assert!(d.pixels.is_none());
+        assert_eq!(d.selection, vec![red]);
+        assert_eq!(d.history.next_undo(), Some("Exit Bitmap Mode"));
+        d.undo();
+        assert!(d.pixels.is_some(), "undo brings the marquee back");
+        // Nothing being edited: nothing happens, nothing recorded.
+        d.exit_bitmap_mode();
+        let steps = undo_steps(&d);
+        assert!(!d.exit_bitmap_mode());
+        assert_eq!(undo_steps(&d), steps);
+    }
+
+    #[test]
+    fn exiting_bitmap_mode_removes_an_unused_empty_bitmap() {
+        // Fireworks MX: Insert > Empty Bitmap, then leaving bitmap mode: the empty image goes,
+        // with no undo step.
+        let mut d = DocState::new(Document::new(60, 40, 72.0, None));
+        let steps = undo_steps(&d);
+        d.insert_empty_bitmap();
+        assert!(d.exit_bitmap_mode());
+        assert!(d.selection.is_empty());
+        assert!(d.doc.layers[0].elements(0).is_empty());
+        assert_eq!(undo_steps(&d), steps);
     }
 
     #[test]

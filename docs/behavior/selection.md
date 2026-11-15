@@ -52,7 +52,14 @@ marquee without one.
   (Select > Deselect or a click with a marquee tool), Select All, Select Inverse, Feather.
   Picking the bitmap that's already being edited records nothing.
 * The Layers panel shows a pencil in the lock column of the bitmap being edited.
-* Not yet: ending the marquee when the Pointer tool is chosen or Escape is pressed (Exit Bitmap
-  Mode). FireCraft keeps the marquee until something else ends it. Also unmeasured: what MX does
-  when a vector object's row is clicked with a marquee active (FireCraft ends the marquee and
-  selects the object, with no undo step, as before).
+* Choosing the Pointer tool (from the Tools panel, V or the menu) or pressing Escape ends bitmap
+  editing (`DocState::exit_bitmap_mode`): the marquee goes as one undo step, "Exit Bitmap Mode",
+  and the bitmap that was edited stays selected with its handles. An empty bitmap (Insert > Empty
+  Bitmap) nothing was put into goes away, with no undo step, as measured in Fireworks MX. Escape
+  does this only when nothing else is using it: no dialog, pop-up or text field, no text being
+  edited, no stroke or live edit in progress, and not with the Pen tool.
+* While pixels are selected the canvas shows only the marquee, no object box or handles (as in
+  Fireworks MX).
+* Unmeasured: what MX does when a vector object's row is clicked with a marquee active (FireCraft
+  ends the marquee and selects the object, with no undo step), and whether tools other than the
+  Pointer also end bitmap editing.
