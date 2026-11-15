@@ -22,6 +22,33 @@ default 1024 x 740 window; on a bare Xvfb they only show once the main window is
 So a selection belongs to the canvas, not to a bitmap: the same marquee can clear or fill one
 bitmap after another.
 
+## Marquee shape, dragging and clicking
+
+Measured in Fireworks MX on 2026-11-15 (empty 200 x 150 document, Marquee with Anti-Alias, the
+default):
+
+* **Rectangles are whole pixels with hard edges.** A drag from the pixel at canvas 20,20 to the one
+  at 60,50 selects pixels 20 to 59 by 20 to 49; filled with the Paint Bucket, the saved file has
+  only alpha 0 and 255. A second marquee overlapping the first, filled the same way, leaves no
+  seam. Anti-Alias only smooths an oval's outline. (FireCraft used to put the edges where the
+  pointer was, on half pixels, and soften them; a second fill then flooded through that soft
+  edge and left a lighter seam.)
+* **Dragging inside the selection moves it**, with the Marquee tool or the Magic Wand: the
+  outline moves, the pixels stay ("Move").
+* **A click inside the selection ends it**, with either tool, recorded as "Select Pixels". So does
+  a Marquee click outside it. A Magic Wand click outside selects there ("Magic Wand Tool").
+* One run disagreed: right after a Paint Bucket fill, a drag from inside the marquee drew a new
+  marquee instead of moving it. Every other run (with and without a fill first, with and
+  without hovering first) moved it; FireCraft always moves it.
+
+FireCraft: `marquee` snaps the rectangle to whole pixels (`floor` of both corners) and
+anti-aliases only ovals; `pixels_contain` and `move_pixel_selection` serve the drag, with a move
+cursor over the selection for the Marquee, Oval Marquee, Lasso and Magic Wand tools (Shift or
+Alt pressed: they draw a new selection to combine instead). The marching ants show with every
+tool, the Brush and Pencil included (they paint inside the selection). Edit > Insert > Empty
+Bitmap and the Layers panel's New Bitmap Image keep the selection, which then applies to the new
+bitmap.
+
 ## Marquees on empty canvas
 
 | Situation | Fireworks MX |

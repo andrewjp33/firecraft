@@ -360,6 +360,9 @@ struct View {
     live_move: Option<(f64, f64)>,
     /// The drag in progress uses the secondary (right) button.
     drag_secondary: bool,
+    /// The drag in progress moves the marquee (a marquee tool or the Magic Wand pressed inside
+    /// the pixel selection).
+    marquee_drag: bool,
     preview: bool,
     /// The Preview tab's picture: the document exported with its Optimize settings.
     optimized: Option<canvas::Optimized>,

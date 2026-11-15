@@ -719,10 +719,11 @@ impl DocState {
         true
     }
 
-    /// End the pixel selection only (a click with a marquee tool): one undo step, "Deselect".
+    /// End the pixel selection only (a click with a marquee tool, or inside the selection with
+    /// the Magic Wand): one undo step, recorded as "Select Pixels" as in Fireworks MX.
     pub fn deselect_pixels(&mut self) {
         if self.pixels.is_some() {
-            self.select_step("Deselect", |s| s.pixels = None);
+            self.select_step("Select Pixels", |s| s.pixels = None);
         }
     }
 
@@ -770,7 +771,7 @@ impl DocState {
         let (px, py) = ((x - b.x as f64).floor() as i64, (y - b.y as f64).floor() as i64);
         let mask = magic_wand(&b.image, px, py, opts.wand());
         let (bx, by) = (b.x, b.y);
-        self.combine_pixels(Some(target), bx, by, mask, combine);
+        self.combine_pixels("Magic Wand Tool", Some(target), bx, by, mask, combine);
     }
 
     /// Rectangular or elliptical marquee in canvas coordinates.
@@ -796,12 +797,17 @@ impl DocState {
             firecraft_raster::Edge::Feather(r) => r.min(250) as i64,
             _ => 0,
         } + 1;
-        let (ml, mt) = (x0.floor() as i64 - pad, y0.floor() as i64 - pad);
-        let (mr, mb) = (x1.ceil() as i64 + pad, y1.ceil() as i64 + pad);
+        // Whole pixels, as Fireworks MX: a drag from the pixel at canvas x 20 to the one at 60
+        // selects pixels 20 to 59, and a rectangle's edges stay hard even with Anti-Alias
+        // (measured 2026-11-15: only alpha 0 and 255; a second fill meeting the first leaves no
+        // seam). Only an oval's outline is anti-aliased.
+        let (x0, y0, x1, y1) = (x0.floor(), y0.floor(), x1.floor(), y1.floor());
+        let (ml, mt) = (x0 as i64 - pad, y0 as i64 - pad);
+        let (mr, mb) = (x1 as i64 + pad, y1 as i64 + pad);
         let mut mask = Mask::new((mr - ml).max(1) as u32, (mb - mt).max(1) as u32);
         let (ox, oy) = (ml as f64, mt as f64);
         let (cx, cy, rx, ry) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0);
-        let aa = opts.marquee_edge != firecraft_raster::Edge::Hard;
+        let aa = oval && opts.marquee_edge != firecraft_raster::Edge::Hard;
         let ss = if aa { 4 } else { 1 };
         for py in 0..mask.height() as i64 {
             for px in 0..mask.width() as i64 {
@@ -824,12 +830,41 @@ impl DocState {
         if let firecraft_raster::Edge::Feather(r) = opts.marquee_edge {
             mask.feather(r);
         }
-        self.combine_pixels(target, ml, mt, mask, combine);
+        self.combine_pixels("Select Pixels", target, ml, mt, mask, combine);
+    }
+
+    /// Whether canvas point (`x`, `y`) is inside the pixel selection.
+    pub fn pixels_contain(&self, x: f64, y: f64) -> bool {
+        self.pixels.as_ref().is_some_and(|p| {
+            p.mask.get(x.floor() as i64 - p.x, y.floor() as i64 - p.y) > 0
+        })
+    }
+
+    /// Drag the marquee (a marquee tool or the Magic Wand pressed inside it): the selection
+    /// moves, the pixels stay. One undo step, "Move" (Fireworks MX).
+    pub fn move_pixel_selection(&mut self, dx: i64, dy: i64) {
+        if self.pixels.is_none() || (dx == 0 && dy == 0) {
+            return;
+        }
+        self.select_step("Move", |s| {
+            if let Some(p) = s.pixels.as_mut() {
+                p.x += dx;
+                p.y += dy;
+            }
+        });
     }
 
     /// A new marquee or wand selection (`mask` at canvas `x`, `y`) combined with the current
-    /// one; one undo step, "Select Pixels" (Fireworks MX).
-    fn combine_pixels(&mut self, target: Option<ElementRef>, x: i64, y: i64, mask: Mask, combine: Combine) {
+    /// one; one undo step named `label` ("Select Pixels", "Magic Wand Tool": Fireworks MX).
+    fn combine_pixels(
+        &mut self,
+        label: &str,
+        target: Option<ElementRef>,
+        x: i64,
+        y: i64,
+        mask: Mask,
+        combine: Combine,
+    ) {
         let next = match self.pixels.clone() {
             Some(mut sel) if combine != Combine::Replace => {
                 sel.target = target;
@@ -839,7 +874,7 @@ impl DocState {
             _ => PixelSelection { target, x, y, mask },
         };
         let next = (!next.mask.is_empty()).then_some(next);
-        self.select_step("Select Pixels", |s| {
+        self.select_step(label, |s| {
             s.pixels = next;
             s.selection = target.into_iter().collect();
             if let Some(t) = target {
@@ -962,9 +997,13 @@ impl DocState {
             return;
         };
         cell.push(Element::new(ElementKind::Bitmap(Bitmap { x: 0, y: 0, image })));
-        self.selection = vec![ElementRef::new(layer, cell.len() - 1)];
+        let r = ElementRef::new(layer, cell.len() - 1);
+        self.selection = vec![r];
         self.doc.current_layer = layer;
-        self.pixels = None;
+        // A marquee stays and now applies to the new bitmap.
+        if let Some(p) = self.pixels.as_mut() {
+            p.target = Some(r);
+        }
         self.empty_bitmaps.push(stamp);
         self.touch();
     }
@@ -2199,6 +2238,83 @@ mod tests {
         assert!(d.selection.is_empty());
         assert!(d.doc.layers[0].elements(0).is_empty());
         assert_eq!(undo_steps(&d), steps);
+    }
+
+    #[test]
+    fn rectangle_marquees_are_whole_pixels_and_overlapping_fills_leave_no_seam() {
+        // Fireworks MX (2026-11-15), Anti-Alias on: a marquee from canvas 20,20 to 60,50 and the
+        // Paint Bucket fill exactly pixels 20..59 x 20..49, opaque to the edge; a second marquee
+        // 40,35 to 90,70 filled the same way meets the first without a seam. The pointer can be
+        // anywhere inside a pixel (FireCraft's user test had it on half pixels).
+        let mut d = DocState::new(Document::new(200, 150, 72.0, None));
+        let o = ToolOptions {
+            fill: Some(Rgba::new(153, 153, 153, 255)),
+            ..ToolOptions::default()
+        };
+        assert_ne!(o.marquee_edge, firecraft_raster::Edge::Hard, "anti-aliased by default");
+        d.marquee((20.5, 20.5, 60.5, 50.5), false, &o, Combine::Replace);
+        d.paint_bucket(30.0, 30.0, &o);
+        d.marquee((40.5, 35.5, 90.5, 70.5), false, &o, Combine::Replace);
+        d.paint_bucket(80.0, 60.0, &o);
+        let img = d.doc.render(0);
+        let a = |x: i64, y: i64| img.get(x, y).map_or(0, |p| p.a);
+        assert_eq!((a(19, 30), a(20, 30), a(59, 30), a(60, 30)), (0, 255, 255, 0));
+        // Where the second fill meets the first (MX: 60,40 and 60,50 opaque).
+        assert_eq!((a(59, 40), a(60, 40), a(60, 50), a(45, 35)), (255, 255, 255, 255));
+        assert_eq!((a(30, 19), a(30, 20), a(30, 49), a(30, 50)), (0, 255, 255, 0));
+        assert_eq!((a(89, 60), a(90, 60), a(45, 69), a(45, 70)), (255, 0, 255, 0));
+        assert!(img.pixels().iter().all(|p| p.a == 0 || p.a == 255), "no soft edges or seams");
+    }
+
+    #[test]
+    fn dragging_the_marquee_moves_it_not_the_pixels() {
+        // Fireworks MX: pressed inside the marquee with a marquee tool or the Magic Wand and
+        // dragged, the marquee moves ("Move"); the pixels stay.
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        d.marquee((20.0, 20.0, 40.0, 40.0), false, &ToolOptions::default(), Combine::Replace);
+        assert!(d.pixels_contain(25.0, 25.0));
+        assert!(!d.pixels_contain(45.0, 25.0));
+        let before = d.doc.clone();
+        d.move_pixel_selection(20, 10);
+        assert_eq!(d.history.next_undo(), Some("Move"));
+        assert_eq!(d.doc, before, "pixels untouched");
+        assert!(d.pixels_contain(45.0, 35.0));
+        assert!(!d.pixels_contain(25.0, 25.0));
+        d.undo();
+        assert!(d.pixels_contain(25.0, 25.0));
+    }
+
+    #[test]
+    fn a_marquee_click_and_the_wand_record_fireworks_labels() {
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        let o = ToolOptions::default();
+        d.magic_wand(20.0, 20.0, &o, Combine::Replace);
+        assert_eq!(d.history.next_undo(), Some("Magic Wand Tool"));
+        // A click with a marquee tool (or the wand inside the selection) ends it: "Select Pixels".
+        d.deselect_pixels();
+        assert!(d.pixels.is_none());
+        assert_eq!(d.history.next_undo(), Some("Select Pixels"));
+    }
+
+    #[test]
+    fn a_new_bitmap_image_takes_over_the_marquee() {
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        let o = fill_options();
+        d.marquee((20.0, 20.0, 40.0, 40.0), false, &o, Combine::Replace);
+        d.insert_empty_bitmap();
+        let new = d.selection[0];
+        assert_ne!(new, red);
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(new));
+        // Filling goes into the new bitmap, trimmed to the marquee; red is untouched.
+        d.paint_bucket(30.0, 30.0, &o);
+        let Some(ElementKind::Bitmap(b)) = d.element(new).map(|e| &e.kind) else {
+            panic!("not a bitmap")
+        };
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (20, 20, 20, 20));
+        assert_eq!(pixel(&d, red, 30, 30), Rgba::new(255, 0, 0, 255));
     }
 
     #[test]

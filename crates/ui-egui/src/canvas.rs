@@ -672,6 +672,11 @@ fn paint_input(
     ctx.request_repaint();
 }
 
+/// Tools that drag the marquee when pressed inside it (Fireworks MX).
+fn marquee_moves(tool: Tool) -> bool {
+    matches!(tool, Tool::Marquee | Tool::OvalMarquee | Tool::Lasso | Tool::MagicWand)
+}
+
 /// How far in from the view's edge a guide can always be grabbed, in screen points.
 const GUIDE_EDGE: f32 = 10.0;
 
@@ -927,6 +932,18 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::Text => egui::CursorIcon::Text,
             _ => egui::CursorIcon::Default,
         });
+        // Over the pixel selection a marquee tool or the Magic Wand drags it: a move cursor.
+        let plain = !ctx.input(|i| i.modifiers.shift || i.modifiers.alt);
+        let over_marquee = marquee_moves(tool)
+            && (view.marquee_drag
+                || plain
+                    && resp.hover_pos().is_some_and(|pos| {
+                        let (x, y) = to_doc(pos);
+                        d.pixels_contain(x, y)
+                    }));
+        if over_marquee {
+            ctx.set_cursor_icon(egui::CursorIcon::Move);
+        }
         // Selection tools: FireCraft's own cursors (Fireworks style: black Pointer, white
         // Subselection arrow, Select Behind).
         let own = match tool {
@@ -1023,6 +1040,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             .input(|i| i.pointer.press_origin())
             .or(resp.interact_pointer_pos());
         view.drag_secondary = resp.dragged_by(egui::PointerButton::Secondary);
+        // A marquee tool or the Magic Wand pressed inside the pixel selection drags the marquee
+        // (Fireworks MX); with Shift or Alt it draws one to add, subtract or intersect.
+        view.marquee_drag = marquee_moves(tool)
+            && combine == Combine::Replace
+            && view.drag_start.is_some_and(|pos| {
+                let (x, y) = to_doc(pos);
+                d.pixels_contain(x, y)
+            });
         if matches!(tool, Tool::Pointer | Tool::SelectBehind)
             && let Some(pos) = view.drag_start
         {
@@ -1070,6 +1095,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             let (ax, ay) = to_doc(a);
             let (bx, by) = to_doc(b);
             match tool {
+                _ if view.marquee_drag => {
+                    d.move_pixel_selection((bx - ax).round() as i64, (by - ay).round() as i64)
+                }
                 // A live move already moved the objects: keep it, or drop it if it went nowhere.
                 Tool::Pointer | Tool::SelectBehind if view.live_move.is_some() => {
                     if view.live_move == Some((0.0, 0.0)) {
@@ -1113,6 +1141,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
         view.drag_start = None;
         view.live_move = None;
+        view.marquee_drag = false;
     }
     if dragging && tool == Tool::Hand {
         view.pan += resp.drag_delta();
@@ -1175,6 +1204,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 None => d.deselect(),
             },
             Tool::SelectBehind => d.select_behind(x, y),
+            // A click inside the pixel selection ends it (Fireworks MX, recorded as "Select
+            // Pixels"); elsewhere the wand selects.
+            Tool::MagicWand if combine == Combine::Replace && d.pixels_contain(x, y) => d.deselect_pixels(),
             Tool::MagicWand => d.magic_wand(x, y, &options, combine),
             Tool::PaintBucket => d.paint_bucket(x, y, &options),
             // A click moves the selected gradient's round handle there.
@@ -1228,6 +1260,23 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             line(Color32::WHITE, 1.0);
             line(Color32::BLACK, 0.0);
         }
+    }
+    // Pixel selection: marching ants along the mask edge, with every tool (Brush and Pencil
+    // paint inside it). Anchored to the canvas; while the marquee is dragged it shows where it
+    // will land.
+    if !view.preview
+        && let Some(sel) = &d.pixels
+    {
+        let (dx, dy) = match (view.marquee_drag, view.drag_start, drag_now) {
+            (true, Some(a), Some(b)) => {
+                let ((ax, ay), (bx, by)) = (to_doc(a), to_doc(b));
+                ((bx - ax).round(), (by - ay).round())
+            }
+            _ => (0.0, 0.0),
+        };
+        let phase = (ctx.input(|i| i.time) * 8.0) as usize;
+        marching_ants(&p, &sel.mask, sel.x as f64 + dx, sel.y as f64 + dy, &to_screen, phase);
+        ctx.request_repaint_after(std::time::Duration::from_millis(120));
     }
     // Fireworks shows no selection box while a painting tool is active.
     if !view.preview && paint_tool(tool).is_none() {
@@ -1297,15 +1346,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 }
             }
         }
-        // Pixel selection: marching ants along the mask edge.
-        // Anchored to the canvas: it stays put when another bitmap is picked for editing.
-        if let Some(sel) = &d.pixels {
-            let phase = (ctx.input(|i| i.time) * 8.0) as usize;
-            marching_ants(&p, &sel.mask, sel.x as f64, sel.y as f64, &to_screen, phase);
-            ctx.request_repaint_after(std::time::Duration::from_millis(120));
-        }
         // Rubber band for drag tools.
-        if let (true, Some(a), Some(b)) = (dragging, view.drag_start, drag_now) {
+        if let (true, false, Some(a), Some(b)) = (dragging, view.marquee_drag, view.drag_start, drag_now) {
             let r = Rect::from_two_pos(a, b);
             match tool {
                 Tool::Marquee => {
