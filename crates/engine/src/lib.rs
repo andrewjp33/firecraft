@@ -224,6 +224,9 @@ pub struct DocState {
     live_edit: Option<LiveEdit>,
     /// The Brush, Pencil or Eraser stroke being drawn.
     live_paint: Option<paint::LivePaint>,
+    /// Image stamps of the bitmaps Insert > Empty Bitmap made: a bitmap still holding one is
+    /// untouched (every write gives an image a new stamp), and goes away once deselected.
+    empty_bitmaps: Vec<u64>,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
 }
@@ -253,6 +256,7 @@ impl DocState {
             symbol_nine: None,
             live_edit: None,
             live_paint: None,
+            empty_bitmaps: Vec::new(),
             revision: 0,
         }
     }
@@ -443,6 +447,10 @@ impl DocState {
     /// Whether canvas point (`x`, `y`) is inside the selection's bounding box (pressing there
     /// with the Pointer drags the selection, even where another object lies on top).
     pub fn selection_contains(&self, x: f64, y: f64) -> bool {
+        // An empty bitmap covers the canvas but shows no box: a press elsewhere deselects it.
+        if self.selection.iter().all(|r| self.is_empty_bitmap(*r)) {
+            return false;
+        }
         self.selection_bounds()
             .is_some_and(|(bx, by, bw, bh)| x >= bx && y >= by && x < bx + bw && y < by + bh)
     }
@@ -726,6 +734,125 @@ impl DocState {
             }
             s.pixels = None;
         });
+    }
+
+    /// Edit > Insert > Empty Bitmap, the Layers panel's New Bitmap Image: a transparent bitmap
+    /// the size of the canvas at the top of the current layer, selected, to paint or fill. As in
+    /// Fireworks MX it is no undo step, and deselected while still empty it goes away again
+    /// ([`drop_empty_bitmaps`](Self::drop_empty_bitmaps)).
+    pub fn insert_empty_bitmap(&mut self) {
+        self.commit_live_edit();
+        let image = RgbaImage::new(self.doc.width.max(1), self.doc.height.max(1), Rgba::TRANSPARENT);
+        let stamp = image.stamp();
+        let layer = self.writable_layer();
+        let f = self.frame();
+        let Some(cell) = self.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) else {
+            return;
+        };
+        cell.push(Element::new(ElementKind::Bitmap(Bitmap { x: 0, y: 0, image })));
+        self.selection = vec![ElementRef::new(layer, cell.len() - 1)];
+        self.doc.current_layer = layer;
+        self.pixels = None;
+        self.empty_bitmaps.push(stamp);
+        self.touch();
+    }
+
+    /// Whether `r` is a bitmap from [`insert_empty_bitmap`](Self::insert_empty_bitmap) that
+    /// nothing has been painted, filled or pasted into yet.
+    pub fn is_empty_bitmap(&self, r: ElementRef) -> bool {
+        !self.empty_bitmaps.is_empty()
+            && matches!(
+                self.element(r).map(|e| &e.kind),
+                Some(ElementKind::Bitmap(b)) if self.empty_bitmaps.contains(&b.image.stamp())
+            )
+    }
+
+    /// Remove the empty bitmaps that are no longer selected (Fireworks MX: "If the empty bitmap
+    /// is deselected before any pixels have been drawn [...] it disappears"). No undo step, as in
+    /// Fireworks. The UI calls this once per update.
+    pub fn drop_empty_bitmaps(&mut self) {
+        if self.empty_bitmaps.is_empty() || self.live_paint.is_some() || self.live_edit.is_some() {
+            return;
+        }
+        let f = self.frame();
+        let in_use = |r: ElementRef| {
+            self.selection.iter().any(|s| s.layer == r.layer && s.index == r.index)
+                || self.pixels.as_ref().is_some_and(|p| p.target == r)
+        };
+        let mut gone = Vec::new();
+        for (li, layer) in self.doc.layers.iter().enumerate() {
+            for (ei, el) in layer.elements(f).iter().enumerate() {
+                if let ElementKind::Bitmap(b) = &el.kind
+                    && self.empty_bitmaps.contains(&b.image.stamp())
+                    && !in_use(ElementRef::new(li, ei))
+                {
+                    gone.push((li, ei));
+                }
+            }
+        }
+        if gone.is_empty() {
+            return;
+        }
+        // Last first, so the earlier positions stay valid; references above each one move down.
+        for &(li, ei) in gone.iter().rev() {
+            if let Some(cell) = self.doc.layers.get_mut(li).and_then(|l| l.elements_mut(f)) {
+                cell.remove(ei);
+            }
+            let shift = |r: &mut ElementRef| {
+                if r.layer == li && r.index > ei {
+                    r.index -= 1;
+                }
+            };
+            self.selection.iter_mut().for_each(shift);
+            if let Some(p) = self.pixels.as_mut() {
+                shift(&mut p.target);
+            }
+        }
+        // The document is as it was before the insert: redraw, but it is not a change.
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Shrink bitmap `r` to its non-transparent pixels; a pixel selection on it follows.
+    pub(crate) fn trim_bitmap(&mut self, r: ElementRef) {
+        let Some(Element {
+            kind: ElementKind::Bitmap(b),
+            ..
+        }) = self.element_mut(r)
+        else {
+            return;
+        };
+        let (w, h) = (b.image.width() as i64, b.image.height() as i64);
+        let Some((l, t, rr, bb)) = paint::opaque_bounds(&b.image) else {
+            return;
+        };
+        if (l, t, rr, bb) == (0, 0, w, h) {
+            return;
+        }
+        let mut crop = RgbaImage::new((rr - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
+        crop.copy_from(&b.image, -l, -t);
+        b.x += l;
+        b.y += t;
+        b.image = crop;
+        self.crop_pixel_selection(r, (l, t), ((rr - l) as u32, (bb - t) as u32));
+    }
+
+    /// Bitmap `r` now starts `offset` pixels further in and is `size` big: move its pixel
+    /// selection's mask along.
+    pub(crate) fn crop_pixel_selection(&mut self, r: ElementRef, offset: (i64, i64), size: (u32, u32)) {
+        let Some(sel) = self.pixels.as_mut().filter(|p| p.target == r) else {
+            return;
+        };
+        let mut mask = Mask::new(size.0, size.1);
+        for y in 0..size.1 as i64 {
+            for x in 0..size.0 as i64 {
+                mask.set(x, y, sel.mask.get(x + offset.0, y + offset.1));
+            }
+        }
+        if mask.is_empty() {
+            self.pixels = None;
+        } else {
+            sel.mask = mask;
+        }
     }
 
     /// Move the selected objects.
@@ -1568,6 +1695,59 @@ mod tests {
         assert_eq!((b.x, b.y), (19, 19));
         // The composite is unchanged by a cut-to-new-object.
         assert_eq!(d.doc.render(0).get(50, 50), Some(Rgba::new(255, 0, 0, 255)));
+    }
+
+    #[test]
+    fn an_empty_bitmap_covers_the_canvas_and_goes_when_deselected_unused() {
+        // Measured in Fireworks MX (Edit > Insert > Empty Bitmap on a 120 x 80 canvas): an image
+        // at 0,0 120x80 on the current layer, selected, no undo step; leaving it empty removes it.
+        let mut d = DocState::new(Document::new(120, 80, 72.0, Some(Rgba::WHITE)));
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        let steps = undo_steps(&d);
+        d.insert_empty_bitmap();
+        assert_eq!(undo_steps(&d), steps, "no undo step");
+        let r = d.selection[0];
+        assert_eq!((r.layer, r.index), (0, 1), "on top of the current layer");
+        let Some(ElementKind::Bitmap(b)) = d.element(r).map(|e| &e.kind) else {
+            panic!("not a bitmap")
+        };
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (0, 0, 120, 80));
+        assert!(b.image.pixels().iter().all(|p| p.a == 0));
+        assert!(d.is_empty_bitmap(r));
+        assert!(!d.selection_contains(60.0, 40.0), "a press on the canvas doesn't drag it");
+        d.drop_empty_bitmaps();
+        assert_eq!(d.doc.layers[0].elements(0).len(), 2, "kept while selected");
+        d.selection.clear();
+        d.drop_empty_bitmaps();
+        assert_eq!(d.doc.layers[0].elements(0).len(), 1, "gone once deselected");
+        assert_eq!(undo_steps(&d), steps);
+    }
+
+    #[test]
+    fn dropping_an_empty_bitmap_keeps_other_references_right() {
+        let mut d = DocState::new(Document::new(60, 40, 72.0, Some(Rgba::WHITE)));
+        d.insert_empty_bitmap();
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        // The rectangle went above the empty bitmap and is selected now.
+        assert_eq!(d.selection[0].index, 1);
+        d.drop_empty_bitmaps();
+        assert_eq!(d.doc.layers[0].elements(0).len(), 1);
+        assert_eq!(d.selection[0].index, 0);
+        assert!(matches!(
+            d.element(d.selection[0]).map(|e| &e.kind),
+            Some(ElementKind::Path(_))
+        ));
+    }
+
+    #[test]
+    fn an_empty_bitmap_goes_on_an_editable_layer() {
+        let mut d = DocState::new(Document::new(60, 40, 72.0, Some(Rgba::WHITE)));
+        d.new_layer();
+        let top = d.doc.current_layer;
+        d.doc.layers[top].locked = true;
+        d.insert_empty_bitmap();
+        assert_ne!(d.selection[0].layer, top);
+        assert_eq!(d.doc.current_layer, d.selection[0].layer);
     }
 
     #[test]

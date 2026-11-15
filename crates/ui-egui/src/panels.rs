@@ -460,6 +460,12 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 let cur = d.doc.current_layer;
                 d.delete_layer(cur);
             }
+            if icons::glyph_button(ui, Glyph::NewBitmap, 16.0, true)
+                .on_hover_text("New Bitmap Image")
+                .clicked()
+            {
+                d.insert_empty_bitmap();
+            }
             if icons::glyph_button(ui, Glyph::Plus, 16.0, true)
                 .on_hover_text("New Layer")
                 .clicked()

@@ -1237,6 +1237,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             _ => Vec2::ZERO,
         };
         for r in &d.selection {
+            // An empty bitmap (Insert > Empty Bitmap) shows no box, as in Fireworks MX.
+            if d.is_empty_bitmap(*r) {
+                continue;
+            }
             // A symbol instance shows the rectangle around it, dotted, and nothing else (as in
             // Fireworks; its distorted shape appears with the transform tools).
             if let Some((x, y, w, h)) = d.instance_rect(*r) {

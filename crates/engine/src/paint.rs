@@ -491,16 +491,19 @@ impl DocState {
                     return false;
                 };
                 let (bx, by, bw, bh) = (b.x, b.y, b.image.width() as i64, b.image.height() as i64);
+                // An empty bitmap (Insert > Empty Bitmap) is trimmed like a new one.
+                let fresh = self.is_empty_bitmap(r);
                 // Only an unconstrained stroke can make the bitmap bigger.
                 if clip.is_some() || keep_alpha || tool == PaintTool::Eraser {
-                    (r, false, (bx, by), b.image.clone(), Some((0, 0, bw, bh)))
+                    let area = (!fresh).then_some((0, 0, bw, bh));
+                    (r, false, (bx, by), b.image.clone(), area)
                 } else {
                     let (l, t) = (bx.min(0), by.min(0));
                     let (rr, bb) = ((bx + bw).max(cw), (by + bh).max(ch));
                     let mut buf = RgbaImage::new((rr - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
                     buf.copy_from(&b.image, bx - l, by - t);
                     let area = (bx - l, by - t, bx - l + bw, by - t + bh);
-                    (r, false, (l, t), buf, Some(area))
+                    (r, false, (l, t), buf, (!fresh).then_some(area))
                 }
             }
             None => {
@@ -664,9 +667,14 @@ impl DocState {
                 self.cancel_live_edit();
                 return;
             };
-            let mut crop = RgbaImage::new((r - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
+            let size = ((r - l) as u32, (bb - t) as u32);
+            let mut crop = RgbaImage::new(size.0, size.1, Rgba::TRANSPARENT);
             crop.copy_from(&image, -l, -t);
             self.set_paint_buffer(live.target, (live.origin.0 + l, live.origin.1 + t), &crop);
+            // A pixel selection confined the stroke, so the buffer was the bitmap itself.
+            if live.clip.is_some() {
+                self.crop_pixel_selection(live.target, (l, t), size);
+            }
         }
         self.touch();
         self.commit_live_edit();
@@ -728,8 +736,13 @@ impl DocState {
             .filter(|p| p.target == target)
             .map(|p| &p.mask);
         let (px, py) = (x.floor() as i64 - b.x, y.floor() as i64 - b.y);
-        // Fireworks trims a bitmap to its opaque area, so what lies beyond it isn't part of it.
-        let extent = opaque_bounds(&b.image);
+        // Fireworks trims a bitmap to its opaque area, so what lies beyond it isn't part of it;
+        // an empty bitmap (Insert > Empty Bitmap) is all there until it is left.
+        let extent = if self.is_empty_bitmap(target) {
+            Some((0, 0, b.image.width() as i64, b.image.height() as i64))
+        } else {
+            opaque_bounds(&b.image)
+        };
         let mask = match selected {
             Some(sel) if paint.bucket_fill_selection => sel.clone(),
             _ => {
@@ -778,6 +791,7 @@ impl DocState {
         let paint = &opts.paint;
         let opacity = percent(paint.opacity);
         let (blend, keep_alpha) = (paint.blend, paint.preserve_transparency);
+        let fresh = self.is_empty_bitmap(target);
         self.edit(label, |s| {
             if let Some(Element {
                 kind: ElementKind::Bitmap(b),
@@ -795,6 +809,9 @@ impl DocState {
                     keep_alpha,
                     math,
                 );
+            }
+            if fresh {
+                s.trim_bitmap(target);
             }
         });
     }
@@ -837,7 +854,7 @@ fn fill_masked(
 }
 
 /// The rectangle holding every non-transparent pixel.
-fn opaque_bounds(image: &RgbaImage) -> Option<Area> {
+pub(crate) fn opaque_bounds(image: &RgbaImage) -> Option<Area> {
     let w = image.width() as i64;
     let mut a = None;
     for (i, p) in image.pixels().iter().enumerate() {
@@ -913,6 +930,49 @@ mod tests {
         assert!(b.image.pixels().iter().any(|p| p.a != 0));
         d.undo();
         assert!(d.element(r).is_none());
+    }
+
+    #[test]
+    fn painting_into_an_empty_bitmap_trims_it_to_the_stroke() {
+        // Fireworks MX keeps it canvas-sized until bitmap editing ends, then trims it to the
+        // pixels painted (an Empty Bitmap with a stroke: 17,10 63x43 on a 120 x 80 canvas);
+        // FireCraft trims at the end of each stroke, as for a bitmap the stroke made itself.
+        let mut d = doc();
+        d.insert_empty_bitmap();
+        let r = d.selection[0];
+        let steps = d.history.labels().count();
+        line(&mut d, PaintTool::Pencil, (10.0, 20.0), (30.0, 20.0), &options());
+        assert_eq!(d.selection, vec![r], "the stroke went into the empty bitmap");
+        assert_eq!(d.doc.layers[0].elements(0).len(), 1);
+        let b = bitmap(&d, r);
+        assert_eq!((b.x, b.y, b.image.height()), (10, 20, 1));
+        assert!(!d.is_empty_bitmap(r));
+        assert_eq!(d.history.labels().count(), steps + 1);
+        d.selection.clear();
+        d.drop_empty_bitmaps();
+        assert_eq!(d.doc.layers[0].elements(0).len(), 1, "a painted bitmap stays");
+        // Undoing the stroke brings back the empty bitmap, which goes when deselected.
+        d.undo();
+        d.selection.clear();
+        d.drop_empty_bitmaps();
+        assert!(d.doc.layers[0].elements(0).is_empty());
+    }
+
+    #[test]
+    fn a_marquee_in_an_empty_bitmap_fills() {
+        let mut d = doc();
+        d.insert_empty_bitmap();
+        let r = d.selection[0];
+        let o = options();
+        d.marquee((10.0, 10.0, 30.0, 25.0), false, &o, Combine::Replace);
+        d.paint_bucket(15.0, 15.0, &o);
+        let b = bitmap(&d, r);
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (10, 10, 20, 15));
+        assert!(b.image.pixels().iter().all(|p| *p == Rgba::new(0, 0, 255, 255)));
+        // The pixel selection followed the trim.
+        let sel = d.pixels.as_ref().expect("still selected");
+        assert_eq!((sel.mask.width(), sel.mask.height()), (20, 15));
+        assert_eq!(sel.mask.get(0, 0), 255);
     }
 
     #[test]

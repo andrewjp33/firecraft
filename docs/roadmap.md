@@ -16,6 +16,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
   Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
+- Empty bitmaps: the Layers panel's New Bitmap Image and Edit > Insert > Empty Bitmap, removed again
+  when deselected unused ([behavior/painting.md](behavior/painting.md#empty-bitmaps))
 - Text tool: click or drag to make text, in-place editing, per-character formatting, Property inspector,
   Missing Fonts, Fonts folder, saving text Fireworks MX opens ([behavior/text.md](behavior/text.md))
 - Fills: Fill Options, Edit Gradient (stops, opacity, presets), Web Dither, Pattern, handles on the

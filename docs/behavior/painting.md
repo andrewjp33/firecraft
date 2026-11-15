@@ -19,6 +19,31 @@ of them. Fireworks shows no selection box while a painting tool is active.
 Fireworks trims a bitmap to its opaque area. FireCraft trims a new bitmap when the stroke ends;
 an existing one keeps at least its old rectangle.
 
+## Empty bitmaps
+
+The Layers panel's **New Bitmap Image** button (between New/Duplicate Layer and Delete; Add Mask
+sits beside it in Fireworks MX) and **Edit > Insert > Empty Bitmap** add an empty bitmap to paint,
+fill or draw a marquee in. Measured in Fireworks MX under Wine on a 120 x 80 canvas (2026-11-15,
+menu driven with `xin.py`, document read back with a `.jsf`):
+
+| Step | Fireworks MX |
+|---|---|
+| Insert > Empty Bitmap | An image at 0,0, 120x80 (the canvas), transparent, at the top of the current layer, selected; no selection box; the title shows "(Bitmap)"; **no undo step** |
+| Leave it (the bitmap-mode stop button, or select something else) still empty | It is removed, again with no undo step |
+| Brush stroke into it | Still 0,0 120x80 while editing it |
+| Leave it after the stroke | Trimmed to the painted pixels (17,10 63x43), as the undo step "Exit Bitmap Mode" |
+
+The scripting call `dom.addNewImage(rect, fill)` is something else: an image of that size that
+stays when deselected. `addNewImage()` without a rectangle fails.
+
+FireCraft (`DocState::insert_empty_bitmap`): the same canvas-sized, selected, unrecorded bitmap,
+with no selection box. It counts as empty while its pixels are untouched (its image stamp is the
+one it was made with), and is removed without an undo step when it is neither selected nor
+holding the pixel selection. A stroke into it trims it at the end of the stroke, and a Paint
+Bucket fill (the whole bitmap counts, or the marquee drawn in it) trims it after the fill, so
+FireCraft has no separate bitmap mode to leave. A press on the canvas with the Pointer does not
+drag it.
+
 ## Strokes
 
 * A stroke runs through the **middle of the pixels under the mouse** (`floor + 0.5`), for the

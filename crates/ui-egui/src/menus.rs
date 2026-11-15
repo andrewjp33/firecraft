@@ -105,6 +105,9 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     with_doc(app, |d| d.new_layer());
                 }
                 ui.separator();
+                if item(ui, "Empty Bitmap", "", has_doc) {
+                    with_doc(app, |d| d.insert_empty_bitmap());
+                }
                 if item(ui, "Bitmap via Copy", "", has_pixels) {
                     with_doc(app, |d| d.bitmap_via(false));
                 }

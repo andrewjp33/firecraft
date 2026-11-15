@@ -250,6 +250,8 @@ pub enum Glyph {
     Plus,
     Minus,
     Trash,
+    /// The Layers panel's New Bitmap Image: a transparent (checkered) image.
+    NewBitmap,
     Folder,
     Globe,
     Pencil,
@@ -316,6 +318,25 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
             );
             p.line_segment([at(0.18, 0.25), at(0.82, 0.25)], s);
             p.line_segment([at(0.42, 0.15), at(0.58, 0.15)], s);
+        }
+        Glyph::NewBitmap => {
+            let frame = Rect::from_min_max(at(0.1, 0.15), at(0.9, 0.85));
+            p.rect_filled(frame, 0.0, Color32::WHITE);
+            // A 3 x 2 checkerboard, as Fireworks shows transparency.
+            for (cx, cy) in [(0, 0), (2, 0), (1, 1)] {
+                let x = 0.1 + cx as f32 * 0.8 / 3.0;
+                let y = 0.15 + cy as f32 * 0.35;
+                p.rect_filled(
+                    Rect::from_min_max(at(x, y), at(x + 0.8 / 3.0, y + 0.35)),
+                    0.0,
+                    Color32::from_gray(190),
+                );
+            }
+            p.rect_stroke(frame, 0.0, s, egui::StrokeKind::Inside);
+            // The "new" corner.
+            let corner = Rect::from_min_max(at(0.02, 0.55), at(0.4, 0.95));
+            p.rect_filled(corner, 0.0, c);
+            p.rect_filled(corner.shrink(corner.width() * 0.3), 0.0, Color32::WHITE);
         }
         Glyph::Folder => {
             p.rect_filled(

@@ -792,6 +792,10 @@ impl FireCraftApp {
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();
+        // An empty bitmap deselected before anything was put in it goes away (Fireworks MX).
+        if let Some(d) = self.session.active_doc_mut() {
+            d.drop_empty_bitmaps();
+        }
         // Selection and vector tools leave the Pen's path open, to resume on returning; any
         // other tool finishes it (Fireworks MX).
         if !matches!(
