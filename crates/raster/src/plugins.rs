@@ -105,28 +105,37 @@ pub struct BevelBoss {
     pub shadow: Rgba,
     /// Bevel Profile: (position from the edge 0..1, height 0..1) points.
     pub profile: Vec<(f32, f32)>,
+    /// Per profile point: a sharp corner (the third number of each point in `BEvl`, 1) or smooth
+    /// (0), as Eye Candy's profile editor marks them.
+    pub profile_sharp: Vec<bool>,
     /// Darken Deep Areas, 0..=100.
     pub darken: f32,
 }
 
 impl BevelBoss {
     pub fn parse(p: &Params) -> BevelBoss {
-        let profile = p
+        // "Bevel: 3/0.000 0.261 0/0.401 0.225 0/1.000 0.000 0": count, then x, y and sharp (1)
+        // or smooth (0) per point.
+        let points: Vec<(f32, f32, bool)> = p
             .text("BEvl")
             .and_then(|t| {
-                // "Bevel: 3/0.000 0.261 0/0.401 0.225 0/1.000 0.000 0"
                 let body = t.strip_prefix("Bevel:")?.trim().to_owned();
                 let mut parts = body.split('/');
                 parts.next()?;
-                let pts: Vec<(f32, f32)> = parts
+                let pts: Vec<(f32, f32, bool)> = parts
                     .filter_map(|s| {
-                        let mut n = s.split_whitespace().map(|v| v.parse::<f32>());
-                        Some((n.next()?.ok()?, n.next()?.ok()?))
+                        let mut n = s.split_whitespace();
+                        let x = n.next()?.parse::<f32>().ok()?;
+                        let y = n.next()?.parse::<f32>().ok()?;
+                        let sharp = n.next().is_some_and(|f| f.trim() == "1");
+                        Some((x, y, sharp))
                     })
                     .collect();
                 (pts.len() >= 2).then_some(pts)
             })
-            .unwrap_or_else(|| vec![(0.0, 0.0), (1.0, 1.0)]);
+            .unwrap_or_else(|| vec![(0.0, 0.0, false), (1.0, 1.0, false)]);
+        let profile = points.iter().map(|&(x, y, _)| (x, y)).collect();
+        let profile_sharp = points.iter().map(|&(_, _, s)| s).collect();
         BevelBoss {
             width: p.pixels("Wdth", 10.0),
             height: p.num("Cntr", 50.0),
@@ -140,6 +149,7 @@ impl BevelBoss {
             highlight: p.color("Clr ", Rgba::WHITE),
             shadow: p.color("sdwC", Rgba::BLACK),
             profile,
+            profile_sharp,
             darken: p.num("Drkn", 0.0),
         }
     }
@@ -153,47 +163,40 @@ impl BevelBoss {
     }
 
     /// The profile height (0..1) at `t` (1 = the object's edge, 0 = the inner end of the
-    /// bevel, as measured). Up to three points: the polynomial through all of them (with three,
-    /// the parabola): eye2.png's dome has a slope falling linearly from the edge, the parabola's
-    /// (eye2 87 -> 95%, eye 89 -> 93%, ball 99.5 -> 100%, bevel_probe 155 -> 117). More points
-    /// (unmeasured): a monotone cubic through them.
+    /// bevel, as measured). The curve is split at sharp points; each piece is the polynomial
+    /// through its points (two: a straight line, three: the parabola). Measured on
+    /// `rect_bevel_probe` under Wine (tilt within about 1 degree for 3-, 4- and 5-point smooth
+    /// profiles, where splines were 3-20 degrees off; sharp points give straight pieces), and
+    /// eye2.png / eye3_groove.png. Heights stay within 0..1.
     fn profile_at(&self, t: f32) -> f32 {
         let p = &self.profile;
         let t = t.clamp(0.0, 1.0);
-        if p.len() <= 3 {
-            // Lagrange form of the polynomial through the points.
-            return p
-                .iter()
-                .enumerate()
-                .map(|(i, pi)| {
-                    let l: f32 = p
-                        .iter()
-                        .enumerate()
-                        .filter(|&(j, _)| j != i)
-                        .map(|(_, pj)| (t - pj.0) / (pi.0 - pj.0))
-                        .product();
-                    l * pi.1
-                })
-                .sum();
+        let n = p.len();
+        if n == 0 {
+            return 0.0;
         }
-        let k = p.iter().position(|q| q.0 >= t).unwrap_or(p.len() - 1).max(1);
-        let (a, b) = (p[k - 1], p[k]);
-        let span = (b.0 - a.0).max(1e-6);
-        let u = ((t - a.0) / span).clamp(0.0, 1.0);
-        let secant = |j: usize| (p[j + 1].1 - p[j].1) / (p[j + 1].0 - p[j].0).max(1e-6);
-        let slope = |i: usize| -> f32 {
-            if i == 0 {
-                secant(0)
-            } else if i == p.len() - 1 {
-                secant(i - 1)
-            } else {
-                let (d0, d1) = (secant(i - 1), secant(i));
-                if d0 * d1 <= 0.0 { 0.0 } else { 2.0 / (1.0 / d0 + 1.0 / d1) }
-            }
-        };
-        let (m0, m1) = (slope(k - 1) * span, slope(k) * span);
-        let (u2, u3) = (u * u, u * u * u);
-        (2.0 * u3 - 3.0 * u2 + 1.0) * a.1 + (u3 - 2.0 * u2 + u) * m0 + (-2.0 * u3 + 3.0 * u2) * b.1 + (u3 - u2) * m1
+        // The piece holding t: from the last sharp point at or before t to the next one after.
+        let sharp = |i: usize| i == 0 || i == n - 1 || self.profile_sharp.get(i).copied().unwrap_or(false);
+        let k = p.iter().position(|q| q.0 >= t).unwrap_or(n - 1).max(1);
+        let start = (0..k).rev().find(|&i| sharp(i)).unwrap_or(0);
+        let end = (k..n).find(|&i| sharp(i)).unwrap_or(n - 1);
+        let piece = p.get(start..=end).unwrap_or(p);
+        piece
+            .iter()
+            .enumerate()
+            .map(|(i, pi)| {
+                let l: f32 = piece
+                    .iter()
+                    .enumerate()
+                    .filter(|&(j, _)| j != i)
+                    .map(|(_, pj)| (t - pj.0) / (pi.0 - pj.0))
+                    .product();
+                l * pi.1
+            })
+            .sum::<f32>()
+            // Within the profile graph: eye3_groove.png's centre stays flat where the parabola
+            // through (0.194, 1), (0.306, 0.021), (0.568, 0.021) dips below 0.
+            .clamp(0.0, 1.0)
     }
 
     /// Fitted to Fireworks MX renders of the bundled plug-in (docs/behavior/plugins.md,
@@ -219,7 +222,10 @@ impl BevelBoss {
             return;
         }
         let bw = self.width as f64;
-        let scale = bw * (self.height as f64 / 100.0) * 1.5;
+        // Measured on rect_bevel_probe (straight profile, Height 10/25/50): the drop over the
+        // bevel is width x (0.3 + Height Scale/100) (slopes 0.40, 0.55, 0.80), so even Height 0
+        // bevels.
+        let scale = bw * (0.3 + self.height as f64 / 100.0);
         let near = crate::bevel::nearest_seed(
             &if self.outside {
                 inside.clone()
@@ -297,11 +303,10 @@ impl BevelBoss {
             let l = (x * x + y * y + z * z).sqrt().max(1e-9);
             (x / l, y / l, z / l)
         };
-        // Highlight: (1 - angle(n, H) / cone)^2.2 with cone = Highlight Size% of 85.5 degrees
-        // (fitted on bevel_probe, soft_bevel_probe and spectrum_wave.png: the linear cone of
-        // Size% of 45 degrees ended too soon, losing the dim highlight on spectrum_wave's left
-        // edge, 13 degrees off the half vector).
-        let cone = ((self.highlight_size as f64 / 100.0) * 85.5).to_radians();
+        // Highlight: cos(angle(n, H))^e, e = 13 + 78 (1 - Size)^0.56 (fitted on bevel_probe2's cones
+        // under Wine: 85, 79, 66, 49, 13 at Size 10, 25, 50, 75, 100).
+        let size = (self.highlight_size as f64 / 100.0).clamp(0.0, 1.0);
+        let shine = 13.0 + 78.0 * (1.0 - size).powf(0.56);
         let flat = light.2.max(1e-3);
         let src = img.clone();
         let at = |x: i64, y: i64| -> f64 {
@@ -326,14 +331,8 @@ impl BevelBoss {
                 if !self.shade_interior {
                     diffuse = (diffuse / flat).min(1.0);
                 }
-                let ang = (n.0 * half.0 + n.1 * half.1 + n.2 * half.2)
-                    .clamp(-1.0, 1.0)
-                    .acos();
-                let spec = if cone > 0.0 {
-                    (1.0 - ang / cone).max(0.0).powf(2.2) * (self.brightness as f64 / 100.0)
-                } else {
-                    0.0
-                };
+                let spec = (n.0 * half.0 + n.1 * half.1 + n.2 * half.2).max(0.0).powf(shine)
+                    * (self.brightness as f64 / 100.0);
                 let p = src.pixels().get(i).copied().unwrap_or_default();
                 let deep = (self.darken as f64 / 100.0)
                     * (1.0 - height.get(i).copied().unwrap_or(0.0) / scale.max(1e-6)).clamp(0.0, 1.0)
@@ -937,6 +936,31 @@ mod tests {
     }
 
     /// Both colour maths draw the same trail; Precise only drops the byte rounding.
+    /// Profile pieces: split at sharp points, the polynomial through each piece's points,
+    /// clamped to 0..1 (measured on rect_bevel_probe and eye3_groove.png).
+    #[test]
+    fn bevel_profile_pieces() {
+        let kv = params(&[(
+            "external_filter_key__BEvl",
+            // Bevel: 3/0.000 1.000 0/0.500 0.300 1/1.000 0.000 0 (sharp middle)
+            "426576656c3a20332f302e30303020312e30303020302f302e35303020302e33303020312f312e30303020302e3030302030 0",
+        )]);
+        let b = BevelBoss::parse(&Params(&kv));
+        assert_eq!(b.profile_sharp, vec![false, true, false]);
+        // Straight pieces either side of the sharp point.
+        assert!((b.profile_at(0.75) - 0.15).abs() < 1e-5);
+        assert!((b.profile_at(0.25) - 0.65).abs() < 1e-5);
+        // All smooth: the parabola through the three points.
+        let mut s = b.clone();
+        s.profile_sharp = vec![false; 3];
+        // Newton form through (0, 1), (0.5, 0.3), (1, 0): 1 - 1.4 x + 0.8 x (x - 0.5).
+        let (x, want) = (0.75f32, 1.0 - 1.4 * 0.75 + 0.8 * 0.75 * 0.25);
+        assert!((s.profile_at(x) - want).abs() < 1e-5, "{} vs {want}", s.profile_at(x));
+        // Clamped to the graph.
+        s.profile = vec![(0.194, 1.0), (0.306, 0.021), (0.568, 0.021)];
+        assert_eq!(s.profile_at(0.5), 0.0);
+    }
+
     #[test]
     fn motion_trail_precise_matches_classic_shape() {
         let mut img = RgbaImage::new(90, 40, Rgba::TRANSPARENT);

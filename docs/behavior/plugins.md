@@ -43,34 +43,33 @@ with a soft halo, a soft alpha ramp with a soft hole, rings whose transparent pi
 or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
 
 - The object is its pixels at least half opaque. The profile's x runs from 0 at `width` inside
-  it to 1 at its edge (the default curve, rising to the edge, makes a dish: the side facing the
-  light is dark). The curve through up to three points is the polynomial through them (with
-  three, the parabola): eye2.png (a 1000 px circle, Width 428) shows a dome whose slope falls
-  linearly from the edge to zero, which the monotone cubic used before put mid-way
-  (eye2 87.1 -> 95.3%, eye 88.8 -> 93.2%, ball 99.5 -> 100%, bevel_probe 155 -> 117). Profiles
-  with more points (none in the references) still use a monotone cubic. The profile string is
-  `Bevel: n/x y f/...` with a third number per point (always 0 so far; perhaps a corner flag),
-  which FireCraft ignores.
-- Distance to the edge (inside, 2026-11-16): measured to the anti-aliased edge line at the nearest
-  outside pixel (normal from the Sobel gradient of alpha, offset from its coverage by Gustavson's
-  EDTAA formula, perpendicular distance), where alpha has a real edge (gradient at least 1); soft
-  ramps keep the plain distance. Distances to pixel centres stepped by up to 0.32 px around a
-  400 px circle and drew radial streaks on large domes (eye2.png); now within 0.07. Probe:
-  `crates/io/examples/smooth_probe.rs` (eye2's bevel on a 400 px disc at Smoothness 0-100),
-  rendered by Fireworks MX under Wine (colours right). Fireworks MX shows faint streaks at
-  Smoothness 0 and none from about 20; FireCraft is now as faint at 0 and nearly clean at 20.
-  bevel_probe 117 -> 103, plugin_test_windows 88.9 -> 90.0%; eye2 95.3 -> 95.1%, eye 93.2 ->
-  92.8% (their highlight spot is still smaller than Fireworks MX's).
-- Height = profile x width x Height Scale/100 x 1.5; Smoothness blurs it with sigma 5.25 x
+  it to 1 at its edge. Profile (`BEvl`, `Bevel: n/x y f/...`): f is Eye Candy's per-point corner
+  flag, 1 sharp, 0 smooth. The curve is split at sharp points and each piece is the polynomial
+  through its points (two: a straight line; three: the parabola), clamped to 0..1. Measured
+  2026-11-16 on `crates/io/examples/rect_bevel_probe.rs` under Wine (tilt from the top edge's
+  shading: within 0.5-1.2 degrees for 3-, 4- and 5-point smooth profiles, where Catmull-Rom and
+  natural splines were 2-21 degrees off; a sharp middle point gives two straight pieces),
+  eye2.png (the parabola) and the user's eye3_groove.png (7 points with sharp corners; its
+  centre stays flat where the parabola would dip below 0).
+- Height: the profile's drop over the bevel is width x (0.3 + Height Scale/100) (rect probe,
+  straight profile: slopes 0.40, 0.55, 0.80 at Height 10, 25, 50; also the cones at Height 28,
+  eye3 at 50, eye2 at 76), so Height 0 still bevels. Smoothness blurs it with sigma 5.25 x
   Smoothness/100 px, the same at every width.
+- Distance to the edge (inside): measured to the anti-aliased edge line at the nearest outside
+  pixel (normal from the Sobel gradient of alpha, offset from its coverage by Gustavson's EDTAA
+  formula, perpendicular distance), where alpha has a real edge (gradient at least 1); soft ramps
+  keep the plain distance. Distances to pixel centres stepped by up to 0.32 px around a 400 px
+  circle and drew radial streaks on large domes (eye2.png); now within 0.07
+  (`crates/io/examples/smooth_probe.rs`, eye2's bevel at Smoothness 0-100, under Wine: Fireworks
+  MX shows faint streaks at Smoothness 0 and none from about 20).
 - Flat areas are lit too: colour x sin(inclination) (196 -> 139 at 45 degrees); colour =
   mix(Shadow Color, object, n.L). Inclination is the light's elevation.
-- Highlight: (1 - angle(n, H) / cone)^2.2 x Brightness, cone = Highlight Size% of 85.5 degrees
-  (2026-11-16; was a linear cone of Size% of 45 degrees, which ended too soon: spectrum_wave.png's
-  left canvas edge, about 13 degrees off H at Size 25%, shows a dim highlight strip in Fireworks
-  MX). The tail is sensitive: at spectrum_wave's light (inclination 51.5) a flat surface sits 19
-  degrees off H, so a longer tail tints the whole image. spectrum_wave 95.9 -> 97.0%, eye.png
-  86.7 -> 88.8%, spectrum_wave40 93.8 -> 96.2%; the strip is still dimmer than MX's (26 vs 41).
+- Highlight: cos(angle(n, H))^e x Brightness, e = 13 + 78 (1 - Size)^0.56, H halfway between
+  the light and the viewer. Fitted on `crates/io/examples/bevel_probe2.rs` (cones of constant
+  slope, so every angle shows around them; colour without green, so green is the highlight) under
+  Wine: exponents 85, 79, 66, 49, 13 at Highlight Size 10, 25, 50, 75, 100 (Size barely matters
+  up to 50, then widens fast; eye3.png at Size 100 showed the earlier cone, Size% of 85.5 degrees,
+  washing the whole dome out).
 - **Inside**, every visible pixel is shaded, also the faint ones beyond the half-opaque edge,
   and keeps its alpha. A semi-transparent pixel's colour is scaled by a / (a + 0.2 (1 - a))
   before shading (measured along the light's perpendicular on `soft_bevel_probe`: 0.42 at alpha
@@ -83,10 +82,11 @@ or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
   identically).
 - Colour math is f64 throughout, rounded once, in both colour-math modes (this is a fit, not a
   bit-exact port).
-- Probe error (mean premultiplied difference per cell) 485 -> 160 in total; ball.png 70.5 ->
-  99.5%, eye.png 81.8 -> 86.7%, plugin_test_windows.png 85.5 -> 87.3%. Still off: the rings at
-  Smoothness 0 (8 levels), spectrum_wave's highlight arc is broken where Fireworks MX's is smooth
-  (alpha noise against the half-opaque edge; pre-smoothing alpha didn't help).
+- Results (2026-11-16, after the profile, height and highlight measurements): eye.png 99.2%,
+  eye2.png 98.5%, eye3.png 92.3%, eye3_groove.png 98.5%, ball.png 100%, plugin_test_windows.png
+  91.4%, spectrum_wave.png 97.6%. Still off: eye3's very wide cone streaks a little more than
+  Fireworks MX's, and spectrum_wave's highlight arc is broken where Fireworks MX's is smooth
+  (alpha noise against the half-opaque edge; see below).
 
 ### Soft alpha and noise (open, 2026-11-16)
 
