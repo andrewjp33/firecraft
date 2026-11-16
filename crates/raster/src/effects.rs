@@ -452,33 +452,26 @@ impl Effect {
                     // unblended where the pixel is faint (W3C compositing), and the pixel keeps
                     // its alpha. Invert and Tint instead draw their blended result over the
                     // pixel (at 100% alpha doesn't matter); Erase fills as Normal.
-                    let precise = math == crate::ColorMath::Precise;
+                    if math == crate::ColorMath::Precise {
+                        *p = color_fill_precise(*p, *color, *opacity as f64, *mode);
+                        continue;
+                    }
+                    // Classic, in bytes: the opacity as a byte (50% is 127), the blend rounded
+                    // before it is mixed in.
                     let c = match mode {
-                        // The same model in f64, rounded once.
-                        BlendMode::Invert | BlendMode::Tint if precise => {
-                            let cb = [p.r, p.g, p.b].map(f64::from);
-                            let blend = mode.blend_precise(cb, [color.r, color.g, color.b].map(f64::from));
-                            let (sa, da) = (op as f64 / 255.0, p.a as f64 / 255.0);
-                            let out_a = sa + da * (1.0 - sa);
-                            let ch = |i: usize| {
-                                ((blend[i] * sa + cb[i] * da * (1.0 - sa)) / out_a).round().clamp(0.0, 255.0) as u8
-                            };
-                            Rgba::new(ch(0), ch(1), ch(2), p.a)
-                        }
                         BlendMode::Invert | BlendMode::Tint => {
                             let opaque = Rgba { a: 255, ..*p };
                             p.over(mode.composite_with(opaque, *color, 255, math), op)
                         }
                         BlendMode::Erase => p.over(*color, op),
-                        // In bytes: round(((255 - a) * fill + a * blend) / 255), blend rounded
-                        // first (bit-exact for every mode at 100%).
-                        _ if op == 255 && !precise => {
+                        // round(((255 - a) * fill + a * blend) / 255), bit-exact for every mode
+                        // at 100%.
+                        _ if op == 255 => {
                             let b = mode.composite_with(Rgba { a: 255, ..*p }, *color, 255, math);
                             let a = p.a as u32;
                             let ch = |f: u8, b: u8| (((255 - a) * f as u32 + a * b as u32 + 127) / 255) as u8;
                             Rgba::new(ch(color.r, b.r), ch(color.g, b.g), ch(color.b, b.b), p.a)
                         }
-                        // Precise: composite_with blends in f64 and rounds once.
                         _ => mode.composite_with(*p, *color, op, math),
                     };
                     *p = Rgba { a: p.a, ..c };
@@ -762,6 +755,34 @@ fn invert_over_original(inv: Rgba, math: crate::ColorMath) -> Rgba {
         (o + (i - o) * a / out_a).clamp(0, 255) as u8
     };
     Rgba::new(ch(inv.r), ch(inv.g), ch(inv.b), out_a.min(255) as u8)
+}
+
+/// Color Fill on one pixel in Precise colour math: Fireworks MX's model (see the Classic code in
+/// `Effect::apply_in`) in f64 with the exact opacity, rounded once. W3C compositing onto the
+/// pixel's own alpha: the source is the fill where the pixel is transparent and the blend where
+/// it is opaque; Invert and Tint use their blend as the source everywhere; Erase fills as Normal.
+/// The pixel keeps its alpha.
+fn color_fill_precise(p: Rgba, fill: Rgba, opacity: f64, mode: BlendMode) -> Rgba {
+    let sa = opacity.clamp(0.0, 1.0) * fill.a as f64 / 255.0;
+    if sa <= 0.0 {
+        return p;
+    }
+    let ba = p.a as f64 / 255.0;
+    let cb = [p.r, p.g, p.b].map(f64::from);
+    let cs = [fill.r, fill.g, fill.b].map(f64::from);
+    let blend = match mode {
+        BlendMode::Normal | BlendMode::Erase => cs,
+        _ => mode.blend_precise(cb, cs),
+    };
+    let out_a = sa + ba * (1.0 - sa);
+    let ch = |i: usize| {
+        let src = match mode {
+            BlendMode::Invert | BlendMode::Tint => blend[i],
+            _ => (1.0 - ba) * cs[i] + ba * blend[i],
+        };
+        ((src * sa + cb[i] * ba * (1.0 - sa)) / out_a).round().clamp(0.0, 255.0) as u8
+    };
+    Rgba::new(ch(0), ch(1), ch(2), p.a)
 }
 
 fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
@@ -1176,23 +1197,39 @@ mod tests {
                 for (x, y) in [(c.r, q.r), (c.g, q.g), (c.b, q.b), (c.a, q.a)] {
                     assert!(x.abs_diff(y) <= tol, "invert {p:?}: {c:?} vs {q:?}");
                 }
-                for mode in [BlendMode::Multiply, BlendMode::Screen, BlendMode::Tint, BlendMode::Invert] {
+                let modes = [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Tint, BlendMode::Invert, BlendMode::Erase];
+                for (mode, opacity) in modes.into_iter().flat_map(|m| [(m, 1.0), (m, 0.5)]) {
                     let fill = Effect::ColorFill {
                         color: Rgba::new(200, 60, 30, 255),
-                        opacity: 1.0,
+                        opacity,
                         mode,
                     };
                     let (mut c, mut q) = (RgbaImage::new(1, 1, p), RgbaImage::new(1, 1, p));
                     fill.apply_with(&mut c, Classic);
                     fill.apply_with(&mut q, Precise);
                     let (c, q) = (c.pixels()[0], q.pixels()[0]);
+                    // At 50% on very faint pixels Classic's byte opacity, rounded blend and
+                    // integer compositing add up to 2 levels (Tint at alpha 12: exact 132.87).
+                    let tol = if opacity < 1.0 && a < 32 { 2 } else { 1 };
                     for (x, y) in [(c.r, q.r), (c.g, q.g), (c.b, q.b)] {
-                        assert!(x.abs_diff(y) <= 1, "{mode:?} on {p:?}: {c:?} vs {q:?}");
+                        assert!(x.abs_diff(y) <= tol, "{mode:?} {opacity} on {p:?}: {c:?} vs {q:?}");
                     }
                     assert_eq!(q.a, a, "Color Fill keeps the pixel's alpha");
                 }
             }
         }
+        // Precise takes the opacity exactly: white at 50% on black is 127.5, rounded to 128
+        // (Classic takes 50% as the byte 127 and gives 127, as Fireworks MX).
+        let half = Effect::ColorFill {
+            color: Rgba::WHITE,
+            opacity: 0.5,
+            mode: BlendMode::Normal,
+        };
+        let black = Rgba::new(0, 0, 0, 255);
+        let (mut c, mut q) = (RgbaImage::new(1, 1, black), RgbaImage::new(1, 1, black));
+        half.apply_with(&mut c, Classic);
+        half.apply_with(&mut q, Precise);
+        assert_eq!((c.pixels()[0].r, q.pixels()[0].r), (127, 128));
     }
 
     #[test]
