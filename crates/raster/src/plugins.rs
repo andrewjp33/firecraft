@@ -190,8 +190,8 @@ impl BevelBoss {
     ///   k painted over the (usually transparent) pixels;
     /// - colour = mix(Shadow Color, object, n.L) everywhere when Shade Interior (flat areas get
     ///   sin(inclination)), relative to a flat surface otherwise;
-    /// - highlight = Highlight Color over it by (1 - angle(n, H) / (Highlight Size% of 45
-    ///   degrees)) x Brightness, H halfway between the light and the viewer.
+    /// - highlight = Highlight Color over it by (1 - angle(n, H) / (Highlight Size% of 85.5
+    ///   degrees))^2.2 x Brightness, H halfway between the light and the viewer.
     pub fn apply(&self, img: &mut RgbaImage) {
         let (w, h) = (img.width() as usize, img.height() as usize);
         if w == 0 || h == 0 || self.width <= 0.0 {
@@ -264,7 +264,11 @@ impl BevelBoss {
             let l = (x * x + y * y + z * z).sqrt().max(1e-9);
             (x / l, y / l, z / l)
         };
-        let cone = ((self.highlight_size as f64 / 100.0) * 45.0).to_radians();
+        // Highlight: (1 - angle(n, H) / cone)^2.2 with cone = Highlight Size% of 85.5 degrees
+        // (fitted on bevel_probe, soft_bevel_probe and spectrum_wave.png: the linear cone of
+        // Size% of 45 degrees ended too soon, losing the dim highlight on spectrum_wave's left
+        // edge, 13 degrees off the half vector).
+        let cone = ((self.highlight_size as f64 / 100.0) * 85.5).to_radians();
         let flat = light.2.max(1e-3);
         let src = img.clone();
         let at = |x: i64, y: i64| -> f64 {
@@ -293,7 +297,7 @@ impl BevelBoss {
                     .clamp(-1.0, 1.0)
                     .acos();
                 let spec = if cone > 0.0 {
-                    (1.0 - ang / cone).max(0.0) * (self.brightness as f64 / 100.0)
+                    (1.0 - ang / cone).max(0.0).powf(2.2) * (self.brightness as f64 / 100.0)
                 } else {
                     0.0
                 };

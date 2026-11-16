@@ -50,7 +50,12 @@ or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
   Smoothness/100 px, the same at every width.
 - Flat areas are lit too: colour x sin(inclination) (196 -> 139 at 45 degrees); colour =
   mix(Shadow Color, object, n.L). Inclination is the light's elevation.
-- Highlight: linear cone, 1 - angle(n, H) / (Highlight Size% of 45 degrees), x Brightness.
+- Highlight: (1 - angle(n, H) / cone)^2.2 x Brightness, cone = Highlight Size% of 85.5 degrees
+  (2026-11-16; was a linear cone of Size% of 45 degrees, which ended too soon: spectrum_wave.png's
+  left canvas edge, about 13 degrees off H at Size 25%, shows a dim highlight strip in Fireworks
+  MX). The tail is sensitive: at spectrum_wave's light (inclination 51.5) a flat surface sits 19
+  degrees off H, so a longer tail tints the whole image. spectrum_wave 95.9 -> 97.0%, eye.png
+  86.7 -> 88.8%, spectrum_wave40 93.8 -> 96.2%; the strip is still dimmer than MX's (26 vs 41).
 - **Inside**, every visible pixel is shaded, also the faint ones beyond the half-opaque edge,
   and keeps its alpha. A semi-transparent pixel's colour is scaled by a / (a + 0.2 (1 - a))
   before shading (measured along the light's perpendicular on `soft_bevel_probe`: 0.42 at alpha
