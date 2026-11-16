@@ -1109,6 +1109,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         && matches!(tool, Tool::Pointer | Tool::SelectBehind)
         && crate::motion_path::handles(&mut app.path_drag, d, resp, (origin, z))
     {
+        // The overlay below isn't reached while the path is busy: show the path as it is now,
+        // so the drag can be judged (Fireworks MX draws it moving; its selection box hides).
+        crate::motion_path::draw(&p, d, &to_screen);
         return;
     }
 
