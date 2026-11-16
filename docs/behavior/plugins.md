@@ -50,9 +50,17 @@ or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
   (eye2 87.1 -> 95.3%, eye 88.8 -> 93.2%, ball 99.5 -> 100%, bevel_probe 155 -> 117). Profiles
   with more points (none in the references) still use a monotone cubic. The profile string is
   `Bevel: n/x y f/...` with a third number per point (always 0 so far; perhaps a corner flag),
-  which FireCraft ignores. Remaining on eye2: fine radial streaks (distances to the nearest
-  outside pixel's centre step on a large circle; a sub-pixel correction from the edge pixel's
-  coverage didn't help).
+  which FireCraft ignores.
+- Distance to the edge (inside, 2026-11-16): measured to the anti-aliased edge line at the nearest
+  outside pixel (normal from the Sobel gradient of alpha, offset from its coverage by Gustavson's
+  EDTAA formula, perpendicular distance), where alpha has a real edge (gradient at least 1); soft
+  ramps keep the plain distance. Distances to pixel centres stepped by up to 0.32 px around a
+  400 px circle and drew radial streaks on large domes (eye2.png); now within 0.07. Probe:
+  `crates/io/examples/smooth_probe.rs` (eye2's bevel on a 400 px disc at Smoothness 0-100),
+  rendered by Fireworks MX under Wine (colours right). Fireworks MX shows faint streaks at
+  Smoothness 0 and none from about 20; FireCraft is now as faint at 0 and nearly clean at 20.
+  bevel_probe 117 -> 103, plugin_test_windows 88.9 -> 90.0%; eye2 95.3 -> 95.1%, eye 93.2 ->
+  92.8% (their highlight spot is still smaller than Fireworks MX's).
 - Height = profile x width x Height Scale/100 x 1.5; Smoothness blurs it with sigma 5.25 x
   Smoothness/100 px, the same at every width.
 - Flat areas are lit too: colour x sin(inclination) (196 -> 139 at 45 degrees); colour =

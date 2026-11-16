@@ -230,13 +230,29 @@ impl BevelBoss {
             h,
             !self.outside,
         );
+        // Inside, each pixel's distance to the edge is measured to the anti-aliased edge near its
+        // nearest outside pixel: along that pixel's alpha gradient, Gustavson's coverage-to-offset
+        // (EDTAA) gives the edge's line, and the pixel's perpendicular distance to that line is
+        // used. Distances to pixel centres stepped by up to a third of a pixel around large
+        // curves and drew radial streaks on eye2.png's dome; this keeps them within 0.07.
+        let alpha = |x: i64, y: i64| img.get(x, y).map(|p| p.a as f64 / 255.0).unwrap_or(0.0);
+        let dist: Vec<f64> = (0..w * h)
+            .map(|i| {
+                let (dx, dy) = near.get(i).copied().unwrap_or((0, 0));
+                let d = ((dx * dx + dy * dy) as f64).sqrt();
+                if self.outside || !inside.get(i).copied().unwrap_or(false) {
+                    return d;
+                }
+                let (sx, sy) = ((i % w) as i64 + dx as i64, (i / w) as i64 + dy as i64);
+                edge_line_distance(&alpha, sx, sy, dx as f64, dy as f64).unwrap_or(d)
+            })
+            .collect();
         // Height field and the region the bevel covers.
         let mut height = vec![0f64; w * h];
         let mut region = vec![false; w * h];
         for i in 0..w * h {
             let ins = inside.get(i).copied().unwrap_or(false);
-            let (dx, dy) = near.get(i).copied().unwrap_or((0, 0));
-            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            let d = dist.get(i).copied().unwrap_or(0.0);
             // x: 1 at the object's edge, 0 at `width` inside (Outside: 0 at the edge, 1 out).
             let (on, x) = if self.outside {
                 (ins || d <= bw, if ins { 0.0 } else { d / bw })
@@ -353,6 +369,43 @@ impl BevelBoss {
             }
         }
     }
+}
+
+/// Distance from a pixel to the anti-aliased edge through its nearest outside pixel `(sx, sy)`,
+/// `(dx, dy)` from the pixel to it: the edge's normal from the Sobel gradient of alpha there, its
+/// offset from that pixel's centre from its coverage (Gustavson's EDTAA `edgedf`), and the
+/// perpendicular distance to that line. `None` where alpha has no gradient.
+fn edge_line_distance(alpha: &impl Fn(i64, i64) -> f64, sx: i64, sy: i64, dx: f64, dy: f64) -> Option<f64> {
+    let gx = (alpha(sx + 1, sy - 1) + 2.0 * alpha(sx + 1, sy) + alpha(sx + 1, sy + 1))
+        - (alpha(sx - 1, sy - 1) + 2.0 * alpha(sx - 1, sy) + alpha(sx - 1, sy + 1));
+    let gy = (alpha(sx - 1, sy + 1) + 2.0 * alpha(sx, sy + 1) + alpha(sx + 1, sy + 1))
+        - (alpha(sx - 1, sy - 1) + 2.0 * alpha(sx, sy - 1) + alpha(sx + 1, sy - 1));
+    let gl = gx.hypot(gy);
+    // Only at a real edge: a hard or anti-aliased one gives about 4, a soft alpha ramp far less
+    // (and its noise would steer the normal).
+    if gl < 1.0 {
+        return None;
+    }
+    let (nx, ny) = (gx / gl, gy / gl);
+    let a = alpha(sx, sy);
+    let (mut ax, mut ay) = (nx.abs(), ny.abs());
+    if ax < ay {
+        std::mem::swap(&mut ax, &mut ay);
+    }
+    let off = if ay < 1e-9 {
+        0.5 - a
+    } else {
+        let a1 = 0.5 * ay / ax;
+        if a < a1 {
+            0.5 * (ax + ay) - (2.0 * ax * ay * a).sqrt()
+        } else if a < 1.0 - a1 {
+            (0.5 - a) * ax
+        } else {
+            -0.5 * (ax + ay) + (2.0 * ax * ay * (1.0 - a)).sqrt()
+        }
+    };
+    let (ex, ey) = (dx + nx * off, dy + ny * off);
+    Some((ex * nx + ey * ny).abs())
 }
 
 /// `colour` (opaque) at `alpha` 0..1 over `base`, straight alpha, rounded once.

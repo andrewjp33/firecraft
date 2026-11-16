@@ -107,6 +107,13 @@ Other items keep their numbers.
     in the Layers panel, painting on a bitmap
     mask with the bitmap tools, and the Property inspector's mask settings (alpha channel or
     grayscale, path outline). Measure each with the oracle first
+17. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
+    setting but the bevel profile (`BEvl`, `Bevel: n/x y f/...`) and Darken Deep Areas (`Drkn`).
+    Add a curve editor like Eye Candy's (draggable points, add/remove, its preset profiles) with a
+    live preview. First measure in Eye Candy on Windows what the third number per point is (always
+    0 in the files so far; perhaps a corner/smooth flag) and how profiles with four or more points
+    are drawn (FireCraft draws the parabola through three; see
+    [behavior/plugins.md](behavior/plugins.md))
 
 ## When needed
 
