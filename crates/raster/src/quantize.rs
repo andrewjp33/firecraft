@@ -483,7 +483,7 @@ mod tests {
         let greens: std::collections::BTreeSet<u8> = p.iter().map(|c| c[1]).collect();
         // Within the range, half a slice in from each end.
         let (r0, r1) = (reds.first().copied().unwrap_or(0), reds.last().copied().unwrap_or(0));
-        assert!(r0 > 100 && r0 <= 110 && r1 >= 190 && r1 < 200, "{r0} {r1}");
+        assert!((101..=110).contains(&r0) && (190..200).contains(&r1), "{r0} {r1}");
         let (g0, g1) = (greens.first().copied().unwrap_or(0), greens.last().copied().unwrap_or(0));
         assert!(g0 <= 10 && g1 >= 245, "{g0} {g1}");
         // The wider channel gets at least as many levels.

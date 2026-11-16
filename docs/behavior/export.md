@@ -139,7 +139,11 @@ the pixels it writes: with Auto Crop the area that changed, with Auto Difference
 pixels (the rest are the transparent entry and keep the previous frame's). An animation can so
 show far more than 256 colors in all: `tc217.gif` (a "true color GIF", 173 frames of 16×16 tiles,
 32,697 colors) exports back exact within one level in 182 KB (the original: 184 KB), against 255
-colors and errors up to 32 with one shared table; Fireworks MX opens it with all its colors. Neither
+colors and errors up to 32 with one shared table; Fireworks MX opens it with all its colors. Two
+more GIFs with a table per frame come back exact as well: `demoanim.gif` (162 frames, 32,510
+colors; error 0 on every frame, 5.18 MB against the original's 5.17 MB; one shared table: errors up
+to 76) and `gifColors.gif` (20 frames, 2,578 colors; within one level in 54 KB, the original
+200 KB; one shared table: errors up to 59). Neither
 Auto Crop nor Auto Difference is required; without both, each table covers its whole frame (256
 colors per picture).
 
@@ -160,7 +164,8 @@ the 6 × 6 × 6 cube; a channel without spread gets one level). Compared with th
 (average / largest error in levels, all frames): tc217.gif 19 / 25 → 1.1 / 4 at 256 colors and
 103 / 127 → 2.6 / 11 at 16; tubes.gif 16 / 25 → 15 / 20 and 68 / 127 → 39 / 61; anim2.gif
 (mostly pure black and white, which the fixed grid hits exactly) 15 / 25 → 17 / 21 and
-92 / 123 → 52 / 64.
+92 / 123 → 52 / 64; demoanim.gif 18 / 25 → 14 / 21; gifColors.gif (frames spanning nearly the whole
+color range) 12 / 25 → 15 / 21.
 
 Opening GIFs: the document takes the GIF's screen size (it used to take the frames' extent, which
 was too small when every frame was cropped).
