@@ -75,10 +75,9 @@ Other items keep their numbers.
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
    Instances; button symbol states
    - **Animation symbols**: playback, Modify > Animation, the Animate dialog, the Property
-     inspector's fields and the motion path done
-     ([behavior/symbols.md](behavior/symbols.md#animation-symbols)). Still to do: dragging the
-     motion path's ends, selecting an animation instance in its later frames, animations nested
-     inside symbols
+     inspector's fields and the motion path (shown and dragged) done
+     ([behavior/symbols.md](behavior/symbols.md#animation-symbols)). Still to do: selecting an
+     animation instance in its later frames, animations nested inside symbols
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu, the rest: Levels/Curves eyedroppers; check the menu's Sharpen strengths and

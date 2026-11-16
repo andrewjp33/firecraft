@@ -1103,6 +1103,15 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         return;
     }
 
+    // The motion path of a selected animation symbol: its points drag with the Pointer
+    // (Fireworks MX), over the object underneath.
+    if active
+        && matches!(tool, Tool::Pointer | Tool::SelectBehind)
+        && crate::motion_path::handles(&mut app.path_drag, d, resp, (origin, z))
+    {
+        return;
+    }
+
     // Fill handles of a selected gradient (over the tool underneath). Their drag is shared between
     // windows, so they belong to the active one: another would cancel the drag.
     if active
@@ -1397,23 +1406,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             (Tool::Pointer, true, Some(a), Some(b)) if view.live_move.is_none() && !view.band => b - a,
             _ => Vec2::ZERO,
         };
-        // A selected animation symbol: its motion path, as in Fireworks MX (green start, a blue
-        // dot per frame, red end).
-        let path = if d.in_bitmap_mode() { Vec::new() } else { d.animation_path() };
-        if path.len() > 1 {
-            let pts: Vec<Pos2> = path.iter().map(|&(x, y)| to_screen(x, y)).collect();
-            p.add(Shape::line(pts.clone(), Stroke::new(1.0, theme::HANDLE_BLUE)));
-            for (i, &pt) in pts.iter().enumerate() {
-                let color = if i == 0 {
-                    Color32::from_rgb(0, 200, 0)
-                } else if i + 1 == pts.len() {
-                    Color32::from_rgb(230, 0, 0)
-                } else {
-                    theme::HANDLE_BLUE
-                };
-                p.circle_filled(pt, 3.0, color);
-            }
-        }
+        // A selected animation symbol: its motion path, as in Fireworks MX.
+        crate::motion_path::draw(&p, d, &to_screen);
         // While pixels are selected (bitmap editing) only the marquee shows, as in Fireworks MX.
         let boxed: &[firecraft_engine::ElementRef] = if d.in_bitmap_mode() { &[] } else { &d.selection };
         for r in boxed {

@@ -2,7 +2,7 @@
 //! Property inspector's animation fields and the frames an animation needs. Measured in
 //! Fireworks MX on 2026-11-15 (docs/behavior/symbols.md#animation-symbols).
 
-use firecraft_doc::{Animation, ElementKind, Frame, SymbolKind};
+use firecraft_doc::{Animation, Element, ElementKind, Frame, SymbolKind};
 
 use crate::{DocState, ElementRef};
 
@@ -109,7 +109,112 @@ impl AnimateSettings {
     }
 }
 
+/// A point of an animation's motion path on the canvas (Fireworks MX: green start, blue frames,
+/// red end).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PathPoint {
+    Start,
+    /// A frame between the first and the last.
+    Frame,
+    End,
+}
+
+/// `v` turned to the nearest multiple of 45 degrees, as Fireworks MX constrains a motion path
+/// end with Shift: level or upright keeps that axis's distance (83, 22 -> 83, 0), a diagonal
+/// takes the larger of the two (55, 66 -> 66, 66).
+fn snap45((dx, dy): (f64, f64)) -> (f64, f64) {
+    if dx == 0.0 && dy == 0.0 {
+        return (0.0, 0.0);
+    }
+    let octant = (dy.atan2(dx) / std::f64::consts::FRAC_PI_4).round() as i64;
+    let (sx, sy) = match octant.rem_euclid(8) {
+        0 => return (dx, 0.0),
+        4 => return (dx, 0.0),
+        2 | 6 => return (0.0, dy),
+        1 => (1.0, 1.0),
+        3 => (-1.0, 1.0),
+        5 => (-1.0, -1.0),
+        _ => (1.0, -1.0),
+    };
+    let m = dx.abs().max(dy.abs());
+    (sx * m, sy * m)
+}
+
+/// The centre of an element's placement (where its motion path starts).
+fn center(el: &Element) -> Option<(f64, f64)> {
+    el.bounds().map(|(x, y, w, h)| (x + w / 2.0, y + h / 2.0))
+}
+
 impl DocState {
+    /// The motion path point of the selected animation within `tol` of (`x`, `y`): the ends
+    /// first (drawn on top), then the frames between.
+    pub fn motion_path_point_at(&self, x: f64, y: f64, tol: f64) -> Option<PathPoint> {
+        let path = self.animation_path();
+        if path.len() < 2 {
+            return None;
+        }
+        let near = |&(px, py): &(f64, f64)| (px - x).abs() + (py - y).abs() <= tol;
+        if path.last().is_some_and(near) {
+            Some(PathPoint::End)
+        } else if path.first().is_some_and(near) {
+            Some(PathPoint::Start)
+        } else {
+            path.iter().any(near).then_some(PathPoint::Frame)
+        }
+    }
+
+    /// Drag a point of the selected animation's motion path (as part of a live edit, "Instance
+    /// Properties" in Fireworks MX), from `orig` (the instance when the drag began), pressed at
+    /// `press`, now at `now` (canvas coordinates). As measured in Fireworks MX:
+    ///
+    /// * the end goes to the pixel under the pointer; the instance stays;
+    /// * the start moves the instance so its centre is there; the end stays;
+    /// * a frame between moves the whole animation by the drag;
+    /// * `constrain` (Shift) keeps the dragged end at a multiple of 45 degrees from the other.
+    pub fn drag_motion_path(
+        &mut self,
+        orig: &Element,
+        point: PathPoint,
+        press: (f64, f64),
+        now: (f64, f64),
+        constrain: bool,
+    ) {
+        let Some((r, _)) = self.selected_animation() else { return };
+        let ElementKind::Instance { anim: a, .. } = &orig.kind else { return };
+        let Some(c0) = center(orig) else { return };
+        let e0 = (c0.0 + a.dx, c0.1 + a.dy);
+        let at = (now.0.floor(), now.1.floor());
+        let mut el = orig.clone();
+        let (delta, d) = match point {
+            PathPoint::End => {
+                let v = (at.0 - c0.0, at.1 - c0.1);
+                ((0.0, 0.0), if constrain { snap45(v) } else { v })
+            }
+            PathPoint::Start => {
+                let v = (at.0 - e0.0, at.1 - e0.1);
+                let v = if constrain { snap45(v) } else { v };
+                // Whole pixels, so the instance stays where its pixels are.
+                let delta = ((e0.0 + v.0 - c0.0).round(), (e0.1 + v.1 - c0.1).round());
+                (delta, (e0.0 - c0.0 - delta.0, e0.1 - c0.1 - delta.1))
+            }
+            PathPoint::Frame => (
+                (at.0 - press.0.floor(), at.1 - press.1.floor()),
+                (a.dx, a.dy),
+            ),
+        };
+        if delta != (0.0, 0.0) {
+            el.translate(delta.0, delta.1);
+        }
+        if let ElementKind::Instance { anim, .. } = &mut el.kind {
+            anim.dx = d.0;
+            anim.dy = d.1;
+        }
+        if let Some(e) = self.element_mut(r) {
+            *e = el;
+        }
+        self.mark_changed();
+    }
+
     /// The selected animation symbol instance (one instance of an animation symbol) and its
     /// animation.
     pub fn selected_animation(&self) -> Option<(ElementRef, Animation)> {
@@ -337,6 +442,56 @@ mod tests {
         };
         assert_eq!(anim.frames, 10);
         assert!(d.can_animate_selection());
+    }
+
+    #[test]
+    fn shift_turns_the_path_to_45_degrees_as_fireworks_mx_does() {
+        assert_eq!(snap45((83.0, 22.0)), (83.0, 0.0));
+        assert_eq!(snap45((70.0, 61.0)), (70.0, 70.0));
+        assert_eq!(snap45((55.0, 66.0)), (66.0, 66.0));
+        assert_eq!(snap45((-56.0, -5.0)), (-56.0, 0.0));
+        assert_eq!(snap45((6.0, -51.0)), (0.0, -51.0));
+        assert_eq!(snap45((-30.0, 28.0)), (-30.0, 30.0));
+    }
+
+    #[test]
+    fn dragging_the_motion_path_matches_fireworks_mx() {
+        // Fireworks MX, a 20 x 20 square at 20, 20 moving 40, 20 over 5 frames: its path runs
+        // from 30, 30 to 70, 50.
+        let mut d = square_doc();
+        d.animate_selection(&AnimateSettings {
+            movement: 40f64.hypot(20.0),
+            direction: (-20f64).atan2(40.0).to_degrees(),
+            ..AnimateSettings::default()
+        });
+        let anim = |d: &DocState| d.selected_animation().map(|(_, a)| (a.dx.round(), a.dy.round()));
+        let at = |d: &DocState| center(d.element(d.selected_animation().unwrap().0).unwrap()).unwrap();
+        assert_eq!(d.motion_path_point_at(70.0, 50.0, 3.0), Some(PathPoint::End));
+        assert_eq!(d.motion_path_point_at(31.0, 29.0, 3.0), Some(PathPoint::Start));
+        assert_eq!(d.motion_path_point_at(40.0, 35.0, 3.0), Some(PathPoint::Frame));
+        assert_eq!(d.motion_path_point_at(100.0, 100.0, 3.0), None);
+        let drag = |d: &mut DocState, p, press, now, shift| {
+            let orig = d.element(d.selected_animation().unwrap().0).unwrap().clone();
+            d.begin_live_edit("Instance Properties");
+            d.drag_motion_path(&orig, p, press, now, shift);
+            d.commit_live_edit();
+        };
+        // The end to pixel 90, 39: movement 60, 9; the square stays.
+        drag(&mut d, PathPoint::End, (70.0, 49.6), (90.4, 39.7), false);
+        assert_eq!((anim(&d), at(&d)), (Some((60.0, 9.0)), (30.0, 30.0)));
+        assert_eq!(d.history.next_undo(), Some("Instance Properties"));
+        // The start to 30, 9: the square moves there, the end stays at 90, 39.
+        drag(&mut d, PathPoint::Start, (30.0, 29.0), (30.2, 9.5), false);
+        assert_eq!((anim(&d), at(&d)), (Some((60.0, 30.0)), (30.0, 9.0)));
+        // Shift: the end level with the start.
+        drag(&mut d, PathPoint::End, (90.0, 39.0), (113.0, 32.0), true);
+        assert_eq!(anim(&d), Some((83.0, 0.0)));
+        // Shift on the start: about the end (113, 9). Pointer 40, 14 -> start 40, 9.
+        drag(&mut d, PathPoint::Start, (30.0, 9.0), (40.0, 14.0), true);
+        assert_eq!((anim(&d), at(&d)), (Some((73.0, 0.0)), (40.0, 9.0)));
+        // A frame between: the whole animation moves by the drag.
+        drag(&mut d, PathPoint::Frame, (54.0, 9.0), (54.0, 29.0), false);
+        assert_eq!((anim(&d), at(&d)), (Some((73.0, 0.0)), (40.0, 29.0)));
     }
 
     #[test]

@@ -155,15 +155,27 @@ setters stored nothing and changed nothing (the instance's own cell is its start
   W/H/X/Y cover the whole motion (a 20 x 20 square moved 40, 20: W 60). Changes are recorded as
   "Instance Properties". With Rotation 0 the direction can't be stored (it's `ANRi`'s sign), so
   clockwise stays selected.
-* **Motion path**: a selected animation shows a line through its placements, green at the start,
-  blue for the frames between, red at the end.
+* **Motion path**: a selected animation shows a dotted blue line through the centres of its
+  placements, with a 6-pixel diamond outlined in white at each: green (0, 255, 0) at the start,
+  blue (0, 168, 255) for the frames between, red (255, 0, 0) at the end. The cursor stays the
+  arrow over them. Dragging them with the Pointer, each drag one "Instance Properties" step:
+  * **the end** goes to the pixel under the pointer; the instance stays (a square centred at
+    30, 30, released over pixel 90, 39: `ANXf` 60, `ANYf` 9);
+  * **the start** moves the instance so its centre is under the pointer; the end stays;
+  * **a frame between** moves the whole animation by the drag;
+  * **Shift** keeps the dragged point at a multiple of 45 degrees from the other end: level or
+    upright keeps the pointer's distance on that axis (83, 22 -> 83, 0), a diagonal takes the
+    larger of the two (55, 66 -> 66, 66).
+
+  While dragging, Fireworks MX moves only the path and the instance follows on release;
+  FireCraft moves the instance along live.
 * **Remove Animation** makes the symbol a graphic symbol ("Symbol Properties"); the instance keeps
   `ANNi` and the rest but no longer plays. **Only instances of animation symbols play.**
 
-FireCraft implements all of the above (`engine::animation`, `AnimateSettings`; the dialog, the
-prompt with "Don't show again" kept in the preferences, the inspector fields and the motion
-path). Not yet: dragging the motion path's ends (Fireworks MX: drag the green or red point;
-Shift for 45° steps), the Layers panel's "Animation Symbol" label, Edit > Insert > New Symbol.
+FireCraft implements all of the above (`engine::animation`, `AnimateSettings`, `PathPoint`; the
+dialog, the prompt with "Don't show again" kept in the preferences, the inspector fields, the
+motion path and its dragging in `ui-egui/src/motion_path.rs`). Not yet: the Layers panel's
+"Animation Symbol" label, Edit > Insert > New Symbol.
 
 FireCraft: `element::Animation` (read and written with the instance), `Layer::shown` (what a frame
 draws, both renderers). mechscene2 and Animations.png now match Fireworks MX's exported frames to

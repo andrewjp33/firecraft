@@ -19,6 +19,7 @@
 mod canvas;
 pub mod cursors;
 mod dialogs;
+mod motion_path;
 pub mod effects_ui;
 mod fill_ui;
 mod font_picker;
@@ -459,6 +460,8 @@ pub struct FireCraftApp {
     patterns: firecraft_io::textures::PatternLibrary,
     patterns_for: Option<(String, u64)>,
     fill_drag: Option<gradient_ui::FillDrag>,
+    /// A point of an animation's motion path being dragged.
+    path_drag: Option<motion_path::PathDrag>,
     effects_ui: effects_ui::EffectsUi,
     /// Edit > Copy/Cut: the objects, and the note put on the system clipboard (pasting the
     /// note back pastes them).
@@ -511,6 +514,7 @@ impl FireCraftApp {
             patterns: Default::default(),
             patterns_for: None,
             fill_drag: None,
+            path_drag: None,
             effects_ui: effects_ui::EffectsUi::default(),
             clipboard: None,
             clipboard_keys: false,
