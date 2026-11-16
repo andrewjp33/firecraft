@@ -6,12 +6,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = args.next().ok_or("usage: export_timing <file> [frame]")?;
     let mut doc = firecraft_io::open(&std::fs::read(&path)?, Some(path.clone()))?;
     doc.current_frame = args.next().map_or(Ok(0), |s| s.parse())?;
-    println!("format {:?}, {} frames", doc.export.format, doc.frames.len());
-    let t = Instant::now();
-    for f in 0..doc.frames.len() {
-        let _ = doc.render(f);
+    // `agif` as a third argument: export as an animated GIF whatever the document says.
+    if args.next().as_deref() == Some("agif") {
+        doc.export.format = firecraft_doc::ExportFormat::AnimatedGif;
     }
-    println!("rendering every frame {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+    println!("format {:?}, {} frames", doc.export.format, doc.frames.len());
+    // As in the app, the canvas has drawn the current frame already.
+    let t = Instant::now();
+    let _ = doc.render(doc.current_frame);
+    println!("drawing the current frame first {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
     for _ in 0..2 {
         let t = Instant::now();
         let e = firecraft_io::export::export(&doc, &doc.export)?;

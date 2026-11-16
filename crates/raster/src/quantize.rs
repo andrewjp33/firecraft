@@ -5,7 +5,41 @@
 //! (docs/behavior/export.md). The adaptive palette is a weighted median cut; Fireworks MX's own
 //! adaptive algorithm isn't reproduced yet.
 
-use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// Colour tables are keyed by 32-bit colours: a multiplicative hash is several times faster
+/// than the default (SipHash) on the millions of pixels of an animation (tubes.png: 26 million).
+pub type HashMap<K, V> = std::collections::HashMap<K, V, BuildHasherDefault<ColorHasher>>;
+
+/// Fibonacci hashing of small integer keys (no protection against crafted keys, which colours
+/// don't need).
+#[derive(Default, Clone, Copy)]
+pub struct ColorHasher(u64);
+
+impl Hasher for ColorHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+
+    fn write_u16(&mut self, n: u16) {
+        self.write_u64(u64::from(n));
+    }
+
+    fn write_u32(&mut self, n: u32) {
+        self.write_u64(u64::from(n));
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0 ^ n).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    fn finish(&self) -> u64 {
+        // The high bits are the well mixed ones; fold them into the low ones the table uses too.
+        self.0 ^ (self.0 >> 29)
+    }
+}
 
 /// A palette entry, RGBA.
 pub type Entry = [u8; 4];
@@ -160,7 +194,7 @@ fn unkey(k: u32) -> Entry {
 
 /// How often each colour occurs.
 pub fn histogram(pixels: &[Entry]) -> HashMap<u32, u32> {
-    let mut h = HashMap::new();
+    let mut h = HashMap::default();
     for &p in pixels {
         *h.entry(key(p)).or_insert(0) += 1;
     }
@@ -256,6 +290,12 @@ pub fn adaptive(hist: &HashMap<u32, u32>, n: usize, alpha: bool) -> Vec<Entry> {
     if colors.len() <= n {
         colors.sort_by_key(|c| std::cmp::Reverse(c.1));
         return colors.into_iter().map(|c| c.0).collect();
+    }
+    // Millions of colours (an animation of blurred frames: tubes.png has 5.8 million): the
+    // median cut works on them grouped by 5 bits per channel (each group its pixels' mean
+    // colour). Fewer colours, as in almost every image, are cut exactly as they are.
+    if colors.len() > GROUP_ABOVE && !alpha {
+        colors = grouped(&colors);
     }
     let channels = if alpha { 4 } else { 3 };
     let mut boxes: Vec<Vec<(Entry, u32)>> = vec![colors];
@@ -369,7 +409,7 @@ pub fn best_subset(palette: &[Entry], hist: &HashMap<u32, u32>, n: usize) -> Vec
         return palette.to_vec();
     }
     // Groups of similar colours: weight and summed channels.
-    let mut groups: HashMap<u16, (u64, [u64; 3])> = HashMap::new();
+    let mut groups: HashMap<u16, (u64, [u64; 3])> = HashMap::default();
     for (&k, &c) in hist {
         let e = unkey(k);
         let cell = (u16::from(e[0] >> 4) << 8) | (u16::from(e[1] >> 4) << 4) | u16::from(e[2] >> 4);
@@ -457,6 +497,106 @@ pub fn best_subset(palette: &[Entry], hist: &HashMap<u32, u32>, n: usize) -> Vec
         .collect()
 }
 
+/// Above this many distinct colours [`adaptive`] groups them first.
+const GROUP_ABOVE: usize = 1 << 18;
+
+/// Colours grouped by 5 bits per channel: each group's weighted mean colour and total weight,
+/// in a fixed order.
+fn grouped(colors: &[(Entry, u32)]) -> Vec<(Entry, u32)> {
+    let mut groups: HashMap<u16, (u64, [u64; 3])> = HashMap::default();
+    for &(c, w) in colors {
+        let cell = (u16::from(c[0] >> 3) << 10) | (u16::from(c[1] >> 3) << 5) | u16::from(c[2] >> 3);
+        let g = groups.entry(cell).or_insert((0, [0; 3]));
+        g.0 += u64::from(w);
+        for (sum, &v) in g.1.iter_mut().zip(&c) {
+            *sum += u64::from(v) * u64::from(w);
+        }
+    }
+    let mut out: Vec<(Entry, u32)> = groups
+        .into_values()
+        .map(|(w, s)| {
+            let m = s.map(|v| (v / w.max(1)).min(255) as u8);
+            ([m[0], m[1], m[2], 255], w.min(u64::from(u32::MAX)) as u32)
+        })
+        .collect();
+    out.sort_unstable_by_key(|c| (key(c.0), c.1));
+    out
+}
+
+/// Nearest palette entries (opaque, RGB distance) found quickly: the colour cube is cut into
+/// 16 x 16 x 16 cells, and each cell keeps the entries that can be nearest to some colour in it
+/// (those whose distance to the cell's box is at most the least farthest distance of any
+/// entry). The same answers as [`nearest`], ties included (candidates stay in palette order).
+struct NearestGrid<'a> {
+    palette: &'a [Entry],
+    cells: Vec<Option<Vec<u8>>>,
+}
+
+impl<'a> NearestGrid<'a> {
+    fn new(palette: &'a [Entry]) -> Self {
+        NearestGrid {
+            palette,
+            cells: vec![None; 4096],
+        }
+    }
+
+    fn nearest(&mut self, c: Entry) -> usize {
+        let cell = (usize::from(c[0] >> 4) << 8) | (usize::from(c[1] >> 4) << 4) | usize::from(c[2] >> 4);
+        let palette = self.palette;
+        let Some(slot) = self.cells.get_mut(cell) else {
+            return nearest(palette, c, false);
+        };
+        let candidates = slot.get_or_insert_with(|| {
+            let lo = [c[0] & 0xF0, c[1] & 0xF0, c[2] & 0xF0];
+            let span = |p: &Entry, far: bool| -> u32 {
+                (0..3)
+                    .map(|k| {
+                        let (v, l) = (i32::from(p.get(k).copied().unwrap_or(0)), i32::from(lo.get(k).copied().unwrap_or(0)));
+                        let h = l + 15;
+                        let d = if far {
+                            (v - l).abs().max((v - h).abs())
+                        } else if v < l {
+                            l - v
+                        } else if v > h {
+                            v - h
+                        } else {
+                            0
+                        };
+                        (d * d) as u32
+                    })
+                    .sum()
+            };
+            let limit = palette.iter().map(|p| span(p, true)).min().unwrap_or(u32::MAX);
+            palette
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| span(p, false) <= limit)
+                .map(|(i, _)| i.min(255) as u8)
+                .collect()
+        });
+        let mut best = (u32::MAX, 0usize);
+        for &i in candidates.iter() {
+            let Some(p) = palette.get(usize::from(i)) else { continue };
+            let d: u32 = p
+                .iter()
+                .zip(&c)
+                .take(3)
+                .map(|(&a, &b)| {
+                    let v = i32::from(a) - i32::from(b);
+                    (v * v) as u32
+                })
+                .sum();
+            if d < best.0 {
+                best = (d, usize::from(i));
+                if d == 0 {
+                    break;
+                }
+            }
+        }
+        best.1
+    }
+}
+
 /// The index of the palette entry nearest `c` (squared RGB distance, plus alpha when `alpha`).
 pub fn nearest(palette: &[Entry], c: Entry, alpha: bool) -> usize {
     let mut best = (u32::MAX, 0usize);
@@ -491,14 +631,18 @@ pub fn map(
     palette: &[Entry],
     dither: u8,
     alpha: bool,
-    skip: &dyn Fn(Entry) -> bool,
+    skip: &(dyn Fn(Entry) -> bool + Sync),
     skip_index: u8,
 ) -> Vec<u8> {
-    let mut cache: HashMap<u32, u8> = HashMap::new();
+    let mut cache: HashMap<u32, u8> = HashMap::default();
+    // Opaque colours against a large palette: the cell search (same answers, far fewer
+    // comparisons; a palette of 256 entries indexes in a byte).
+    let mut grid = (!alpha && palette.len() > 16 && palette.len() <= 256).then(|| NearestGrid::new(palette));
     let mut lookup = |c: Entry| -> u8 {
-        *cache
-            .entry(key(c))
-            .or_insert_with(|| nearest(palette, c, alpha).min(255) as u8)
+        *cache.entry(key(c)).or_insert_with(|| match grid.as_mut() {
+            Some(g) => g.nearest(c).min(255) as u8,
+            None => nearest(palette, c, alpha).min(255) as u8,
+        })
     };
     let width = width.max(1);
     if dither == 0 || palette.is_empty() {
@@ -561,6 +705,27 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cell_search_finds_the_same_entries() {
+        // Every 3rd level of the cube against the Windows palette and an adaptive one, ties
+        // included (the Web 216 palette has many).
+        let mut px = Vec::new();
+        for r in (0..=255u8).step_by(7) {
+            for g in (0..=255u8).step_by(5) {
+                for b in (0..=255u8).step_by(9) {
+                    px.push([r, g, b, 255]);
+                }
+            }
+        }
+        let hist = histogram(&px);
+        for palette in [windows(), web216(), adaptive(&hist, 64, false), uniform(64)] {
+            let mut grid = NearestGrid::new(&palette);
+            for &c in &px {
+                assert_eq!(grid.nearest(c), nearest(&palette, c, false), "{c:?}");
+            }
+        }
+    }
 
     #[test]
     fn the_best_subset_keeps_a_rare_color_nothing_else_is_near() {

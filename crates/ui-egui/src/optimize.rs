@@ -139,7 +139,7 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
     });
     ui.horizontal(|ui| {
         ui.label("Dither:");
-        ui.add(DragValue::new(&mut s.dither).range(0..=100).suffix("%"));
+        deferred_drag(ui, "opt_dither", &mut s.dither, |v| DragValue::new(v).range(0..=100).suffix("%"));
     });
     if s.palette == PaletteKind::WebAdaptive {
         ui.horizontal(|ui| {
@@ -210,6 +210,32 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
     }
 }
 
+/// A number box whose value takes effect when the change is finished: at the end of a drag, or
+/// when typing is confirmed (Enter, or clicking elsewhere). In between it shows the value being
+/// set but leaves `value` alone, so an export preview that takes a while isn't redone for every
+/// step of a drag or every digit typed. Arrow-key steps apply at once.
+fn deferred_drag<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    id: &str,
+    value: &mut T,
+    widget: impl FnOnce(&mut T) -> DragValue<'_>,
+) {
+    let key = egui::Id::new(("deferred_drag", id));
+    let pending: Option<f64> = ui.data(|m| m.get_temp(key));
+    let mut shown = pending.map_or(*value, T::from_f64);
+    let resp = ui.add(widget(&mut shown).update_while_editing(false));
+    if resp.dragged() {
+        // Still dragging: remember where it is.
+        ui.data_mut(|m| m.insert_temp(key, shown.to_f64()));
+    } else {
+        // Finished (drag released), or a typed value confirmed, or an arrow-key step.
+        if pending.is_some() || resp.changed() {
+            *value = shown;
+        }
+        ui.data_mut(|m| m.remove::<f64>(key));
+    }
+}
+
 /// The preset color counts of the Colors box.
 const COLOR_COUNTS: [u16; 8] = [2, 4, 8, 16, 32, 64, 128, 256];
 
@@ -224,7 +250,7 @@ fn number_combo(
 ) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add(DragValue::new(value).range(range).speed(0.25));
+        deferred_drag(ui, id, value, |v| DragValue::new(v).range(range).speed(0.25));
         ComboBox::from_id_salt(id)
             .selected_text("")
             .width(14.0)

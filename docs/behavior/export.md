@@ -131,6 +131,17 @@ An opaque animation never clears; a transparent one only at the frames that remo
 `anim2.gif` exported back this way plays the same four frames in ImageMagick, pixel for pixel, in
 17893 bytes (the original: 18500).
 
+### Speed
+
+An animated GIF's frames are drawn, and mapped to the palette, on several threads (desktop builds;
+the browser build uses one). Nearest-entry search goes by color cell (the color cube cut into
+16 × 16 × 16 cells, each keeping the entries that can be nearest to a color in it: the same answers
+as a full search). Above 262,144 distinct colors the median cut works on colors grouped by 5 bits
+per channel (tubes.png's 103 blurred frames: 5.8 million colors; same error, 9.9 levels on
+average). tubes.png as an animated GIF: 9.8 s → 2.5 s (debug build, 4 cores; release 2.3 s).
+The Optimize panel's Colors and Dither boxes take effect when a drag ends or a typed value is
+confirmed (Enter or clicking elsewhere), so the preview isn't exported again for each step.
+
 ### Maximize colors per frame (a FireCraft addition)
 
 A GIF allows 256 colors per color table, and each frame can have its own table. With this option

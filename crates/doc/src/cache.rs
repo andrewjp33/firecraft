@@ -446,8 +446,7 @@ thread_local! {
     /// Objects' pixels for hit tests, keyed like the render cache (the object moved to its
     /// anchor): see [`kept_hit`].
     static HIT_SHAPES: RefCell<Memory> = const { RefCell::new(Memory::new(32)) };
-    /// Symbols' and groups' contents before their own effects: see [`kept_contents`].
-    static CONTENTS: RefCell<Memory> = const { RefCell::new(Memory::new(8)) };
+
 }
 
 /// A perspective symbol's contents drawn flat, made once however often the pointer or a draw asks.
@@ -545,6 +544,10 @@ pub fn kept_hit(
     Some((py - tol..=py + tol).any(|y| (px - tol..=px + tol).any(|x| k.image.get(x, y).is_some_and(|p| p.a > 0))))
 }
 
+/// Symbols' and groups' contents before their own effects: see [`kept_contents`]. Shared by all
+/// threads, so an export drawing frames on several threads finds what the canvas already drew.
+static CONTENTS: std::sync::Mutex<Memory> = std::sync::Mutex::new(Memory::new(8));
+
 /// An object's contents drawn into `region` (before its own effects), made once while they stay
 /// the same: the key is the object without its effects, opacity and blend mode, so changing only
 /// those (an animated hue) draws the contents again only when they changed.
@@ -560,7 +563,7 @@ pub(crate) fn kept_contents(
     fingerprint(&bare, ctx).hash(&mut h);
     region.hash(&mut h);
     let key = h.finish();
-    if let Some(k) = CONTENTS.with(|m| m.borrow_mut().get(key)) {
+    if let Some(k) = CONTENTS.lock().ok().and_then(|mut m| m.get(key)) {
         return Some(((*k.image).clone(), k.x, k.y));
     }
     let (image, x, y) = make()?;
@@ -569,7 +572,9 @@ pub(crate) fn kept_contents(
         x,
         y,
     };
-    CONTENTS.with(|m| m.borrow_mut().put(key, kept.clone()));
+    if let Ok(mut m) = CONTENTS.lock() {
+        m.put(key, kept.clone());
+    }
     Some(((*kept.image).clone(), kept.x, kept.y))
 }
 

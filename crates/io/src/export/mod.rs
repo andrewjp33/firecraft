@@ -174,10 +174,9 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
                 .filter(|(_, f)| f.export)
                 .map(|(i, f)| (i, f.delay))
                 .collect();
-            let frames: Vec<(RgbaImage, u32)> = exported
-                .iter()
-                .map(|&(i, delay)| (if i == frame { img.clone() } else { doc.render(i) }, delay))
-                .collect();
+            let pictures = render_frames(doc, exported.iter().map(|&(i, _)| i), frame, &img);
+            let frames: Vec<(RgbaImage, u32)> =
+                pictures.into_iter().zip(&exported).map(|(p, &(_, delay))| (p, delay)).collect();
             if frames.is_empty() {
                 return Err(Error::Unsupported("no frame is set to export".into()));
             }
@@ -211,6 +210,54 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
         ExportFormat::WebP => webp(&img, s),
         ExportFormat::JpegXl => jxl(&img, s),
     }
+}
+
+/// The document's frames `which` as pictures (`current`, already drawn, is reused), drawn on
+/// several threads where the platform has them: an animation of effects-heavy frames
+/// (tubes.png, 103 frames: 3.5 s on one thread) is mostly drawing.
+fn render_frames(doc: &Document, which: impl Iterator<Item = usize>, current: usize, img: &RgbaImage) -> Vec<RgbaImage> {
+    let which: Vec<usize> = which.collect();
+    let draw = |i: usize| if i == current { img.clone() } else { doc.render(i) };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(8);
+        if threads > 1 && which.len() > 1 {
+            // Interleaved, so each thread gets early and late frames alike.
+            let mut out: Vec<Option<RgbaImage>> = vec![None; which.len()];
+            std::thread::scope(|scope| {
+                let jobs: Vec<_> = (0..threads)
+                    .map(|t| {
+                        let which = &which;
+                        let draw = &draw;
+                        scope.spawn(move || {
+                            which
+                                .iter()
+                                .enumerate()
+                                .skip(t)
+                                .step_by(threads)
+                                .map(|(k, &i)| (k, draw(i)))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                for job in jobs {
+                    if let Ok(done) = job.join() {
+                        for (k, picture) in done {
+                            if let Some(slot) = out.get_mut(k) {
+                                *slot = Some(picture);
+                            }
+                        }
+                    }
+                }
+            });
+            return out
+                .into_iter()
+                .zip(&which)
+                .map(|(p, &i)| p.unwrap_or_else(|| draw(i)))
+                .collect();
+        }
+    }
+    which.into_iter().map(draw).collect()
 }
 
 /// The image made fully opaque with `matte`.
@@ -524,14 +571,43 @@ fn map_frames(
     palette: &[Entry],
     dither: u8,
     alpha: bool,
-    skip: &dyn Fn(Entry) -> bool,
+    skip: &(dyn Fn(Entry) -> bool + Sync),
     skip_index: u8,
 ) -> Vec<Vec<u8>> {
-    prepared
-        .iter()
-        .zip(images)
-        .map(|(px, img)| quantize::map(px, img.width() as usize, palette, dither, alpha, skip, skip_index))
-        .collect()
+    let one = |k: usize| {
+        let (Some(px), Some(img)) = (prepared.get(k), images.get(k)) else {
+            return Vec::new();
+        };
+        quantize::map(px, img.width() as usize, palette, dither, alpha, skip, skip_index)
+    };
+    // An animation's frames map independently: on several threads where the platform has them.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(8);
+        if threads > 1 && prepared.len() > 1 {
+            let mut out: Vec<Vec<u8>> = vec![Vec::new(); prepared.len()];
+            std::thread::scope(|scope| {
+                let jobs: Vec<_> = (0..threads)
+                    .map(|t| {
+                        let one = &one;
+                        let n = prepared.len();
+                        scope.spawn(move || (t..n).step_by(threads).map(|k| (k, one(k))).collect::<Vec<_>>())
+                    })
+                    .collect();
+                for job in jobs {
+                    if let Ok(done) = job.join() {
+                        for (k, idx) in done {
+                            if let Some(slot) = out.get_mut(k) {
+                                *slot = idx;
+                            }
+                        }
+                    }
+                }
+            });
+            return out;
+        }
+    }
+    (0..prepared.len()).map(one).collect()
 }
 
 /// A pixel as grey: Fireworks MX's grayscale palette maps colors by Rec. 709 luma, truncated
