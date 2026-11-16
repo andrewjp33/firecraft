@@ -508,7 +508,9 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
         ElementKind::Masked { .. } => {
             Node::vector("GRP", vec![Node::int("GRT", 0), Node::vector("ELM", vec![])])
         }
-        ElementKind::Instance { symbol, matrix, .. } => {
+        ElementKind::Instance {
+            symbol, matrix, anim, ..
+        } => {
             let mut n = el.raw.clone().filter(|r| r.is("ALS")).unwrap_or_else(|| {
                 // A new instance, with Fireworks MX's defaults (MTXv goes after MSNi).
                 let frames = w.symbol_frames.get(symbol).copied().unwrap_or(1);
@@ -542,6 +544,7 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
                 ],
             );
             put(&mut n, mtx);
+            put_animation(&mut n, anim);
             n
         }
     };
@@ -724,6 +727,37 @@ fn uniform_tile(image: &RgbaImage, tx: u32, ty: u32) -> Option<Rgba> {
 
 /// A text object: its position and stored image always, the rest when it has been edited or made
 /// here. Unedited text keeps the record Fireworks wrote.
+/// An instance's animation tags, in Fireworks MX's order after `XFMi` (`ANNi ANXf ANYf [ANRi]
+/// ASCf [ASOi] [AEOi]`; the bracketed ones only when not at their defaults, as Fireworks writes).
+fn put_animation(n: &mut Node, a: &firecraft_doc::Animation) {
+    const TAGS: [&str; 7] = ["ANN", "ANX", "ANY", "ANR", "ASC", "ASO", "AEO"];
+    let at = n
+        .children
+        .iter()
+        .position(|c| TAGS.contains(&c.tag_str()))
+        .or_else(|| n.children.iter().position(|c| c.is("XFM")).map(|i| i + 1))
+        .unwrap_or(n.children.len());
+    n.children.retain(|c| !TAGS.contains(&c.tag_str()));
+    let at = at.min(n.children.len());
+    let d = firecraft_doc::Animation::default();
+    let mut tags = vec![
+        Node::int("ANN", a.frames as i64),
+        Node::float("ANX", a.dx),
+        Node::float("ANY", a.dy),
+    ];
+    if a.rotation != d.rotation {
+        tags.push(Node::int("ANR", a.rotation.round() as i64));
+    }
+    tags.push(Node::float("ASC", a.scale));
+    if a.start_opacity != d.start_opacity {
+        tags.push(Node::int("ASO", a.start_opacity as i64));
+    }
+    if a.end_opacity != d.end_opacity {
+        tags.push(Node::int("AEO", a.end_opacity as i64));
+    }
+    n.children.splice(at..at, tags);
+}
+
 /// A Fireworks matrix node (`MTXv`, row vectors).
 fn matrix_node(m: &Affine) -> Node {
     Node::vector(
@@ -1758,6 +1792,66 @@ mod texture_name_tests {
         let t = p.fill.as_ref().and_then(|f| f.texture.as_ref()).expect("the texture");
         assert_eq!(t.name, "Disk:Textures:Line-Horiz 2.gif");
         assert_eq!(t.display_name.as_deref(), Some("Line-Horiz 2"));
+    }
+}
+
+#[cfg(test)]
+mod animation_write_tests {
+    use firecraft_doc::{Animation, Document, Element, ElementKind};
+    use firecraft_fwpng::Node;
+    use firecraft_raster::transform::Affine;
+
+    fn find<'a>(n: &'a Node, tag: &str) -> Option<&'a Node> {
+        if n.is(tag) {
+            return Some(n);
+        }
+        n.children.iter().find_map(|c| find(c, tag))
+    }
+
+    #[test]
+    fn animation_settings_round_trip_in_fireworks_order() {
+        let anim = Animation {
+            frames: 5,
+            dx: 40.0,
+            dy: 20.0,
+            scale: 200.0,
+            rotation: -90.0,
+            start_opacity: 501,
+            end_opacity: 200,
+        };
+        let mut doc = Document::new(200, 150, 72.0, None);
+        doc.layers[0].elements_mut(0).expect("a cell").push(Element::new(ElementKind::Instance {
+            symbol: 7,
+            name: String::new(),
+            matrix: Affine::IDENTITY,
+            bounds: None,
+            anim,
+        }));
+        let (root, _) = super::fireworks_tree(&doc);
+        let als = find(&root, "ALS").expect("an instance");
+        let tags: Vec<&str> = als
+            .children
+            .iter()
+            .map(|c| c.tag_str())
+            .filter(|t| t.starts_with('A'))
+            .collect();
+        assert_eq!(tags, ["ANN", "ANX", "ANY", "ANR", "ASC", "ASO", "AEO"]);
+        assert_eq!(als.child("ANR").map(|n| n.text.as_str()), Some("ffffffa6"), "-90 as MX writes it");
+        let back = crate::open(&crate::save_fireworks_png(&doc).expect("saved"), None).expect("opened");
+        let ElementKind::Instance { anim: read, .. } = &back.layers[0].elements(0)[0].kind else {
+            panic!("not an instance")
+        };
+        assert_eq!(*read, anim);
+        // Defaults are left out, as Fireworks MX does.
+        let mut plain = doc.clone();
+        if let Some(ElementKind::Instance { anim, .. }) =
+            plain.layers[0].elements_mut(0).and_then(|c| c.first_mut()).map(|e| &mut e.kind)
+        {
+            *anim = Animation::default();
+        }
+        let (root, _) = super::fireworks_tree(&plain);
+        let als = find(&root, "ALS").expect("an instance");
+        assert!(als.child("ANR").is_none() && als.child("ASO").is_none() && als.child("AEO").is_none());
     }
 }
 

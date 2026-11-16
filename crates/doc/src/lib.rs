@@ -22,7 +22,7 @@ pub use export::{ExportFormat, ExportSettings, PaletteKind, Transparency};
 pub use cache::{Dirty, RenderCache, perspective_hit};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
-    BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,
+    Animation, BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,
     StoredPolyline, Stroke, Text, TextPath, TextRun, Texture, remap_tiles, tile_refs,
 };
 use firecraft_fwpng::Node;
@@ -269,6 +269,47 @@ impl Layer {
             .unwrap_or_default()
     }
 
+    /// What the layer draws in `frame`, bottom to top, each with the frame its symbol content
+    /// uses: the frame's own objects, and the animation symbols still playing from earlier
+    /// frames' cells (Fireworks MX: an instance with animation settings sits in one frame's cell
+    /// and plays across the following frames, see [`element::Animation`]). In a shared layer an
+    /// animation starts in the first frame.
+    pub fn shown(&self, frame: usize) -> Vec<(usize, std::borrow::Cow<'_, Element>)> {
+        use std::borrow::Cow;
+        let playing = |el: &Element| match &el.kind {
+            ElementKind::Instance { anim, .. } if anim.plays() => Some(anim.frames as usize),
+            _ => None,
+        };
+        let mut out = Vec::new();
+        if !self.shared {
+            // Animations started earlier, under this frame's own objects. Fireworks MX stacks
+            // them upside down: in Animations.png the frame's bottom object (a cup) is drawn on
+            // top in the following frames and the top ones (countdowns) under the rest.
+            for (start, cell) in self.cells.iter().enumerate().take(frame) {
+                for el in cell.iter().rev() {
+                    if let Some(n) = playing(el)
+                        && frame - start < n
+                    {
+                        out.push((frame - start, Cow::Owned(el.animation_step(frame - start))));
+                    }
+                }
+            }
+        }
+        let own_start = if self.shared { 0 } else { frame };
+        for el in self.elements(frame) {
+            match playing(el) {
+                Some(n) => {
+                    let k = frame - own_start;
+                    if k < n {
+                        out.push((k, Cow::Owned(el.animation_step(k))));
+                    }
+                }
+                None => out.push((frame, Cow::Borrowed(el))),
+            }
+        }
+        out
+    }
+
     pub fn elements_mut(&mut self, frame: usize) -> Option<&mut Vec<Element>> {
         let i = if self.shared { 0 } else { frame };
         if self.cells.len() <= i {
@@ -373,11 +414,101 @@ impl Document {
             canvas_textures: false,
         };
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
-            for el in layer.elements(frame) {
-                el.render_onto(&mut out, 0, 0, &ctx);
+            for (f, el) in layer.shown(frame) {
+                el.render_onto(&mut out, 0, 0, &RenderCtx { frame: f, ..ctx });
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod animation_tests {
+    use super::*;
+    use firecraft_raster::transform::Affine;
+
+    fn anim(frames: u32) -> Animation {
+        Animation {
+            frames,
+            ..Animation::default()
+        }
+    }
+
+    #[test]
+    fn steps_match_fireworks_mx() {
+        // Measured on a 20x20 square at 60,60 (centre 70,70) over 5 frames.
+        let c = (70.0, 70.0);
+        let moved = Animation { dx: 40.0, dy: 20.0, ..anim(5) };
+        let (m, _) = moved.step(1, c);
+        assert_eq!(m.apply(20.0, 20.0), (30.0, 25.0));
+        let (m, _) = moved.step(4, c);
+        assert_eq!(m.apply(20.0, 20.0), (60.0, 40.0));
+        // Scale to 200% about the centre: 25, 30, 35, 40 px.
+        let scaled = Animation { scale: 200.0, ..anim(5) };
+        let sizes: Vec<f64> = (0..5)
+            .map(|k| {
+                let (m, _) = scaled.step(k, c);
+                m.map_rect(60.0, 60.0, 20.0, 20.0).2
+            })
+            .collect();
+        assert_eq!(sizes, vec![20.0, 25.0, 30.0, 35.0, 40.0]);
+        // Opacity 100 -> 20% and 50 -> 100% (start stored as 501).
+        let fade = Animation { end_opacity: 200, ..anim(5) };
+        let alphas: Vec<u8> = (0..5).map(|k| fade.step(k, c).1).collect();
+        assert_eq!(alphas, vec![255, 204, 153, 102, 51]);
+        let rise = Animation { start_opacity: 501, ..anim(5) };
+        let alphas: Vec<u8> = (0..5).map(|k| rise.step(k, c).1).collect();
+        assert_eq!(alphas, vec![128, 160, 192, 223, 255]);
+        // Positive rotation is clockwise: a point right of the centre goes down.
+        let turn = Animation { rotation: 90.0, ..anim(5) };
+        let (m, _) = turn.step(4, (65.0, 70.0));
+        let (x, y) = m.apply(77.0, 70.0);
+        assert!((x - 65.0).abs() < 1e-9 && (y - 82.0).abs() < 1e-9, "({x}, {y})");
+        // Movement in whole pixels (mechscene2: 23.125 px over 9 steps).
+        let hatch = Animation { dy: 23.125, ..anim(10) };
+        assert_eq!(hatch.step(1, c).0.apply(0.0, 0.0), (0.0, 3.0));
+    }
+
+    fn instance(symbol: u32, frames: u32) -> Element {
+        Element::new(ElementKind::Instance {
+            symbol,
+            name: String::new(),
+            matrix: Affine::IDENTITY,
+            bounds: Some((0.0, 0.0, 10.0, 10.0)),
+            anim: anim(frames),
+        })
+    }
+
+    fn ids(l: &Layer, frame: usize) -> Vec<(usize, u32)> {
+        l.shown(frame)
+            .iter()
+            .map(|(k, e)| match &e.kind {
+                ElementKind::Instance { symbol, .. } => (*k, *symbol),
+                _ => (*k, 0),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn animations_play_from_their_cell_and_stack_upside_down_later() {
+        let mut l = Layer::new("L");
+        l.cells = vec![vec![instance(1, 3), instance(2, 2), instance(3, 1)], vec![], vec![], vec![]];
+        // Own frame: as stacked, step 0 (the static instance keeps the document frame).
+        assert_eq!(ids(&l, 0), vec![(0, 1), (0, 2), (0, 3)]);
+        // Later frames: still-playing ones only, upside down (Fireworks MX).
+        assert_eq!(ids(&l, 1), vec![(1, 2), (1, 1)]);
+        assert_eq!(ids(&l, 2), vec![(2, 1)]);
+        assert!(ids(&l, 3).is_empty());
+    }
+
+    #[test]
+    fn a_shared_layer_shows_static_objects_in_every_frame() {
+        let mut l = Layer::new("L");
+        l.shared = true;
+        l.cells = vec![vec![instance(1, 1), instance(2, 2)]];
+        assert_eq!(ids(&l, 0), vec![(0, 1), (0, 2)]);
+        assert_eq!(ids(&l, 1), vec![(1, 1), (1, 2)]);
+        assert_eq!(ids(&l, 5), vec![(5, 1)], "the animation ended after two frames");
     }
 }
 
@@ -402,6 +533,7 @@ mod tests {
                         name: String::new(),
                         matrix: Affine::translate(5.0 * k as f64, 5.0),
                         bounds: None,
+                        anim: Animation::default(),
                     }));
                 }
             }
@@ -425,6 +557,7 @@ mod tests {
                 name: String::new(),
                 matrix: Affine::translate(10.0, 10.0),
                 bounds: None,
+                anim: Animation::default(),
             }));
         }
         let t = std::time::Instant::now();
@@ -491,6 +624,7 @@ mod tests {
                 name: String::new(),
                 matrix: Affine::translate(dx, 0.0),
                 bounds: None,
+                anim: Animation::default(),
             })
         };
         let bitmap = Element::new(ElementKind::Bitmap(Bitmap {

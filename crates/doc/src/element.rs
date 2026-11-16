@@ -700,12 +700,89 @@ pub enum ElementKind {
         name: String,
         matrix: Affine,
         bounds: Option<(f64, f64, f64, f64)>,
+        /// Animation settings (Fireworks' animation symbols); the default plays nothing.
+        anim: Animation,
     },
     /// Slices, hotspots and anything not yet modelled.
     Other {
         kind: String,
         cached: Option<Bitmap>,
     },
+}
+
+/// An instance's animation (Fireworks' "animation symbols", Modify > Animation; `ALSv`'s `ANNi`,
+/// `ANXf`, `ANYf`, `ANRi`, `ASCf`, `ASOi`, `AEOi`). The instance sits in one frame's cell and
+/// plays across `frames` frames from there: at step `k` (0 in its own frame) it has moved, scaled,
+/// turned and faded the fraction `k / (frames - 1)` of the way to these end values, and it shows
+/// frame `k` of its symbol. After the last step it isn't drawn. Measured in Fireworks MX on
+/// 2026-11-15 (docs/behavior/symbols.md).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Animation {
+    /// Frames it plays (`ANNi`); 1 = not animated.
+    pub frames: u32,
+    /// Movement at the last frame, canvas pixels (`ANXf`, `ANYf`).
+    pub dx: f64,
+    pub dy: f64,
+    /// Size at the last frame in percent (`ASCf`; 100 = unchanged), about the instance's centre.
+    pub scale: f64,
+    /// Turn at the last frame in degrees, clockwise positive (`ANRi`), about the centre.
+    pub rotation: f64,
+    /// Opacity at the first and last frame, per mille of full (`ASOi`, `AEOi`; Fireworks stores
+    /// an 8-bit alpha this way: 50% is alpha 128, written 501).
+    pub start_opacity: u32,
+    pub end_opacity: u32,
+}
+
+impl Default for Animation {
+    fn default() -> Self {
+        Animation {
+            frames: 1,
+            dx: 0.0,
+            dy: 0.0,
+            scale: 100.0,
+            rotation: 0.0,
+            start_opacity: 1000,
+            end_opacity: 1000,
+        }
+    }
+}
+
+impl Animation {
+    /// Whether the instance plays across frames.
+    pub fn plays(&self) -> bool {
+        self.frames > 1
+    }
+
+    /// Step `k`'s extra transform (canvas space, applied after the instance's own placement)
+    /// about `center`, and its opacity as an 8-bit alpha.
+    pub fn step(&self, k: u32, center: (f64, f64)) -> (Affine, u8) {
+        let t = if self.frames > 1 {
+            (k.min(self.frames - 1)) as f64 / (self.frames - 1) as f64
+        } else {
+            0.0
+        };
+        let s = 1.0 + (self.scale / 100.0 - 1.0) * t;
+        let (sin, cos) = (self.rotation * t).to_radians().sin_cos();
+        // Turn and scale about the centre, then move by whole pixels: Fireworks MX rounds the
+        // movement (mechscene2's 23.125 px over 9 steps matches its frames rounded; truncated or
+        // left fractional, every other frame was off by about a pixel).
+        let turn = Affine {
+            a: cos * s,
+            b: sin * s,
+            c: -sin * s,
+            d: cos * s,
+            ..Affine::IDENTITY
+        };
+        let m = Affine::translate(center.0 + (self.dx * t).round(), center.1 + (self.dy * t).round())
+            .then(&turn)
+            .then(&Affine::translate(-center.0, -center.1));
+        // Measured: the start alpha is rounded first, then the step's alpha (50% -> 100% over five
+        // frames: 128, 160, 192, 223, 255).
+        let alpha = |v: u32| (v.min(1000) as f64 * 255.0 / 1000.0).round();
+        let (a0, a1) = (alpha(self.start_opacity), alpha(self.end_opacity));
+        let a = (a0 + (a1 - a0) * t).round().clamp(0.0, 255.0) as u8;
+        (m, a)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1078,6 +1155,24 @@ impl Element {
             ElementKind::Group(children) => union(&mut children.iter().filter_map(|c| c.deep_bounds(ctx))),
             _ => self.bounds(),
         }
+    }
+
+    /// An animation symbol at step `k` of its animation: its placement with the step's movement,
+    /// scale and turn added (about the centre of its bounds) and its opacity scaled by the step's.
+    /// Other objects are returned unchanged.
+    pub fn animation_step(&self, k: usize) -> Element {
+        let mut el = self.clone();
+        if let ElementKind::Instance {
+            matrix, bounds, anim, ..
+        } = &mut el.kind
+        {
+            let center = bounds.map_or((matrix.e, matrix.f), |(x, y, w, h)| (x + w / 2.0, y + h / 2.0));
+            let (m, alpha) = anim.step(k.min(u32::MAX as usize) as u32, center);
+            *matrix = m.then(matrix);
+            *bounds = bounds.map(|(x, y, w, h)| m.map_rect(x, y, w, h));
+            el.opacity *= alpha as f32 / 255.0;
+        }
+        el
     }
 
     /// The objects an instance's symbol shows in the current frame, in symbol space.

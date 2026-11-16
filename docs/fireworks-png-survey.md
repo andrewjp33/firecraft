@@ -59,7 +59,7 @@ Themes, Symbian_Series60, 769_edit2, tablet, tut2_final; 56 frames).
 Frames, button states (symbol cells and their flags) and symbols therefore survive a FireCraft save.
 The parity report's "save" check covers only the first frame; the method above covers the rest.
 
-**Not implemented (found here): animation symbols.** mechscene2's moving hatch is an instance with
+**Animation symbols** (found here, implemented since; [behavior/symbols.md](behavior/symbols.md#animation-symbols)). mechscene2's moving hatch is an instance with
 animation settings (`ALSv` with `ANNi` frames, `ANXf`/`ANYf` movement, `ASCf` scale; the
 JavaScript setters name opacity, rotation, start frame and loop count too), placed only in the
 first frame's cell. Fireworks MX moves it through the frames; FireCraft shows it in frame 1 only.

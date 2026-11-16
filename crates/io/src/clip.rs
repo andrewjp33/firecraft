@@ -243,6 +243,7 @@ mod cs_compat_tests {
                 name: String::new(),
                 matrix: m,
                 bounds: None,
+                anim: firecraft_doc::Animation::default(),
             })
         };
         let rotated = Affine {

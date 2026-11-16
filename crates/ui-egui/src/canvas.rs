@@ -585,6 +585,19 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                             .request_repaint_after(std::time::Duration::from_secs_f64(delay.min(1.0) / 2.0));
                     }
                     ui.label(format!("{}", d.doc.current_frame + 1));
+                    // One frame back or on, wrapping round (Fireworks MX's footer; Ctrl+Page Up/Down).
+                    if crate::icons::glyph_button(ui, crate::icons::Glyph::PrevFrame, 14.0, multi)
+                        .on_hover_text("Previous frame (Ctrl+Page Up)")
+                        .clicked()
+                    {
+                        d.doc.current_frame = (d.doc.current_frame + n - 1) % n;
+                    }
+                    if crate::icons::glyph_button(ui, crate::icons::Glyph::NextFrame, 14.0, multi)
+                        .on_hover_text("Next frame (Ctrl+Page Down)")
+                        .clicked()
+                    {
+                        d.doc.current_frame = (d.doc.current_frame + 1) % n;
+                    }
                     ui.separator();
                     ui.label(format!("{} x {}", d.doc.width, d.doc.height));
                     ui.separator();

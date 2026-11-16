@@ -287,6 +287,24 @@ fn read_instance(n: &Node, ctx: &Ctx) -> ElementKind {
         name,
         matrix,
         bounds,
+        anim: read_animation(n),
+    }
+}
+
+/// An instance's animation settings (`ANNi` frames, `ANXf`/`ANYf` movement, `ANRi` turn in
+/// degrees, `ASCf` scale percent, `ASOi`/`AEOi` start/end opacity per mille); Fireworks MX leaves
+/// out the ones at their defaults.
+fn read_animation(n: &Node) -> firecraft_doc::Animation {
+    let d = firecraft_doc::Animation::default();
+    let finite = |v: f64| if v.is_finite() { v } else { 0.0 };
+    firecraft_doc::Animation {
+        frames: n.int_of("ANN").map_or(d.frames, |v| v.clamp(1, 100_000) as u32),
+        dx: finite(n.float_of("ANX").unwrap_or(d.dx)),
+        dy: finite(n.float_of("ANY").unwrap_or(d.dy)),
+        scale: finite(n.float_of("ASC").unwrap_or(d.scale)),
+        rotation: n.int_of("ANR").map_or(d.rotation, |v| v as i32 as f64),
+        start_opacity: n.int_of("ASO").map_or(d.start_opacity, |v| v.clamp(0, 1000) as u32),
+        end_opacity: n.int_of("AEO").map_or(d.end_opacity, |v| v.clamp(0, 1000) as u32),
     }
 }
 

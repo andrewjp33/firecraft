@@ -813,6 +813,19 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     if pressed(cmd, Key::ArrowLeft) {
         with_doc(app, |d| d.subselect());
     }
+    // Previous/next frame (Fireworks MX's shortcut set: Ctrl+Page Up / Ctrl+Page Down).
+    for (key, back) in [(Key::PageUp, true), (Key::PageDown, false)] {
+        if pressed(cmd, key) {
+            with_doc(app, |d| {
+                let n = d.doc.frames.len().max(1);
+                d.doc.current_frame = if back {
+                    (d.doc.current_frame + n - 1) % n
+                } else {
+                    (d.doc.current_frame + 1) % n
+                };
+            });
+        }
+    }
     if pressed(cmd, Key::Num1) {
         with_doc(app, |d| d.zoom = 1.0);
     }

@@ -867,6 +867,7 @@ mod tests {
                 name: "S".into(),
                 matrix,
                 bounds: Some((0.0, 0.0, 400.0, 300.0)),
+                anim: firecraft_doc::Animation::default(),
             });
         }
         let image = d.doc.render(0);
@@ -952,6 +953,7 @@ mod tests {
                 name: "S".into(),
                 matrix,
                 bounds: Some((60.0, 80.0, 240.0, 120.0)),
+                anim: firecraft_doc::Animation::default(),
             });
         }
         assert!(d.hit_test(150.0, 130.0).is_some(), "on the shape");
@@ -996,6 +998,7 @@ mod tests {
                 name: "S".into(),
                 matrix,
                 bounds: Some((0.0, 0.0, 400.0, 300.0)),
+                anim: firecraft_doc::Animation::default(),
             });
         }
         let warped = d.doc.render(0);
@@ -1063,6 +1066,7 @@ mod tests {
                     ..Affine::IDENTITY
                 },
                 bounds: Some((20.0, 20.0, 280.0, 80.0)),
+                anim: firecraft_doc::Animation::default(),
             });
         }
         d.doc.mx_perspective = true;

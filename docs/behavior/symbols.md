@@ -102,3 +102,40 @@ and with the instance moved 1 or 2 pixels down or 1 right. (Elsewhere a texture 
 and moves with it.)
 Some saved images show the stripes one or two rows off: a stale drawing. Redrawn (every symbol level nudged
 and saved again, in Fireworks MX on Windows and under Wine alike), they're anchored at the canvas origin.
+
+## Animation symbols
+
+Fireworks MX's "animation symbols" (Modify > Animation > Animate Selection) are instances with
+animation settings. The instance sits in one frame's cell (`ALSv`) and plays across the frames
+after it. Measured on 2026-11-15 by creating instances with the JavaScript setters
+(`setAnimInstanceNumFrames`, `…OffsetDist`, `…ScaleAmount`, `…StartEndOpacity`,
+`…RotationAmount`), saving, and exporting every frame (`dom.currentFrameNum`,
+`fw.exportDocumentAs` with PNG 32):
+
+| Tag | Setting | Notes |
+|---|---|---|
+| `ANNi` | frames | Shown in its own frame and the next `ANNi - 1`; not drawn after that (8-frame document, 5-frame animation: frames 6-8 empty). `ANNi` 1 = not animated. |
+| `ANXf`, `ANYf` | movement | Total at the last frame, linear: (40, 20) over 5 frames is +10, +5 per frame. **Rounded to whole pixels** each frame (mechscene2: 23.125 px over 9 steps). |
+| `ASCf` | scale, percent | 100 → `ASCf` linearly, about the centre of the instance's bounds (20 px → 25, 30, 35, 40 at 200%). |
+| `ANRi` | rotation, degrees | Linear, about the centre; **positive = clockwise**, counter-clockwise is negative (`ffffffa6` = -90). The setters' "cw"/"ccw" argument is ignored. |
+| `ASOi`, `AEOi` | start and end opacity | Per mille of an 8-bit alpha (50% = alpha 128, written 501; 20% = 51, written 200). The start alpha is rounded, then each step's alpha (100 → 20%: 255, 204, 153, 102, 51; 50 → 100%: 128, 160, 192, 223, 255). |
+
+Tags at their defaults (`ANRi` 0, `ASOi`/`AEOi` 1000) are left out; `ANNi ANXf ANYf ASCf` are always
+written, in the order `ANNi ANXf ANYf ANRi ASCf ASOi AEOi` after `XFMi`. Start frame and loop count
+setters stored nothing and changed nothing (the instance's own cell is its start).
+
+* **Symbol frames:** step `k` shows frame `k` of the symbol (Animations.png: Planet has 8 frames and
+  `ANNi` 8, Clock 2 and 2…).
+* **Stacking in later frames: upside down.** In the frames after its own, Fireworks MX draws the
+  playing instances in the reverse of their stacking order: in Animations.png the bottom instance
+  (a cup) is in front from frame 2 on and the top ones (countdowns) end up under the planet.
+  FireCraft draws them under the frame's own objects (that order is not measured: the later cells
+  of both files are empty).
+* In a shared layer an animation starts in the first frame; instances that don't animate show in
+  every frame, as before.
+
+FireCraft: `element::Animation` (read and written with the instance), `Layer::shown` (what a frame
+draws, both renderers). mechscene2 and Animations.png now match Fireworks MX's exported frames to
+the level of their first frame (Animations: 28-200 pixels differing per frame, first frame 114).
+Not yet: setting animations up (Animate Selection, the Property inspector's animation fields),
+selecting an animation instance in the frames after its own, and nested animations inside symbols.

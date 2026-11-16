@@ -227,6 +227,7 @@ impl DocState {
                 name,
                 matrix: Affine::translate(cx, cy),
                 bounds: Some((x, y, w, h)),
+                anim: firecraft_doc::Animation::default(),
             });
             let below = refs
                 .iter()
@@ -356,11 +357,17 @@ impl DocState {
         let bounds = sym
             .content_bounds()
             .map(|(bx, by, bw, bh)| matrix.map_rect(bx, by, bw, bh));
+        // A symbol with frames of its own plays them (as Fireworks MX writes a new instance).
+        let anim = firecraft_doc::Animation {
+            frames: (sym.frames as u32).max(1),
+            ..Default::default()
+        };
         let el = Element::new(ElementKind::Instance {
             symbol: id,
             name: sym.name.clone(),
             matrix,
             bounds,
+            anim,
         });
         self.add_element(el, "Insert Instance");
     }

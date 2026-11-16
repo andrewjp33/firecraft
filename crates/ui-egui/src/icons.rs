@@ -261,6 +261,10 @@ pub enum Glyph {
     NoColor,
     Opacity,
     First,
+    /// Previous frame (Fireworks MX's footer: a left triangle, then a bar).
+    PrevFrame,
+    /// Next frame (a bar, then a right triangle).
+    NextFrame,
     Play,
     Stop,
     Last,
@@ -408,6 +412,19 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
         }
         Glyph::Stop => {
             p.rect_filled(Rect::from_min_max(at(0.25, 0.25), at(0.75, 0.75)), 0.0, c);
+        }
+        Glyph::PrevFrame | Glyph::NextFrame => {
+            let (bar, tip, base) = if g == Glyph::PrevFrame {
+                (0.72, 0.2, 0.6)
+            } else {
+                (0.28, 0.8, 0.4)
+            };
+            p.line_segment([at(bar, 0.2), at(bar, 0.8)], Stroke::new(1.5, c));
+            p.add(Shape::convex_polygon(
+                vec![at(base, 0.2), at(tip, 0.5), at(base, 0.8)],
+                c,
+                Stroke::NONE,
+            ));
         }
         Glyph::First | Glyph::Last => {
             let (bar, tip, base) = if g == Glyph::First {
