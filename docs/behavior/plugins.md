@@ -46,5 +46,25 @@ rectangles use roundness 8, a script bug that makes self-intersecting shapes; us
 - Highlight: linear cone, 1 - angle(n, H) / (Highlight Size% of 45 degrees), x Brightness.
 
 Still off: heavy Smoothness and large Highlight Size cells, a narrow rim at the very edge, and
-colour saturation on eye.png. Motion Trail, Edges and Marble are first versions from the
-reference files (SOLAR, sun) and the test grid, not yet fitted.
+colour saturation on eye.png. Edges and Marble are first versions from the reference files
+(sun) and the test grid, not yet fitted.
+
+## Motion Trail (fitted, 2026-11-16)
+
+Fireworks MX runs Eye Candy under Wine once `mfc42.dll` is in the prefix's `syswow64`. Shape and
+alpha come out right; blue is lost (about value/20; red and green intact) and stays so when the
+effects are re-applied from a script, so use colours with red = blue or judge only alpha.
+`crates/io/examples/trail_probe.rs` builds the probe (a 60 px ringed disc, one setting per cell).
+
+- Copies of the object shifted k = 1..length pixels along the direction, each squeezed across
+  the direction by 1 - Taper·k/57.3 about the object's centre line. The narrowing doesn't depend on
+  Length or on the object's size (fits 55-60 px on the disc and on SOLAR's 119 px and 231 px
+  planets), so long trails taper to a point.
+- Alpha: Opacity × (1 - (k - 0.5)/Length) for the strongest covering copy; linear over exactly
+  Length, whatever the Taper. Within 2 levels on 98-100% of the probe's pixels.
+- Colour (Smear Color from Edges): the object's pixel the copy maps to, averaged across the
+  direction (Gaussian, sigma 2). Least certain: Fireworks MX's trails on SOLAR.png are smoother still
+  (a round blur of sigma 5 fits SOLAR best but makes the probe worse). Without smear, unmeasured.
+- SOLAR.png on Windows sometimes shows a green cast on first render; opening the effect and
+  pressing Cancel re-renders it correctly (the user's observation). Check a reference for that
+  before fitting colours to it.

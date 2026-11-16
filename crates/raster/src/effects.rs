@@ -404,13 +404,13 @@ impl Effect {
             }
             Effect::Curves { channels } => crate::filters::curves_tables(channels).apply(img),
             // Measured: Fireworks MX draws the inverted pixels over the original ones, so a
-            // semi-transparent pixel gains alpha (60 becomes 106: 1 - (1 - a)^2).
+            // semi-transparent pixel gains alpha (60 becomes 106: 1 - (1 - a)^2), in 8-bit
+            // premultiplied colour (bit-exact on 56,320 semi-transparent pixels, stack_probe).
             Effect::Invert => {
-                let original = img.clone();
                 crate::filters::Tables::invert().apply(img);
-                for (p, o) in img.pixels_mut().iter_mut().zip(original.pixels()) {
+                for p in img.pixels_mut() {
                     if p.a < 255 && p.a > 0 {
-                        *p = o.over(*p, 255);
+                        *p = invert_over_original(*p);
                     }
                 }
             }
@@ -447,8 +447,27 @@ impl Effect {
                     if p.a == 0 {
                         continue;
                     }
-                    let opaque = Rgba { a: 255, ..*p };
-                    let c = mode.composite_with(opaque, *color, op, math);
+                    // Measured (fill_probe, every mode at 100% and 50% on alpha 5..255): the fill
+                    // is composited onto the pixel with the pixel's own alpha, so it shows through
+                    // unblended where the pixel is faint (W3C compositing), and the pixel keeps
+                    // its alpha. Invert and Tint instead draw their blended result over the
+                    // pixel (at 100% alpha doesn't matter); Erase fills as Normal.
+                    let c = match mode {
+                        BlendMode::Invert | BlendMode::Tint => {
+                            let opaque = Rgba { a: 255, ..*p };
+                            p.over(mode.composite_with(opaque, *color, 255, math), op)
+                        }
+                        BlendMode::Erase => p.over(*color, op),
+                        // In bytes: round(((255 - a) * fill + a * blend) / 255), blend rounded
+                        // first (bit-exact for every mode at 100%).
+                        _ if op == 255 => {
+                            let b = mode.composite_with(Rgba { a: 255, ..*p }, *color, 255, math);
+                            let a = p.a as u32;
+                            let ch = |f: u8, b: u8| (((255 - a) * f as u32 + a * b as u32 + 127) / 255) as u8;
+                            Rgba::new(ch(color.r, b.r), ch(color.g, b.g), ch(color.b, b.b), p.a)
+                        }
+                        _ => mode.composite_with(*p, *color, op, math),
+                    };
                     *p = Rgba { a: p.a, ..c };
                 }
             }
@@ -705,6 +724,21 @@ fn perceptual_gray(r: f32, g: f32, b: f32) -> f32 {
         1.055 * y.powf(1.0 / 2.4) - 0.055
     };
     (e * 255.0) as f32
+}
+
+/// Fireworks MX's Invert on a semi-transparent pixel (`inv` already inverted, alpha a): the
+/// inverted pixel drawn over the original one. Alpha A = a + round(a·(255−a)/255); colour
+/// o + (i − o)·a/A, the step truncated toward zero. Faint pixels land near the middle (alpha 1
+/// gives about 128 whatever the colour). Oracle, bit-exact: SOLAR.png's sun (white at every
+/// alpha) and supermarket.png's shading (black at every alpha), crates/io/examples/stack_probe.rs.
+fn invert_over_original(inv: Rgba) -> Rgba {
+    let a = inv.a as i32;
+    let out_a = a + (a * (255 - a) + 127) / 255;
+    let ch = |i: u8| {
+        let (i, o) = (i as i32, 255 - i as i32);
+        (o + (i - o) * a / out_a).clamp(0, 255) as u8
+    };
+    Rgba::new(ch(inv.r), ch(inv.g), ch(inv.b), out_a.min(255) as u8)
 }
 
 fn map_rgb(img: &mut RgbaImage, f: impl Fn([f32; 3]) -> [f32; 3]) {
