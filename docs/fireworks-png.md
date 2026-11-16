@@ -31,6 +31,14 @@ parser/serializer (8 trees, 258 distinct tags).
 Image tiles (`TSZi{80}`, 128 px) inflate to 128×128 **A,R,G,B** straight alpha; mask tiles
 (`TSZi{100}`) to 256×256 bytes. Tiles cover an element row-major in `TILv` order.
 
+**Single-colour images: `TILv { TMCi }`** (found 2026-11-15, not read by FireCraft yet). An
+image whose pixels are all one colour can have no tiles at all: its `TILv` holds a single
+`TMCi` with the colour as ARGB hex (`ffff0000` opaque red). Fireworks MX wrote it for
+rectangles filled by script and flattened (`addNewRectangle`, `setFillColor`,
+`flattenSelection`), keeps it on re-save and renders the image in that colour. FireCraft
+currently reads such images as transparent (`../ref_fw_images/solid_color_bitmaps.png`: red and
+blue 100x80 bitmaps, 50.7% match).
+
 ## Document
 
 ```text
