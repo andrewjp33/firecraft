@@ -274,10 +274,17 @@ impl Layer {
     /// frames' cells (Fireworks MX: an instance with animation settings sits in one frame's cell
     /// and plays across the following frames, see [`element::Animation`]). In a shared layer an
     /// animation starts in the first frame.
-    pub fn shown(&self, frame: usize) -> Vec<(usize, std::borrow::Cow<'_, Element>)> {
+    /// Only instances of animation symbols play (Fireworks MX: Remove Animation makes the
+    /// symbol a graphic symbol and its instances stop, though they keep their settings).
+    pub fn shown<'a>(&'a self, frame: usize, symbols: &[Symbol]) -> Vec<(usize, std::borrow::Cow<'a, Element>)> {
         use std::borrow::Cow;
         let playing = |el: &Element| match &el.kind {
-            ElementKind::Instance { anim, .. } if anim.plays() => Some(anim.frames as usize),
+            ElementKind::Instance { anim, symbol, .. }
+                if anim.plays()
+                    && symbols.iter().any(|s| s.id == *symbol && s.kind == SymbolKind::Animation) =>
+            {
+                Some(anim.frames as usize)
+            }
             _ => None,
         };
         let mut out = Vec::new();
@@ -414,7 +421,7 @@ impl Document {
             canvas_textures: false,
         };
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
-            for (f, el) in layer.shown(frame) {
+            for (f, el) in layer.shown(frame, &self.symbols) {
                 el.render_onto(&mut out, 0, 0, &RenderCtx { frame: f, ..ctx });
             }
         }
@@ -479,8 +486,24 @@ mod animation_tests {
         })
     }
 
+    /// Symbols 1-3 are animation symbols, 9 a graphic one.
+    fn symbols() -> Vec<Symbol> {
+        [(1, SymbolKind::Animation), (2, SymbolKind::Animation), (3, SymbolKind::Animation), (9, SymbolKind::Graphic)]
+            .into_iter()
+            .map(|(id, kind)| Symbol {
+                id,
+                name: String::new(),
+                kind,
+                layers: Vec::new(),
+                frames: 1,
+                nine: None,
+                raw: None,
+            })
+            .collect()
+    }
+
     fn ids(l: &Layer, frame: usize) -> Vec<(usize, u32)> {
-        l.shown(frame)
+        l.shown(frame, &symbols())
             .iter()
             .map(|(k, e)| match &e.kind {
                 ElementKind::Instance { symbol, .. } => (*k, *symbol),
@@ -509,6 +532,16 @@ mod animation_tests {
         assert_eq!(ids(&l, 0), vec![(0, 1), (0, 2)]);
         assert_eq!(ids(&l, 1), vec![(1, 1), (1, 2)]);
         assert_eq!(ids(&l, 5), vec![(5, 1)], "the animation ended after two frames");
+    }
+
+    #[test]
+    fn only_animation_symbols_play() {
+        // Remove Animation turns the symbol into a graphic one; its instance keeps ANNi but stays
+        // in its own frame (Fireworks MX).
+        let mut l = Layer::new("L");
+        l.cells = vec![vec![instance(9, 3)], vec![], vec![]];
+        assert_eq!(ids(&l, 0), vec![(0, 9)]);
+        assert!(ids(&l, 1).is_empty());
     }
 }
 

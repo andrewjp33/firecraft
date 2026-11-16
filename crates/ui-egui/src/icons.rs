@@ -261,6 +261,9 @@ pub enum Glyph {
     NoColor,
     Opacity,
     First,
+    /// Turn clockwise / counter-clockwise (the Property inspector's animation rotation buttons).
+    TurnCw,
+    TurnCcw,
     /// Previous frame (Fireworks MX's footer: a left triangle, then a bar).
     PrevFrame,
     /// Next frame (a bar, then a right triangle).
@@ -412,6 +415,31 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
         }
         Glyph::Stop => {
             p.rect_filled(Rect::from_min_max(at(0.25, 0.25), at(0.75, 0.75)), 0.0, c);
+        }
+        Glyph::TurnCw | Glyph::TurnCcw => {
+            // An arc most of the way round, open at the top, with an arrowhead at its end.
+            let cw = g == Glyph::TurnCw;
+            let c0 = at(0.5, 0.55);
+            let rad = r.width() * 0.32;
+            let pts: Vec<Pos2> = (0..=20)
+                .map(|i| {
+                    let t = -80.0_f32 + i as f32 * (300.0 / 20.0);
+                    let a = if cw { t } else { 180.0 - t }.to_radians();
+                    pos2(c0.x + rad * a.cos(), c0.y + rad * a.sin())
+                })
+                .collect();
+            let [.., before, end] = pts.as_slice() else { return };
+            let (before, end) = (*before, *end);
+            p.add(Shape::line(pts, s));
+            // Arrowhead at the arc's end, pointing the way it turns.
+            let dir = (end - before).normalized();
+            let side = vec2(-dir.y, dir.x);
+            let tip = end + dir * r.width() * 0.12;
+            p.add(Shape::convex_polygon(
+                vec![tip, end - side * r.width() * 0.14, end + side * r.width() * 0.14],
+                c,
+                Stroke::NONE,
+            ));
         }
         Glyph::PrevFrame | Glyph::NextFrame => {
             let (bar, tip, base) = if g == Glyph::PrevFrame {

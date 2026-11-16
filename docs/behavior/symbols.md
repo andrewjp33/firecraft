@@ -134,6 +134,37 @@ setters stored nothing and changed nothing (the instance's own cell is its start
 * In a shared layer an animation starts in the first frame; instances that don't animate show in
   every frame, as before.
 
+### Creating and editing (measured in Fireworks MX, 2026-11-15)
+
+* **Modify > Animation**: Animate Selection... (Alt+Shift+F8), Settings..., a separator, Remove
+  Animation. With ordinary objects selected only Animate Selection is enabled; with an animation
+  symbol selected only Settings and Remove Animation.
+* **The Animate dialog**: Frames (5), Move (72), Direction (0), Scale to (100), Opacity (100) to
+  (100), Rotate (0) with CW / CCW; Cancel, OK; for an existing animation (Settings) also Edit...,
+  which opens the symbol. Move 50 at Direction 30 is stored as `ANXf` 43.30127, `ANYf` -25:
+  Direction counts **counter-clockwise from the right**. Settings shows the stored movement
+  rounded: 40, 20 appears as Move 45, Direction 333.
+* **Animate Selection** = Convert to Symbol with the type Animation (`MSYi` 2) plus the settings,
+  one undo step "Convert to Symbol". On an instance of a graphic symbol it makes a new animation
+  symbol holding that instance.
+* **Frames**: when the animation needs more frames than the document has, Fireworks MX asks "The
+  animation of this symbol extends beyond the last frame of the document. Automatically add new
+  frames?" (Don't show again, OK, Cancel); OK adds empty frames ("Add Frames").
+* **Property inspector** for an animation symbol: "Animation" and a name; Frames, Opacity from/to,
+  Scaling, Rotation with clockwise/counter-clockwise buttons (movement only in the dialog). Its
+  W/H/X/Y cover the whole motion (a 20 x 20 square moved 40, 20: W 60). Changes are recorded as
+  "Instance Properties". With Rotation 0 the direction can't be stored (it's `ANRi`'s sign), so
+  clockwise stays selected.
+* **Motion path**: a selected animation shows a line through its placements, green at the start,
+  blue for the frames between, red at the end.
+* **Remove Animation** makes the symbol a graphic symbol ("Symbol Properties"); the instance keeps
+  `ANNi` and the rest but no longer plays. **Only instances of animation symbols play.**
+
+FireCraft implements all of the above (`engine::animation`, `AnimateSettings`; the dialog, the
+prompt with "Don't show again" kept in the preferences, the inspector fields and the motion
+path). Not yet: dragging the motion path's ends (Fireworks MX: drag the green or red point;
+Shift for 45° steps), the Layers panel's "Animation Symbol" label, Edit > Insert > New Symbol.
+
 FireCraft: `element::Animation` (read and written with the instance), `Layer::shown` (what a frame
 draws, both renderers). mechscene2 and Animations.png now match Fireworks MX's exported frames to
 the level of their first frame (Animations: 28-200 pixels differing per frame, first frame 114).

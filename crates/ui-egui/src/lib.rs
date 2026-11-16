@@ -196,6 +196,9 @@ pub struct Prefs {
     /// system scales it, whatever the monitor's DPI). The `--ui-scale` launch option overrides it
     /// for one session.
     pub ui_scale: u32,
+    /// The answer to "Automatically add new frames?" when an animation runs past the last frame,
+    /// once "Don't show again" was ticked (Fireworks MX's prompt); `None`: ask.
+    pub add_frames: Option<bool>,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -226,7 +229,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -246,6 +249,11 @@ impl Prefs {
             self.mx_perspective,
             self.fonts_dir.replace(['\n', '\r'], ""),
             self.ui_scale,
+            match self.add_frames {
+                None => "ask",
+                Some(true) => "yes",
+                Some(false) => "no",
+            },
         )
     }
 
@@ -288,6 +296,13 @@ impl Prefs {
                 "ui_scale" => {
                     if let Ok(n) = v.trim().parse::<u32>() {
                         p.ui_scale = n.clamp(*UI_SCALE_RANGE.start(), *UI_SCALE_RANGE.end());
+                    }
+                }
+                "add_frames" => {
+                    p.add_frames = match v.trim() {
+                        "yes" => Some(true),
+                        "no" => Some(false),
+                        _ => None,
                     }
                 }
                 "aa_style" => {
@@ -341,6 +356,7 @@ impl Default for Prefs {
             patterns_dir: String::new(),
             fonts_dir: String::new(),
             ui_scale: 100,
+            add_frames: None,
         }
     }
 }

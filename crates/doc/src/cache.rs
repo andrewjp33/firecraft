@@ -206,7 +206,7 @@ impl Document {
         cache.clock += 1;
         let mut units = Vec::new();
         for layer in self.layers.iter().filter(|l| l.visible_in(frame)) {
-            for (f, el) in layer.shown(frame) {
+            for (f, el) in layer.shown(frame, &self.symbols) {
                 collect_units(&el, &RenderCtx { frame: f, ..ctx }, cache, &mut units);
             }
         }

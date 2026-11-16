@@ -414,7 +414,9 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
     let count = d.selection.len();
     let first = d.selection.first().and_then(|r| d.element(*r)).cloned();
-    let bounds = first.as_ref().and_then(|e| e.bounds());
+    let animation = d.selected_animation().map(|(_, a)| a);
+    // An animation symbol shows its whole motion (Fireworks MX).
+    let bounds = d.animation_bounds().or_else(|| first.as_ref().and_then(|e| e.bounds()));
     let (title, tool) = match first.as_ref().map(|e| &e.kind) {
         _ if count > 1 => (format!("{count} objects"), Some(Tool::Pointer)),
         Some(ElementKind::Bitmap(_)) => ("Bitmap".into(), Some(Tool::Marquee)),
@@ -424,6 +426,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         Some(ElementKind::Text(_)) => ("Text".into(), Some(Tool::Text)),
         Some(ElementKind::Group(_)) => ("Group".into(), Some(Tool::Pointer)),
         Some(ElementKind::Masked { .. }) => ("Masked Group".into(), Some(Tool::Pointer)),
+        Some(ElementKind::Instance { .. }) if animation.is_some() => ("Animation".into(), Some(Tool::Pointer)),
         Some(ElementKind::Instance { name, .. }) => (format!("Symbol: {name}"), Some(Tool::Pointer)),
         Some(ElementKind::Other { kind, .. }) => (kind.clone(), Some(Tool::Slice)),
         None => ("".into(), None),
@@ -461,6 +464,10 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 }
             });
         }
+    }
+    if let Some(a) = animation {
+        animation_fields(app, ui, a);
+        ui.separator();
     }
     // A symbol instance: edit its symbol, or turn it back into objects.
     if count == 1
@@ -647,6 +654,88 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         });
         crate::effects_ui::panel(app, ui);
     });
+}
+
+/// An animation symbol's settings, as Fireworks MX's Property inspector shows them: Frames,
+/// Opacity from/to, Scaling, Rotation with clockwise/counter-clockwise (movement and direction
+/// are in the Animate dialog only). Each change is one "Instance Properties" step.
+fn animation_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, a: firecraft_doc::Animation) {
+    let mut s = firecraft_engine::AnimateSettings::of(&a);
+    let mut resps: Vec<egui::Response> = Vec::new();
+    let mut turn: Option<bool> = None;
+    ui.vertical(|ui| {
+        egui::Grid::new("pi_animation").spacing(vec2(4.0, 2.0)).show(ui, |ui| {
+            ui.label("Frames:");
+            resps.push(ui.add(DragValue::new(&mut s.frames).range(1..=10_000).speed(0.2)));
+            ui.label("Opacity:");
+            ui.horizontal(|ui| {
+                resps.push(ui.add(DragValue::new(&mut s.start_opacity).range(0.0..=100.0)));
+                ui.label("to");
+                resps.push(ui.add(DragValue::new(&mut s.end_opacity).range(0.0..=100.0)));
+            });
+            ui.end_row();
+            ui.label("Scaling:");
+            resps.push(ui.add(DragValue::new(&mut s.scale).range(0.0..=10_000.0)));
+            ui.label("Rotation:");
+            ui.horizontal(|ui| {
+                resps.push(ui.add(DragValue::new(&mut s.rotation).range(0.0..=36_000.0)));
+                for (ccw, glyph, tip) in [
+                    (false, icons::Glyph::TurnCw, "Clockwise"),
+                    (true, icons::Glyph::TurnCcw, "Counter-clockwise"),
+                ] {
+                    let on = s.ccw == ccw;
+                    let (rect, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::click());
+                    if on {
+                        ui.painter().rect_filled(rect, 2.0, crate::theme::SELECT_BLUE.gamma_multiply(0.35));
+                        ui.painter().rect_stroke(
+                            rect,
+                            2.0,
+                            egui::Stroke::new(1.0, crate::theme::SELECT_BLUE),
+                            egui::StrokeKind::Inside,
+                        );
+                    } else if resp.hovered() {
+                        ui.painter().rect_stroke(
+                            rect,
+                            2.0,
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(150)),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    icons::paint_glyph(ui.painter(), rect.shrink(2.0), glyph, egui::Color32::from_gray(30));
+                    if resp.on_hover_text(tip).clicked() {
+                        turn = Some(ccw);
+                    }
+                }
+            });
+            ui.end_row();
+        });
+    });
+    if let Some(ccw) = turn {
+        s.ccw = ccw;
+    }
+    let anim = s.apply(Some(&a));
+    let Some(d) = app.session.active_doc_mut() else { return };
+    let mut missing = 0;
+    if turn.is_some() {
+        missing = d.set_animation(anim);
+    }
+    for resp in &resps {
+        if resp.drag_started() {
+            d.begin_live_edit("Instance Properties");
+        }
+        if resp.changed() {
+            if resp.dragged() || resp.drag_stopped() {
+                d.set_animation_live(anim);
+            } else {
+                missing = d.set_animation(anim);
+            }
+        }
+        if resp.drag_stopped() {
+            d.commit_live_edit();
+            missing = d.animation_frames_missing();
+        }
+    }
+    crate::dialogs::offer_frames(app, missing);
 }
 
 fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {

@@ -197,7 +197,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         });
         ui.menu_button("Modify", |ui| {
             ui.menu_button("Canvas", |ui| canvas_items(app, ui));
-            todo(ui, "Animation", "");
+            ui.menu_button("Animation", |ui| animation_items(app, ui));
             ui.menu_button("Symbol", |ui| symbol_items(app, ui, has_objects));
             todo(ui, "Pop-up Menu", "");
             ui.separator();
@@ -362,6 +362,21 @@ fn transform_items(app: &mut FireCraftApp, ui: &mut egui::Ui, has_objects: bool)
     }
 }
 
+/// Modify > Animation (also in the canvas context menu), as in Fireworks MX: Animate Selection
+/// for objects, Settings and Remove Animation for an animation symbol.
+fn animation_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let doc = app.session.active_doc();
+    let can_animate = doc.is_some_and(|d| d.can_animate_selection());
+    let animation = doc.is_some_and(|d| d.selected_animation().is_some());
+    if item(ui, "Animate Selection...", "Alt+Shift+F8", can_animate) || item(ui, "Settings...", "", animation) {
+        app.dialogs.animate = app.session.active_doc().and_then(crate::dialogs::AnimateDialog::for_doc);
+    }
+    ui.separator();
+    if item(ui, "Remove Animation", "", animation) {
+        with_doc(app, |d| d.remove_animation());
+    }
+}
+
 /// Modify > Arrange (also in the canvas context menu).
 fn arrange_items(app: &mut FireCraftApp, ui: &mut egui::Ui, has_objects: bool) {
     for (label, key, how) in ARRANGE {
@@ -462,7 +477,7 @@ pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         if item(ui, "Convert to Symbol", "F8", true) {
             app.dialogs.convert_symbol = Some(("Symbol".into(), firecraft_doc::SymbolKind::Graphic, false));
         }
-        todo(ui, "Animation", "");
+        ui.menu_button("Animation", |ui| animation_items(app, ui));
         ui.menu_button("Symbol", |ui| symbol_items(app, ui, true));
     } else {
         if item(ui, "Paste", "Ctrl+V", can_paste) {
@@ -831,6 +846,14 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     if pressed(cmd, Key::Num0) {
         fit(app);
+    }
+    // Modify > Animation > Animate Selection (Fireworks MX: Alt+Shift+F8).
+    if pressed(Modifiers::ALT | Modifiers::SHIFT, Key::F8) {
+        app.dialogs.animate = app
+            .session
+            .active_doc()
+            .filter(|d| d.can_animate_selection())
+            .and_then(crate::dialogs::AnimateDialog::for_doc);
     }
     if pressed(Modifiers::NONE, Key::F8) && app.session.active_doc().is_some_and(|d| !d.selection.is_empty())
     {

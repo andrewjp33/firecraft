@@ -6,6 +6,7 @@
 mod fills;
 mod filters;
 pub use filters::filter_image;
+mod animation;
 mod history;
 mod objects;
 mod paint;
@@ -18,6 +19,7 @@ pub use fills::{
     FillHandles, GRADIENT_FILLS, GRADIENT_PRESETS, PATTERN, WEB_DITHER, default_handles, fill_label,
     new_gradient, new_pattern, opaque_ramp, preset_colors, preset_name, web_dither_tile,
 };
+pub use animation::AnimateSettings;
 pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS, Selected};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
 pub use paint::PaintTool;

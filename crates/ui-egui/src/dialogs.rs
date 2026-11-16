@@ -40,6 +40,43 @@ pub struct Dialogs {
     /// Modify > Symbol > Convert to Symbol: name and type being chosen.
     /// (name, type, 9-slice scaling guides).
     pub convert_symbol: Option<(String, firecraft_doc::SymbolKind, bool)>,
+    /// Modify > Animation > Animate Selection (or Settings, for an animation symbol).
+    pub animate: Option<AnimateDialog>,
+    /// "Automatically add new frames?": the frames an animation lacks.
+    pub add_frames: Option<AddFrames>,
+}
+
+/// The Animate dialog (Fireworks MX's, values as it shows them).
+#[derive(Clone, Copy, Debug)]
+pub struct AnimateDialog {
+    pub settings: firecraft_engine::AnimateSettings,
+    /// Settings for this existing animation (else Animate Selection).
+    pub existing: Option<firecraft_doc::Animation>,
+}
+
+/// Fireworks MX's prompt when an animation runs past the document's last frame.
+#[derive(Clone, Copy, Debug)]
+pub struct AddFrames {
+    pub missing: usize,
+    pub dont_ask: bool,
+}
+
+impl AnimateDialog {
+    /// The dialog for the active document's selection: Settings for an animation symbol,
+    /// Animate Selection otherwise (with Fireworks MX's defaults).
+    pub fn for_doc(d: &firecraft_engine::DocState) -> Option<Self> {
+        match d.selected_animation() {
+            Some((_, a)) => Some(AnimateDialog {
+                settings: firecraft_engine::AnimateSettings::of(&a),
+                existing: Some(a),
+            }),
+            None if d.can_animate_selection() => Some(AnimateDialog {
+                settings: firecraft_engine::AnimateSettings::default(),
+                existing: None,
+            }),
+            None => None,
+        }
+    }
 }
 
 impl Dialogs {
@@ -56,6 +93,8 @@ impl Dialogs {
             || self.feather.is_some()
             || self.numeric.is_some()
             || self.convert_symbol.is_some()
+            || self.animate.is_some()
+            || self.add_frames.is_some()
     }
 }
 
@@ -136,6 +175,136 @@ fn convert_symbol(app: &mut FireCraftApp, ctx: &egui::Context) {
         }
     } else if cancel {
         app.dialogs.convert_symbol = None;
+    }
+}
+
+/// Fireworks MX's Animate dialog: Frames, Move, Direction, Scale to, Opacity from/to, Rotate
+/// with CW/CCW, and (for an existing animation) Edit, which opens the symbol.
+fn animate(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(mut dl) = app.dialogs.animate else { return };
+    let (mut ok, mut cancel, mut edit) = (false, false, false);
+    let s = &mut dl.settings;
+    dialog("Animate").show(ctx, |ui| {
+        let row = |ui: &mut egui::Ui, label: &str, v: &mut f64, max: f64, suffix: &str| {
+            ui.label(label);
+            ui.add(egui::DragValue::new(v).range(0.0..=max).speed(1.0).max_decimals(1).suffix(suffix));
+        };
+        egui::Grid::new("animate_frames").num_columns(2).show(ui, |ui| {
+            ui.label("Frames:");
+            ui.add(egui::DragValue::new(&mut s.frames).range(1..=10_000).speed(0.2));
+            ui.end_row();
+        });
+        ui.separator();
+        egui::Grid::new("animate_values").num_columns(2).show(ui, |ui| {
+            row(ui, "Move:", &mut s.movement, 10_000.0, "");
+            ui.end_row();
+            row(ui, "Direction:", &mut s.direction, 360.0, "°");
+            ui.end_row();
+            row(ui, "Scale to:", &mut s.scale, 10_000.0, "%");
+            ui.end_row();
+            ui.label("Opacity:");
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut s.start_opacity).range(0.0..=100.0).suffix("%"));
+                ui.label("to");
+                ui.add(egui::DragValue::new(&mut s.end_opacity).range(0.0..=100.0).suffix("%"));
+            });
+            ui.end_row();
+            ui.label("Rotate:");
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut s.rotation).range(0.0..=36_000.0).suffix("°"));
+                ui.radio_value(&mut s.ccw, false, "CW");
+                ui.radio_value(&mut s.ccw, true, "CCW");
+            });
+            ui.end_row();
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            if dl.existing.is_some() {
+                edit = ui
+                    .button("Edit...")
+                    .on_hover_text("Open the symbol in the Symbol Editor")
+                    .clicked();
+            }
+            cancel = ui.button("Cancel").clicked();
+            ok = ui.button("OK").clicked();
+        });
+    });
+    cancel |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    ok |= !ctx.egui_wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    app.dialogs.animate = Some(dl);
+    if !(ok || cancel || edit) {
+        return;
+    }
+    app.dialogs.animate = None;
+    let index = app.session.active;
+    let Some(d) = app.session.active_doc_mut() else { return };
+    if edit {
+        if let Some(id) = d.selected_animation().and_then(|(r, _)| d.instance_symbol(r)) {
+            app.session.edit_symbol(index, id);
+        }
+        return;
+    }
+    if cancel {
+        return;
+    }
+    let missing = match dl.existing {
+        Some(was) => d.set_animation(dl.settings.apply(Some(&was))),
+        None => d.animate_selection(&dl.settings).unwrap_or(0),
+    };
+    offer_frames(app, missing);
+}
+
+/// After an animation's frames were set: add the frames the document lacks, as the "Don't show
+/// again" answer says, or ask (Fireworks MX's prompt).
+pub(crate) fn offer_frames(app: &mut FireCraftApp, missing: usize) {
+    if missing == 0 {
+        return;
+    }
+    match app.prefs.add_frames {
+        Some(true) => {
+            if let Some(d) = app.session.active_doc_mut() {
+                d.add_frames(missing);
+            }
+        }
+        Some(false) => {}
+        None => {
+            app.dialogs.add_frames = Some(AddFrames {
+                missing,
+                dont_ask: false,
+            })
+        }
+    }
+}
+
+/// "The animation of this symbol extends beyond the last frame of the document. Automatically
+/// add new frames?" (Fireworks MX's wording), with Don't show again.
+fn add_frames(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(mut p) = app.dialogs.add_frames else { return };
+    let (mut ok, mut cancel) = (false, false);
+    dialog("FireCraft").show(ctx, |ui| {
+        ui.label(
+            "The animation of this symbol extends beyond the last frame of the document.\nAutomatically add new frames?",
+        );
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut p.dont_ask, "Don't show again");
+            ui.add_space(24.0);
+            ok = ui.button("OK").clicked();
+            cancel = ui.button("Cancel").clicked();
+        });
+    });
+    ok |= ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    cancel |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    app.dialogs.add_frames = Some(p);
+    if !(ok || cancel) {
+        return;
+    }
+    app.dialogs.add_frames = None;
+    if p.dont_ask {
+        app.prefs.add_frames = Some(ok);
+    }
+    if ok && let Some(d) = app.session.active_doc_mut() {
+        d.add_frames(p.missing);
     }
 }
 
@@ -243,6 +412,8 @@ impl Default for Dialogs {
             feather: None,
             numeric: None,
             convert_symbol: None,
+            animate: None,
+            add_frames: None,
         }
     }
 }
@@ -528,6 +699,8 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     numeric_transform(app, ctx);
     convert_symbol(app, ctx);
+    animate(app, ctx);
+    add_frames(app, ctx);
     if app.dialogs.about {
         let mut close = false;
         dialog("About FireCraft").show(ctx, |ui| {
