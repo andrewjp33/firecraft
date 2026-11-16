@@ -185,7 +185,7 @@ impl BevelBoss {
     ///   Scale/100 x 1.5, with x = 1 at the object's edge and 0 at `width` inside (flat beyond),
     ///   smoothed by a Gaussian of 5.25 x Smoothness/100 px (not scaled by the width);
     /// - inside, every visible pixel is shaded (fainter ones beyond the half-opaque edge too) and
-    ///   keeps its alpha; a semi-transparent pixel's colour is first darkened by alpha^0.4;
+    ///   keeps its alpha; a semi-transparent pixel's colour is first scaled by a / (a + 0.2 (1 - a));
     /// - outside, the rim is the Shadow Color at alpha 1 - lit and the Highlight Color at alpha
     ///   k painted over the (usually transparent) pixels;
     /// - colour = mix(Shadow Color, object, n.L) everywhere when Shade Interior (flat areas get
@@ -310,10 +310,15 @@ impl BevelBoss {
                     // shows; their stored colour doesn't matter).
                     over_f(over_f(p, self.shadow, 1.0 - lit), self.highlight, k)
                 } else {
-                    // Inside, semi-transparent pixels are darkened by alpha^0.4 first (fitted:
-                    // Fireworks MX's soft edges and alpha ramps come out darker). In f64,
-                    // rounded once.
-                    let dim = if p.a < 255 && !self.outside { (p.a as f64 / 255.0).powf(0.4) } else { 1.0 };
+                    // Inside, a semi-transparent pixel's colour is first scaled by
+                    // a / (a + 0.2 (1 - a)) (measured on soft_bevel_probe, Windows: 0.42 at alpha
+                    // 33, 0.80 at 112, 0.90 at 160, 0.97 at 224). In f64, rounded once.
+                    let dim = if p.a < 255 && !self.outside {
+                        let a = p.a as f64 / 255.0;
+                        a / (a + 0.2 * (1.0 - a))
+                    } else {
+                        1.0
+                    };
                     let (s, hl) = (self.shadow, self.highlight);
                     let ch = |sc: u8, pc: u8, hc: u8| {
                         let base = sc as f64 + (pc as f64 * dim - sc as f64) * lit;

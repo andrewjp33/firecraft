@@ -52,10 +52,11 @@ or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
   mix(Shadow Color, object, n.L). Inclination is the light's elevation.
 - Highlight: linear cone, 1 - angle(n, H) / (Highlight Size% of 45 degrees), x Brightness.
 - **Inside**, every visible pixel is shaded, also the faint ones beyond the half-opaque edge,
-  and keeps its alpha. A semi-transparent pixel's colour is darkened by alpha^0.4 before shading
-  (soft edges and alpha ramps come out darker in Fireworks MX; alpha 48 shows 0.32 x the colour
-  where flat shading alone gives 0.71). spectrum_wave.png (black, alpha 17..205 after Convert to
-  Alpha) bevels along its alpha-128 contour this way.
+  and keeps its alpha. A semi-transparent pixel's colour is scaled by a / (a + 0.2 (1 - a))
+  before shading (measured along the light's perpendicular on `soft_bevel_probe`: 0.42 at alpha
+  33, 0.80 at 112, 0.90 at 160, 0.97 at 224; the earlier alpha^0.4 was too dark in the middle).
+  spectrum_wave.png (black, alpha 17..205 after Convert to Alpha) bevels along its alpha-128
+  contour this way.
 - **Outside**, the rim isn't the object's colour: the Shadow Color at alpha 1 - lit with the
   Highlight Color at alpha k over it, painted over the transparent pixels (black and white
   overlays). Transparent pixels' stored colour never matters (the white and black rings render
@@ -66,6 +67,26 @@ or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
   99.5%, eye.png 81.8 -> 86.7%, plugin_test_windows.png 85.5 -> 87.3%. Still off: the rings at
   Smoothness 0 (8 levels), spectrum_wave's highlight arc is broken where Fireworks MX's is smooth
   (alpha noise against the half-opaque edge; pre-smoothing alpha didn't help).
+
+### Soft alpha and noise (open, 2026-11-16)
+
+`crates/io/examples/soft_bevel_probe.rs` (radial alpha ramps of slope 2/6/20 per pixel, noise
+±5/±20, a flat noisy disc, a black ramp; spectrum_wave's settings and variants), rendered on
+Windows (`probes/soft_bevel_probe_win.png`), and the spectrum_wave{0,10,...,100}.png series
+(only the plaster texture amount differs) show:
+- Noise-free soft ramps now match well (crescent error about 7 levels).
+- With noise, Fireworks MX keeps the highlight in place and continuous but grainy (±20 alpha
+  noise on a 2-per-pixel ramp; spectrum_wave stays smooth to 10-20% texture). FireCraft's hard
+  half-opaque cut wobbles with the noise and breaks the highlight. Smoothing alpha before the cut
+  makes it continuous but thin and dim; MX's stays broad and grainy, so MX lets the noise into
+  the shading while locating the edge from smoothed alpha. Not solved.
+- At a hard edge of a soft object (alpha 180 inside, 0 outside) MX smooths the height without
+  renormalising (outside pixels count at the edge's height), which keeps a strong highlight;
+  FireCraft's normalised smoothing flattens it. Switching improves both probes and
+  plugin_test_windows.png (87.2 -> 88.4%) but costs ball.png 3% (99.5 -> 96.5), unexplained,
+  so not adopted.
+- A distance weighted by how far alpha is past 50% (ramping over 10 levels) helps slightly
+  (bevel probe 140 -> 133 with plain smoothing); not adopted on its own.
 
 Edges and Marble are first versions from the reference files (sun) and the test grid, not yet
 fitted.
