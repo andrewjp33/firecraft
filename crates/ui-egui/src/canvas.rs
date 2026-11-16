@@ -543,11 +543,31 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                     let n = d.doc.frames.len().max(1);
                     let view = app.views.entry(id).or_default();
                     let multi = n > 1;
+                    // Playback: advance by each frame's delay (1/100 s), before the controls are drawn so
+                    // they show the frame being shown.
+                    if view.playing && multi {
+                        let now = ui.ctx().input(|i| i.time);
+                        let delay = d
+                            .doc
+                            .frames
+                            .get(d.doc.current_frame)
+                            .map(|f| f.delay.max(1))
+                            .unwrap_or(7) as f64
+                            / 100.0;
+                        if now - view.last_tick >= delay {
+                            d.doc.current_frame = (d.doc.current_frame + 1) % n;
+                            view.last_tick = now;
+                        }
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_secs_f64(delay.min(1.0) / 2.0));
+                    }
                     let cur = d.doc.current_frame;
                     if crate::icons::glyph_button(ui, crate::icons::Glyph::First, 14.0, multi && cur > 0)
                         .on_hover_text("First frame")
                         .clicked()
                     {
+                        // Going to a frame stops playback.
+                        view.playing = false;
                         d.doc.current_frame = 0;
                     }
                     let play = if view.playing {
@@ -566,24 +586,8 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                         .on_hover_text("Last frame")
                         .clicked()
                     {
+                        view.playing = false;
                         d.doc.current_frame = n - 1;
-                    }
-                    // Playback: advance by each frame's delay (1/100 s).
-                    if view.playing && multi {
-                        let now = ui.ctx().input(|i| i.time);
-                        let delay = d
-                            .doc
-                            .frames
-                            .get(d.doc.current_frame)
-                            .map(|f| f.delay.max(1))
-                            .unwrap_or(7) as f64
-                            / 100.0;
-                        if now - view.last_tick >= delay {
-                            d.doc.current_frame = (d.doc.current_frame + 1) % n;
-                            view.last_tick = now;
-                        }
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_secs_f64(delay.min(1.0) / 2.0));
                     }
                     frame_number(ui, id, d, n);
                     // One frame back or on, wrapping round (Fireworks MX's footer; Ctrl+Page Up/Down).
@@ -591,12 +595,14 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                         .on_hover_text("Previous frame (Ctrl+Page Up)")
                         .clicked()
                     {
+                        view.playing = false;
                         d.doc.current_frame = (d.doc.current_frame + n - 1) % n;
                     }
                     if crate::icons::glyph_button(ui, crate::icons::Glyph::NextFrame, 14.0, multi)
                         .on_hover_text("Next frame (Ctrl+Page Down)")
                         .clicked()
                     {
+                        view.playing = false;
                         d.doc.current_frame = (d.doc.current_frame + 1) % n;
                     }
                     // Exit Bitmap Mode: red while a bitmap is being edited (Fireworks MX's footer).

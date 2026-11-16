@@ -838,7 +838,8 @@ impl FireCraftApp {
             && self.effects_ui.filter.is_none()
             && !crate::fpui::color_picker::any_open(ctx)
             && !ctx.any_popup_open()
-            && !ctx.egui_wants_keyboard_input()
+            // A text field keeps Escape; a button with keyboard focus (Tab) doesn't.
+            && !ctx.text_edit_focused()
             && self.session.tool != firecraft_engine::Tool::Pen
             && self
                 .session
@@ -889,25 +890,6 @@ impl FireCraftApp {
         // Whether Escape is free for ending bitmap editing this update, decided before anything
         // else that takes Escape gets a look at it.
         let escape_free = self.escape_is_free(&ctx);
-        // Selection and vector tools leave the Pen's path open, to resume on returning; any
-        // other tool finishes it (Fireworks MX).
-        if !matches!(
-            self.session.tool,
-            firecraft_engine::Tool::Pen
-                | firecraft_engine::Tool::Pointer
-                | firecraft_engine::Tool::SelectBehind
-                | firecraft_engine::Tool::Subselect
-                | firecraft_engine::Tool::Scale
-                | firecraft_engine::Tool::Skew
-                | firecraft_engine::Tool::Distort
-                | firecraft_engine::Tool::Line
-                | firecraft_engine::Tool::Rectangle
-                | firecraft_engine::Tool::Ellipse
-                | firecraft_engine::Tool::Freeform
-                | firecraft_engine::Tool::Knife
-        ) {
-            self.path_edit.end_pen();
-        }
         if let Some((doc, id)) =
             ctx.data_mut(|m| m.remove_temp::<(usize, u32)>(egui::Id::unique("edit_symbol")))
         {
@@ -1015,12 +997,18 @@ impl FireCraftApp {
         fill_ui::stroke_window(self, &ctx);
         effects_ui::editor(self, &ctx);
         effects_ui::filter_dialog(self, &ctx);
-        // Escape that nothing else wanted ends bitmap editing, as in Fireworks MX.
-        if escape_free
-            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
-            && let Some(d) = self.session.active_doc_mut()
-        {
-            d.exit_bitmap_mode();
+        // Escape that nothing else wanted stops playback, or else ends bitmap editing (as in
+        // Fireworks MX).
+        if escape_free && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            let id = self.session.active_doc().map(|d| d.id);
+            match id.and_then(|id| self.views.get_mut(&id)).filter(|v| v.playing) {
+                Some(view) => view.playing = false,
+                None => {
+                    if let Some(d) = self.session.active_doc_mut() {
+                        d.exit_bitmap_mode();
+                    }
+                }
+            }
         }
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {

@@ -1530,7 +1530,19 @@ impl Element {
         if ew * eh > 1 << 28 {
             return None;
         }
-        let (img, x, y) = self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx)?;
+        // A symbol's or group's contents can be slow to draw (members' own blurs) and are often
+        // the same while only these effects change (tubes.png turns an instance's hue frame by
+        // frame): keep them.
+        let (img, x, y) = if matches!(
+            self.kind,
+            ElementKind::Instance { .. } | ElementKind::Group(_) | ElementKind::Masked { .. }
+        ) {
+            crate::cache::kept_contents(self, (ox - m, oy - m, ew as u32, eh as u32), ctx, || {
+                self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx)
+            })?
+        } else {
+            self.rasterize(ox - m, oy - m, ew as u32, eh as u32, ctx)?
+        };
         let (bx, by) = ((x - m).max(0), (y - m).max(0));
         let bw = ((x + img.width() as i64 + m).min(ew) - bx).max(0) as u32;
         let bh = ((y + img.height() as i64 + m).min(eh) - by).max(0) as u32;

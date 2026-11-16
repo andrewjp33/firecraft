@@ -22,3 +22,9 @@ MX's shortcut set). The frame number is editable (a FireCraft addition): click i
 selected), type a frame and press Enter to go there, Escape to leave it; the field keeps its size,
 so the footer doesn't move while editing.
 
+Playback stops when First, Last, Previous or Next (or their shortcuts) go to a frame, and on
+Escape (when no dialog or text field wants it; otherwise Escape ends bitmap editing as before).
+A frame is drawn once and kept: what is the same in every frame (a shared layer) is drawn once
+for all of them, and a symbol's contents are kept while only its own effects change from frame
+to frame (tubes.png: 1 s per new frame before, 27 ms now).
+

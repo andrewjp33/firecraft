@@ -831,6 +831,12 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     // Previous/next frame (Fireworks MX's shortcut set: Ctrl+Page Up / Ctrl+Page Down).
     for (key, back) in [(Key::PageUp, true), (Key::PageDown, false)] {
         if pressed(cmd, key) {
+            // Like the footer's buttons, stepping stops playback.
+            if let Some(id) = app.session.active_doc().map(|d| d.id)
+                && let Some(view) = app.views.get_mut(&id)
+            {
+                view.playing = false;
+            }
             with_doc(app, |d| {
                 let n = d.doc.frames.len().max(1);
                 d.doc.current_frame = if back {

@@ -446,6 +446,8 @@ thread_local! {
     /// Objects' pixels for hit tests, keyed like the render cache (the object moved to its
     /// anchor): see [`kept_hit`].
     static HIT_SHAPES: RefCell<Memory> = const { RefCell::new(Memory::new(32)) };
+    /// Symbols' and groups' contents before their own effects: see [`kept_contents`].
+    static CONTENTS: RefCell<Memory> = const { RefCell::new(Memory::new(8)) };
 }
 
 /// A perspective symbol's contents drawn flat, made once however often the pointer or a draw asks.
@@ -543,10 +545,39 @@ pub fn kept_hit(
     Some((py - tol..=py + tol).any(|y| (px - tol..=px + tol).any(|x| k.image.get(x, y).is_some_and(|p| p.a > 0))))
 }
 
+/// An object's contents drawn into `region` (before its own effects), made once while they stay
+/// the same: the key is the object without its effects, opacity and blend mode, so changing only
+/// those (an animated hue) draws the contents again only when they changed.
+pub(crate) fn kept_contents(
+    el: &Element,
+    region: (i64, i64, u32, u32),
+    ctx: &RenderCtx,
+    make: impl FnOnce() -> Option<(RgbaImage, i64, i64)>,
+) -> Option<(RgbaImage, i64, i64)> {
+    let mut bare = el.clone();
+    bare.effects.clear();
+    let mut h = DefaultHasher::new();
+    fingerprint(&bare, ctx).hash(&mut h);
+    region.hash(&mut h);
+    let key = h.finish();
+    if let Some(k) = CONTENTS.with(|m| m.borrow_mut().get(key)) {
+        return Some(((*k.image).clone(), k.x, k.y));
+    }
+    let (image, x, y) = make()?;
+    let kept = Kept {
+        image: Arc::new(image),
+        x,
+        y,
+    };
+    CONTENTS.with(|m| m.borrow_mut().put(key, kept.clone()));
+    Some(((*kept.image).clone(), kept.x, kept.y))
+}
+
 fn fingerprint(el: &Element, ctx: &RenderCtx) -> u64 {
     let mut h = DefaultHasher::new();
+    // Not the frame: what a symbol shows in it is hashed with its contents, so an object that
+    // is the same in every frame (a shared layer's) is drawn once for all of them.
     hash_element(el, ctx, &mut h);
-    ctx.frame.hash(&mut h);
     ctx.depth.hash(&mut h);
     (ctx.math as u8).hash(&mut h);
     ctx.canvas_textures.hash(&mut h);
