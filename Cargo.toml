@@ -70,6 +70,10 @@ opt-level = 3
 [profile.dev.package.firecraft-doc]
 opt-level = 3
 
+# Exporting (quantizing, dithering, encoding every frame of an animated GIF) too.
+[profile.dev.package.firecraft-io]
+opt-level = 3
+
 # Release builds are what users download: whole-program optimization (slower to build, smaller and
 # faster to run) and no symbol tables.
 [profile.release]

@@ -15,10 +15,37 @@ use crate::{Error, Result};
 #[derive(Clone, Debug)]
 pub struct Exported {
     pub bytes: Vec<u8>,
-    /// How the file looks (its first frame), decoded back.
+    /// How the file looks (the current frame), decoded back.
     pub preview: RgbaImage,
     /// Colors in the palette of an indexed export.
     pub palette: Vec<Entry>,
+    /// An animated GIF's every frame, so a preview of another frame needs no new export.
+    pub animation: Option<std::sync::Arc<AnimatedPreview>>,
+}
+
+/// Every frame of an animated GIF export as the animation shows it (palette indices).
+pub struct AnimatedPreview {
+    indices: Vec<Vec<u8>>,
+    palette: Vec<Entry>,
+    size: (u32, u32),
+    /// The document frame each exported frame comes from.
+    exported: Vec<usize>,
+}
+
+impl std::fmt::Debug for AnimatedPreview {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AnimatedPreview({} frames, {:?})", self.indices.len(), self.size)
+    }
+}
+
+impl AnimatedPreview {
+    /// How the export shows document frame `frame` (a frame not set to export: the exported
+    /// frame before it).
+    pub fn frame(&self, frame: usize) -> RgbaImage {
+        let show = self.exported.iter().filter(|&&i| i <= frame).count().saturating_sub(1);
+        let idx = self.indices.get(show).or(self.indices.first()).map_or(&[][..], |f| f);
+        render_indexed(idx, &self.palette, self.size.0, self.size.1)
+    }
 }
 
 /// How pixels a format can't keep transparent are made opaque.
@@ -138,19 +165,25 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
             // The preview shows the current frame as the animation shows it (or, when it isn't
             // exported, the exported frame before it).
             let show = exported.iter().filter(|&&(i, _)| i <= frame).count().saturating_sub(1);
-            gif(&frames, s, m, show)
+            let mut e = gif(&frames, s, m, show)?;
+            if let Some(a) = e.animation.as_mut().and_then(std::sync::Arc::get_mut) {
+                a.exported = exported.iter().map(|&(i, _)| i).collect();
+            }
+            Ok(e)
         }
         ExportFormat::Png8 => png8(&img, s, m, doc.resolution),
         ExportFormat::Png24 => {
             let flat = flatten(&img, m);
             let bytes = png_rgb(&flat, doc.resolution, false)?;
             Ok(Exported {
+                animation: None,
                 bytes,
                 preview: flat,
                 palette: Vec::new(),
             })
         }
         ExportFormat::Png32 => Ok(Exported {
+            animation: None,
             bytes: png_rgb(&img, doc.resolution, true)?,
             preview: img,
             palette: Vec::new(),
@@ -568,7 +601,15 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
         w,
         h,
     );
+    let animation = animated.then(|| AnimatedPreview {
+        indices: ix.frames,
+        palette: shown,
+        size: (w, h),
+        exported: Vec::new(),
+    })
+    .map(std::sync::Arc::new);
     Ok(Exported {
+        animation,
         bytes: out,
         preview,
         palette: ix.palette,
@@ -689,6 +730,7 @@ fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<E
     }
     let preview = render_indexed(data, &ix.shown(), w, h);
     Ok(Exported {
+        animation: None,
         bytes: out,
         preview,
         palette: ix.palette,
@@ -729,6 +771,7 @@ fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<E
         .map_err(|e| Error::Png(format!("JPEG: {e}")))?;
     let preview = decode_still(&out, image::ImageFormat::Jpeg).unwrap_or(flat);
     Ok(Exported {
+        animation: None,
         bytes: out,
         preview,
         palette: Vec::new(),
@@ -758,6 +801,7 @@ fn webp(img: &RgbaImage, s: &ExportSettings) -> Result<Exported> {
     let bytes = mem.to_vec();
     let preview = decode_still(&bytes, image::ImageFormat::WebP).unwrap_or_else(|| img.clone());
     Ok(Exported {
+        animation: None,
         bytes,
         preview,
         palette: Vec::new(),
@@ -791,6 +835,7 @@ fn jxl(img: &RgbaImage, s: &ExportSettings) -> Result<Exported> {
         .map(|d| d.render(0))
         .unwrap_or_else(|_| img.clone());
     Ok(Exported {
+        animation: None,
         bytes,
         preview,
         palette: Vec::new(),
@@ -1070,6 +1115,9 @@ mod tests {
         d.current_frame = 1;
         let second = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
         assert!(red_at(&second, 11) && !red_at(&second, 3), "the preview follows the current frame");
+        // The first export already holds every frame: the same picture without exporting again.
+        let kept = first.animation.as_ref().map(|a| a.frame(1));
+        assert_eq!(kept.as_ref(), Some(&second.preview));
         // A frame that isn't exported shows the exported frame before it.
         d.frames[1].export = false;
         d.frames.push(firecraft_doc::Frame::default());

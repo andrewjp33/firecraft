@@ -1683,32 +1683,61 @@ pub(crate) struct Optimized {
     texture: Option<egui::TextureHandle>,
     /// File size in bytes and palette colours, or why it couldn't be exported.
     pub result: Result<(usize, usize), String>,
+    /// An animated GIF's every frame, and the frame the texture shows: another frame (playing,
+    /// stepping) is shown from it without exporting again.
+    animation: Option<std::sync::Arc<firecraft_io::export::AnimatedPreview>>,
+    frame: usize,
 }
 
+/// What the preview depends on. An animated GIF's export holds every frame, so not the current
+/// frame.
 fn optimize_key(d: &firecraft_engine::DocState) -> (u64, usize, String) {
     let mut s = d.doc.export.clone();
     s.raw = None;
-    (d.revision, d.doc.current_frame, format!("{s:?}"))
+    let frame = if s.format == firecraft_doc::ExportFormat::AnimatedGif {
+        usize::MAX
+    } else {
+        d.doc.current_frame
+    };
+    (d.revision, frame, format!("{s:?}"))
+}
+
+fn color_image(img: &firecraft_raster::RgbaImage) -> egui::ColorImage {
+    egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &img.to_rgba_bytes())
 }
 
 /// Export the document again if anything it depends on changed since the last preview.
 pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::DocState, ctx: &egui::Context) {
     let key = optimize_key(d);
-    if view.optimized.as_ref().is_some_and(|o| o.key == key) {
+    let frame = d.doc.current_frame;
+    if let Some(o) = view.optimized.as_mut().filter(|o| o.key == key) {
+        // The same export: another frame of an animation is shown from the kept frames.
+        if o.frame != frame
+            && let (Some(a), Some(tex)) = (o.animation.as_ref(), o.texture.as_mut())
+        {
+            tex.set(color_image(&a.frame(frame)), egui::TextureOptions::NEAREST);
+            o.frame = frame;
+        }
         return;
     }
-    let (texture, result) = match firecraft_io::export::export(&d.doc, &d.doc.export) {
+    let (texture, result, animation) = match firecraft_io::export::export(&d.doc, &d.doc.export) {
         Ok(e) => {
-            let img = egui::ColorImage::from_rgba_unmultiplied(
-                [e.preview.width() as usize, e.preview.height() as usize],
-                &e.preview.to_rgba_bytes(),
+            let tex = ctx.load_texture(
+                format!("optimized-{}", d.id),
+                color_image(&e.preview),
+                egui::TextureOptions::NEAREST,
             );
-            let tex = ctx.load_texture(format!("optimized-{}", d.id), img, egui::TextureOptions::NEAREST);
-            (Some(tex), Ok((e.bytes.len(), e.palette.len())))
+            (Some(tex), Ok((e.bytes.len(), e.palette.len())), e.animation)
         }
-        Err(e) => (None, Err(e.to_string())),
+        Err(e) => (None, Err(e.to_string()), None),
     };
-    view.optimized = Some(Optimized { key, texture, result });
+    view.optimized = Some(Optimized {
+        key,
+        texture,
+        result,
+        animation,
+        frame,
+    });
 }
 
 /// "4.6K" / "820 bytes": a file size as Fireworks shows it.
