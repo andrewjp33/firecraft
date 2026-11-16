@@ -153,12 +153,29 @@ impl BevelBoss {
     }
 
     /// The profile height (0..1) at `t` (1 = the object's edge, 0 = the inner end of the
-    /// bevel, as measured): a monotone cubic (Fritsch-Carlson) through the points. Smoothstep
-    /// segments went flat at every point and drew rings at Smoothness 0 that Fireworks MX
-    /// doesn't (bevel_probe).
+    /// bevel, as measured). Up to three points: the polynomial through all of them (with three,
+    /// the parabola): eye2.png's dome has a slope falling linearly from the edge, the parabola's
+    /// (eye2 87 -> 95%, eye 89 -> 93%, ball 99.5 -> 100%, bevel_probe 155 -> 117). More points
+    /// (unmeasured): a monotone cubic through them.
     fn profile_at(&self, t: f32) -> f32 {
         let p = &self.profile;
         let t = t.clamp(0.0, 1.0);
+        if p.len() <= 3 {
+            // Lagrange form of the polynomial through the points.
+            return p
+                .iter()
+                .enumerate()
+                .map(|(i, pi)| {
+                    let l: f32 = p
+                        .iter()
+                        .enumerate()
+                        .filter(|&(j, _)| j != i)
+                        .map(|(_, pj)| (t - pj.0) / (pi.0 - pj.0))
+                        .product();
+                    l * pi.1
+                })
+                .sum();
+        }
         let k = p.iter().position(|q| q.0 >= t).unwrap_or(p.len() - 1).max(1);
         let (a, b) = (p[k - 1], p[k]);
         let span = (b.0 - a.0).max(1e-6);

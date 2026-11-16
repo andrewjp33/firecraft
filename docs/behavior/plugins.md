@@ -44,8 +44,15 @@ or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
 
 - The object is its pixels at least half opaque. The profile's x runs from 0 at `width` inside
   it to 1 at its edge (the default curve, rising to the edge, makes a dish: the side facing the
-  light is dark), through the points as a monotone cubic (smoothstep segments drew rings at
-  Smoothness 0).
+  light is dark). The curve through up to three points is the polynomial through them (with
+  three, the parabola): eye2.png (a 1000 px circle, Width 428) shows a dome whose slope falls
+  linearly from the edge to zero, which the monotone cubic used before put mid-way
+  (eye2 87.1 -> 95.3%, eye 88.8 -> 93.2%, ball 99.5 -> 100%, bevel_probe 155 -> 117). Profiles
+  with more points (none in the references) still use a monotone cubic. The profile string is
+  `Bevel: n/x y f/...` with a third number per point (always 0 so far; perhaps a corner flag),
+  which FireCraft ignores. Remaining on eye2: fine radial streaks (distances to the nearest
+  outside pixel's centre step on a large circle; a sub-pixel correction from the edge pixel's
+  coverage didn't help).
 - Height = profile x width x Height Scale/100 x 1.5; Smoothness blurs it with sigma 5.25 x
   Smoothness/100 px, the same at every width.
 - Flat areas are lit too: colour x sin(inclination) (196 -> 139 at 45 degrees); colour =
