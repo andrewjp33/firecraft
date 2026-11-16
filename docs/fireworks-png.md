@@ -12,11 +12,14 @@ A normal PNG whose `IDAT` is the flattened canvas (32-bit RGBA), so every viewer
 |---|---|
 | `mkBF` | 72 bytes: `FADECAFE 00000004` then zeros |
 | `mkTS` | zlib: the document tree (below) |
-| `mkBS` | zlib: a small secondary tree (one layer, one 256-wide image); purpose unknown, optional |
+| `mkBS` | zlib: a stub document, one 256x172 image reading "This file was created in Fireworks" (8 languages, "Fireworks 4"), presumably for Fireworks versions that can't read `mkTS`; optional |
 | `mkBT` | one pixel tile each |
-| `prVW` | zlib: preview, magic `CAFEBEEF`; optional |
+| `prVW` | zlib: thumbnail, `CAFEBEEF`, u16 width and height (longest side 112), 256-colour RGB palette, 128x128 palette indices; optional, FireCraft doesn't write it yet |
 
 Fireworks MX also writes `sBIT` and `tEXt Software=Macromedia Fireworks MX`; neither is required.
+
+What FireCraft doesn't read or write yet, chunk by chunk and tag by tag, with what a FireCraft
+save changes: [fireworks-png-survey.md](fireworks-png-survey.md) (2026-11-15).
 
 ## Tree grammar
 
