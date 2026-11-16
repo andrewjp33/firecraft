@@ -17,8 +17,13 @@ So a second stroke elsewhere continues the bitmap the first one made. The Eraser
 selected bitmap or the one under the press and never makes one. A pixel selection confines all
 of them. Fireworks shows no selection box while a painting tool is active.
 
-Fireworks trims a bitmap to its opaque area. FireCraft trims a new bitmap when the stroke ends;
-an existing one keeps at least its old rectangle.
+Fireworks trims a bitmap to its opaque area when bitmap editing ends ("Exit Bitmap Mode"), after
+any bitmap tool: a Brush or Eraser stroke inside a 200 x 150 bitmap whose pixels cover 10,10
+170x120 left it 10,10 170x120, margins it had before included (measured 2026-11-15). FireCraft
+has no bitmap mode to leave, so it trims at the end of every stroke, fill and delete; see
+[selection.md](selection.md#deleting-selected-pixels) for Exit Bitmap Mode itself. Undo step names
+follow Fireworks MX: "Brush Tool", "Eraser Tool", "Pencil Tool" (by analogy, not measured),
+"Fill" (Paint Bucket).
 
 ## Empty bitmaps
 

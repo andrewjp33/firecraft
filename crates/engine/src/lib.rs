@@ -702,18 +702,30 @@ impl DocState {
     /// into is deselected, so it goes away (on its own that is no undo step, as in Fireworks).
     /// `false` if no bitmap was being edited.
     pub fn exit_bitmap_mode(&mut self) -> bool {
-        let empty: Vec<ElementRef> =
-            self.selection.iter().copied().filter(|r| self.is_empty_bitmap(*r)).collect();
-        if self.pixels.is_none() && empty.is_empty() {
+        let target = self.pixels.as_ref().and_then(|p| p.target);
+        if self.pixels.is_none() && !self.selection.iter().any(|r| self.is_empty_bitmap(*r)) {
             return false;
         }
+        let before = target.and_then(|t| self.element(t).cloned());
+        // The edited bitmap shrinks to its pixels even if none changed (Fireworks MX, measured
+        // 2026-11-15: a Magic Wand selection on a 200x150 bitmap whose pixels cover 10,10
+        // 170x120, then Escape, left it 10,10 170x120). Emptied, it goes.
+        let leave = |s: &mut Self| {
+            s.pixels = None;
+            if let Some(t) = target {
+                s.shrink_bitmap(t);
+            }
+            let empty: Vec<ElementRef> =
+                s.selection.iter().copied().filter(|r| s.is_empty_bitmap(*r)).collect();
+            s.selection.retain(|r| !empty.contains(r));
+        };
         if self.pixels.is_some() {
-            self.select_step("Exit Bitmap Mode", |s| {
-                s.pixels = None;
-                s.selection.retain(|r| !empty.contains(r));
-            });
+            self.select_step("Exit Bitmap Mode", leave);
         } else {
-            self.selection.retain(|r| !empty.contains(r));
+            leave(self);
+        }
+        if target.is_some_and(|t| self.element(t).cloned() != before) {
+            self.dirty = true;
         }
         self.drop_empty_bitmaps();
         true
@@ -2427,6 +2439,70 @@ mod tests {
         assert_eq!(d.doc.layers[blue.layer].elements(0).len(), 1);
         d.undo();
         assert_eq!(pixel(&d, blue, 100, 70).a, 255, "undo Delete: blue is back");
+    }
+
+    /// The flat red/blue picture as Fireworks MX opens it: one 200x150 bitmap at 0,0 whose
+    /// pixels cover 10,10 170x120 (transparent margins around them).
+    fn flat_red_and_blue() -> (DocState, ElementRef) {
+        let mut img = RgbaImage::new(200, 150, Rgba::TRANSPARENT);
+        for y in 0..150 {
+            for x in 0..200 {
+                if (80..180).contains(&x) && (50..130).contains(&y) {
+                    img.set(x, y, Rgba::new(0, 0, 255, 255));
+                } else if (10..110).contains(&x) && (10..90).contains(&y) {
+                    img.set(x, y, Rgba::new(255, 0, 0, 255));
+                }
+            }
+        }
+        let d = DocState::new(Document::from_image(img, None));
+        (d, ElementRef::new(0, 0))
+    }
+
+    #[test]
+    fn strokes_shrink_a_bitmap_to_its_pixels_margins_included() {
+        // Fireworks MX (2026-11-15): a Brush or an Eraser stroke inside red, then leaving bitmap
+        // editing, turned the 200x150 bitmap into 10,10 170x120 ("Brush Tool", "Eraser Tool").
+        let o = fill_options();
+        for tool in [PaintTool::Pencil, PaintTool::Eraser] {
+            let (mut d, r) = flat_red_and_blue();
+            d.selection = vec![r];
+            assert_eq!(bounds_of(&d, r), (0, 0, 200, 150));
+            assert!(d.begin_paint(tool, 40.0, 40.0, &o));
+            d.extend_paint(60.0, 40.0, false);
+            d.end_paint();
+            assert_eq!(bounds_of(&d, r), (10, 10, 170, 120), "{tool:?}");
+        }
+        let (mut d, r) = flat_red_and_blue();
+        d.selection = vec![r];
+        d.begin_paint(PaintTool::Eraser, 40.0, 40.0, &o);
+        d.end_paint();
+        assert_eq!(d.history.next_undo(), Some("Eraser Tool"));
+    }
+
+    #[test]
+    fn exit_bitmap_mode_shrinks_the_edited_bitmap_even_unchanged() {
+        // Fireworks MX: a Magic Wand click on red, then Escape: 10,10 170x120 ("Exit Bitmap
+        // Mode"); undo gives the margins back.
+        let (mut d, r) = flat_red_and_blue();
+        d.selection = vec![r];
+        d.magic_wand(50.0, 40.0, &ToolOptions::default(), Combine::Replace);
+        assert_eq!(bounds_of(&d, r), (0, 0, 200, 150));
+        d.dirty = false;
+        assert!(d.exit_bitmap_mode());
+        assert_eq!(bounds_of(&d, r), (10, 10, 170, 120));
+        assert!(d.dirty);
+        assert_eq!(d.history.next_undo(), Some("Exit Bitmap Mode"));
+        d.undo();
+        assert_eq!(bounds_of(&d, r), (0, 0, 200, 150));
+    }
+
+    #[test]
+    fn a_fill_shrinks_the_bitmap_and_is_called_fill() {
+        let (mut d, r) = flat_red_and_blue();
+        d.selection = vec![r];
+        d.paint_bucket(50.0, 40.0, &fill_options());
+        assert_eq!(d.history.next_undo(), Some("Fill"));
+        assert_eq!(bounds_of(&d, r), (10, 10, 170, 120));
     }
 
     #[test]

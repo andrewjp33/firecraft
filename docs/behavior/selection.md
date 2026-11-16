@@ -89,8 +89,14 @@ FireCraft has no separate bitmap mode, so it shrinks the bitmap right away, in t
 Delete, Edit > Clear, Edit > Cut and the source of New Bitmap Via Cut all trim the bitmap to its
 remaining pixels (`DocState::shrink_bitmap`); a hole in the middle leaves the bounds as they are.
 A bitmap emptied completely stays while it is being edited (the marquee still applies to it) and
-goes away when bitmap editing ends or it is deselected, as an Insert > Empty Bitmap one does. The
-Eraser doesn't shrink bitmaps yet (Fireworks MX would at Exit Bitmap Mode).
+goes away when bitmap editing ends or it is deselected, as an Insert > Empty Bitmap one does.
+
+Any exit from bitmap mode shrinks the edited bitmap in Fireworks MX, even when no pixel changed: on
+a flat image opened as one 200 x 150 bitmap (pixels covering 10,10 170x120), a Magic Wand click
+then Escape left 10,10 170x120 ("Exit Bitmap Mode"). A bare Escape right after opening, with
+nothing done, changed nothing and recorded nothing. FireCraft's `exit_bitmap_mode` (Pointer tool,
+Escape) shrinks the bitmap the selection applied to in the same step; strokes, fills and deletes
+shrink it as they finish ([painting.md](painting.md#which-bitmap-a-stroke-paints-on)).
 
 ## Marquees on empty canvas
 

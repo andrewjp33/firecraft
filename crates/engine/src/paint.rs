@@ -32,9 +32,10 @@ pub enum PaintTool {
 impl PaintTool {
     fn label(self) -> &'static str {
         match self {
-            PaintTool::Brush => "Brush",
-            PaintTool::Pencil => "Pencil",
-            PaintTool::Eraser => "Eraser",
+            // Fireworks MX's undo step names ("Brush Tool", "Eraser Tool" measured 2026-11-15).
+            PaintTool::Brush => "Brush Tool",
+            PaintTool::Pencil => "Pencil Tool",
+            PaintTool::Eraser => "Eraser Tool",
         }
     }
 }
@@ -146,13 +147,10 @@ fn constrained(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
 #[derive(Clone, Debug)]
 pub struct LivePaint {
     target: ElementRef,
-    new_bitmap: bool,
     /// Canvas position of the buffer's top-left pixel.
     origin: (i64, i64),
     /// The buffer before the stroke.
     base: RgbaImage,
-    /// The bitmap's rectangle in the buffer before the stroke (none for a new bitmap).
-    old_area: Option<Area>,
     /// The pixel selection, in buffer coordinates: painting stays inside it.
     clip: Option<Mask>,
     keep_alpha: bool,
@@ -179,6 +177,7 @@ pub struct LivePaint {
 }
 
 impl LivePaint {
+    #[cfg(test)]
     fn buffer_area(&self) -> Area {
         (0, 0, self.base.width() as i64, self.base.height() as i64)
     }
@@ -484,28 +483,24 @@ impl DocState {
         self.begin_live_edit(tool.label());
         let (cw, ch) = (self.doc.width as i64, self.doc.height as i64);
         let keep_alpha = paint.preserve_transparency && tool != PaintTool::Eraser;
-        let (target, new_bitmap, origin, base, old_area) = match target {
+        let (target, new_bitmap, origin, base) = match target {
             Some(r) => {
                 let Some(ElementKind::Bitmap(b)) = self.element(r).map(|e| &e.kind) else {
                     self.discard_live_edit();
                     return false;
                 };
                 let (bx, by, bw, bh) = (b.x, b.y, b.image.width() as i64, b.image.height() as i64);
-                // An empty bitmap (Insert > Empty Bitmap) is trimmed like a new one.
-                let fresh = self.is_empty_bitmap(r);
                 // Erasing or keeping transparency can't make the bitmap bigger; any other stroke
                 // can, inside a pixel selection too (Fireworks MX edits a bitmap as if it covered
                 // the canvas).
                 if keep_alpha || tool == PaintTool::Eraser {
-                    let area = (!fresh).then_some((0, 0, bw, bh));
-                    (r, false, (bx, by), b.image.clone(), area)
+                    (r, false, (bx, by), b.image.clone())
                 } else {
                     let (l, t) = (bx.min(0), by.min(0));
                     let (rr, bb) = ((bx + bw).max(cw), (by + bh).max(ch));
                     let mut buf = RgbaImage::new((rr - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
                     buf.copy_from(&b.image, bx - l, by - t);
-                    let area = (bx - l, by - t, bx - l + bw, by - t + bh);
-                    (r, false, (l, t), buf, (!fresh).then_some(area))
+                    (r, false, (l, t), buf)
                 }
             }
             None => {
@@ -529,7 +524,7 @@ impl DocState {
                 if let Some(p) = self.pixels.as_mut() {
                     p.target = Some(r);
                 }
-                (r, true, (0, 0), buf, None)
+                (r, true, (0, 0), buf)
             }
         };
         if !new_bitmap {
@@ -556,10 +551,8 @@ impl DocState {
         };
         self.live_paint = Some(LivePaint {
             target,
-            new_bitmap,
             origin,
             base,
-            old_area,
             clip,
             keep_alpha,
             opacity: if tool == PaintTool::Eraser {
@@ -665,24 +658,11 @@ impl DocState {
             self.cancel_live_edit();
             return;
         }
-        // Only the buffer's extra room is trimmed: what the bitmap covered before stays.
-        let grew = live.new_bitmap || live.old_area != Some(live.buffer_area());
-        if grew {
-            let image = b.image.clone();
-            let opaque = opaque_bounds(&image);
-            let keep = match (opaque, live.old_area) {
-                (Some(o), Some(a)) => Some(union(Some(a), o)),
-                (o, a) => o.or(a),
-            };
-            let Some((l, t, r, bb)) = keep else {
-                self.cancel_live_edit();
-                return;
-            };
-            let size = ((r - l) as u32, (bb - t) as u32);
-            let mut crop = RgbaImage::new(size.0, size.1, Rgba::TRANSPARENT);
-            crop.copy_from(&image, -l, -t);
-            self.set_paint_buffer(live.target, (live.origin.0 + l, live.origin.1 + t), &crop);
-        }
+        // The bitmap shrinks to its pixels, margins it had before included: Fireworks MX does this
+        // when bitmap editing ends after a Brush or Eraser stroke (measured 2026-11-15: a stroke
+        // inside a 200x150 bitmap whose pixels cover 10,10 170x120 left it 10,10 170x120).
+        // FireCraft has no bitmap mode to leave, so it happens at the end of each stroke.
+        self.shrink_bitmap(live.target);
         self.touch();
         self.commit_live_edit();
     }
@@ -711,7 +691,8 @@ impl DocState {
         let Some((area, mask)) = self.bucket_mask(x, y, opts) else {
             return;
         };
-        self.fill_area("Paint Bucket", area, &mask, opts, &|_, _| color);
+        // Fireworks MX's undo step name for the Paint Bucket.
+        self.fill_area("Fill", area, &mask, opts, &|_, _| color);
     }
 
     /// Gradient tool on a bitmap, dragged from `a` to `b`: fills as the Paint Bucket does, with
@@ -740,8 +721,7 @@ impl DocState {
             };
             // An empty bitmap (Insert > Empty Bitmap) is all there until it is left.
             let fresh = self.is_empty_bitmap(target);
-            let trim = if fresh { Trim::Opaque } else { Trim::No };
-            return Some((FillArea { target: Some(target), bitmap: b.clone(), trim }, fresh));
+            return Some((FillArea { target: Some(target), bitmap: b.clone() }, fresh));
         };
         // A pixel selection: Fireworks MX works on the bitmap being edited as if it covered the
         // canvas, so the selection can reach past its pixels. FireCraft grows it to cover the
@@ -760,12 +740,13 @@ impl DocState {
                 y: t,
                 image: RgbaImage::new((r - l).max(1) as u32, (b - t).max(1) as u32, Rgba::TRANSPARENT),
             };
-            return Some((FillArea { target: None, bitmap, trim: Trim::Opaque }, true));
+            return Some((FillArea { target: None, bitmap }, true));
         };
         let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
             return None;
         };
         let old = (b.x, b.y, b.x + b.image.width() as i64, b.y + b.image.height() as i64);
+        // Grown to cover the selection; the fill's shrink afterwards takes it back to its pixels.
         let (l, t, r, bb) = (
             old.0.min(mask_rect.0),
             old.1.min(mask_rect.1),
@@ -774,13 +755,8 @@ impl DocState {
         );
         let mut image = RgbaImage::new((r - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
         image.copy_from(&b.image, b.x - l, b.y - t);
-        let trim = if self.is_empty_bitmap(target) {
-            Trim::Opaque
-        } else {
-            Trim::Keep(old)
-        };
         let bitmap = Bitmap { x: l, y: t, image };
-        Some((FillArea { target: Some(target), bitmap, trim }, true))
+        Some((FillArea { target: Some(target), bitmap }, true))
     }
 
     /// The bitmap a fill pressed at this point applies to, and which of its pixels.
@@ -846,7 +822,7 @@ impl DocState {
         let paint = &opts.paint;
         let opacity = percent(paint.opacity);
         let (blend, keep_alpha) = (paint.blend, paint.preserve_transparency);
-        let FillArea { target, mut bitmap, trim } = area;
+        let FillArea { target, mut bitmap } = area;
         let (ox, oy) = (bitmap.x as f64, bitmap.y as f64);
         fill_masked(&mut bitmap.image, mask, (ox, oy), shade, opacity, blend, keep_alpha, math);
         if target.is_none() && opaque_bounds(&bitmap.image).is_none() {
@@ -884,11 +860,8 @@ impl DocState {
                     r
                 }
             };
-            match trim {
-                Trim::No => {}
-                Trim::Opaque => s.trim_bitmap(r, None),
-                Trim::Keep(old) => s.trim_bitmap(r, Some(old)),
-            }
+            // Shrunk to its pixels, as Fireworks MX does when bitmap editing ends.
+            s.shrink_bitmap(r);
         });
     }
 }
@@ -899,16 +872,6 @@ struct FillArea {
     target: Option<ElementRef>,
     /// Its pixels as the fill sees them (an edited bitmap grown to cover the selection).
     bitmap: Bitmap,
-    trim: Trim,
-}
-
-/// What a filled bitmap is trimmed to afterwards.
-enum Trim {
-    No,
-    /// Its non-transparent pixels (a new or empty bitmap).
-    Opaque,
-    /// Its old rectangle (canvas left, top, right, bottom) and the non-transparent pixels.
-    Keep(Area),
 }
 
 /// Paint `shade(canvas x, canvas y)` through `mask` (bitmap-sized).
