@@ -324,8 +324,21 @@ fn collect_units<'a>(el: &Element, ctx: &RenderCtx<'a>, cache: &mut RenderCache,
     } else if let Some((rx, ry, rw, rh)) = local.full_region(ctx) {
         // The same whole-object region as an uncached render.
         if let Some((img, x, y)) = local.pixels(rx, ry, rw, rh, ctx) {
+            let image = Arc::new(img);
+            // The Pointer's hit test asks for the same pixels: hand them over (shared, not
+            // copied), so an object that is slow to draw isn't drawn again for it.
+            HIT_SHAPES.with(|m| {
+                m.borrow_mut().put(
+                    key,
+                    Kept {
+                        image: image.clone(),
+                        x: rx + x,
+                        y: ry + y,
+                    },
+                )
+            });
             pieces.push(Piece {
-                image: Arc::new(img),
+                image,
                 dx: rx + x,
                 dy: ry + y,
                 blend: None,
@@ -430,7 +443,9 @@ impl Memory {
 
 thread_local! {
     static WARP_SOURCES: RefCell<Memory> = const { RefCell::new(Memory::new(6)) };
-    static HIT_SHAPES: RefCell<Memory> = const { RefCell::new(Memory::new(6)) };
+    /// Objects' pixels for hit tests, keyed like the render cache (the object moved to its
+    /// anchor): see [`kept_hit`].
+    static HIT_SHAPES: RefCell<Memory> = const { RefCell::new(Memory::new(32)) };
 }
 
 /// A perspective symbol's contents drawn flat, made once however often the pointer or a draw asks.
@@ -463,6 +478,69 @@ pub fn perspective_hit(el: &Element, px: i64, py: i64, tol: i64, ctx: &RenderCtx
     };
     (py - tol..=py + tol)
         .any(|y| (px - tol..=px + tol).any(|x| k.image.get(x - k.x, y - k.y).is_some_and(|p| p.a > 0)))
+}
+
+/// Whether `el`, drawn alone (effects included, before opacity and blending), has pixels within
+/// `tol` of a point; `None` if it has no known extent (test it some other way). Its whole
+/// rendering is kept, keyed as the render cache keys it (moved to its whole-pixel anchor), so the
+/// Pointer, which asks on every mouse movement, draws an object at most once, and not at all
+/// when the canvas has just drawn it: an instance of a symbol with a 100 px Gaussian Blur took a
+/// second per test (tubes.png). `near`, asked only before drawing the object afresh: whether the
+/// point is near enough to the object to be worth drawing it (a kept rendering answers exactly).
+pub fn kept_hit(
+    el: &Element,
+    px: i64,
+    py: i64,
+    tol: i64,
+    ctx: &RenderCtx,
+    near: impl FnOnce() -> bool,
+) -> Option<bool> {
+    let (bx, by, _, _) = el.deep_bounds(ctx).filter(|b| b.0.is_finite() && b.1.is_finite())?;
+    let (ax, ay) = ((bx + 1e-6).floor() as i64, (by + 1e-6).floor() as i64);
+    let mut local = el.clone();
+    local.translate(-ax as f64, -ay as f64);
+    let key = fingerprint(&local, ctx);
+    let k = match HIT_SHAPES.with(|m| m.borrow_mut().get(key)) {
+        Some(k) => k,
+        None => {
+            if !near() {
+                return Some(false);
+            }
+            // The whole object, members' strokes and effects included (an instance's glow on
+            // one of its members reaches past the instance's own region).
+            let (rx, ry, rw, rh) = local.full_region(ctx)?;
+            let (rx, ry, rw, rh) = match local.visual_bounds(ctx) {
+                Some((vx, vy, vw, vh)) if vx.is_finite() && vy.is_finite() && vw.is_finite() && vh.is_finite() => {
+                    let x0 = rx.min(vx.floor() as i64);
+                    let y0 = ry.min(vy.floor() as i64);
+                    let x1 = (rx + rw as i64).max((vx + vw).ceil() as i64);
+                    let y1 = (ry + rh as i64).max((vy + vh).ceil() as i64);
+                    if (x1 - x0) * (y1 - y0) > 40_000_000 {
+                        return None;
+                    }
+                    (x0, y0, (x1 - x0) as u32, (y1 - y0) as u32)
+                }
+                _ => (rx, ry, rw, rh),
+            };
+            let kept = match local.pixels(rx, ry, rw, rh, ctx) {
+                Some((image, x, y)) => Kept {
+                    image: Arc::new(image),
+                    x: rx + x,
+                    y: ry + y,
+                },
+                // Nothing drawn.
+                None => Kept {
+                    image: Arc::new(RgbaImage::new(0, 0, Rgba::TRANSPARENT)),
+                    x: 0,
+                    y: 0,
+                },
+            };
+            HIT_SHAPES.with(|m| m.borrow_mut().put(key, kept.clone()));
+            kept
+        }
+    };
+    let (px, py) = (px - ax - k.x, py - ay - k.y);
+    Some((py - tol..=py + tol).any(|y| (px - tol..=px + tol).any(|x| k.image.get(x, y).is_some_and(|p| p.a > 0))))
 }
 
 fn fingerprint(el: &Element, ctx: &RenderCtx) -> u64 {
@@ -598,6 +676,41 @@ mod tests {
             quantized("Pt { x: 0.3, y: 0.0, n: 3 }")
         );
         assert_ne!(quantized("x: 0.3"), quantized("x: 0.31"));
+    }
+
+    #[test]
+    fn kept_hit_shapes_follow_a_moved_object() {
+        let mut el = Element::new(ElementKind::Bitmap(Bitmap {
+            x: 10,
+            y: 10,
+            image: RgbaImage::new(20, 20, Rgba::new(255, 0, 0, 255)),
+        }));
+        el.effects.push(crate::EffectEntry::from_pairs(&[
+            ("EffectIsVisible", "true"),
+            ("EffectMoaID", "{d04ef8c0-71b3-11d1-8c8200a024cdc039}"),
+            ("gaussian_blur_radius", "4"),
+        ]));
+        let doc = Document::new(100, 100, 72.0, None);
+        let ctx = RenderCtx {
+            mx_perspective: false,
+            symbols: &doc.symbols,
+            frame: 0,
+            depth: 0,
+            math: doc.color_math,
+            chain: [0; crate::MAX_SYMBOL_DEPTH as usize],
+            canvas_textures: false,
+        };
+        let hit = |el: &Element, x, y| kept_hit(el, x, y, 0, &ctx, || true);
+        // The blur reaches beyond the bitmap: a pixel there is hit, one far off isn't.
+        assert_eq!(hit(&el, 8, 20), Some(true));
+        assert_eq!(hit(&el, 60, 20), Some(false));
+        // Moved: the kept shape (same key) answers at the new place.
+        el.translate(40.0, 0.0);
+        assert_eq!(hit(&el, 8, 20), Some(false));
+        assert_eq!(hit(&el, 48, 20), Some(true));
+        // Not near and not kept yet: not drawn.
+        el.translate(0.0, 7.5);
+        assert_eq!(kept_hit(&el, 0, 0, 0, &ctx, || false), Some(false));
     }
 
     #[test]

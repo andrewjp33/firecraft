@@ -361,6 +361,31 @@ impl Default for Prefs {
     }
 }
 
+/// FIRECRAFT_PROFILE=1: print the parts of an update that took long.
+struct Prof {
+    on: bool,
+    t: instant::Instant,
+}
+
+impl Prof {
+    fn start() -> Self {
+        Prof {
+            on: std::env::var_os("FIRECRAFT_PROFILE").is_some(),
+            t: instant::Instant::now(),
+        }
+    }
+
+    fn lap(&mut self, what: &str) {
+        if self.on {
+            let ms = self.t.elapsed().as_secs_f64() * 1000.0;
+            if ms >= 5.0 {
+                eprintln!("update: {what} {ms:.1} ms");
+            }
+            self.t = instant::Instant::now();
+        }
+    }
+}
+
 /// Per-document view state kept by the UI.
 #[derive(Clone, Default)]
 struct View {
@@ -827,21 +852,27 @@ impl FireCraftApp {
         if (ui.ctx().zoom_factor() - zoom).abs() > 1e-4 {
             ui.ctx().set_zoom_factor(zoom);
         }
+        let mut prof = Prof::start();
         // Tool options the preferences remember.
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
+        prof.lap("texture_library");
         self.adopt_selected_attributes();
+        prof.lap("adopt_selected_attributes");
         self.refresh_fonts();
         self.installed_fonts_progress();
         text_tool::tidy(self);
         self.check_missing_fonts();
+        prof.lap("fonts/text");
         let ctx = ui.ctx().clone();
         // Symbol Editors write their changes back to their symbols (instances update live).
         self.session.sync_symbols();
+        prof.lap("sync_symbols");
         // An empty bitmap deselected before anything was put in it goes away (Fireworks MX).
         if let Some(d) = self.session.active_doc_mut() {
             d.drop_empty_bitmaps();
         }
+        prof.lap("drop_empty_bitmaps");
         // Choosing the Pointer tool ends bitmap editing (Fireworks MX: "Exit Bitmap Mode").
         if self.session.tool != self.prev_tool {
             self.prev_tool = self.session.tool;
@@ -934,10 +965,13 @@ impl FireCraftApp {
                 d.history.set_limit(self.prefs.undo_steps);
             }
         }
+        prof.lap("misc");
         menus::shortcuts(self, &ctx);
+        prof.lap("shortcuts");
         egui::Panel::top("menu_bar")
             .frame(theme::menu_frame())
             .show(ui, |ui| menus::menu_bar(self, ui));
+        prof.lap("menu_bar");
         if self.prefs.show_tools {
             egui::Panel::left("tools")
                 .exact_size(66.0)
@@ -945,6 +979,7 @@ impl FireCraftApp {
                 .frame(theme::panel_frame())
                 .show(ui, |ui| tools_panel::show(self, ui));
         }
+        prof.lap("tools");
         if self.prefs.show_dock {
             // A minimum width keeps a width saved from an earlier session (or a drag) from
             // squeezing the panels' text and controls.
@@ -954,6 +989,7 @@ impl FireCraftApp {
                 .frame(theme::dock_frame())
                 .show(ui, |ui| panels::dock(self, ui));
         }
+        prof.lap("dock");
         if self.prefs.show_properties {
             let h = if self.pi_open { 128.0 } else { 22.0 };
             egui::Panel::bottom("properties")
@@ -962,10 +998,13 @@ impl FireCraftApp {
                 .frame(theme::panel_frame())
                 .show(ui, |ui| inspector::show(self, ui));
         }
+        prof.lap("inspector");
         egui::CentralPanel::default()
             .frame(theme::workspace_frame())
             .show(ui, |ui| canvas::workspace(self, ui));
+        prof.lap("canvas");
         dialogs::show(self, &ctx);
+        prof.lap("dialogs");
         text_menu::dialogs(self, &ctx);
         gradient_ui::popup(self, &ctx);
         fill_ui::window(self, &ctx);

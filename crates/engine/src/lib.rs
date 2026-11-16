@@ -149,27 +149,49 @@ fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> 
         return firecraft_doc::perspective_hit(&solo, px, py, TOL, ctx);
     }
     // Where the object can have pixels (its stroke and effects reach beyond its geometry).
-    let near = el.visual_bounds(ctx).is_some_and(|(bx, by, bw, bh)| {
-        let t = TOL as f64;
-        x >= bx - t && y >= by - t && x < bx + bw.max(1.0) + t && y < by + bh.max(1.0) + t
-    });
-    if !near {
-        return false;
-    }
+    let near = || {
+        el.visual_bounds(ctx).is_some_and(|(bx, by, bw, bh)| {
+            let t = TOL as f64;
+            x >= bx - t && y >= by - t && x < bx + bw.max(1.0) + t && y < by + bh.max(1.0) + t
+        })
+    };
     match &el.kind {
+        // Symbols, groups and anything with effects can be slow to draw (a blur draws its whole
+        // source for any one pixel): test a kept rendering of the whole object.
+        ElementKind::Instance { .. } | ElementKind::Group(_) | ElementKind::Masked { .. } => {
+            solo_kept_hit(el, px, py, TOL, ctx, near)
+        }
+        _ if el.effects.iter().any(|e| e.visible()) => solo_kept_hit(el, px, py, TOL, ctx, near),
+        _ if !near() => false,
         // Bitmaps: the pixel under the pointer.
         ElementKind::Bitmap(b) => b.image.get(px - b.x, py - b.y).is_some_and(|p| p.a > 0),
-        // Everything else: render the object alone around the point.
-        _ => {
-            let n = (2 * TOL + 1) as u32;
-            let mut probe = firecraft_raster::RgbaImage::new(n, n, Rgba::TRANSPARENT);
-            let mut solo = el.clone();
-            solo.opacity = 100.0;
-            solo.blend = firecraft_raster::BlendMode::Normal;
-            solo.render_onto(&mut probe, px - TOL, py - TOL, ctx);
-            probe.pixels().iter().any(|p| p.a > 0)
-        }
+        // Plain paths and text: render the object alone around the point.
+        _ => solo_probe(el, px, py, TOL, ctx),
     }
+}
+
+/// Whether `el`, drawn alone (full opacity, Normal) around a point, has pixels within `tol` of it.
+fn solo_probe(el: &Element, px: i64, py: i64, tol: i64, ctx: &firecraft_doc::RenderCtx) -> bool {
+    let n = (2 * tol + 1) as u32;
+    let mut probe = firecraft_raster::RgbaImage::new(n, n, Rgba::TRANSPARENT);
+    let mut solo = el.clone();
+    solo.opacity = 100.0;
+    solo.blend = firecraft_raster::BlendMode::Normal;
+    solo.render_onto(&mut probe, px - tol, py - tol, ctx);
+    probe.pixels().iter().any(|p| p.a > 0)
+}
+
+/// [`firecraft_doc::kept_hit`] for an object drawn alone, or [`solo_probe`] if its extent is
+/// unknown.
+fn solo_kept_hit(
+    el: &Element,
+    px: i64,
+    py: i64,
+    tol: i64,
+    ctx: &firecraft_doc::RenderCtx,
+    near: impl Fn() -> bool,
+) -> bool {
+    firecraft_doc::kept_hit(el, px, py, tol, ctx, &near).unwrap_or_else(|| near() && solo_probe(el, px, py, tol, ctx))
 }
 
 /// Give an object a new effect list. A text still showing the image Fireworks stored with it has
