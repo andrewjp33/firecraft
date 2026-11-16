@@ -176,6 +176,22 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
             .on_hover_text("Each frame only covers the area that changed since the previous frame");
         ui.checkbox(&mut s.auto_difference, "Auto Difference")
             .on_hover_text("Pixels a frame doesn't change are left transparent, so the file is smaller");
+        let adaptive = matches!(
+            s.palette,
+            PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact | PaletteKind::Grayscale
+        );
+        ui.add_enabled(adaptive, egui::Checkbox::new(&mut s.frame_palettes, "Maximize colors per frame"))
+            .on_hover_text(
+                "Each frame gets its own color table (up to the Colors count), made for the pixels \
+                 it draws, so the animation can show more than 256 colors in all. With Auto Crop \
+                 and Auto Difference each table only has to cover what changed. Takes longer to \
+                 export. With dithering, areas a frame redraws can shimmer between frames \
+                 (Auto Difference leaves unchanged pixels alone).",
+            )
+            .on_disabled_hover_text(
+                "For the Adaptive, WebSnap Adaptive, Exact and Grayscale palettes (a fixed palette \
+                 is the same in every frame)",
+            );
         ui.horizontal(|ui| {
             ui.label("Loops:");
             ui.add(DragValue::new(&mut s.loops).range(0..=1000))

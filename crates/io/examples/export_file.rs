@@ -1,6 +1,7 @@
 //! Export a file with chosen settings: export_file <in> <out> <preset name | key=value ...>
 //! Keys: format=gif|agif|jpeg|png8|png24|png32|webp|jxl palette=adaptive|websnap|web216|exact|
 //! windows|mac|gray|bw|uniform colors=N dither=N quality=N alpha=N lossless=0|1 transparency=none|index|alpha
+//! framepal=0|1 crop=0|1 diff=0|1 (animated GIF)
 use firecraft_doc::{ExportFormat, ExportSettings, PaletteKind, Transparency};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -41,6 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "colors" => s.colors = n(),
             "dither" => s.dither = n() as u8,
+            "framepal" => s.frame_palettes = n() != 0,
+            "crop" => s.auto_crop = n() != 0,
+            "diff" => s.auto_difference = n() != 0,
             "quality" => {
                 s.quality = n() as u8;
                 s.jpeg_quality = n() as u8;

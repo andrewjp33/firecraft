@@ -23,18 +23,28 @@ pub struct Exported {
     pub animation: Option<std::sync::Arc<AnimatedPreview>>,
 }
 
-/// Every frame of an animated GIF export as the animation shows it (palette indices).
+/// Every frame of an animated GIF export as the animation shows it.
 pub struct AnimatedPreview {
-    indices: Vec<Vec<u8>>,
-    palette: Vec<Entry>,
+    frames: PreviewFrames,
     size: (u32, u32),
     /// The document frame each exported frame comes from.
     exported: Vec<usize>,
 }
 
+enum PreviewFrames {
+    /// One palette for all frames: each frame's indices.
+    Indexed { indices: Vec<Vec<u8>>, palette: Vec<Entry> },
+    /// A color table per frame: the pictures.
+    Pictures(Vec<RgbaImage>),
+}
+
 impl std::fmt::Debug for AnimatedPreview {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AnimatedPreview({} frames, {:?})", self.indices.len(), self.size)
+        let n = match &self.frames {
+            PreviewFrames::Indexed { indices, .. } => indices.len(),
+            PreviewFrames::Pictures(p) => p.len(),
+        };
+        write!(f, "AnimatedPreview({n} frames, {:?})", self.size)
     }
 }
 
@@ -43,8 +53,17 @@ impl AnimatedPreview {
     /// frame before it).
     pub fn frame(&self, frame: usize) -> RgbaImage {
         let show = self.exported.iter().filter(|&&i| i <= frame).count().saturating_sub(1);
-        let idx = self.indices.get(show).or(self.indices.first()).map_or(&[][..], |f| f);
-        render_indexed(idx, &self.palette, self.size.0, self.size.1)
+        match &self.frames {
+            PreviewFrames::Indexed { indices, palette } => {
+                let idx = indices.get(show).or(indices.first()).map_or(&[][..], |f| f);
+                render_indexed(idx, palette, self.size.0, self.size.1)
+            }
+            PreviewFrames::Pictures(p) => p
+                .get(show)
+                .or(p.first())
+                .cloned()
+                .unwrap_or_else(|| RgbaImage::new(self.size.0, self.size.1, Rgba::TRANSPARENT)),
+        }
     }
 }
 
@@ -276,6 +295,8 @@ fn palette_for(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> V
         PaletteKind::Uniform => quantize::uniform(n),
         PaletteKind::Windows => quantize::most_used(&quantize::windows(), &hist, n),
         PaletteKind::Macintosh => quantize::most_used(&quantize::macintosh(), &hist, n),
+        // Each frame's best grays (its pixels are greys already: see `luma`).
+        PaletteKind::Grayscale if s.frame_palettes_apply() => quantize::grays_best_fit(&hist, n),
         PaletteKind::Grayscale => quantize::grayscale(n),
         PaletteKind::BlackWhite => quantize::grayscale(2),
     }
@@ -301,7 +322,16 @@ impl Indexed {
 }
 
 /// `reserve`: keep a transparent entry even if no pixel needs one (an animation's Auto Difference).
-fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Matte, png8: bool, reserve: bool) -> Indexed {
+/// `only`: for one image, the pixels the palette is made for (the others are mapped too, and
+/// may be replaced by the caller).
+fn index(
+    images: &[&RgbaImage],
+    s: &ExportSettings,
+    matte: Matte,
+    png8: bool,
+    reserve: bool,
+    only: Option<&[bool]>,
+) -> Indexed {
     let mut mode = clear_mode(s, png8);
     let alpha_palette = matches!(mode, Clear::Palette { .. });
     let grey = matches!(s.palette, PaletteKind::Grayscale | PaletteKind::BlackWhite);
@@ -348,10 +378,25 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Matte, png8: bool, re
         };
         prepared = prep(mode, onto);
     }
-    let cut = mode == Clear::Cut;
-    let has_cut = cut && prepared.iter().flatten().any(|p| p[3] == 0);
+    let counts = |i: usize| only.is_none_or(|m| m.get(i).copied().unwrap_or(false));
+    // Pixels left out (`only`) are skipped when mapping too, so a dither doesn't carry their
+    // error into the pixels that count: they're marked clear, as cut pixels are.
+    if only.is_some() {
+        for px in &mut prepared {
+            for (i, p) in px.iter_mut().enumerate() {
+                if !counts(i) {
+                    *p = [0, 0, 0, 0];
+                }
+            }
+        }
+    }
+    let cut = mode == Clear::Cut || only.is_some();
+    let all: Vec<Entry> = prepared
+        .iter()
+        .flat_map(|px| px.iter().enumerate().filter(|&(i, _)| counts(i)).map(|(_, &p)| p))
+        .collect();
+    let has_cut = cut && all.iter().any(|p| p[3] == 0);
     let limit = limit_colors;
-    let all: Vec<Entry> = prepared.iter().flatten().copied().collect();
     if alpha_palette {
         // Transparency is in the palette itself.
         let mut palette = palette_for(&all, s, limit, true);
@@ -386,8 +431,9 @@ fn index(images: &[&RgbaImage], s: &ExportSettings, matte: Matte, png8: bool, re
             palette.push(m);
             palette.len() - 1
         });
-        let frames = map_frames(&prepared, images, &palette, s.dither, false, &|_| false, 0);
         let t = at.min(255) as u8;
+        let skip = |p: Entry| only.is_some() && p[3] == 0;
+        let frames = map_frames(&prepared, images, &palette, s.dither, false, &skip, t);
         return Indexed {
             palette,
             frames,
@@ -507,9 +553,12 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
     };
     let images: Vec<&RgbaImage> = frames.iter().map(|f| &f.0).collect();
     let animated = frames.len() > 1;
+    if animated && s.frame_palettes_apply() {
+        return gif_frame_palettes(frames, s, matte, show, (gw, gh));
+    }
     // Auto Difference marks unchanged pixels with the transparent entry: keep one for it.
     let reserve = animated && s.auto_difference;
-    let ix = index(&images, s, matte, false, reserve);
+    let ix = index(&images, s, matte, false, reserve, None);
     let mut rgb: Vec<u8> = ix.palette.iter().flat_map(|c| [c[0], c[1], c[2]]).collect();
     // GIF color tables hold a power of two of entries.
     let size = ix.palette.len().next_power_of_two().max(2);
@@ -602,8 +651,10 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
         h,
     );
     let animation = animated.then(|| AnimatedPreview {
-        indices: ix.frames,
-        palette: shown,
+        frames: PreviewFrames::Indexed {
+            indices: ix.frames,
+            palette: shown,
+        },
         size: (w, h),
         exported: Vec::new(),
     })
@@ -613,6 +664,167 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
         bytes: out,
         preview,
         palette: ix.palette,
+    })
+}
+
+/// An animated GIF with a color table per frame ("Maximize colors per frame"), each made for the
+/// pixels that frame draws: with Auto Crop the area that changed, with Auto Difference only the
+/// pixels that changed (the rest stay transparent and keep the previous frame's). Whether a pixel
+/// changed is decided on the colors themselves (frames' palette indices mean different colors).
+fn gif_frame_palettes(
+    frames: &[(RgbaImage, u32)],
+    s: &ExportSettings,
+    matte: Matte,
+    show: usize,
+    (gw, gh): (u16, u16),
+) -> Result<Exported> {
+    let err = |e: gif::EncodingError| Error::Png(format!("GIF: {e}"));
+    let (w, h) = (u32::from(gw), u32::from(gh));
+    let len = (w * h) as usize;
+    let mode = clear_mode(s, false);
+    let grey = matches!(s.palette, PaletteKind::Grayscale);
+    let key = matte.key();
+    // Each frame as palette-ready colors, `None` where it is transparent.
+    let target: Vec<Vec<Option<Entry>>> = frames
+        .iter()
+        .map(|(img, _)| {
+            prepare(img, matte, mode)
+                .into_iter()
+                .map(|p| {
+                    let p = if grey { luma(p) } else { p };
+                    let keyed = mode == Clear::Key && [p[0], p[1], p[2]] == [key.r, key.g, key.b];
+                    (p[3] != 0 && !keyed).then_some(p)
+                })
+                .collect()
+        })
+        .collect();
+    // As with one palette: where the next frame turns a shown pixel transparent, this frame is
+    // cleared afterwards (and so covers everything it shows).
+    let clears_next: Vec<bool> = (0..target.len())
+        .map(|j| match (target.get(j), target.get(j + 1)) {
+            (Some(a), Some(b)) => a.iter().zip(b).any(|(x, y)| x.is_some() && y.is_none()),
+            _ => false,
+        })
+        .collect();
+    // What the viewer shows: the colors as meant, and as drawn.
+    let mut screen: Vec<Option<Entry>> = vec![None; len];
+    let mut drawn: Vec<Rgba> = vec![Rgba::TRANSPARENT; len];
+    let mut pictures = Vec::with_capacity(frames.len());
+    let mut palettes: Vec<Vec<Entry>> = Vec::with_capacity(frames.len());
+    let mut out = Vec::new();
+    {
+        let mut enc = gif::Encoder::new(&mut out, gw, gh, &[]).map_err(err)?;
+        let repeat = if s.loops == 0 {
+            gif::Repeat::Infinite
+        } else {
+            gif::Repeat::Finite(s.loops)
+        };
+        enc.set_repeat(repeat).map_err(err)?;
+        for (j, ((img, delay), want)) in frames.iter().zip(&target).enumerate() {
+            let clear_after = clears_next.get(j).copied().unwrap_or(false);
+            let changed: Vec<bool> = screen.iter().zip(want).map(|(a, b)| a != b).collect();
+            // The first frame covers the whole image: with no global color table, decoders fill
+            // what it leaves uncovered with an opaque background (ImageMagick, PIL).
+            let full = !s.auto_crop || j == 0;
+            let (left, top, fw, fh) = if full {
+                (0, 0, w, h)
+            } else {
+                let rect = bounding(w, h, |i| changed.get(i).copied().unwrap_or(false));
+                let rect = if clear_after {
+                    union(rect, bounding(w, h, |i| want.get(i).is_some_and(Option::is_some)))
+                } else {
+                    rect
+                };
+                rect.unwrap_or((0, 0, 1, 1))
+            };
+            // The frame's pixels: those it writes (all, or only the changed ones with Auto
+            // Difference), and of those the ones that need a color.
+            let at = |x: u32, y: u32| (y * w + x) as usize;
+            let mut crop = RgbaImage::new(fw, fh, Rgba::TRANSPARENT);
+            let mut writes = Vec::with_capacity((fw * fh) as usize);
+            let mut colored = Vec::with_capacity((fw * fh) as usize);
+            for y in top..top + fh {
+                for x in left..left + fw {
+                    let i = at(x, y);
+                    let write = !(s.auto_difference && j > 0) || changed.get(i).copied().unwrap_or(true);
+                    let visible = want.get(i).is_some_and(Option::is_some);
+                    writes.push(write);
+                    colored.push(write && visible);
+                    crop.set(i64::from(x - left), i64::from(y - top), img.get(i64::from(x), i64::from(y)).unwrap_or(Rgba::TRANSPARENT));
+                }
+            }
+            let reserve = colored.iter().any(|c| !c);
+            let ix = index(&[&crop], s, matte, false, reserve, Some(&colored));
+            let t = ix.transparent;
+            let mut buf = ix.frames.into_iter().next().unwrap_or_default();
+            for (k, v) in buf.iter_mut().enumerate() {
+                if !writes.get(k).copied().unwrap_or(false)
+                    && let Some(t) = t
+                {
+                    *v = t;
+                }
+            }
+            let mut rgb: Vec<u8> = ix.palette.iter().flat_map(|c| [c[0], c[1], c[2]]).collect();
+            rgb.resize(ix.palette.len().next_power_of_two().max(2) * 3, 0);
+            let frame = gif::Frame {
+                left: left as u16,
+                top: top as u16,
+                width: fw as u16,
+                height: fh as u16,
+                buffer: Cow::Borrowed(&buf),
+                palette: Some(rgb),
+                transparent: t,
+                delay: (*delay).min(65535) as u16,
+                dispose: if clear_after {
+                    gif::DisposalMethod::Background
+                } else {
+                    gif::DisposalMethod::Keep
+                },
+                interlaced: s.interlaced,
+                ..gif::Frame::default()
+            };
+            enc.write_frame(&frame).map_err(err)?;
+            // What the viewer now shows.
+            let mut k = 0;
+            for y in top..top + fh {
+                for x in left..left + fw {
+                    let i = at(x, y);
+                    if writes.get(k).copied().unwrap_or(false)
+                        && let (Some(sc), Some(dr)) = (screen.get_mut(i), drawn.get_mut(i))
+                    {
+                        let v = buf.get(k).copied().unwrap_or(0);
+                        if Some(v) == t {
+                            (*sc, *dr) = (None, Rgba::TRANSPARENT);
+                        } else {
+                            let c = ix.palette.get(usize::from(v)).copied().unwrap_or([0, 0, 0, 255]);
+                            (*sc, *dr) = (want.get(i).copied().flatten(), Rgba::new(c[0], c[1], c[2], 255));
+                        }
+                    }
+                    k += 1;
+                }
+            }
+            pictures.push(RgbaImage::from_pixels(w, h, drawn.clone()).unwrap_or_else(|| RgbaImage::new(w, h, Rgba::TRANSPARENT)));
+            palettes.push(ix.palette);
+            if clear_after {
+                screen.iter_mut().for_each(|c| *c = None);
+                drawn.iter_mut().for_each(|c| *c = Rgba::TRANSPARENT);
+            }
+        }
+    }
+    let preview = pictures
+        .get(show)
+        .or(pictures.first())
+        .cloned()
+        .unwrap_or_else(|| RgbaImage::new(w, h, Rgba::TRANSPARENT));
+    Ok(Exported {
+        bytes: out,
+        preview,
+        palette: palettes.into_iter().nth(show).unwrap_or_default(),
+        animation: Some(std::sync::Arc::new(AnimatedPreview {
+            frames: PreviewFrames::Pictures(pictures),
+            size: (w, h),
+            exported: Vec::new(),
+        })),
     })
 }
 
@@ -685,7 +897,7 @@ fn png_rgb(img: &RgbaImage, ppi: f64, alpha: bool) -> Result<Vec<u8>> {
 
 fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<Exported> {
     let err = |e: png::EncodingError| Error::Png(e.to_string());
-    let ix = index(&[img], s, matte, true, false);
+    let ix = index(&[img], s, matte, true, false, None);
     let (w, h) = (img.width(), img.height());
     let n = ix.palette.len();
     // The smallest bit depth that holds the palette.
@@ -1214,6 +1426,84 @@ mod tests {
         for i in 0..2 {
             assert_eq!(back.render(i), d.render(i), "frame {i}");
         }
+    }
+
+    /// Frames that each add 200 colors of their own (kept), in a 40 x 20 image.
+    fn many_colors() -> Document {
+        let mut d = Document::new(40, 20, 72.0, None);
+        d.frames.push(firecraft_doc::Frame::default());
+        for (frame, x0, base) in [(0usize, 0i64, 0u8), (1, 20, 128)] {
+            let mut img = RgbaImage::new(20, 10, Rgba::TRANSPARENT);
+            for i in 0..200u32 {
+                let v = (i % 128) as u8 * 2;
+                img.set(i64::from(i % 20), i64::from(i / 20), Rgba::new(v, base.wrapping_add((i / 128) as u8 * 60), 255 - v, 255));
+            }
+            if let Some(c) = d.layers[0].elements_mut(frame) {
+                // Frame 2 shows frame 1's colors too.
+                if frame == 1 {
+                    let mut first = RgbaImage::new(20, 10, Rgba::TRANSPARENT);
+                    for i in 0..200u32 {
+                        let v = (i % 128) as u8 * 2;
+                        first.set(i64::from(i % 20), i64::from(i / 20), Rgba::new(v, ((i / 128) as u8) * 60, 255 - v, 255));
+                    }
+                    c.push(firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
+                        firecraft_doc::Bitmap { x: 0, y: 0, image: first },
+                    )));
+                }
+                c.push(firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
+                    firecraft_doc::Bitmap { x: x0, y: 0, image: img },
+                )));
+            }
+        }
+        d
+    }
+
+    #[test]
+    fn frame_palettes_keep_more_than_256_colors() {
+        let d = many_colors();
+        let shown = d.render(1);
+        let colors = |img: &RgbaImage| {
+            let mut c: Vec<u32> = img
+                .pixels()
+                .iter()
+                .filter(|p| p.a > 0)
+                .map(|p| u32::from_be_bytes([p.r, p.g, p.b, 255]))
+                .collect();
+            c.sort_unstable();
+            c.dedup();
+            c.len()
+        };
+        assert!(colors(&shown) > 256, "{}", colors(&shown));
+        let s = ExportSettings {
+            transparency: Transparency::Alpha,
+            ..with(ExportFormat::AnimatedGif)
+        };
+        let reopened = |s: &ExportSettings| {
+            let e = export(&d, s).unwrap_or_else(|e| unreachable!("{e}"));
+            let doc = crate::open(&e.bytes, None).unwrap_or_else(|e| unreachable!("{e}"));
+            (doc.render(1), e)
+        };
+        // One palette for both frames: at most 256 colors.
+        let (shared, _) = reopened(&s);
+        assert!(colors(&shared) <= 256);
+        // A palette per frame: every color, exactly, and the preview shows them too.
+        let per_frame = ExportSettings {
+            frame_palettes: true,
+            ..s.clone()
+        };
+        let (exact, e) = reopened(&per_frame);
+        assert_eq!(exact, shown);
+        assert_eq!(e.animation.as_ref().map(|a| a.frame(1)), Some(shown.clone()));
+        // Also without Auto Crop and Auto Difference (each frame's table covers the whole frame,
+        // up to 256 colors).
+        let plain = ExportSettings {
+            auto_crop: false,
+            auto_difference: false,
+            ..per_frame
+        };
+        let (whole, _) = reopened(&plain);
+        assert_eq!(whole.pixels().iter().filter(|p| p.a > 0).count(), 400);
+        assert!(colors(&whole) <= 256);
     }
 
     #[test]

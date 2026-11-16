@@ -180,6 +180,12 @@ pub struct ExportSettings {
     pub auto_crop: bool,
     /// Animated GIF: pixels a frame doesn't change are left transparent (Auto Difference).
     pub auto_difference: bool,
+    /// Animated GIF: each frame gets its own color table, made for the pixels it draws
+    /// ("Maximize colors per frame", a FireCraft addition): with Auto Crop / Auto Difference an
+    /// animation can show far more than 256 colors in all. Applies to the adaptive palettes
+    /// (Adaptive, WebSnap Adaptive, Exact) and Grayscale (the best grays for each frame); see
+    /// [`ExportSettings::frame_palettes_apply`].
+    pub frame_palettes: bool,
     /// JPEG quality 0..100.
     pub jpeg_quality: u8,
     /// JPEG smoothing 0..8 (blurs before compressing).
@@ -216,6 +222,7 @@ impl Default for ExportSettings {
             loops: 0,
             auto_crop: true,
             auto_difference: true,
+            frame_palettes: false,
             jpeg_quality: 80,
             jpeg_smoothing: 0,
             progressive: false,
@@ -244,6 +251,18 @@ pub const PRESETS: [&str; 10] = [
 ];
 
 impl ExportSettings {
+    /// Whether frames get their own color tables: [`frame_palettes`](Self::frame_palettes) on,
+    /// an animated GIF, and a palette that is made for the pixels (fixed palettes such as Web 216
+    /// would be the same in every frame).
+    pub fn frame_palettes_apply(&self) -> bool {
+        self.frame_palettes
+            && self.format == ExportFormat::AnimatedGif
+            && matches!(
+                self.palette,
+                PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact | PaletteKind::Grayscale
+            )
+    }
+
     /// A preset by name (see [`PRESETS`]), from the default settings.
     pub fn preset(name: &str) -> Option<Self> {
         let d = Self::default();

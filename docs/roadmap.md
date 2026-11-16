@@ -65,7 +65,8 @@ Other items keep their numbers.
      handles on an odd-sized object (FireCraft: on the half pixel)
 7. **Optimize panel + Export, the rest**: 2-Up/4-Up and Export Preview; GIF Loss (lossy LZW); custom
    palettes and the Color Table panel; Selective JPEG quality; Fireworks MX's own adaptive palette and
-   dither pattern; animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and
+   dither pattern; more dither types, including ones that stay stable from frame to frame in
+   animations (with "Maximize colors per frame" each frame has its own table); animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and
    libdeflate need a C-to-wasm compiler); export in the background (the PNG optimizer's level 7 can
    take a while on large images, and the app waits for it)
    - **16-bit colour (PNG 48/64 export)**: layers, effects and the renderer work in 8 bits per

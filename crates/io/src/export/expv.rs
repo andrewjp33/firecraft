@@ -71,6 +71,7 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         loops: int("FLP").map_or(0, |v| v.clamp(0, 65535) as u16),
         auto_crop: exp.bool_of("AAC").unwrap_or(true),
         auto_difference: exp.bool_of("AAD").unwrap_or(true),
+        frame_palettes: exp.bool_of("FCP").unwrap_or(false),
         jpeg_quality: byte("JPQ", d.jpeg_quality).min(100),
         jpeg_smoothing: byte("JPS", 0).min(8),
         progressive: exp.bool_of("JPP").unwrap_or(false),
@@ -141,7 +142,11 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     set(&mut n, Node::bool("AAC", s.auto_crop));
     set(&mut n, Node::bool("AAD", s.auto_difference));
     // FireCraft's own fields, at the end (Fireworks ignores fields it doesn't know).
-    n.children.retain(|c| !["FCF", "FCQ", "FCA", "FCL", "FCJ", "FCM", "FCX", "FCO"].iter().any(|t| c.is(t)));
+    n.children.retain(|c| {
+        !["FCF", "FCQ", "FCA", "FCL", "FCJ", "FCM", "FCX", "FCO", "FCP"]
+            .iter()
+            .any(|t| c.is(t))
+    });
     match s.format {
         ExportFormat::WebP => n.children.push(Node::int("FCF", FC_WEBP)),
         ExportFormat::JpegXl => n.children.push(Node::int("FCF", FC_JPEG_XL)),
@@ -153,6 +158,9 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     n.children.push(Node::bool("FCJ", s.jpeg_full_color));
     n.children.push(Node::int("FCO", i64::from(s.png_optimize.min(7))));
     n.children.push(Node::bool("FCX", s.smooth_alpha));
+    if s.frame_palettes {
+        n.children.push(Node::bool("FCP", true));
+    }
     if let Some(m) = s.matte {
         let v = (u32::from(m.r) << 16) | (u32::from(m.g) << 8) | u32::from(m.b);
         n.children.push(Node::int("FCM", i64::from(v)));
@@ -287,6 +295,13 @@ mod tests {
                 loops: 3,
                 auto_crop: false,
                 auto_difference: false,
+                ..ExportSettings::default()
+            },
+            ExportSettings {
+                format: ExportFormat::AnimatedGif,
+                palette: PaletteKind::Grayscale,
+                colors: 16,
+                frame_palettes: true,
                 ..ExportSettings::default()
             },
         ] {

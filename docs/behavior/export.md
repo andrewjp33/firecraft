@@ -131,6 +131,27 @@ An opaque animation never clears; a transparent one only at the frames that remo
 `anim2.gif` exported back this way plays the same four frames in ImageMagick, pixel for pixel, in
 17893 bytes (the original: 18500).
 
+### Maximize colors per frame (a FireCraft addition)
+
+A GIF allows 256 colors per color table, and each frame can have its own table. With this option
+(Animated GIF, Adaptive / WebSnap Adaptive / Exact / Grayscale) every frame gets a table made for
+the pixels it writes: with Auto Crop the area that changed, with Auto Difference only the changed
+pixels (the rest are the transparent entry and keep the previous frame's). An animation can so
+show far more than 256 colors in all: `tc217.gif` (a "true color GIF", 173 frames of 16×16 tiles,
+32,697 colors) exports back exact within one level in 182 KB (the original: 184 KB), against 255
+colors and errors up to 32 with one shared table; Fireworks MX opens it with all its colors. Neither
+Auto Crop nor Auto Difference is required; without both, each table covers its whole frame (256
+colors per picture).
+
+Details: whether a pixel changed is decided on its color (palette indices of different tables
+mean different colors); the first frame covers the whole image, as with no global color table
+ImageMagick and PIL fill what it leaves uncovered with an opaque background; Grayscale picks the
+grays that fit each frame best (least squared error), not the fixed ramp; dithering skips the
+pixels a frame doesn't write. Dithering can shimmer between frames where a frame redraws an area
+with a different table (a dither that stays stable from frame to frame is a possible follow-up).
+Stored as `FCPb` in `EXPv`. Exporting is often faster than with one shared table (each table is
+made from fewer colors).
+
 Opening GIFs: the document takes the GIF's screen size (it used to take the frames' extent, which
 was too small when every frame was cropped).
 

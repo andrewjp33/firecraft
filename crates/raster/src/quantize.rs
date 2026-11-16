@@ -97,6 +97,85 @@ pub fn histogram(pixels: &[Entry]) -> HashMap<u32, u32> {
     h
 }
 
+/// The `n` greys that fit grey pixels best (least squared error): the sorted levels split into
+/// `n` runs by dynamic programming, each run's weighted mean its grey. Exact, unlike a median
+/// cut, which leaves rare light or dark greys far from any entry. Pixels must be grey already
+/// (r = g = b; only r is read).
+pub fn grays_best_fit(hist: &HashMap<u32, u32>, n: usize) -> Vec<Entry> {
+    let n = n.max(1);
+    let mut count = [0u64; 256];
+    for (&k, &c) in hist {
+        if let Some(t) = count.get_mut(usize::from(unkey(k)[0])) {
+            *t += u64::from(c);
+        }
+    }
+    let levels: Vec<(f64, f64)> = count
+        .iter()
+        .enumerate()
+        .filter(|&(_, &c)| c > 0)
+        .map(|(v, &c)| (v as f64, c as f64))
+        .collect();
+    let m = levels.len();
+    let grey = |v: f64| {
+        let g = v.round().clamp(0.0, 255.0) as u8;
+        [g, g, g, 255]
+    };
+    if m <= n {
+        return levels.iter().map(|&(v, _)| grey(v)).collect();
+    }
+    // Prefix sums of weight, weight*v, weight*v^2: the squared error of levels i..j about their
+    // mean in O(1).
+    let prefix: Vec<(f64, f64, f64)> = std::iter::once((0.0, 0.0, 0.0))
+        .chain(levels.iter().scan((0.0, 0.0, 0.0), |acc: &mut (f64, f64, f64), &(v, c)| {
+            *acc = (acc.0 + c, acc.1 + c * v, acc.2 + c * v * v);
+            Some(*acc)
+        }))
+        .collect();
+    let sums = |i: usize, j: usize| {
+        let (a, b) = (prefix.get(i).copied().unwrap_or_default(), prefix.get(j).copied().unwrap_or_default());
+        (b.0 - a.0, b.1 - a.1, b.2 - a.2)
+    };
+    let cost = |i: usize, j: usize| {
+        let (cw, c1, c2) = sums(i, j);
+        if cw > 0.0 { c2 - c1 * c1 / cw } else { 0.0 }
+    };
+    // Row k: the least error of the first j levels in k runs; `from` where each last run starts.
+    let mut prev = vec![f64::INFINITY; m + 1];
+    if let Some(p) = prev.first_mut() {
+        *p = 0.0;
+    }
+    let mut from: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for k in 1..=n {
+        let mut cur = vec![f64::INFINITY; m + 1];
+        let mut start = vec![0usize; m + 1];
+        for j in k..=m {
+            let (mut least, mut arg) = (f64::INFINITY, k - 1);
+            for i in (k - 1)..j {
+                let e = prev.get(i).copied().unwrap_or(f64::INFINITY) + cost(i, j);
+                if e < least {
+                    (least, arg) = (e, i);
+                }
+            }
+            if let (Some(c), Some(a)) = (cur.get_mut(j), start.get_mut(j)) {
+                (*c, *a) = (least, arg);
+            }
+        }
+        from.push(start);
+        prev = cur;
+    }
+    let mut out = Vec::with_capacity(n);
+    let mut j = m;
+    for start in from.iter().rev() {
+        let i = start.get(j).copied().unwrap_or(0);
+        let (cw, c1, _) = sums(i, j);
+        out.push(grey(c1 / cw.max(1.0)));
+        j = i;
+    }
+    out.reverse();
+    out.dedup();
+    out
+}
+
 /// An adaptive palette of at most `n` colours: the colours themselves when there are few
 /// enough, otherwise a weighted median cut. `alpha`: alpha takes part as a fourth channel.
 pub fn adaptive(hist: &HashMap<u32, u32>, n: usize, alpha: bool) -> Vec<Entry> {
@@ -313,6 +392,39 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn best_fit_grays_beat_a_median_cut() {
+        // Uneven greys: a dense middle, a thin dark ramp, some white.
+        let mut px = Vec::new();
+        for v in 100..=140u8 {
+            px.extend(std::iter::repeat_n([v, v, v, 255], 50));
+        }
+        for v in (0..60u8).step_by(3) {
+            px.extend(std::iter::repeat_n([v, v, v, 255], 4));
+        }
+        px.extend(std::iter::repeat_n([255, 255, 255, 255], 30));
+        let hist = histogram(&px);
+        let error = |pal: &[Entry]| -> f64 {
+            px.iter()
+                .map(|p| {
+                    pal.iter()
+                        .map(|q| (f64::from(p[0]) - f64::from(q[0])).powi(2))
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .sum()
+        };
+        for n in [2, 4, 8, 16] {
+            let best = grays_best_fit(&hist, n);
+            assert!(best.len() <= n && best.iter().all(|c| c[0] == c[1] && c[1] == c[2]));
+            assert!(error(&best) <= error(&adaptive(&hist, n, false)), "{n} greys");
+        }
+        // Few enough levels: each its own entry, exactly.
+        let levels = hist.len();
+        let exact = grays_best_fit(&hist, 256);
+        assert_eq!(exact.len(), levels);
+        assert_eq!(error(&exact), 0.0);
+    }
 
     #[test]
     fn fixed_palettes_have_fireworks_sizes() {
