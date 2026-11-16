@@ -78,6 +78,20 @@ disabled. Not captured from Fireworks: the Modify Marquee, Select, Toolbars and 
 submenus (FireCraft lists Expand/Contract/Border/Smooth Marquee and its Select menu's items, and
 leaves out Toolbars and Panels).
 
+## Deleting selected pixels
+
+Fireworks MX (2026-11-15), red at 10,10 100x80, marquee 0,0 to 60,100, Delete (undo step
+"Delete"): while bitmap editing goes on red keeps its size (0,0 200x150 as MX edits it); at "Exit
+Bitmap Mode" it shrinks to the pixels left, 60,10 50x80. A bitmap whose pixels were all deleted is
+removed from its layer at Exit Bitmap Mode (in that step; undo brings it back).
+
+FireCraft has no separate bitmap mode, so it shrinks the bitmap right away, in the Delete step:
+Delete, Edit > Clear, Edit > Cut and the source of New Bitmap Via Cut all trim the bitmap to its
+remaining pixels (`DocState::shrink_bitmap`); a hole in the middle leaves the bounds as they are.
+A bitmap emptied completely stays while it is being edited (the marquee still applies to it) and
+goes away when bitmap editing ends or it is deselected, as an Insert > Empty Bitmap one does. The
+Eraser doesn't shrink bitmaps yet (Fireworks MX would at Exit Bitmap Mode).
+
 ## Marquees on empty canvas
 
 | Situation | Fireworks MX |

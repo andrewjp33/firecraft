@@ -893,8 +893,7 @@ impl DocState {
         if let Some(sel) = self.pixels.clone() {
             // A marquee with no bitmap yet: nothing to delete.
             let Some(target) = sel.target else { return };
-            let pixel_label = if label == "Delete" { "Delete Pixels" } else { label };
-            self.edit(pixel_label, |s| {
+            self.edit(label, |s| {
                 if let Some(Element {
                     kind: ElementKind::Bitmap(b),
                     ..
@@ -903,6 +902,7 @@ impl DocState {
                     let mask = sel.on(b);
                     b.image.clear_masked(&mask);
                 }
+                s.shrink_bitmap(target);
             });
             return;
         }
@@ -970,6 +970,7 @@ impl DocState {
                 {
                     b.image.clear_masked(&local);
                 }
+                s.shrink_bitmap(target);
             }
             let f = s.frame();
             if let Some(cell) = s
@@ -1070,6 +1071,23 @@ impl DocState {
         }
         // The document is as it was before the insert: redraw, but it is not a change.
         self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// After pixels were taken out of bitmap `r` (Delete, Cut, Bitmap Via Cut): its bounds shrink
+    /// to the pixels left, as Fireworks MX's do when bitmap editing ends (measured 2026-11-15:
+    /// red 10,10 100x80 minus its left 50 columns became 60,10 50x80). Emptied completely, it
+    /// stays while it is being edited and goes away once it isn't (MX removes it at "Exit Bitmap
+    /// Mode"), like an empty bitmap from Insert > Empty Bitmap.
+    pub(crate) fn shrink_bitmap(&mut self, r: ElementRef) {
+        let Some(ElementKind::Bitmap(b)) = self.element(r).map(|e| &e.kind) else {
+            return;
+        };
+        if paint::opaque_bounds(&b.image).is_none() {
+            let stamp = b.image.stamp();
+            self.empty_bitmaps.push(stamp);
+            return;
+        }
+        self.trim_bitmap(r, None);
     }
 
     /// Shrink bitmap `r` to its non-transparent pixels (a pixel selection is anchored to the
@@ -2350,6 +2368,65 @@ mod tests {
         assert_eq!(pixel(&d, new, 50, 40).a, 255);
         let newer = ElementRef::new(red.layer, red.index + 2);
         assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(newer));
+    }
+
+    fn bounds_of(d: &DocState, r: ElementRef) -> (i64, i64, u32, u32) {
+        match d.element(r).map(|e| &e.kind) {
+            Some(ElementKind::Bitmap(b)) => (b.x, b.y, b.image.width(), b.image.height()),
+            _ => panic!("not a bitmap"),
+        }
+    }
+
+    #[test]
+    fn deleting_selected_pixels_shrinks_the_bitmap_to_what_is_left() {
+        // Fireworks MX (2026-11-15): red at 10,10 100x80, marquee 0,0 to 60,100, Delete
+        // ("Delete"): red ends up 60,10 50x80.
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        d.marquee((0.0, 0.0, 60.0, 100.0), false, &ToolOptions::default(), Combine::Replace);
+        d.delete();
+        assert_eq!(d.history.next_undo(), Some("Delete"));
+        assert_eq!(bounds_of(&d, red), (60, 10, 50, 80));
+        assert_eq!(pixel(&d, red, 60, 10), Rgba::new(255, 0, 0, 255));
+        assert!(d.pixels.is_some(), "the marquee stays");
+        d.undo();
+        assert_eq!(bounds_of(&d, red), (10, 10, 100, 80));
+        // A hole in the middle leaves the bounds as they are.
+        d.marquee((40.0, 30.0, 60.0, 50.0), false, &ToolOptions::default(), Combine::Replace);
+        d.delete();
+        assert_eq!(bounds_of(&d, red), (10, 10, 100, 80));
+        assert_eq!(pixel(&d, red, 50, 40).a, 0);
+    }
+
+    #[test]
+    fn cutting_selected_pixels_shrinks_the_bitmap_too() {
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        d.marquee((0.0, 0.0, 200.0, 50.0), false, &ToolOptions::default(), Combine::Replace);
+        d.delete_as("Cut");
+        assert_eq!(bounds_of(&d, red), (10, 50, 100, 40));
+        d.undo();
+        d.bitmap_via(true);
+        assert_eq!(bounds_of(&d, red), (10, 50, 100, 40), "Bitmap Via Cut's source");
+    }
+
+    #[test]
+    fn a_bitmap_emptied_by_delete_goes_when_bitmap_editing_ends() {
+        // Fireworks MX: all of blue selected and deleted; at Exit Bitmap Mode blue is gone and
+        // nothing is selected. Undo brings it back.
+        let (mut d, _, blue) = red_and_blue();
+        d.selection = vec![blue];
+        d.marquee((0.0, 0.0, 200.0, 150.0), false, &ToolOptions::default(), Combine::Replace);
+        d.delete();
+        d.drop_empty_bitmaps();
+        assert_eq!(d.doc.layers[blue.layer].elements(0).len(), 1, "kept while being edited");
+        assert!(d.exit_bitmap_mode());
+        assert!(d.doc.layers[blue.layer].elements(0).is_empty());
+        assert!(d.selection.is_empty());
+        d.undo();
+        assert_eq!(d.doc.layers[blue.layer].elements(0).len(), 1);
+        d.undo();
+        assert_eq!(pixel(&d, blue, 100, 70).a, 255, "undo Delete: blue is back");
     }
 
     #[test]
