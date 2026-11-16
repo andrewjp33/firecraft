@@ -22,6 +22,22 @@ default 1024 x 740 window; on a bare Xvfb they only show once the main window is
 So a selection belongs to the canvas, not to a bitmap: the same marquee can clear or fill one
 bitmap after another.
 
+## Bitmap mode and the Exit Bitmap Mode button
+
+Fireworks MX (2026-11-15): a Pointer double-click on a bitmap enters bitmap mode with the
+Marquee tool chosen (undo step "Edit Bitmap"; no selection box; the document footer's round stop
+button turns red). Drawing a marquee and pressing Delete removes pixels ("Delete"); the stop
+button ends bitmap mode ("Exit Bitmap Mode"): the bitmap stays selected with its handles, trimmed
+to what's left, and the tool stays the Marquee. A double-click with the Marquee tool doesn't
+enter bitmap mode.
+
+FireCraft: the same double-click (`DocState::enter_bitmap_mode`, kept in undo history as
+`bitmap_edit`; it ends when the bitmap is no longer selected); `in_bitmap_mode` is true with a
+pixel selection, a double-clicked bitmap still selected, or an untouched empty bitmap. The
+footer's stop button, after Next frame as in Fireworks MX, is red then and runs
+`exit_bitmap_mode`, as the Pointer tool and Escape do. Picking another bitmap in the Layers panel
+while editing moves the editing there ("Edit Bitmap").
+
 ## Marquee shape, dragging and clicking
 
 Measured in Fireworks MX on 2026-11-15 (empty 200 x 150 document, Marquee with Anti-Alias, the

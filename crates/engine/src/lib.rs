@@ -283,6 +283,9 @@ pub struct DocState {
     live_edit: Option<LiveEdit>,
     /// The Brush, Pencil or Eraser stroke being drawn.
     live_paint: Option<paint::LivePaint>,
+    /// The bitmap double-clicked into bitmap mode (Fireworks MX: "Edit Bitmap"), while it has no
+    /// pixel selection yet; it counts while it stays selected.
+    pub bitmap_edit: Option<ElementRef>,
     /// Image stamps of the bitmaps Insert > Empty Bitmap made: a bitmap still holding one is
     /// untouched (every write gives an image a new stamp), and goes away once deselected.
     empty_bitmaps: Vec<u64>,
@@ -317,6 +320,7 @@ impl DocState {
             live_edit: None,
             live_paint: None,
             empty_bitmaps: Vec::new(),
+            bitmap_edit: None,
             revision: 0,
         }
     }
@@ -380,7 +384,7 @@ impl DocState {
 
     /// What is selected now, as an undo step keeps it.
     fn selected_now(&self) -> Selected {
-        self.history.selected(&self.selection, self.pixels.as_ref())
+        self.history.selected(&self.selection, self.pixels.as_ref(), self.bitmap_edit)
     }
 
     /// An undo step that changes only what is selected (Fireworks MX records "Select Pixels",
@@ -432,7 +436,8 @@ impl DocState {
     /// without one, the objects selected now stay selected (those that still exist).
     fn restore_selected(&mut self, sel: Selected) {
         self.pixels = sel.pixels.map(|p| (*p).clone());
-        if self.pixels.is_some() {
+        self.bitmap_edit = sel.editing;
+        if self.pixels.is_some() || self.bitmap_edit.is_some() {
             self.selection = sel.objects;
         }
         self.after_history();
@@ -445,6 +450,9 @@ impl DocState {
         let target_ok = |s: &Self, r: ElementRef| matches!(s.element(r).map(|e| &e.kind), Some(ElementKind::Bitmap(_)));
         if self.pixels.as_ref().is_some_and(|p| p.target.is_some_and(|t| !target_ok(self, t))) {
             self.pixels = None;
+        }
+        if self.bitmap_edit.is_some_and(|r| !target_ok(self, r)) {
+            self.bitmap_edit = None;
         }
         self.touch();
     }
@@ -702,16 +710,21 @@ impl DocState {
     /// into is deselected, so it goes away (on its own that is no undo step, as in Fireworks).
     /// `false` if no bitmap was being edited.
     pub fn exit_bitmap_mode(&mut self) -> bool {
-        let target = self.pixels.as_ref().and_then(|p| p.target);
-        if self.pixels.is_none() && !self.selection.iter().any(|r| self.is_empty_bitmap(*r)) {
+        if !self.in_bitmap_mode() {
             return false;
         }
+        let target = self
+            .pixels
+            .as_ref()
+            .and_then(|p| p.target)
+            .or(self.bitmap_edit.filter(|r| self.selection.contains(r)));
         let before = target.and_then(|t| self.element(t).cloned());
         // The edited bitmap shrinks to its pixels even if none changed (Fireworks MX, measured
         // 2026-11-15: a Magic Wand selection on a 200x150 bitmap whose pixels cover 10,10
-        // 170x120, then Escape, left it 10,10 170x120). Emptied, it goes.
+        // 170x120, then Escape, left it 10,10 170x120). Emptied, it goes. The tool stays.
         let leave = |s: &mut Self| {
             s.pixels = None;
+            s.bitmap_edit = None;
             if let Some(t) = target {
                 s.shrink_bitmap(t);
             }
@@ -719,7 +732,7 @@ impl DocState {
                 s.selection.iter().copied().filter(|r| s.is_empty_bitmap(*r)).collect();
             s.selection.retain(|r| !empty.contains(r));
         };
-        if self.pixels.is_some() {
+        if self.pixels.is_some() || self.bitmap_edit.is_some() {
             self.select_step("Exit Bitmap Mode", leave);
         } else {
             leave(self);
@@ -728,6 +741,32 @@ impl DocState {
             self.dirty = true;
         }
         self.drop_empty_bitmaps();
+        true
+    }
+
+    /// Whether a bitmap is being edited (Fireworks MX's bitmap mode: the document window's
+    /// stop button is red): pixels are selected, a bitmap was double-clicked, or an empty bitmap
+    /// from Insert > Empty Bitmap is selected.
+    pub fn in_bitmap_mode(&self) -> bool {
+        self.pixels.is_some()
+            || self.bitmap_edit.is_some_and(|r| self.selection.contains(&r))
+            || self.selection.iter().any(|r| self.is_empty_bitmap(*r))
+    }
+
+    /// Pointer double-click on bitmap `r`: edit it (Fireworks MX: bitmap mode, the Marquee tool
+    /// chosen by the caller; undo step "Edit Bitmap"). `false` if `r` isn't a bitmap.
+    pub fn enter_bitmap_mode(&mut self, r: ElementRef) -> bool {
+        if !matches!(self.element(r).map(|e| &e.kind), Some(ElementKind::Bitmap(_))) {
+            return false;
+        }
+        self.select_step("Edit Bitmap", |s| {
+            if s.pixels.as_ref().is_some_and(|p| p.target != Some(r)) {
+                s.pixels = None;
+            }
+            s.bitmap_edit = Some(r);
+            s.selection = vec![r];
+            s.doc.current_layer = r.layer;
+        });
         true
     }
 
@@ -743,12 +782,16 @@ impl DocState {
     /// selection stays where it is and now applies to `r` (undo step "Edit Bitmap"). `false`
     /// if there is no pixel selection or `r` isn't a bitmap (it is then selected as usual).
     pub fn edit_bitmap(&mut self, r: ElementRef) -> bool {
-        if self.pixels.is_none() || !matches!(self.element(r).map(|e| &e.kind), Some(ElementKind::Bitmap(_))) {
+        let editing = self.pixels.is_some() || self.bitmap_edit.is_some_and(|b| self.selection.contains(&b));
+        if !editing || !matches!(self.element(r).map(|e| &e.kind), Some(ElementKind::Bitmap(_))) {
             return false;
         }
         self.select_step("Edit Bitmap", |s| {
             if let Some(p) = s.pixels.as_mut() {
                 p.target = Some(r);
+            }
+            if s.bitmap_edit.is_some() {
+                s.bitmap_edit = Some(r);
             }
             s.selection = vec![r];
             s.doc.current_layer = r.layer;
@@ -1042,6 +1085,10 @@ impl DocState {
     /// is deselected before any pixels have been drawn [...] it disappears"). No undo step, as in
     /// Fireworks. The UI calls this once per update.
     pub fn drop_empty_bitmaps(&mut self) {
+        // Bitmap mode from a double-click ends when the bitmap is no longer selected.
+        if self.bitmap_edit.is_some_and(|r| !self.selection.contains(&r)) {
+            self.bitmap_edit = None;
+        }
         if self.empty_bitmaps.is_empty() || self.live_paint.is_some() || self.live_edit.is_some() {
             return;
         }
@@ -1079,6 +1126,9 @@ impl DocState {
                 if let Some(t) = &mut p.target {
                     shift(t);
                 }
+            }
+            if let Some(t) = &mut self.bitmap_edit {
+                shift(t);
             }
         }
         // The document is as it was before the insert: redraw, but it is not a change.
@@ -2588,6 +2638,54 @@ mod tests {
         // Left of the box (where only a glow would reach): nothing.
         d.select_in_rect((688.0, 568.0, 700.0, 600.0), false);
         assert!(d.selection.is_empty());
+    }
+
+    #[test]
+    fn double_click_marquee_delete_exit_flow() {
+        // Fireworks MX (2026-11-15): Pointer double-click on red -> bitmap mode, Marquee tool
+        // ("Edit Bitmap"); marquee and Delete ("Delete"); the stop button -> "Exit Bitmap Mode",
+        // red still selected with its hole, the tool unchanged.
+        let (mut d, red, blue) = red_and_blue();
+        assert!(!d.in_bitmap_mode());
+        assert!(d.enter_bitmap_mode(red));
+        assert_eq!(d.history.next_undo(), Some("Edit Bitmap"));
+        assert!(d.in_bitmap_mode());
+        assert_eq!(d.selection, vec![red]);
+        assert_eq!(d.doc.current_layer, red.layer);
+        // The marquee applies to the bitmap being edited.
+        d.marquee((0.0, 0.0, 60.0, 100.0), false, &ToolOptions::default(), Combine::Replace);
+        assert_eq!(d.pixels.as_ref().and_then(|p| p.target), Some(red));
+        d.delete();
+        assert_eq!(bounds_of(&d, red), (60, 10, 50, 80));
+        assert!(d.exit_bitmap_mode());
+        assert!(!d.in_bitmap_mode());
+        assert_eq!(d.selection, vec![red]);
+        assert_eq!(d.history.next_undo(), Some("Exit Bitmap Mode"));
+        // Undo walks back into bitmap mode.
+        d.undo();
+        assert!(d.in_bitmap_mode() && d.pixels.is_some());
+        // Double-clicked but nothing done: exiting is still one step, and only bitmaps count.
+        let (mut d, red, _) = red_and_blue();
+        d.enter_bitmap_mode(red);
+        assert!(d.exit_bitmap_mode());
+        assert!(!d.in_bitmap_mode());
+        assert!(!d.enter_bitmap_mode(ElementRef::new(5, 0)));
+        let _ = blue;
+    }
+
+    #[test]
+    fn bitmap_mode_ends_when_the_bitmap_is_no_longer_selected() {
+        let (mut d, red, blue) = red_and_blue();
+        d.enter_bitmap_mode(red);
+        d.selection = vec![blue];
+        d.drop_empty_bitmaps();
+        assert!(!d.in_bitmap_mode());
+        assert_eq!(d.bitmap_edit, None);
+        // And picking another bitmap in the Layers panel while editing moves the editing there.
+        d.enter_bitmap_mode(red);
+        assert!(d.edit_bitmap(blue));
+        assert_eq!(d.bitmap_edit, Some(blue));
+        assert!(d.in_bitmap_mode());
     }
 
     #[test]

@@ -695,6 +695,9 @@ impl DocState {
                     t.layer = map(t.layer);
                 }
             }
+            if let Some(t) = &mut s.bitmap_edit {
+                t.layer = map(t.layer);
+            }
             s.doc.current_layer = map(s.doc.current_layer);
         });
     }

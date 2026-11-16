@@ -15,6 +15,8 @@ pub struct Selected {
     pub objects: Vec<ElementRef>,
     /// Shared between steps while it doesn't change (a mask can be the canvas' size).
     pub pixels: Option<Arc<PixelSelection>>,
+    /// The bitmap being edited in bitmap mode without a pixel selection (double-clicked).
+    pub editing: Option<ElementRef>,
 }
 
 /// One undo step: its label and the document and selection before it.
@@ -46,7 +48,12 @@ impl Default for History {
 impl History {
     /// The selection to keep with a step, sharing the mask with the newest step when it is
     /// the same selection.
-    pub fn selected(&self, objects: &[ElementRef], pixels: Option<&PixelSelection>) -> Selected {
+    pub fn selected(
+        &self,
+        objects: &[ElementRef],
+        pixels: Option<&PixelSelection>,
+        editing: Option<ElementRef>,
+    ) -> Selected {
         let newest = self.undo.last().or(self.redo.last()).and_then(|(_, _, s)| s.pixels.as_ref());
         let pixels = pixels.map(|p| match newest {
             Some(a) if **a == *p => a.clone(),
@@ -55,6 +62,7 @@ impl History {
         Selected {
             objects: objects.to_vec(),
             pixels,
+            editing,
         }
     }
 

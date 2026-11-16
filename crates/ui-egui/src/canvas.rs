@@ -543,7 +543,8 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                     let n = d.doc.frames.len().max(1);
                     let view = app.views.entry(id).or_default();
                     let multi = n > 1;
-                    if crate::icons::glyph_button(ui, crate::icons::Glyph::First, 14.0, multi)
+                    let cur = d.doc.current_frame;
+                    if crate::icons::glyph_button(ui, crate::icons::Glyph::First, 14.0, multi && cur > 0)
                         .on_hover_text("First frame")
                         .clicked()
                     {
@@ -561,7 +562,7 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                         view.playing = !view.playing;
                         view.last_tick = ui.ctx().input(|i| i.time);
                     }
-                    if crate::icons::glyph_button(ui, crate::icons::Glyph::Last, 14.0, multi)
+                    if crate::icons::glyph_button(ui, crate::icons::Glyph::Last, 14.0, multi && cur + 1 < n)
                         .on_hover_text("Last frame")
                         .clicked()
                     {
@@ -584,7 +585,7 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_secs_f64(delay.min(1.0) / 2.0));
                     }
-                    ui.label(format!("{}", d.doc.current_frame + 1));
+                    frame_number(ui, id, d, n);
                     // One frame back or on, wrapping round (Fireworks MX's footer; Ctrl+Page Up/Down).
                     if crate::icons::glyph_button(ui, crate::icons::Glyph::PrevFrame, 14.0, multi)
                         .on_hover_text("Previous frame (Ctrl+Page Up)")
@@ -597,6 +598,15 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                         .clicked()
                     {
                         d.doc.current_frame = (d.doc.current_frame + 1) % n;
+                    }
+                    // Exit Bitmap Mode: red while a bitmap is being edited (Fireworks MX's footer).
+                    let editing = d.in_bitmap_mode();
+                    if exit_bitmap_button(ui, editing)
+                        .on_hover_text("Exit Bitmap Mode")
+                        .on_disabled_hover_text("Exit Bitmap Mode")
+                        .clicked()
+                    {
+                        d.exit_bitmap_mode();
                     }
                     ui.separator();
                     ui.label(format!("{} x {}", d.doc.width, d.doc.height));
@@ -625,6 +635,75 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
     if app.session.tool != Tool::Zoom {
         resp.context_menu(|ui| crate::menus::context_menu(app, ui));
     }
+}
+
+/// The footer's frame number: type a frame and press Enter to go there (Escape: back). It keeps
+/// its size while edited, so the footer doesn't move.
+fn frame_number(ui: &mut egui::Ui, id: u64, d: &mut firecraft_engine::DocState, n: usize) {
+    let key = egui::Id::unique(("frame_number", id));
+    let shown = (d.doc.current_frame + 1).to_string();
+    let mut text: String = ui.ctx().data(|m| m.get_temp(key)).unwrap_or_else(|| shown.clone());
+    let field = egui::TextEdit::singleline(&mut text)
+        .frame(egui::Frame::NONE)
+        .align(egui::Align2::CENTER_CENTER)
+        .char_limit(5)
+        .desired_width(26.0);
+    let resp = ui.add_sized([30.0, ui.spacing().interact_size.y], field);
+    // Clicked into: the whole number is selected, so typing replaces it.
+    if resp.gained_focus()
+        && let Some(mut state) = egui::text_edit::TextEditState::load(ui.ctx(), resp.id)
+    {
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::select_all_str(&text)));
+        state.store(ui.ctx(), resp.id);
+    }
+    if resp.has_focus() {
+        // Show that it's being edited without changing the layout.
+        ui.painter().rect_stroke(
+            resp.rect,
+            1.0,
+            egui::Stroke::new(1.0, theme::SELECT_BLUE),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let (enter, escape) = ui.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
+    if resp.lost_focus() {
+        if enter
+            && !escape
+            && let Ok(f) = text.trim().parse::<usize>()
+            && (1..=n).contains(&f)
+        {
+            d.doc.current_frame = f - 1;
+        }
+        ui.ctx().data_mut(|m| m.remove::<String>(key));
+    } else if resp.has_focus() {
+        ui.ctx().data_mut(|m| m.insert_temp(key, text));
+    } else {
+        ui.ctx().data_mut(|m| m.remove::<String>(key));
+    }
+}
+
+/// Fireworks MX's Exit Bitmap Mode button: a round stop sign, red when there is bitmap editing
+/// to end, grey otherwise.
+fn exit_bitmap_button(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (r, resp) = ui.allocate_exact_size(vec2(14.0, 14.0), sense);
+    let p = ui.painter();
+    if resp.hovered() && enabled {
+        p.rect_stroke(r, 1.0, Stroke::new(1.0, Color32::from_gray(150)), StrokeKind::Inside);
+    }
+    let (fill, cross) = if enabled {
+        (Color32::from_rgb(210, 30, 30), Color32::WHITE)
+    } else {
+        (Color32::from_gray(175), Color32::from_gray(235))
+    };
+    let c = r.center();
+    p.circle_filled(c, 5.0, fill);
+    let d = 2.2;
+    p.line_segment([c + vec2(-d, -d), c + vec2(d, d)], Stroke::new(1.4, cross));
+    p.line_segment([c + vec2(-d, d), c + vec2(d, -d)], Stroke::new(1.4, cross));
+    resp
 }
 
 /// The stroke a tool paints by dragging, if it is one of those.
@@ -1196,6 +1275,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         if let Some(id) = d.hit_test(x, y).and_then(|r| d.instance_symbol(r)) {
             ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
         }
+        // Double-clicking a bitmap edits it: bitmap mode, with the Marquee tool (Fireworks MX).
+        if let Some(r) = d.hit_test(x, y)
+            && d.enter_bitmap_mode(r)
+        {
+            app.session.tool = Tool::Marquee;
+        }
     }
     // A symbol dragged from the Library: place an instance where it's dropped.
     // (Into a Symbol Editor too: its document's symbols nest, except where the edited symbol
@@ -1313,7 +1398,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             _ => Vec2::ZERO,
         };
         // While pixels are selected (bitmap editing) only the marquee shows, as in Fireworks MX.
-        let boxed: &[firecraft_engine::ElementRef] = if d.pixels.is_some() { &[] } else { &d.selection };
+        let boxed: &[firecraft_engine::ElementRef] = if d.in_bitmap_mode() { &[] } else { &d.selection };
         for r in boxed {
             // An empty bitmap (Insert > Empty Bitmap) shows no box, as in Fireworks MX.
             if d.is_empty_bitmap(*r) {

@@ -12,3 +12,13 @@
 * View > 100% (Ctrl+1), Zoom In/Out, Fit All; Ctrl+wheel zooms at the pointer; the Zoom tool
   zooms in on a click or to fit a dragged box (Alt or right button: out). New documents open
   fitted to their window, at most 100%.
+
+## Document window footer
+
+As in Fireworks MX: First frame, Play/Stop, Last frame, the frame number, Previous frame, Next
+frame, Exit Bitmap Mode, the canvas size and the zoom. First and Last are disabled on the first
+and last frame; Previous and Next wrap round (also Ctrl+Page Up / Ctrl+Page Down, from Fireworks
+MX's shortcut set). The frame number is editable (a FireCraft addition): click it (the number is
+selected), type a frame and press Enter to go there, Escape to leave it; the field keeps its size,
+so the footer doesn't move while editing.
+
