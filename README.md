@@ -30,8 +30,9 @@ Or [build it from source](#build-and-run).
 
 FireCraft opens, edits and saves real Fireworks documents, and draws most of them very close to how
 Fireworks MX does. It is in active development. Vector and bitmap editing, text, fills, strokes, effects,
-symbols, opening common image formats and exporting (the Optimize panel: GIF, JPEG, PNG, WebP, JPEG XL)
-are in place. Frame editing, slices and some tools are not yet ([what's next](#not-done-yet)).
+symbols (animation symbols included), opening common image formats and exporting (the Optimize
+panel: GIF, JPEG, PNG, WebP, JPEG XL) are in place. Frame editing, slices and some tools are not yet
+([what's next](#not-done-yet)).
 
 **Rendering parity** on 81 Fireworks reference files, scored against Fireworks' own render of each
 file (10 November 2026): 39 match 100%, 11 more are above 99%, 18 are between 90% and 99%, and 13 are
@@ -40,60 +41,56 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### Recently added
 
-- **Export and the Optimize panel**: GIF and animated GIF, JPEG, PNG 8/24/32, WebP and JPEG XL,
-  with a Preview tab that shows the exported file and its size
-  ([docs/behavior/export.md](docs/behavior/export.md)).
-  - Fireworks MX's palettes (its Windows and Macintosh tables, Web 216, Uniform: pixel for pixel
-    as MX exports them), Adaptive, WebSnap, Exact, Grayscale, dither, transparency and matte, all
-    measured against Fireworks MX; settings kept in the document where Fireworks MX keeps them.
-  - Animated GIF with Auto Crop and Auto Difference.
-  - PNG 8 keeps transparency exactly whenever the colors fit (Smoother alpha for when they don't).
-  - WebP and JPEG XL with Quality and Alpha Quality; a lossless PNG optimizer (OptiPNG-style
-    levels) on export.
-- **Opening images**: JPEG, GIF (animations as frames), PNG, BMP, TIFF, Targa, WebP and JPEG XL,
-  laid out as Fireworks MX opens them, keeping the file's resolution and its palette for re-export
-  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
-- **Adjust Color > Grayscale** (FireCraft's own): gray by perceived lightness (luminance), stored so
-  Fireworks MX keeps it and shows its own desaturation.
-- **Effects measured in Fireworks MX**: Glow (faint pixels, glow under semi-transparent pixels,
-  anti-aliased edge), Brightness/Contrast, Convert to Alpha; effects baked into a text's stored image
-  are no longer drawn twice; rectangles keep their effects in Fireworks MX.
-- **Pointer**: a symbol's stroke and glow can be clicked, perspective symbols included.
-- **Text**: the Text tool and the whole Text menu except spelling.
-  - Fonts, size, bold/italic/underline, alignment, kerning, leading, the Text Editor.
-  - Text on a path (Attach, Detach, Orientation, Reverse Direction).
-  - Vertical and right-to-left text.
-  - Scaled, rotated, skewed and distorted text.
-  - Gradient, pattern and texture fills, and strokes on text, with *Draw fill over stroke*.
-  - Convert to Paths.
-  - Characters are placed exactly where Fireworks MX places them (its kerning and rounding,
-    measured in MX).
-  - Missing fonts can keep Fireworks' saved appearance.
-  - On the web, installed fonts can be used with the browser's permission.
-  ([docs/behavior/text.md](docs/behavior/text.md))
-- **Fills**: gradient editing with stops, opacity and presets; handles on the canvas; the
-  Gradient tool; Pattern and Web Dither fills; fill textures; Hard, Anti-Alias and Feather edges
-  ([docs/behavior/gradients.md](docs/behavior/gradients.md)).
-- **Strokes**: Fireworks' own brush engine with its 54 presets, stroke textures, placement, the
-  Edit Stroke dialog, and Fireworks CS-style stroke controls
-  ([docs/behavior/strokes.md](docs/behavior/strokes.md)).
-- **Painting**: Brush, Pencil, Eraser and Paint Bucket, using Fireworks' brush tips and
-  sensitivities ([docs/behavior/painting.md](docs/behavior/painting.md)).
-- **Pen tool** with Fireworks MX's curve drawing and point editing; Subselection improvements.
-- **Perspective symbols**: a per-document choice between drawing them as Fireworks MX does or
-  pixel-correct ([docs/behavior/symbols.md](docs/behavior/symbols.md)).
-  - Fireworks MX mode maps each object, then applies its effects at canvas size.
-  - Strokes keep their width under perspective.
-  - Fill textures stay anchored to the canvas, as Fireworks MX draws them.
-- **Effects accuracy**: Gaussian Blur computed as Fireworks computes it, Fireworks'
-  triangle-filter softness for shadows and glows, and smooth bevel edges.
-- **Strokes**: random multi-tip brushes (Outline) color their tips as Fireworks MX does.
-- **Tools panel** color boxes follow the selection, text included; tool keys for Paint
-  Bucket/Gradient (G), Eraser (E) and Pencil (Y). Fields with mixed values across the selection
-  show blank, as in Fireworks MX.
-- **History**: every drag is one undo step, recorded on mouse up, as in Fireworks MX.
-- **Web**: real file pickers for Open, Save and Export; Fonts, Textures and Patterns folders;
-  Ctrl+Alt+N/W/T alternatives for shortcuts the browser keeps for itself.
+The latest work, newest first (the full list is in the release notes):
+
+- **Animation symbols** play, as in Fireworks MX: moving, scaling, rotating and fading over the
+  frames. Create and edit them with Modify > Animation (Animate Selection, Settings, Remove
+  Animation) or in the Property inspector, and drag the motion path's points on the canvas
+  (Shift for 45° steps) ([docs/behavior/symbols.md](docs/behavior/symbols.md#animation-symbols)).
+- **Animated GIF: "Maximize colors per frame"**: every frame gets its own color table, so an
+  animation can show thousands of colors (true-color GIFs export back exactly). Works with the
+  adaptive palettes, Grayscale, Uniform, Web 216, Windows and Macintosh
+  ([docs/behavior/export.md](docs/behavior/export.md#maximize-colors-per-frame-a-firecraft-addition)).
+- **Bitmap editing the Fireworks MX way**: double-click a bitmap to edit it; the marquee stays
+  when you pick another bitmap in the Layers panel; Delete, New Bitmap Image, right-click
+  New Bitmap Via Copy/Cut, and bitmaps shrink to their pixels afterwards; the Pointer and Escape
+  leave bitmap mode ([docs/behavior/selection.md](docs/behavior/selection.md)).
+- **Frame controls** under the canvas: previous/next frame, a frame number you can type into,
+  Exit Bitmap Mode; playback stops on the frame buttons and Escape.
+- **Speed**: smooth playback and dragging in effect-heavy documents, and animated GIF previews
+  and exports several times faster (frames drawn on all CPU cores).
+- **Filters menu**: all of Fireworks MX's classic filters, also as Live Effects
+  ([docs/behavior/effects.md](docs/behavior/effects.md)).
+- **UI Scale** preference (50-200%) and the `--ui-scale` launch option.
+- **Pointer**: drag on empty canvas to select with a band.
+
+### Only in FireCraft
+
+Things no version of Fireworks has:
+
+- **Runs anywhere**: natively on Windows and Linux, and **in the browser** with nothing to install.
+- **Better drawing, by choice**: *Precise* color math (Fireworks MX's formulas computed at full
+  precision, rounded once instead of at every step) and *pixel-correct* perspective symbols
+  (strokes keep their width, nothing smears), the defaults for new documents. Fireworks
+  documents open in Fireworks MX's own modes, so they look as they were saved.
+- **9-slice symbols that keep their slices under any transform**: rotated, skewed, distorted or
+  in perspective ([docs/behavior/nine-slice.md](docs/behavior/nine-slice.md)).
+- **More formats**: open and export **WebP** and **JPEG XL**; animated WebPs and PNGs open as
+  frames; a lossless **PNG optimizer** (OptiPNG-style levels) on export.
+- **Better exports**: PNG 8 keeps transparency exactly whenever the colors fit (*Smoother alpha*
+  for when they don't); **Maximize colors per frame** for animated GIFs, with each frame's
+  best-fitting grays, grid or fixed-palette colors.
+- **Adjust Color > Grayscale** by perceived lightness (luminance), kept in the file so Fireworks MX
+  shows its own desaturation ([docs/behavior/effects.md](docs/behavior/effects.md)).
+- **Magic Wand with a smooth edge** at any tolerance (Fireworks MX's own edge is still an option)
+  ([docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)).
+- **Small things that add up**:
+  - Ctrl + mouse wheel (or a trackpad pinch) zooms smoothly around the pointer, with any tool.
+  - The frame number under the canvas is editable: type a frame and press Enter.
+  - Dragging an animation's motion path moves the animation along live (Fireworks MX moves it on
+    mouse up).
+  - UI Scale: the whole interface 50-200% larger or smaller than the system's display scaling.
+  - The system's own cursors for the tools, if you prefer them to FireCraft's.
 
 ### Working today
 
@@ -103,59 +100,88 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   ([docs/fireworks-png.md](docs/fireworks-png.md)). Anything FireCraft doesn't model yet
   (slices, presets) is carried through a save untouched.
 - **Optimize panel and Export**: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's palettes
-  (Adaptive, WebSnap, Web 216, Exact, Windows, Macintosh, Grayscale, Uniform), dither and
-  transparency, Auto Crop/Auto Difference for animations, kept in the document as Fireworks MX
-  keeps them; plus **WebP** and **JPEG XL** with Quality and Alpha Quality, exact alpha with the
-  Exact palette and a lossless **PNG optimizer** (OptiPNG-style levels). The Preview tab shows the export and its
-  file size
+  (Adaptive, WebSnap, Web 216, Exact, Windows, Macintosh, Grayscale, Uniform: the fixed ones pixel
+  for pixel as Fireworks MX exports them), dither, transparency and matte, Auto Crop/Auto
+  Difference for animations, kept in the document as Fireworks MX keeps them; plus **WebP** and
+  **JPEG XL** with Quality and Alpha Quality, and a lossless **PNG optimizer**. The Preview tab
+  shows the export, its file size and, for animations, the current frame
   ([docs/behavior/export.md](docs/behavior/export.md)).
 - **Opening images**: PNG, JPEG, GIF, BMP, TIFF, Targa, WebP and JPEG XL open as Fireworks MX
   opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;
-  the file's resolution kept). Saving never overwrites the original: it asks for a `.png` name
-  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
+  the file's resolution and palette kept for re-export). Saving never overwrites the original: it
+  asks for a `.png` name ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
 - **Rendering**:
   - Blend modes and all 11 MX gradient types.
-  - Masks, symbol instances (with perspective) and animation frames.
+  - Masks, symbol instances (with perspective), animation symbols and animation frames.
   - Text with Fireworks MX's layout.
   - Live Effects: Gaussian/Motion/Radial Blur, Drop Shadow, Glow, Inner Glow, Bevels and
-    Embosses, Hue/Saturation, Brightness/Contrast, Levels, Curves, Convert to Alpha and more, plus
-    FireCraft's Grayscale.
-  - Built-in versions of the bundled Eye Candy 4000 LE / Splat LE filters.
+    Embosses, Hue/Saturation, Brightness/Contrast, Levels, Curves, Convert to Alpha and more,
+    measured against Fireworks MX (Gaussian Blur computed as Fireworks computes it, its
+    triangle-filter softness for shadows and glows); plus FireCraft's Grayscale.
+  - The **Filters menu** with Fireworks MX's classic filters, and built-in versions of the bundled
+    Eye Candy 4000 LE / Splat LE filters.
+- **Text** ([docs/behavior/text.md](docs/behavior/text.md)): the Text tool and the whole Text
+  menu except spelling.
+  - Fonts, size, bold/italic/underline, alignment, kerning, leading, the Text Editor.
+  - Text on a path (Attach, Detach, Orientation, Reverse Direction); vertical and right-to-left
+    text; scaled, rotated, skewed and distorted text.
+  - Gradient, pattern and texture fills, and strokes on text, with *Draw fill over stroke*;
+    Convert to Paths.
+  - Characters placed exactly where Fireworks MX places them (its kerning and rounding).
+  - Missing fonts can keep Fireworks' saved appearance; on the web, installed fonts can be used
+    with the browser's permission.
+- **Fills** ([docs/behavior/gradients.md](docs/behavior/gradients.md)): gradient editing with stops,
+  opacity and presets, handles on the canvas, the Gradient tool; Pattern and Web Dither fills;
+  fill textures; Hard, Anti-Alias and Feather edges.
+- **Strokes** ([docs/behavior/strokes.md](docs/behavior/strokes.md)): Fireworks' own brush engine
+  with its 54 presets (random multi-tip brushes included), stroke textures, placement, the Edit
+  Stroke dialog, and Fireworks CS-style stroke controls.
 - **Workspace** in the style of Fireworks MX:
   - Menus, a sectioned Tools panel with press-and-hold flyouts, the Property inspector, Layers,
     Frames/History and the Library.
   - Document windows (move, resize from any edge, minimize/maximize, Cascade/Tile), or
     **documents in tabs**.
+  - The Tools panel's color boxes follow the selection, text included; fields with mixed values
+    across the selection show blank, as in Fireworks MX.
 - **Tools** ([docs/behavior/paths.md](docs/behavior/paths.md)):
-  - Selection: Pointer, Select Behind, **Subselection** (points of paths, members inside
-    groups).
+  - Selection: Pointer (click a symbol's stroke or glow; drag a band on empty canvas), Select
+    Behind, **Subselection** (points of paths, members inside groups).
   - Transform: Scale, Skew, Distort and rotate (live preview), the **9-slice Scaling tool**
     from Fireworks CS5.
-  - Bitmap: Marquee, Oval Marquee, Magic Wand (Fireworks MX's anti-alias, or a smoother one
-    by default: [docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)), Brush, Pencil,
-    Eraser, Paint Bucket, Gradient.
-  - Vector: Line, **Pen**, Rectangle (Fireworks rectangle primitives with roundness), Ellipse,
-    **Text**.
-  - Eyedropper, Hand, Zoom.
+  - Bitmap: Marquee, Oval Marquee, Magic Wand, Brush, Pencil, Eraser, Paint Bucket, Gradient,
+    with Fireworks' brush tips and sensitivities
+    ([docs/behavior/painting.md](docs/behavior/painting.md)).
+  - Vector: Line, **Pen** (Fireworks MX's curve drawing and point editing), Rectangle (Fireworks
+    rectangle primitives with roundness), Ellipse, **Text**.
+  - Eyedropper, Hand, Zoom; tool keys as in Fireworks (G, E, Y...).
+- **Bitmap editing** ([docs/behavior/selection.md](docs/behavior/selection.md)): bitmap mode
+  (double-click, Exit Bitmap Mode), marquees that stay across bitmaps, Delete, Feather, Select
+  Inverse, Edit > Insert > Bitmap via Cut/Copy and Empty Bitmap, New Bitmap Image, filling or
+  painting a marquee on empty canvas into a new bitmap.
 - **Objects** ([docs/behavior/objects.md](docs/behavior/objects.md)):
   - Cut/Copy/Paste, including **between FireCraft and Fireworks** (Windows, and Linux through
     Wine).
   - Duplicate/Clone, Group/Ungroup, Arrange, Align, Rotate/Flip, Numeric Transform.
   - Names, per-object show/hide and **lock** (from Fireworks CS).
-  - Layers panel reordering by drag; Select > Superselect/Subselect.
+  - Layers panel reordering by drag; Select > Superselect/Subselect; a right-click menu on the
+    canvas.
 - **Live Effects editor** in the Property inspector, with live preview, OK/Cancel and fine
   sliders ([docs/behavior/effects.md](docs/behavior/effects.md)).
 - **Symbols** ([docs/behavior/symbols.md](docs/behavior/symbols.md)):
   - Convert to Symbol, Library panel, Break Apart.
   - Symbol Editor, nested editors included, with live updates and a Done button.
+  - **Animation symbols**: Modify > Animation, the Animate dialog, Property inspector fields and
+    a draggable motion path.
   - **9-slice symbols** from Fireworks CS that keep their slices under any transform.
+  - **Perspective symbols**, drawn as Fireworks MX draws them (each object mapped, effects at
+    canvas size, fill textures anchored to the canvas) or pixel-correct.
 - **Edit and document**:
-  - Edit > Insert > Bitmap via Cut/Copy.
-  - Select All, Deselect, Select Inverse, Feather.
-  - Canvas Size and Canvas Color.
+  - Select All, Deselect, Canvas Size and Canvas Color.
   - Layers: new, delete, show/hide, lock.
-  - Undo/redo (100 steps by default, up to 999 in Preferences) with a History panel.
-  - Animation playback, drag-and-drop open, opening files given on the command line.
+  - Undo/redo (100 steps by default, up to 999 in Preferences) with a History panel; every drag
+    is one undo step, recorded on mouse up, as in Fireworks MX.
+  - Animation playback with first/previous/next/last frame and a frame number to type into;
+    drag-and-drop open; opening files given on the command line.
 - **Preferences**:
   - UI Scale, 50-200% on top of the system's display scaling (`--ui-scale` overrides it at launch).
   - Live dragging ("Show objects while moving them", off for slower PCs).
@@ -163,6 +189,8 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
   - Color math for new documents: Precise (default) or Fireworks MX's exact formulas.
   - Perspective symbols in new documents: pixel-correct (default) or drawn as Fireworks MX does.
   - Fonts, Textures and Patterns folders.
+- **Web version**: real file pickers for Open, Save and Export; Fonts, Textures and Patterns
+  folders; Ctrl+Alt+N/W/T alternatives for shortcuts the browser keeps for itself.
 
 ### Not done yet
 
@@ -172,9 +200,10 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Blur, Sharpen, Dodge, Burn, Smudge and Rubber Stamp.
 - Export: 2-Up/4-Up previews, GIF loss, custom palettes, animated WebP; WebP and the PNG
   optimizer in the browser version; 16-bit (PNG 64) export, which needs a 16-bit pipeline.
-- Editing frames (adding, removing, timing).
+- Editing frames (adding, removing, timing) in the Frames panel.
+- Editing masks (layer and object masks).
 - Slices, hotspots and HTML export.
-- Styles and the Filters menu.
+- Styles.
 - `.jsf` commands.
 - Opening/importing Photoshop (PSD) files first, then Illustrator (AI) and FreeHand (FH); File >
   Import.
