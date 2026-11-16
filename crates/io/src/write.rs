@@ -10,7 +10,7 @@ use firecraft_doc::{
 };
 use firecraft_fwpng::{Node, Tile};
 use firecraft_raster::transform::Affine;
-use firecraft_raster::{ColorMath, Rgba};
+use firecraft_raster::{ColorMath, Rgba, RgbaImage};
 
 use crate::read::IMAGE_TILE;
 
@@ -679,6 +679,13 @@ fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
     let mut ids = Vec::new();
     for ty in (0..ih.max(1)).step_by(IMAGE_TILE as usize) {
         for tx in (0..iw.max(1)).step_by(IMAGE_TILE as usize) {
+            // A tile of one colour is stored as that colour alone (`TMCi`, ARGB), as Fireworks MX
+            // does: no tile data, a much smaller file.
+            if let Some(c) = uniform_tile(&b.image, tx, ty) {
+                let argb = (c.a as u32) << 24 | (c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32;
+                ids.push(Node::int("TMC", argb as i64));
+                continue;
+            }
             let mut data = vec![0u8; (IMAGE_TILE * IMAGE_TILE * 4) as usize];
             for y in 0..IMAGE_TILE {
                 for x in 0..IMAGE_TILE {
@@ -698,6 +705,21 @@ fn write_bitmap(b: &Bitmap, raw: Option<&Node>, w: &mut Writer) -> Node {
     }
     put(&mut n, Node::vector("TIL", ids));
     n
+}
+
+/// The colour of the image tile at (`tx`, `ty`) if every pixel of it inside the image is exactly
+/// that colour (transparent pixels too: their colour is kept), else `None`.
+fn uniform_tile(image: &RgbaImage, tx: u32, ty: u32) -> Option<Rgba> {
+    let first = image.get(tx as i64, ty as i64)?;
+    let (x1, y1) = ((tx + IMAGE_TILE).min(image.width()), (ty + IMAGE_TILE).min(image.height()));
+    for y in ty..y1 {
+        for x in tx..x1 {
+            if image.get(x as i64, y as i64) != Some(first) {
+                return None;
+            }
+        }
+    }
+    Some(first)
 }
 
 /// A text object: its position and stored image always, the rest when it has been edited or made
@@ -1632,6 +1654,65 @@ fn write_effect_list(n: &mut Node, list: &[firecraft_doc::EffectEntry]) {
             } else {
                 n.children.push(efl);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod single_colour_tile_tests {
+    use firecraft_doc::{Bitmap, Document, Element, ElementKind};
+    use firecraft_fwpng::Node;
+    use firecraft_raster::{Rgba, RgbaImage};
+
+    fn tile_entries(root: &Node) -> Vec<(String, u32)> {
+        fn walk(n: &Node, out: &mut Vec<(String, u32)>) {
+            if n.is("TIL") {
+                out.extend(n.children.iter().map(|c| (c.tag_str().to_owned(), c.as_u32().unwrap_or(0))));
+            }
+            n.children.iter().for_each(|c| walk(c, out));
+        }
+        let mut out = Vec::new();
+        walk(root, &mut out);
+        out
+    }
+
+    #[test]
+    fn single_colour_tiles_are_written_as_tmci_and_read_back() {
+        // 300x200: green, but a red dot in the bottom-right tile; a 100x80 all-blue image; a
+        // fully transparent 50x50 one.
+        let mut green = RgbaImage::new(300, 200, Rgba::new(0, 255, 0, 255));
+        green.set(290, 190, Rgba::new(255, 0, 0, 255));
+        let mut doc = Document::new(400, 300, 72.0, None);
+        let cell = doc.layers[0].elements_mut(0).expect("a cell");
+        for (x, image) in [
+            (0, green),
+            (0, RgbaImage::new(100, 80, Rgba::new(0, 0, 255, 255))),
+            (300, RgbaImage::new(50, 50, Rgba::TRANSPARENT)),
+        ] {
+            cell.push(Element::new(ElementKind::Bitmap(Bitmap { x, y: 0, image })));
+        }
+        let (root, tiles) = super::fireworks_tree(&doc);
+        let entries = tile_entries(&root);
+        let tmc = |c: u32| ("TMC".to_owned(), c);
+        // Objects are written top first: transparent (one tile), blue (one), green (six, the
+        // last one, with the dot, stored).
+        assert_eq!(entries[0], tmc(0), "{entries:?}");
+        assert_eq!(entries[1], tmc(0xff0000ff));
+        assert!(entries[2..7].iter().all(|e| *e == tmc(0xff00ff00)), "{entries:?}");
+        assert_eq!(entries[7].0, "TID");
+        assert_eq!(entries.len(), 8);
+        assert_eq!(tiles.len(), 1, "only the mixed tile is stored");
+        // Read back: the same pixels.
+        let back = crate::open(&crate::save_fireworks_png(&doc).expect("saved"), None).expect("opened");
+        let originals = doc.layers[0].elements(0);
+        let read = back.layers[0].elements(0);
+        assert_eq!(read.len(), originals.len());
+        for (a, b) in originals.iter().zip(read) {
+            let (ElementKind::Bitmap(a), ElementKind::Bitmap(b)) = (&a.kind, &b.kind) else {
+                panic!("not bitmaps")
+            };
+            assert_eq!((a.x, a.y), (b.x, b.y));
+            assert!(a.image.pixels() == b.image.pixels(), "pixels differ after the round trip");
         }
     }
 }

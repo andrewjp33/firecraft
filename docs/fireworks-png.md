@@ -37,8 +37,12 @@ without pixels. Entries are one per tile, row-major, and mix in one image (measu
 with flattened script rectangles: a 300x200 green image is `TMCi, TMCi` for its two whole tiles
 and `TIDi` for the four that run past its edge; a 256x128 red|blue image is two `TMCi`; a
 256x128 cyan image with a yellow dot in its left tile is `TIDi, TMCi`). Fireworks MX keeps them
-on re-save. FireCraft reads them since 2026-11-15 (a `TMCi` fills its tile, clipped to the image)
-and writes ordinary tiles. 20 of the reference files use them, mostly empty tiles; the reference
+on re-save. FireCraft reads them (a `TMCi` fills its tile, clipped to the image) and writes them
+for every image tile whose pixels inside the image are all exactly one colour (transparent ones
+included, their colour kept), partial tiles at the image edge too. Checked 2026-11-15: Fireworks
+MX opened FireCraft re-saves of solid_color_tiles, solid_color_bitmaps, tubes2, 769_edit2 and
+study5 (up to 334 `TMCi`) and drew them pixel for pixel as it draws the originals; study5's file
+shrank by 58 KB, solid_color_tiles' by 11%. 20 of the reference files use them, mostly empty tiles; the reference
 images `solid_color_bitmaps.png` and `solid_color_tiles.png` cover the opaque cases.
 
 ## Document
