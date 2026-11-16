@@ -68,6 +68,76 @@ pub fn uniform(n: usize) -> Vec<Entry> {
     out
 }
 
+/// A uniform grid fitted to these colours, at most `n` entries: each channel's range (lowest to
+/// highest value) cut into equal slices with a level in the middle of each, so no value is
+/// further than half a slice from one (two levels over 0..255 are 64 and 191, not 0 and 255);
+/// the channels are given levels one at a time, always to the one with the coarsest step, while
+/// the grid still fits (so 256 colours can be 10 x 25 rather than the 6-level cube). Fully
+/// opaque colours only.
+pub fn uniform_fitted(hist: &HashMap<u32, u32>, n: usize) -> Vec<Entry> {
+    let n = n.max(1);
+    let (mut lo, mut hi) = ([255u8; 3], [0u8; 3]);
+    for &k in hist.keys() {
+        let c = unkey(k);
+        for ch in 0..3 {
+            if let (Some(l), Some(h), Some(&v)) = (lo.get_mut(ch), hi.get_mut(ch), c.get(ch)) {
+                (*l, *h) = ((*l).min(v), (*h).max(v));
+            }
+        }
+    }
+    if hist.is_empty() {
+        return vec![[0, 0, 0, 255]];
+    }
+    let range: [f64; 3] = std::array::from_fn(|ch| {
+        f64::from(hi.get(ch).copied().unwrap_or(0)) - f64::from(lo.get(ch).copied().unwrap_or(0))
+    });
+    // The largest distance from a value to its nearest level (levels at the middles of equal
+    // slices of the range).
+    let reach = |r: f64, l: usize| r / (2.0 * l.max(1) as f64);
+    let mut levels = [1usize; 3];
+    loop {
+        let mut order = [0usize, 1, 2];
+        order.sort_by(|&a, &b| {
+            let ea = reach(range.get(a).copied().unwrap_or(0.0), levels.get(a).copied().unwrap_or(1));
+            let eb = reach(range.get(b).copied().unwrap_or(0.0), levels.get(b).copied().unwrap_or(1));
+            eb.total_cmp(&ea)
+        });
+        let grown = order.into_iter().find(|&ch| {
+            let r = range.get(ch).copied().unwrap_or(0.0);
+            let mut more = levels;
+            if let Some(l) = more.get_mut(ch) {
+                *l += 1;
+            }
+            // A level per distinct value at most.
+            r > 0.0 && levels.get(ch).is_some_and(|&l| (l as f64) <= r) && more.iter().product::<usize>() <= n
+        });
+        match grown.and_then(|ch| levels.get_mut(ch)) {
+            Some(l) => *l += 1,
+            None => break,
+        }
+    }
+    let values: [Vec<u8>; 3] = std::array::from_fn(|ch| {
+        let (l, lo) = (levels.get(ch).copied().unwrap_or(1), f64::from(lo.get(ch).copied().unwrap_or(0)));
+        let r = range.get(ch).copied().unwrap_or(0.0);
+        (0..l)
+            .map(|i| {
+                let v = lo + r * (i as f64 + 0.5) / l as f64;
+                v.round().clamp(0.0, 255.0) as u8
+            })
+            .collect()
+    });
+    let [rs, gs, bs] = &values;
+    let mut out = Vec::with_capacity(rs.len() * gs.len() * bs.len());
+    for &r in rs {
+        for &g in gs {
+            for &b in bs {
+                out.push([r, g, b, 255]);
+            }
+        }
+    }
+    out
+}
+
 /// `n` greys from white to black, as Fireworks MX's grayscale ("monochrome") palette: entry i
 /// is round(255 · (n − 1 − i) / (n − 1)).
 pub fn grayscale(n: usize) -> Vec<Entry> {
@@ -392,6 +462,48 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fitted_grid_spans_the_colors_and_fills_the_count() {
+        // Reds 100..200, greens 0..255, blue fixed at 40.
+        let mut px = Vec::new();
+        for r in (100..=200u8).step_by(5) {
+            for g in (0..=255u8).step_by(15) {
+                px.push([r, g, 40, 255]);
+            }
+        }
+        let hist = histogram(&px);
+        let p = uniform_fitted(&hist, 256);
+        // Blue has no spread: one level; red and green share the rest, their steps balanced
+        // (10 x 25 = 250 entries: about 11 levels apart in both), where the fixed grid gives the
+        // 216 cube.
+        assert!(p.len() > 216 && p.len() <= 256, "{}", p.len());
+        assert!(p.iter().all(|c| c[2] == 40));
+        let reds: std::collections::BTreeSet<u8> = p.iter().map(|c| c[0]).collect();
+        let greens: std::collections::BTreeSet<u8> = p.iter().map(|c| c[1]).collect();
+        // Within the range, half a slice in from each end.
+        let (r0, r1) = (reds.first().copied().unwrap_or(0), reds.last().copied().unwrap_or(0));
+        assert!(r0 > 100 && r0 <= 110 && r1 >= 190 && r1 < 200, "{r0} {r1}");
+        let (g0, g1) = (greens.first().copied().unwrap_or(0), greens.last().copied().unwrap_or(0));
+        assert!(g0 <= 10 && g1 >= 245, "{g0} {g1}");
+        // The wider channel gets at least as many levels.
+        assert!(greens.len() >= reds.len());
+        // Small counts: never over.
+        for n in [2, 3, 8, 16, 100] {
+            assert!(uniform_fitted(&hist, n).len() <= n, "{n}");
+        }
+        // Fits better than the fixed grid.
+        let error = |pal: &[Entry]| -> f64 {
+            px.iter()
+                .map(|q| {
+                    pal.iter()
+                        .map(|c| (0..3).map(|k| (f64::from(q[k]) - f64::from(c[k])).powi(2)).sum::<f64>())
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .sum()
+        };
+        assert!(error(&p) < error(&uniform(256)) / 4.0);
+    }
 
     #[test]
     fn best_fit_grays_beat_a_median_cut() {

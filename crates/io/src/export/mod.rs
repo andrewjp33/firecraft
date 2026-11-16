@@ -292,6 +292,8 @@ fn palette_for(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> V
             p
         }
         PaletteKind::Web216 => quantize::most_used(&quantize::web216(), &hist, n),
+        // Each frame's own grid, over its colors' range.
+        PaletteKind::Uniform if s.frame_palettes_apply() => quantize::uniform_fitted(&hist, n),
         PaletteKind::Uniform => quantize::uniform(n),
         PaletteKind::Windows => quantize::most_used(&quantize::windows(), &hist, n),
         PaletteKind::Macintosh => quantize::most_used(&quantize::macintosh(), &hist, n),

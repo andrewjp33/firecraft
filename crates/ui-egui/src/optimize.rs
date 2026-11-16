@@ -178,7 +178,11 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
             .on_hover_text("Pixels a frame doesn't change are left transparent, so the file is smaller");
         let adaptive = matches!(
             s.palette,
-            PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact | PaletteKind::Grayscale
+            PaletteKind::Adaptive
+                | PaletteKind::WebAdaptive
+                | PaletteKind::Exact
+                | PaletteKind::Grayscale
+                | PaletteKind::Uniform
         );
         ui.add_enabled(adaptive, egui::Checkbox::new(&mut s.frame_palettes, "Maximize colors per frame"))
             .on_hover_text(
@@ -189,8 +193,8 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                  (Auto Difference leaves unchanged pixels alone).",
             )
             .on_disabled_hover_text(
-                "For the Adaptive, WebSnap Adaptive, Exact and Grayscale palettes (a fixed palette \
-                 is the same in every frame)",
+                "For the Adaptive, WebSnap Adaptive, Exact, Grayscale and Uniform palettes (a \
+                 fixed palette is the same in every frame)",
             );
         ui.horizontal(|ui| {
             ui.label("Loops:");

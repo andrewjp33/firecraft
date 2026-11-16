@@ -134,7 +134,7 @@ An opaque animation never clears; a transparent one only at the frames that remo
 ### Maximize colors per frame (a FireCraft addition)
 
 A GIF allows 256 colors per color table, and each frame can have its own table. With this option
-(Animated GIF, Adaptive / WebSnap Adaptive / Exact / Grayscale) every frame gets a table made for
+(Animated GIF, Adaptive / WebSnap Adaptive / Exact / Grayscale / Uniform) every frame gets a table made for
 the pixels it writes: with Auto Crop the area that changed, with Auto Difference only the changed
 pixels (the rest are the transparent entry and keep the previous frame's). An animation can so
 show far more than 256 colors in all: `tc217.gif` (a "true color GIF", 173 frames of 16×16 tiles,
@@ -151,6 +151,16 @@ pixels a frame doesn't write. Dithering can shimmer between frames where a frame
 with a different table (a dither that stays stable from frame to frame is a possible follow-up).
 Stored as `FCPb` in `EXPv`. Exporting is often faster than with one shared table (each table is
 made from fewer colors).
+
+**Uniform** per frame is a grid fitted to the frame's colors: each channel's range (lowest to
+highest value of the pixels the frame writes) cut into equal slices with a level in the middle of
+each (two levels over 0..255: 64 and 191), and the channels given levels one at a time to the one
+with the coarsest step while the grid fits the Colors count (256 colors can be 10 × 25 × 1, not
+the 6 × 6 × 6 cube; a channel without spread gets one level). Compared with the fixed grid
+(average / largest error in levels, all frames): tc217.gif 19 / 25 → 1.1 / 4 at 256 colors and
+103 / 127 → 2.6 / 11 at 16; tubes.gif 16 / 25 → 15 / 20 and 68 / 127 → 39 / 61; anim2.gif
+(mostly pure black and white, which the fixed grid hits exactly) 15 / 25 → 17 / 21 and
+92 / 123 → 52 / 64.
 
 Opening GIFs: the document takes the GIF's screen size (it used to take the frames' extent, which
 was too small when every frame was cropped).
