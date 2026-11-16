@@ -588,6 +588,12 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                 cancel = ui.button("Cancel").clicked();
             });
         });
+        // Enter is OK and Escape Cancel, as in Fireworks (Enter in a number box takes its typed
+        // value first); not while the custom color's pop-up is open, which takes them itself.
+        if !crate::fpui::color_picker::any_open(ctx) && !ctx.any_popup_open() {
+            create |= ctx.input(|i| i.key_pressed(egui::Key::Enter));
+            cancel |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        }
         if create {
             let canvas = match dl.new_canvas {
                 CanvasChoice::White => Some(Rgba::WHITE),

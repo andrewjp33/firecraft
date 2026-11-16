@@ -758,6 +758,28 @@ impl FireCraftApp {
             });
     }
 
+    /// What must happen even while the window is hidden or minimized (eframe then calls only
+    /// `App::logic`, not `App::ui`). Call from `eframe::App::logic`.
+    ///
+    /// Closing the window (Exit, Ctrl+Q, the title bar's close button, or the taskbar's Close
+    /// while minimized) with unsaved work asks first, and brings the window up to ask: checked
+    /// here because a close requested while minimized never reaches `ui`, and the app used to
+    /// close without asking then.
+    pub fn logic(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quit_confirmed
+            && self.session.docs.iter().any(|d| d.dirty)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.quit_prompt = true;
+            if ctx.input(|i| i.viewport().minimized == Some(true)) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            ctx.request_repaint();
+        }
+    }
+
     /// Draw one frame. Call from `eframe::App::ui`.
     /// Apply loaded preferences (also the tool options they remember).
     /// The native app turned egui's clipboard shortcuts off and passes Ctrl+X/C/V through as
@@ -934,14 +956,6 @@ impl FireCraftApp {
             self.save_status(target, status);
         }
 
-        // Closing the window (Exit, Ctrl+Q, the title bar's close button) with unsaved work asks first.
-        if ctx.input(|i| i.viewport().close_requested())
-            && !self.quit_confirmed
-            && self.session.docs.iter().any(|d| d.dirty)
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.quit_prompt = true;
-        }
         if self.quit_prompt {
             self.quit_dialog(&ctx);
         }

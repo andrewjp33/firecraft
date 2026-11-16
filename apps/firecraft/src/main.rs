@@ -114,6 +114,10 @@ impl eframe::App for App {
         FireCraftApp::text_clipboard_keys(ctx, raw_input);
     }
 
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.inner.logic(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.inner.ui(ui);
         // Close the splash once a frame has actually reached the screen (the second frame).

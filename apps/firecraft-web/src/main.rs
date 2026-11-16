@@ -663,6 +663,10 @@ export async function writeTo(handle, bytes) {
             storage.set_string(firecraft_ui_egui::Prefs::STORAGE_KEY, self.0.prefs.serialize());
         }
 
+        fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+            self.0.logic(ctx);
+        }
+
         fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
             self.0.ui(ui);
         }
