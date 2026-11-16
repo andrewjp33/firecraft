@@ -153,7 +153,9 @@ impl BevelBoss {
     }
 
     /// The profile height (0..1) at `t` (1 = the object's edge, 0 = the inner end of the
-    /// bevel, as measured), a smooth curve through the points (smoothstep segments).
+    /// bevel, as measured): a monotone cubic (Fritsch-Carlson) through the points. Smoothstep
+    /// segments went flat at every point and drew rings at Smoothness 0 that Fireworks MX
+    /// doesn't (bevel_probe).
     fn profile_at(&self, t: f32) -> f32 {
         let p = &self.profile;
         let t = t.clamp(0.0, 1.0);
@@ -161,15 +163,31 @@ impl BevelBoss {
         let (a, b) = (p[k - 1], p[k]);
         let span = (b.0 - a.0).max(1e-6);
         let u = ((t - a.0) / span).clamp(0.0, 1.0);
-        // Smoothstep between neighbouring points (keeps the curve inside each segment).
-        let s = u * u * (3.0 - 2.0 * u);
-        a.1 + (b.1 - a.1) * s
+        let secant = |j: usize| (p[j + 1].1 - p[j].1) / (p[j + 1].0 - p[j].0).max(1e-6);
+        let slope = |i: usize| -> f32 {
+            if i == 0 {
+                secant(0)
+            } else if i == p.len() - 1 {
+                secant(i - 1)
+            } else {
+                let (d0, d1) = (secant(i - 1), secant(i));
+                if d0 * d1 <= 0.0 { 0.0 } else { 2.0 / (1.0 / d0 + 1.0 / d1) }
+            }
+        };
+        let (m0, m1) = (slope(k - 1) * span, slope(k) * span);
+        let (u2, u3) = (u * u, u * u * u);
+        (2.0 * u3 - 3.0 * u2 + 1.0) * a.1 + (u3 - 2.0 * u2 + u) * m0 + (-2.0 * u3 + 3.0 * u2) * b.1 + (u3 - u2) * m1
     }
 
-    /// Fitted to Fireworks MX renders of the bundled plug-in (docs/behavior/plugins.md):
-    /// - height = profile(x) x width x Height Scale/100 x 1.5, with x = 1 at the object's edge
-    ///   and 0 at `width` inside (flat beyond), smoothed by a Gaussian of 0.35 x Smoothness/100
-    ///   x width;
+    /// Fitted to Fireworks MX renders of the bundled plug-in (docs/behavior/plugins.md,
+    /// crates/io/examples/bevel_probe.rs rendered on Windows):
+    /// - the object is its pixels at least half opaque; height = profile(x) x width x Height
+    ///   Scale/100 x 1.5, with x = 1 at the object's edge and 0 at `width` inside (flat beyond),
+    ///   smoothed by a Gaussian of 5.25 x Smoothness/100 px (not scaled by the width);
+    /// - inside, every visible pixel is shaded (fainter ones beyond the half-opaque edge too) and
+    ///   keeps its alpha; a semi-transparent pixel's colour is first darkened by alpha^0.4;
+    /// - outside, the rim is the Shadow Color at alpha 1 - lit and the Highlight Color at alpha
+    ///   k painted over the (usually transparent) pixels;
     /// - colour = mix(Shadow Color, object, n.L) everywhere when Shade Interior (flat areas get
     ///   sin(inclination)), relative to a flat surface otherwise;
     /// - highlight = Highlight Color over it by (1 - angle(n, H) / (Highlight Size% of 45
@@ -213,7 +231,14 @@ impl BevelBoss {
                 *hh = self.profile_at(x as f32) as f64 * scale;
             }
         }
-        let sigma = 0.35 * (self.smoothness as f64 / 100.0) * bw;
+        if !self.outside {
+            // Inside, the fainter pixels beyond the half-opaque edge are shaded too (at the
+            // edge's height before smoothing).
+            for (r, p) in region.iter_mut().zip(img.pixels()) {
+                *r = p.a > 0;
+            }
+        }
+        let sigma = 5.25 * self.smoothness as f64 / 100.0;
         if sigma > 0.3 {
             // Smooth within the region only (normalised), so outside pixels don't pull it down.
             let mask: Vec<f64> = region.iter().map(|&r| if r { 1.0 } else { 0.0 }).collect();
@@ -246,8 +271,6 @@ impl BevelBoss {
             let (x, y) = (x.clamp(0, w as i64 - 1), y.clamp(0, h as i64 - 1));
             height.get(y as usize * w + x as usize).copied().unwrap_or(0.0)
         };
-        let mix =
-            |a: u8, b: u8, t: f64| (a as f64 + (b as f64 - a as f64) * t).round().clamp(0.0, 255.0) as u8;
         for y in 0..h as i64 {
             for x in 0..w as i64 {
                 let i = y as usize * w + x as usize;
@@ -274,33 +297,53 @@ impl BevelBoss {
                 } else {
                     0.0
                 };
-                let mut p = src.pixels().get(i).copied().unwrap_or_default();
-                if self.outside && !inside.get(i).copied().unwrap_or(false) {
-                    // The outside rim takes the colour of the nearest object pixel.
-                    let (dx, dy) = near.get(i).copied().unwrap_or((0, 0));
-                    let j = ((y + dy as i64) as usize) * w + (x + dx as i64) as usize;
-                    p = Rgba {
-                        a: 255,
-                        ..src.pixels().get(j).copied().unwrap_or_default()
-                    };
-                }
+                let p = src.pixels().get(i).copied().unwrap_or_default();
                 let deep = (self.darken as f64 / 100.0)
                     * (1.0 - height.get(i).copied().unwrap_or(0.0) / scale.max(1e-6)).clamp(0.0, 1.0)
                     * 0.5;
                 let lit = (diffuse * (1.0 - deep)).clamp(0.0, 1.0);
-                let s = self.shadow;
-                let mut q = Rgba::new(mix(s.r, p.r, lit), mix(s.g, p.g, lit), mix(s.b, p.b, lit), p.a);
                 let k = spec.min(1.0);
-                if k > 0.0 {
-                    let hl = self.highlight;
-                    q = Rgba::new(mix(q.r, hl.r, k), mix(q.g, hl.g, k), mix(q.b, hl.b, k), q.a);
-                }
+                let q = if self.outside && !inside.get(i).copied().unwrap_or(false) {
+                    // Measured (bevel_probe on Windows): outside the object the rim is the
+                    // Shadow Color at alpha 1 - lit with the Highlight Color at alpha k over it,
+                    // painted over the pixel (transparent ones stay see-through where neither
+                    // shows; their stored colour doesn't matter).
+                    over_f(over_f(p, self.shadow, 1.0 - lit), self.highlight, k)
+                } else {
+                    // Inside, semi-transparent pixels are darkened by alpha^0.4 first (fitted:
+                    // Fireworks MX's soft edges and alpha ramps come out darker). In f64,
+                    // rounded once.
+                    let dim = if p.a < 255 && !self.outside { (p.a as f64 / 255.0).powf(0.4) } else { 1.0 };
+                    let (s, hl) = (self.shadow, self.highlight);
+                    let ch = |sc: u8, pc: u8, hc: u8| {
+                        let base = sc as f64 + (pc as f64 * dim - sc as f64) * lit;
+                        (base + (hc as f64 - base) * k).round().clamp(0.0, 255.0) as u8
+                    };
+                    Rgba::new(ch(s.r, p.r, hl.r), ch(s.g, p.g, hl.g), ch(s.b, p.b, hl.b), p.a)
+                };
                 if let Some(o) = img.pixels_mut().get_mut(i) {
                     *o = q;
                 }
             }
         }
     }
+}
+
+/// `colour` (opaque) at `alpha` 0..1 over `base`, straight alpha, rounded once.
+fn over_f(base: Rgba, colour: Rgba, alpha: f64) -> Rgba {
+    let sa = alpha.clamp(0.0, 1.0);
+    if sa <= 0.0 {
+        return base;
+    }
+    let ba = base.a as f64 / 255.0;
+    let out_a = sa + ba * (1.0 - sa);
+    let ch = |s: u8, b: u8| ((s as f64 * sa + b as f64 * ba * (1.0 - sa)) / out_a).round().clamp(0.0, 255.0) as u8;
+    Rgba::new(
+        ch(colour.r, base.r),
+        ch(colour.g, base.g),
+        ch(colour.b, base.b),
+        (out_a * 255.0).round() as u8,
+    )
 }
 
 /// Motion Trail's narrowing: at taper 100% a copy k pixels along is squeezed by k/D (fitted).

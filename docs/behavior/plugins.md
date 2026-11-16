@@ -35,19 +35,40 @@ unreliable there, so references come from Fireworks MX on Windows: `tools/fwmx-o
 plugin_test.jsf` builds a grid of shapes with one setting varied per cell (its rounded
 rectangles use roundness 8, a script bug that makes self-intersecting shapes; use the circles).
 
-## Bevel Boss (fitted to the circle cells)
+## Bevel Boss (fitted, 2026-11-16)
 
+References: the grid's circle cells, then `crates/io/examples/bevel_probe.rs` rendered by
+Fireworks MX on Windows (`probes/bevel_probe_win.png`, made by the user): a hard disc, a disc
+with a soft halo, a soft alpha ramp with a soft hole, rings whose transparent pixels store white
+or black, a square with a hole; × base, Smoothness 0/100, Width 5/30, outside.
+
+- The object is its pixels at least half opaque. The profile's x runs from 0 at `width` inside
+  it to 1 at its edge (the default curve, rising to the edge, makes a dish: the side facing the
+  light is dark), through the points as a monotone cubic (smoothstep segments drew rings at
+  Smoothness 0).
+- Height = profile x width x Height Scale/100 x 1.5; Smoothness blurs it with sigma 5.25 x
+  Smoothness/100 px, the same at every width.
 - Flat areas are lit too: colour x sin(inclination) (196 -> 139 at 45 degrees); colour =
   mix(Shadow Color, object, n.L). Inclination is the light's elevation.
-- The profile's x runs from 0 at `width` inside the object to 1 at its edge (the default
-  curve, rising to the edge, makes a dish: the side facing the light is dark).
-- Height = profile x width x Height Scale/100 x 1.5; Smoothness blurs it (sigma 0.35 x
-  Smoothness/100 x width).
 - Highlight: linear cone, 1 - angle(n, H) / (Highlight Size% of 45 degrees), x Brightness.
+- **Inside**, every visible pixel is shaded, also the faint ones beyond the half-opaque edge,
+  and keeps its alpha. A semi-transparent pixel's colour is darkened by alpha^0.4 before shading
+  (soft edges and alpha ramps come out darker in Fireworks MX; alpha 48 shows 0.32 x the colour
+  where flat shading alone gives 0.71). spectrum_wave.png (black, alpha 17..205 after Convert to
+  Alpha) bevels along its alpha-128 contour this way.
+- **Outside**, the rim isn't the object's colour: the Shadow Color at alpha 1 - lit with the
+  Highlight Color at alpha k over it, painted over the transparent pixels (black and white
+  overlays). Transparent pixels' stored colour never matters (the white and black rings render
+  identically).
+- Colour math is f64 throughout, rounded once, in both colour-math modes (this is a fit, not a
+  bit-exact port).
+- Probe error (mean premultiplied difference per cell) 485 -> 160 in total; ball.png 70.5 ->
+  99.5%, eye.png 81.8 -> 86.7%, plugin_test_windows.png 85.5 -> 87.3%. Still off: the rings at
+  Smoothness 0 (8 levels), spectrum_wave's highlight arc is broken where Fireworks MX's is smooth
+  (alpha noise against the half-opaque edge; pre-smoothing alpha didn't help).
 
-Still off: heavy Smoothness and large Highlight Size cells, a narrow rim at the very edge, and
-colour saturation on eye.png. Edges and Marble are first versions from the reference files
-(sun) and the test grid, not yet fitted.
+Edges and Marble are first versions from the reference files (sun) and the test grid, not yet
+fitted.
 
 ## Motion Trail (fitted, 2026-11-16)
 
