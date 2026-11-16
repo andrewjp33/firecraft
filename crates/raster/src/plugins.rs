@@ -337,15 +337,18 @@ impl MotionTrail {
         self.length.max(0.0) + 2.0
     }
 
-    /// The trail: copies of the object shifted k = 1..=length pixels towards `direction`, each
-    /// squeezed across the direction by 1 − taper·k/D about the object's centre line and faded
-    /// to opacity·(1 − (k − ½)/length). Each trail pixel takes the strongest copy, coloured by
-    /// the object's pixel it maps to (its edge, for the nearest copy), smeared slightly along
-    /// the edge. Fitted to Fireworks MX's plug-in under Wine (crates/io/examples/trail_probe.rs)
-    /// and to SOLAR.png: the fade is linear over exactly `length` whatever the taper; the
-    /// narrowing rate depends on the taper only, not on length or object size (D fitted at
-    /// 55–60 px on a 60 px disc and on 119 px and 231 px planets). The colour smear is the least
-    /// certain part (Fireworks MX's trails on SOLAR.png are smoother still).
+    /// The trail: copies of the object's shape (its pixels at least half opaque) shifted
+    /// k = 1..=length pixels towards `direction`, each squeezed across the direction by
+    /// 1 − taper·k/D about the object's centre line and faded to opacity·(1 − k/length). Each
+    /// trail pixel takes the strongest copy, coloured by the object's pixel it maps to (its edge,
+    /// for the nearest copy) smeared slightly along the edge; the trail is then softened by a
+    /// Gaussian of sigma 1 and drawn behind the object. Fitted to Fireworks MX on Windows
+    /// (crates/io/examples/trail_probe.rs, the user's render) and SOLAR.png: the fade is linear
+    /// over exactly `length` whatever the taper; the narrowing depends on the taper only, not on
+    /// length or object size (D 55–60 px on a 60 px disc and on 119 px and 231 px planets); a
+    /// soft-edged object trails from its half-opaque outline at full strength. Not matched yet:
+    /// "Smear Color from Edges" off (Fireworks MX then draws the trail over the object, colours
+    /// dragged from its far side).
     pub fn apply(&self, img: &mut RgbaImage) {
         let (w, h) = (img.width() as i64, img.height() as i64);
         let steps = self.length.round().clamp(0.0, 2000.0) as i64;
@@ -376,42 +379,50 @@ impl MotionTrail {
         let mid = (lo + hi) / 2.0;
         let len = steps as f64;
         let sample = |x: f64, y: f64| crate::transform::sample(&src, x - 0.5, y - 0.5);
+        // Drawn on its own first (under the object's opaque pixels too, so the softening sees
+        // the whole trail).
+        let mut trail = RgbaImage::new(w as u32, h as u32, Rgba::TRANSPARENT);
         for y in 0..h {
             for x in 0..w {
-                let own = src.get(x, y).unwrap_or_default();
-                if own.a == 255 || (self.outside_only && own.a > 0) {
+                if self.outside_only && src.get(x, y).is_some_and(|p| p.a > 0) {
                     continue;
                 }
                 let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
                 let across = px * vx + py * vy - mid;
-                // (strength, where in the object)
-                let mut best = (0.0f64, (0.0f64, 0.0f64));
+                // The nearest copy covering this pixel is the strongest.
+                let mut hit = None;
                 for k in 1..=steps {
-                    let fade = 1.0 - (k as f64 - 0.5) / len;
                     let squeeze = 1.0 - taper * k as f64 / TAPER_DISTANCE;
-                    if fade <= best.0 || squeeze <= 0.0 {
+                    if squeeze <= 0.0 {
                         break;
                     }
                     // The copy's pixel here, in the object: back k along, unsqueezed across.
                     let back = across / squeeze - across;
                     let (sx, sy) = (px - ux * k as f64 + vx * back, py - uy * k as f64 + vy * back);
-                    let v = sample(sx, sy).a as f64 / 255.0 * fade;
-                    if v > best.0 {
-                        best = (v, (sx, sy));
+                    if sample(sx, sy).a >= 128 {
+                        hit = Some((k, sx, sy));
+                        break;
                     }
                 }
-                let (strength, (sx, sy)) = best;
-                if strength <= 0.0 {
+                let Some((k, sx, sy)) = hit else { continue };
+                let strength = opacity * (1.0 - k as f64 / len);
+                trail.set(x, y, Rgba {
+                    a: (strength * 255.0).round() as u8,
+                    ..smeared_colour(&sample, sx, sy, vx, vy)
+                });
+            }
+        }
+        crate::effects::gaussian_blur(&mut trail, 1.0);
+        for y in 0..h {
+            for x in 0..w {
+                let own = src.get(x, y).unwrap_or_default();
+                let t = trail.get(x, y).unwrap_or_default();
+                if own.a == 255 || t.a == 0 || (self.outside_only && own.a > 0) {
                     continue;
                 }
-                let colour = smeared_colour(&sample, sx, sy, vx, vy);
-                let trail = Rgba {
-                    a: (opacity * strength * 255.0).round() as u8,
-                    ..colour
-                };
                 if let Some(p) = img.pixels_mut().get_mut((y * w + x) as usize) {
                     // Behind the object: the object's own (partial) pixel stays on top.
-                    *p = trail.over(own, 255);
+                    *p = t.over(own, 255);
                 }
             }
         }
@@ -419,8 +430,7 @@ impl MotionTrail {
 }
 
 /// The object's colour at (x, y), averaged across the trail direction (v) with a Gaussian of
-/// sigma 2 px, alpha-weighted: fitted, it brings both the probe and SOLAR.png closer than a
-/// single pixel or a round blur does.
+/// sigma 2 px, alpha-weighted (fitted on SOLAR.png; the probe is indifferent).
 fn smeared_colour(sample: &impl Fn(f64, f64) -> Rgba, x: f64, y: f64, vx: f64, vy: f64) -> Rgba {
     const SIGMA: f64 = 2.0;
     let (mut acc, mut total) = ([0.0f64; 3], 0.0f64);

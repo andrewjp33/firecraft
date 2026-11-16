@@ -51,20 +51,27 @@ colour saturation on eye.png. Edges and Marble are first versions from the refer
 
 ## Motion Trail (fitted, 2026-11-16)
 
-Fireworks MX runs Eye Candy under Wine once `mfc42.dll` is in the prefix's `syswow64`. Shape and
-alpha come out right; blue is lost (about value/20; red and green intact) and stays so when the
-effects are re-applied from a script, so use colours with red = blue or judge only alpha.
-`crates/io/examples/trail_probe.rs` builds the probe (a 60 px ringed disc, one setting per cell).
+References: `crates/io/examples/trail_probe.rs` (a 60 px ringed disc and a disc with a 12 px soft
+halo, one setting per cell) rendered by Fireworks MX on Windows (`probes/trail_probe_win.png`
+next to the repo, made by the user), and SOLAR.png. Fireworks MX also runs Eye Candy under Wine
+once `mfc42.dll` is in the prefix's `syswow64`; shape and alpha come out right there but blue is
+lost (about value/20), also when the effects are re-applied from a script.
 
-- Copies of the object shifted k = 1..length pixels along the direction, each squeezed across
-  the direction by 1 - Taper·k/57.3 about the object's centre line. The narrowing doesn't depend on
-  Length or on the object's size (fits 55-60 px on the disc and on SOLAR's 119 px and 231 px
-  planets), so long trails taper to a point.
-- Alpha: Opacity × (1 - (k - 0.5)/Length) for the strongest covering copy; linear over exactly
-  Length, whatever the Taper. Within 2 levels on 98-100% of the probe's pixels.
+- The object's shape is its pixels at least half opaque. Copies of it are shifted k = 1..Length
+  pixels along the direction, each squeezed across the direction by 1 - Taper·k/57.3 about the
+  object's centre line. The narrowing doesn't depend on Length or on the object's size (fits
+  55-60 px on the disc and on SOLAR's 119 px and 231 px planets), so long trails taper to a point.
+- A trail pixel takes the nearest copy covering it: alpha Opacity × (1 - k/Length), linear over
+  exactly Length whatever the Taper. A soft-edged object therefore trails at full strength from
+  its half-opaque outline. The trail is then softened (Gaussian, sigma 1) and drawn behind the
+  object.
 - Colour (Smear Color from Edges): the object's pixel the copy maps to, averaged across the
-  direction (Gaussian, sigma 2). Least certain: Fireworks MX's trails on SOLAR.png are smoother still
-  (a round blur of sigma 5 fits SOLAR best but makes the probe worse). Without smear, unmeasured.
+  direction (Gaussian, sigma 2; fitted on SOLAR, the probe is indifferent).
+- Smear Color from Edges off: not matched. Fireworks MX then draws the trail over the object
+  too, with colours dragged across from the object's far side (the halo disc's red sector runs
+  over yellow and green).
+- Accuracy: trail alpha on the probe within about 5 levels on average for the plain disc and 9-13
+  for the halo disc (the halo's outer sides trail a little further in Fireworks MX); SOLAR.png 99.0%.
 - SOLAR.png on Windows sometimes shows a green cast on first render; opening the effect and
   pressing Cancel re-renders it correctly (the user's observation). Check a reference for that
   before fitting colours to it.
