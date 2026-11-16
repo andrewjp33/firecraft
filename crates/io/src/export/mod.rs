@@ -119,19 +119,20 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
     }
     let m = matte(doc, s);
     match s.format {
-        ExportFormat::Gif => gif(&[(img, 0)], s, m),
+        ExportFormat::Gif => gif(&[(img, 0)], s, m, 0),
         ExportFormat::AnimatedGif => {
-            let frames: Vec<(RgbaImage, u32)> = doc
-                .frames
+            let exported: Vec<usize> = (0..doc.frames.len()).filter(|&i| doc.frames[i].export).collect();
+            let frames: Vec<(RgbaImage, u32)> = exported
                 .iter()
-                .enumerate()
-                .filter(|(_, f)| f.export)
-                .map(|(i, f)| (doc.render(i), f.delay))
+                .map(|&i| (if i == frame { img.clone() } else { doc.render(i) }, doc.frames[i].delay))
                 .collect();
             if frames.is_empty() {
                 return Err(Error::Unsupported("no frame is set to export".into()));
             }
-            gif(&frames, s, m)
+            // The preview shows the current frame as the animation shows it (or, when it isn't
+            // exported, the exported frame before it).
+            let show = exported.iter().filter(|&&i| i <= frame).count().saturating_sub(1);
+            gif(&frames, s, m, show)
         }
         ExportFormat::Png8 => png8(&img, s, m, doc.resolution),
         ExportFormat::Png24 => {
@@ -454,7 +455,8 @@ fn render_indexed(idx: &[u8], palette: &[Entry], w: u32, h: u32) -> RgbaImage {
 
 // --- GIF ---------------------------------------------------------------------------------------
 
-fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte) -> Result<Exported> {
+/// `show`: the frame the preview shows.
+fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usize) -> Result<Exported> {
     let err = |e: gif::EncodingError| Error::Png(format!("GIF: {e}"));
     let Some(first) = frames.first() else {
         return Err(Error::Unsupported("no frame to export".into()));
@@ -554,7 +556,12 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte) -> Result<
         }
     }
     let shown = ix.shown();
-    let preview = render_indexed(ix.frames.first().map_or(&[][..], |f| f), &shown, w, h);
+    let preview = render_indexed(
+        ix.frames.get(show).or(ix.frames.first()).map_or(&[][..], |f| f),
+        &shown,
+        w,
+        h,
+    );
     Ok(Exported {
         bytes: out,
         preview,
@@ -1044,6 +1051,24 @@ mod tests {
             }
         }
         d
+    }
+
+    #[test]
+    fn animated_gif_preview_shows_the_current_frame() {
+        // The square is at x 2 in frame 1 and x 10 in frame 2.
+        let mut d = two_frames(false);
+        let s = with(ExportFormat::AnimatedGif);
+        let red_at = |e: &Exported, x| e.preview.get(x, 3).is_some_and(|p| p.r > 200 && p.g < 60);
+        let first = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(red_at(&first, 3) && !red_at(&first, 11));
+        d.current_frame = 1;
+        let second = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(red_at(&second, 11) && !red_at(&second, 3), "the preview follows the current frame");
+        // A frame that isn't exported shows the exported frame before it.
+        d.frames[1].export = false;
+        d.frames.push(firecraft_doc::Frame::default());
+        let third = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        assert!(red_at(&third, 3));
     }
 
     fn gif_frames(bytes: &[u8]) -> Vec<(u16, u16, u16, u16, Option<u8>, gif::DisposalMethod)> {

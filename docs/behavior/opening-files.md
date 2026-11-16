@@ -53,13 +53,16 @@ GIF probe (and `anim2.gif`); JPEG within 1 level on 60 of 2400 pixels (decoder r
   on a layer named **"GIF"**. How each frame's picture is cut depends on the disposal:
   - every frame **cleared to the background** afterwards: each frame's own picture at its own
     position and size (e.g. a 20×10 bitmap at 30,20);
-  - every frame **kept** (disposal "none"/unspecified) **and an opaque, full-size first frame**:
+  - every frame **kept** (disposal "none"/unspecified), **an opaque, full-size first frame and
+    later frames changing only part of the canvas** (the box around their rectangles is smaller
+    than the canvas; the transparency flag doesn't matter):
     a shared-across-frames **"Background"** layer holding the first frame, and on "GIF" each
     frame's picture cropped to the area the later frames change (the union of frames 2..n:
     a 45×15 bitmap at 5,20 in every frame, frame 1's included). The canvas becomes the GIF's
     background colour, opaque (`BGCi = ffffffff` for white);
   - anything else (a transparent or smaller first frame, "restore to previous", mixed
-    disposals): the first frame's own picture at its position, then each later frame as the whole
+    disposals, or later frames covering the whole canvas, as in `tubes.gif`'s 103 full 500×500
+    frames): the first frame's own picture at its position, then each later frame as the whole
     animation shows it at that point, full size. Measured on `ref_fw_images/anim2.gif` (495×228
     screen, frames growing from 167×221 to 489×221 at 5,4, the last one cleared): a 167×221
     bitmap at 5,4, then three 495×228 bitmaps.
@@ -67,7 +70,9 @@ GIF probe (and `anim2.gif`); JPEG within 1 level on 60 of 2400 pixels (decoder r
 
 The probes: `anim.gif` (white 60×40 first frame, then 20×10 and 10×10 patches, disposal none),
 `animbg.gif` (the same with disposal background), `tk.gif` (transparent first frame, disposal
-none), `prev.gif` (second frame "restore to previous").
+none), `prev.gif` (second frame "restore to previous"); 2026-11-15 also full-size later frames
+(all of them, or one then a patch: no Background layer) and a first frame with the transparency
+flag set but unused (a Background layer as without it).
 
 ## Formats Fireworks MX doesn't open
 

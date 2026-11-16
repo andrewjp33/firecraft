@@ -522,9 +522,10 @@ struct GifFrame {
 /// * one frame: a "Layer 1" with the picture;
 /// * every frame cleared to the background afterwards: a "GIF" layer with each frame's own
 ///   picture at its position;
-/// * every frame kept and an opaque full first frame: a shared "Background" layer with the first
-///   frame, and a "GIF" layer with each frame's picture over the area the later frames change;
-///   the canvas takes the GIF's background colour;
+/// * every frame kept, an opaque full first frame and later frames changing only part of the
+///   canvas: a shared "Background" layer with the first frame, and a "GIF" layer with each
+///   frame's picture over the area the later frames change; the canvas takes the GIF's
+///   background colour;
 /// * otherwise: a "GIF" layer with each frame as the whole picture shows it.
 fn gif_layout(bytes: &[u8]) -> Result<Layout> {
     let mut opts = gif::DecodeOptions::new();
@@ -593,17 +594,20 @@ fn gif_frames_layout(w: u32, h: u32, frames: Vec<GifFrame>, background: Option<R
     let first_full = frames.first().is_some_and(|f| {
         f.rect == (0, 0, w, h) && f.image.pixels().iter().all(|p| p.a == 255)
     });
-    if kept && first_full {
-        // The area the later frames change.
-        let mut area: Option<(i32, i32, i32, i32)> = None;
-        for f in frames.iter().skip(1) {
-            let (x, y, fw, fh) = clip_rect(f.rect, w, h);
-            if fw == 0 || fh == 0 {
-                continue;
-            }
-            let r = (x, y, x + fw as i32, y + fh as i32);
-            area = Some(area.map_or(r, |a| (a.0.min(r.0), a.1.min(r.1), a.2.max(r.2), a.3.max(r.3))));
+    // The area the later frames change (the box around their rectangles).
+    let mut area: Option<(i32, i32, i32, i32)> = None;
+    for f in frames.iter().skip(1) {
+        let (x, y, fw, fh) = clip_rect(f.rect, w, h);
+        if fw == 0 || fh == 0 {
+            continue;
         }
+        let r = (x, y, x + fw as i32, y + fh as i32);
+        area = Some(area.map_or(r, |a| (a.0.min(r.0), a.1.min(r.1), a.2.max(r.2), a.3.max(r.3))));
+    }
+    // Fireworks MX makes a Background layer only when the later frames change part of the
+    // canvas: when they cover all of it (tubes.gif, every frame 500x500) there is just "GIF".
+    let partial = area != Some((0, 0, w as i32, h as i32));
+    if kept && first_full && partial {
         let mut composites = composites.into_iter();
         let first = composites.next().unwrap_or_else(|| RgbaImage::new(w, h, Rgba::TRANSPARENT));
         let mut layers = Vec::new();
@@ -981,6 +985,29 @@ mod tests {
         assert_eq!(r.get(35, 22), Some(BLUE));
         assert_eq!(r.get(6, 26), Some(GREEN));
         assert_eq!(doc.render(1).get(6, 26), Some(RED));
+    }
+
+    #[test]
+    fn kept_gif_frames_covering_the_canvas_have_no_background_layer() {
+        // Fireworks MX (tubes.gif, every frame 500x500; and a probe whose second frame covers
+        // the canvas and third is a patch): only a "GIF" layer, whole pictures, transparent
+        // canvas.
+        use gif::DisposalMethod as D;
+        let frames = vec![
+            frame((0, 0, 60, 40), RED, D::Keep),
+            frame((0, 0, 60, 40), BLUE, D::Keep),
+            frame((5, 5, 10, 10), GREEN, D::Keep),
+        ];
+        let doc = build(gif_frames_layout(60, 40, frames, None), None);
+        let names: Vec<&str> = doc.layers.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["GIF", "Web Layer"]);
+        assert_eq!(doc.canvas, None);
+        for f in 0..3 {
+            let b = doc.layers[0].elements(f).first().and_then(|e| e.bounds());
+            assert_eq!(b, Some((0.0, 0.0, 60.0, 40.0)), "frame {f}");
+        }
+        let r = doc.render(2);
+        assert_eq!((r.get(6, 6), r.get(30, 30)), (Some(GREEN), Some(BLUE)));
     }
 
     #[test]

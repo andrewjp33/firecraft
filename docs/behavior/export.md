@@ -9,7 +9,7 @@ Preview tab shows (the exported file decoded back, with its size). Code: `crates
 
 | Format | Encoder | Options |
 | --- | --- | --- |
-| GIF, Animated GIF | `gif` crate | palette, colors, dither, transparency, interlaced; loops, Auto Crop, Auto Difference |
+| GIF, Animated GIF | `gif` crate | palette, colors, dither, transparency, interlaced; loops, Auto Crop, Auto Difference. The Animated GIF preview shows the current frame as the animation shows it (a frame not set to export: the exported frame before it) |
 | PNG 8 | `png` crate (1/2/4/8-bit by palette size, unfiltered) | palette, colors, dither, transparency, PNG optimizer |
 | PNG 24, PNG 32 | `png` crate | matte (PNG 24), PNG optimizer |
 | JPEG | `jpeg-encoder` | quality (Fireworks MX's scale), smoothing, progressive, full-resolution color |
