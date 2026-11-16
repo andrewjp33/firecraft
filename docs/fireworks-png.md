@@ -31,13 +31,15 @@ parser/serializer (8 trees, 258 distinct tags).
 Image tiles (`TSZi{80}`, 128 px) inflate to 128×128 **A,R,G,B** straight alpha; mask tiles
 (`TSZi{100}`) to 256×256 bytes. Tiles cover an element row-major in `TILv` order.
 
-**Single-colour images: `TILv { TMCi }`** (found 2026-11-15, not read by FireCraft yet). An
-image whose pixels are all one colour can have no tiles at all: its `TILv` holds a single
-`TMCi` with the colour as ARGB hex (`ffff0000` opaque red). Fireworks MX wrote it for
-rectangles filled by script and flattened (`addNewRectangle`, `setFillColor`,
-`flattenSelection`), keeps it on re-save and renders the image in that colour. FireCraft
-currently reads such images as transparent (`../ref_fw_images/solid_color_bitmaps.png`: red and
-blue 100x80 bitmaps, 50.7% match).
+**Single-colour tiles: `TMCi`.** A `TILv` entry is either `TIDi` (a stored tile) or `TMCi`, a tile
+of one colour given as ARGB hex (`ffff0000` opaque red, `ffffff` = `00ffffff` empty), stored
+without pixels. Entries are one per tile, row-major, and mix in one image (measured 2026-11-15
+with flattened script rectangles: a 300x200 green image is `TMCi, TMCi` for its two whole tiles
+and `TIDi` for the four that run past its edge; a 256x128 red|blue image is two `TMCi`; a
+256x128 cyan image with a yellow dot in its left tile is `TIDi, TMCi`). Fireworks MX keeps them
+on re-save. FireCraft reads them since 2026-11-15 (a `TMCi` fills its tile, clipped to the image)
+and writes ordinary tiles. 20 of the reference files use them, mostly empty tiles; the reference
+images `solid_color_bitmaps.png` and `solid_color_tiles.png` cover the opaque cases.
 
 ## Document
 

@@ -417,17 +417,30 @@ fn read_bitmap(n: &Node, ctx: &Ctx) -> Option<Bitmap> {
     let yof = n.float_of("YOF").unwrap_or(0.0).round().clamp(0.0, h as f64) as u32;
     let mut image = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     let cols = w.div_ceil(tsz).max(1);
-    let ids: Vec<u32> = n
+    // One entry per tile, row-major: `TIDi` names a stored tile, `TMCi` is a tile of one colour
+    // (ARGB) that Fireworks MX stores without pixels. They mix in one image (measured
+    // 2026-11-15: a 300x200 green rectangle flattened gave TMCi, TMCi for its two whole tiles and
+    // TIDi for the four running past its edge).
+    let entries: Vec<&Node> = n
         .child("TIL")
-        .map(|t| t.children.iter().filter_map(Node::as_u32).collect())
+        .map(|t| t.children.iter().collect())
         .unwrap_or_default();
-    for (i, id) in ids.iter().enumerate() {
-        let Some(tile) = ctx.tiles.get(id) else { continue };
+    for (i, entry) in entries.iter().enumerate() {
         let (tx, ty) = ((i as u32 % cols) * tsz, (i as u32 / cols) * tsz);
-        for (k, px) in tile.data.chunks_exact(4).enumerate() {
+        if entry.is("TMC") {
+            let Some(color) = entry.as_u32().map(argb) else { continue };
+            for py in ty..(ty + tsz).min(h) {
+                for px in tx..(tx + tsz).min(w) {
+                    image.set(px as i64, py as i64, color);
+                }
+            }
+            continue;
+        }
+        let Some(tile) = entry.as_u32().and_then(|id| ctx.tiles.get(&id)) else { continue };
+        for (k, &[a, r, g, b]) in tile.data.as_chunks::<4>().0.iter().enumerate() {
             let (px_x, px_y) = (tx + k as u32 % tsz, ty + k as u32 / tsz);
             if px_x < w && px_y < h {
-                image.set(px_x as i64, px_y as i64, Rgba::new(px[1], px[2], px[3], px[0]));
+                image.set(px_x as i64, px_y as i64, Rgba::new(r, g, b, a));
             }
         }
     }
@@ -899,4 +912,79 @@ pub(crate) fn text_from_node(n: &Node) -> Text {
             symbols: HashMap::new(),
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_colour_tiles_fill_their_cell() {
+        // As Fireworks MX writes a 300x200 image (3 x 2 tiles of 128): red and blue `TMCi` tiles,
+        // a stored tile, then three tiles with no entry.
+        let mut data = Vec::with_capacity(128 * 128 * 4);
+        for _ in 0..128 * 128 {
+            data.extend_from_slice(&[255, 0, 255, 0]); // A, R, G, B: green
+        }
+        let tile = Tile {
+            id: 7,
+            flags: 0,
+            reserved: [0; 64],
+            data,
+        };
+        let tiles = HashMap::from([(7, tile)]);
+        let ctx = Ctx {
+            tiles: &tiles,
+            origin: (0.0, 0.0),
+            symbols: HashMap::new(),
+        };
+        let n = Node::vector(
+            "IMG",
+            vec![
+                Node::float("XLC", 10.0),
+                Node::float("YLC", 20.0),
+                Node::int("WPX", 300),
+                Node::int("HPX", 200),
+                Node::int("TSZ", 128),
+                Node::vector(
+                    "TIL",
+                    vec![
+                        Node::int("TMC", 0xffff_0000),
+                        Node::int("TMC", 0xff00_00ff),
+                        Node::int("TID", 7),
+                    ],
+                ),
+            ],
+        );
+        let b = read_bitmap(&n, &ctx).expect("a bitmap");
+        assert_eq!((b.x, b.y, b.image.width(), b.image.height()), (10, 20, 300, 200));
+        assert_eq!(b.image.get(0, 0), Some(Rgba::new(255, 0, 0, 255)));
+        assert_eq!(b.image.get(127, 127), Some(Rgba::new(255, 0, 0, 255)));
+        assert_eq!(b.image.get(128, 0), Some(Rgba::new(0, 0, 255, 255)));
+        assert_eq!(b.image.get(299, 10), Some(Rgba::new(0, 255, 0, 255)), "the stored tile");
+        assert_eq!(b.image.get(10, 150).map(|p| p.a), Some(0), "no entry: transparent");
+    }
+
+    #[test]
+    fn a_single_colour_tile_is_clipped_to_a_smaller_image() {
+        // solid_color_bitmaps.png: a 100x80 image whose one tile is `TMCi = ffff0000`.
+        let tiles = HashMap::new();
+        let ctx = Ctx {
+            tiles: &tiles,
+            origin: (0.0, 0.0),
+            symbols: HashMap::new(),
+        };
+        let n = Node::vector(
+            "IMG",
+            vec![
+                Node::int("WPX", 100),
+                Node::int("HPX", 80),
+                Node::int("TSZ", 128),
+                Node::vector("TIL", vec![Node::int("TMC", 0xffff_0000)]),
+            ],
+        );
+        let b = read_bitmap(&n, &ctx).expect("a bitmap");
+        assert_eq!((b.image.width(), b.image.height()), (100, 80));
+        assert!(b.image.pixels().iter().all(|p| *p == Rgba::new(255, 0, 0, 255)));
+    }
 }
