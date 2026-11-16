@@ -70,6 +70,11 @@ lost (about value/20), also when the effects are re-applied from a script.
 - Smear Color from Edges off: not matched. Fireworks MX then draws the trail over the object
   too, with colours dragged across from the object's far side (the halo disc's red sector runs
   over yellow and green).
+- Precise colour math: the trail stays in f64 through the softening and the compositing and is
+  rounded once; the softening weights colour by alpha (Fireworks MX's own Gaussian, used in
+  Classic, averages the colours of all pixels with any alpha alike). Same accuracy overall against
+  the Windows render; at sharp colour borders on the trail's edge it is closer (411 of 575 pixels
+  that differ by more than 4 levels between the modes).
 - Accuracy: trail alpha on the probe within about 5 levels on average for the plain disc and 9-13
   for the halo disc (the halo's outer sides trail a little further in Fireworks MX); SOLAR.png 99.0%.
 - SOLAR.png on Windows sometimes shows a green cast on first render; opening the effect and

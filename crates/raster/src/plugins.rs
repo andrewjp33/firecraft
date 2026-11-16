@@ -350,6 +350,13 @@ impl MotionTrail {
     /// "Smear Color from Edges" off (Fireworks MX then draws the trail over the object, colours
     /// dragged from its far side).
     pub fn apply(&self, img: &mut RgbaImage) {
+        self.apply_with(img, crate::ColorMath::Classic);
+    }
+
+    /// [`apply`](Self::apply) with a choice of colour math: Precise keeps the trail in f64
+    /// through the softening and the compositing and rounds once (Classic stores it in bytes and
+    /// softens with Fireworks MX's blur, which rounds down after each pass).
+    pub fn apply_with(&self, img: &mut RgbaImage, math: crate::ColorMath) {
         let (w, h) = (img.width() as i64, img.height() as i64);
         let steps = self.length.round().clamp(0.0, 2000.0) as i64;
         if steps < 1 {
@@ -380,8 +387,10 @@ impl MotionTrail {
         let len = steps as f64;
         let sample = |x: f64, y: f64| crate::transform::sample(&src, x - 0.5, y - 0.5);
         // Drawn on its own first (under the object's opaque pixels too, so the softening sees
-        // the whole trail).
-        let mut trail = RgbaImage::new(w as u32, h as u32, Rgba::TRANSPARENT);
+        // the whole trail): alpha 0..=255 and colour, unrounded.
+        let (wu, hu) = (w as usize, h as usize);
+        let mut alpha = vec![0.0f64; wu * hu];
+        let mut colour = vec![[0.0f64; 3]; wu * hu];
         for y in 0..h {
             for x in 0..w {
                 if self.outside_only && src.get(x, y).is_some_and(|p| p.a > 0) {
@@ -405,23 +414,52 @@ impl MotionTrail {
                     }
                 }
                 let Some((k, sx, sy)) = hit else { continue };
-                let strength = opacity * (1.0 - k as f64 / len);
-                trail.set(x, y, Rgba {
-                    a: (strength * 255.0).round() as u8,
-                    ..smeared_colour(&sample, sx, sy, vx, vy)
-                });
+                let i = (y * w + x) as usize;
+                if let (Some(a), Some(c)) = (alpha.get_mut(i), colour.get_mut(i)) {
+                    *a = opacity * (1.0 - k as f64 / len) * 255.0;
+                    *c = smeared_colour(&sample, sx, sy, vx, vy);
+                }
             }
         }
-        crate::effects::gaussian_blur(&mut trail, 1.0);
+        if math == crate::ColorMath::Precise {
+            blur_plane_f64(&mut alpha, &mut colour, wu, hu, 1.0);
+        } else {
+            // In bytes, softened with Fireworks MX's blur.
+            let mut trail = RgbaImage::new(w as u32, h as u32, Rgba::TRANSPARENT);
+            for (p, (a, c)) in trail.pixels_mut().iter_mut().zip(alpha.iter().zip(&colour)) {
+                let b = |v: f64| v.round().clamp(0.0, 255.0) as u8;
+                if b(*a) > 0 {
+                    *p = Rgba::new(b(c[0]), b(c[1]), b(c[2]), b(*a));
+                }
+            }
+            crate::effects::gaussian_blur(&mut trail, 1.0);
+            for (p, (a, c)) in trail.pixels().iter().zip(alpha.iter_mut().zip(colour.iter_mut())) {
+                *a = p.a as f64;
+                *c = [p.r, p.g, p.b].map(f64::from);
+            }
+        }
         for y in 0..h {
             for x in 0..w {
+                let i = (y * w + x) as usize;
                 let own = src.get(x, y).unwrap_or_default();
-                let t = trail.get(x, y).unwrap_or_default();
-                if own.a == 255 || t.a == 0 || (self.outside_only && own.a > 0) {
+                let ta = alpha.get(i).copied().unwrap_or(0.0);
+                if own.a == 255 || ta <= 0.0 || (self.outside_only && own.a > 0) {
                     continue;
                 }
-                if let Some(p) = img.pixels_mut().get_mut((y * w + x) as usize) {
-                    // Behind the object: the object's own (partial) pixel stays on top.
+                let tc = colour.get(i).copied().unwrap_or_default();
+                let Some(p) = img.pixels_mut().get_mut(i) else { continue };
+                // Behind the object: the object's own (partial) pixel stays on top.
+                if math == crate::ColorMath::Precise {
+                    let (oa, ta) = (own.a as f64 / 255.0, ta / 255.0);
+                    let out_a = oa + ta * (1.0 - oa);
+                    let oc = [own.r, own.g, own.b].map(f64::from);
+                    let ch = |c: usize| {
+                        ((oc[c] * oa + tc[c] * ta * (1.0 - oa)) / out_a).round().clamp(0.0, 255.0) as u8
+                    };
+                    *p = Rgba::new(ch(0), ch(1), ch(2), (out_a * 255.0).round() as u8);
+                } else {
+                    let b = |v: f64| v.round().clamp(0.0, 255.0) as u8;
+                    let t = Rgba::new(b(tc[0]), b(tc[1]), b(tc[2]), b(ta));
                     *p = t.over(own, 255);
                 }
             }
@@ -429,9 +467,59 @@ impl MotionTrail {
     }
 }
 
+/// The Gaussian blur of `effects::gaussian_blur` (same kernel, window cut at the edges) in f64,
+/// without its rounding down after each pass, and with colour weighted by alpha (premultiplied):
+/// Fireworks MX averages the colours of every pixel with any alpha alike, so a nearly
+/// transparent pixel can swing an edge colour by tens of levels. `alpha` is 0..=255.
+fn blur_plane_f64(alpha: &mut [f64], colour: &mut [[f64; 3]], w: usize, h: usize, sigma: f64) {
+    let n = (sigma * 3.0).ceil() as usize;
+    let kernel: Vec<f64> = (0..=2 * n)
+        .map(|i| {
+            let x = i as f64 - n as f64;
+            (-(x * x) / (2.0 * sigma * sigma)).exp()
+        })
+        .collect();
+    // One pass along `len` samples at `start + j * stride`.
+    let pass = |alpha: &mut [f64], colour: &mut [[f64; 3]], start: usize, stride: usize, len: usize| {
+        let a: Vec<f64> = (0..len).map(|j| alpha.get(start + j * stride).copied().unwrap_or(0.0)).collect();
+        let c: Vec<[f64; 3]> = (0..len)
+            .map(|j| colour.get(start + j * stride).copied().unwrap_or_default())
+            .collect();
+        for t in 0..len {
+            let (lo, hi) = (t.saturating_sub(n), (len - 1).min(t + n));
+            let (mut sw, mut sa, mut swc) = (0.0, 0.0, 0.0);
+            let mut sc = [0.0f64; 3];
+            for j in lo..=hi {
+                let k = kernel.get(j + n - t).copied().unwrap_or(0.0);
+                let (aj, cj) = (a.get(j).copied().unwrap_or(0.0), c.get(j).copied().unwrap_or_default());
+                for (acc, v) in sc.iter_mut().zip(cj) {
+                    *acc += v * k * aj;
+                }
+                swc += k * aj;
+                sa += aj * k;
+                sw += k;
+            }
+            let i = start + t * stride;
+            if let (Some(ao), Some(co)) = (alpha.get_mut(i), colour.get_mut(i)) {
+                *ao = if sw > 0.0 { sa / sw } else { 0.0 };
+                *co = if swc > 0.0 { sc.map(|v| v / swc) } else { [0.0; 3] };
+            }
+        }
+    };
+    if w == 0 || h == 0 {
+        return;
+    }
+    for y in 0..h {
+        pass(alpha, colour, y * w, 1, w);
+    }
+    for x in 0..w {
+        pass(alpha, colour, x, w, h);
+    }
+}
+
 /// The object's colour at (x, y), averaged across the trail direction (v) with a Gaussian of
 /// sigma 2 px, alpha-weighted (fitted on SOLAR.png; the probe is indifferent).
-fn smeared_colour(sample: &impl Fn(f64, f64) -> Rgba, x: f64, y: f64, vx: f64, vy: f64) -> Rgba {
+fn smeared_colour(sample: &impl Fn(f64, f64) -> Rgba, x: f64, y: f64, vx: f64, vy: f64) -> [f64; 3] {
     const SIGMA: f64 = 2.0;
     let (mut acc, mut total) = ([0.0f64; 3], 0.0f64);
     for j in -6i32..=6 {
@@ -444,10 +532,10 @@ fn smeared_colour(sample: &impl Fn(f64, f64) -> Rgba, x: f64, y: f64, vx: f64, v
         total += wq;
     }
     if total <= 0.0 {
-        return sample(x, y);
+        let p = sample(x, y);
+        return [p.r, p.g, p.b].map(f64::from);
     }
-    let c = |v: f64| (v / total).round().clamp(0.0, 255.0) as u8;
-    Rgba::new(c(acc[0]), c(acc[1]), c(acc[2]), 255)
+    acc.map(|v| v / total)
 }
 
 /// Splat LE Edges.
@@ -724,6 +812,29 @@ mod tests {
         let (l, r) = (img.get(12, 30).unwrap().r, img.get(47, 30).unwrap().r);
         assert!(l < r, "left {l} right {r}");
         assert_eq!(img.get(5, 5).unwrap().a, 0);
+    }
+
+    /// Both colour maths draw the same trail; Precise only drops the byte rounding.
+    #[test]
+    fn motion_trail_precise_matches_classic_shape() {
+        let mut img = RgbaImage::new(90, 40, Rgba::TRANSPARENT);
+        for y in 10..30 {
+            for x in 10..30 {
+                img.set(x, y, Rgba::new((x * 8) as u8, 120, (y * 8) as u8, 255));
+            }
+        }
+        let kv = params(&[
+            ("external_filter_key__Drct", "0"),
+            ("external_filter_key__Lngt", "34302e303020706978656c73 0"),
+        ]);
+        let m = MotionTrail::parse(&Params(&kv));
+        let (mut c, mut q) = (img.clone(), img);
+        m.apply_with(&mut c, crate::ColorMath::Classic);
+        m.apply_with(&mut q, crate::ColorMath::Precise);
+        for (a, b) in c.pixels().iter().zip(q.pixels()) {
+            assert!(a.a.abs_diff(b.a) <= 2, "{a:?} vs {b:?}");
+        }
+        assert!(q.get(50, 20).unwrap().a > 0);
     }
 
     #[test]

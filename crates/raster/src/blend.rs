@@ -185,6 +185,11 @@ impl BlendMode {
         }
     }
 
+    /// The blend function B(base, source) in double precision, unrounded.
+    pub(crate) fn blend_precise(self, b: [f64; 3], s: [f64; 3]) -> [f64; 3] {
+        self.mix_precise(b, s)
+    }
+
     /// The same blend functions in double precision (no byte quantization in between).
     fn mix_precise(self, b: [f64; 3], s: [f64; 3]) -> [f64; 3] {
         match self {

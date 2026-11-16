@@ -410,7 +410,7 @@ impl Effect {
                 crate::filters::Tables::invert().apply(img);
                 for p in img.pixels_mut() {
                     if p.a < 255 && p.a > 0 {
-                        *p = invert_over_original(*p);
+                        *p = invert_over_original(*p, math);
                     }
                 }
             }
@@ -452,7 +452,19 @@ impl Effect {
                     // unblended where the pixel is faint (W3C compositing), and the pixel keeps
                     // its alpha. Invert and Tint instead draw their blended result over the
                     // pixel (at 100% alpha doesn't matter); Erase fills as Normal.
+                    let precise = math == crate::ColorMath::Precise;
                     let c = match mode {
+                        // The same model in f64, rounded once.
+                        BlendMode::Invert | BlendMode::Tint if precise => {
+                            let cb = [p.r, p.g, p.b].map(f64::from);
+                            let blend = mode.blend_precise(cb, [color.r, color.g, color.b].map(f64::from));
+                            let (sa, da) = (op as f64 / 255.0, p.a as f64 / 255.0);
+                            let out_a = sa + da * (1.0 - sa);
+                            let ch = |i: usize| {
+                                ((blend[i] * sa + cb[i] * da * (1.0 - sa)) / out_a).round().clamp(0.0, 255.0) as u8
+                            };
+                            Rgba::new(ch(0), ch(1), ch(2), p.a)
+                        }
                         BlendMode::Invert | BlendMode::Tint => {
                             let opaque = Rgba { a: 255, ..*p };
                             p.over(mode.composite_with(opaque, *color, 255, math), op)
@@ -460,12 +472,13 @@ impl Effect {
                         BlendMode::Erase => p.over(*color, op),
                         // In bytes: round(((255 - a) * fill + a * blend) / 255), blend rounded
                         // first (bit-exact for every mode at 100%).
-                        _ if op == 255 => {
+                        _ if op == 255 && !precise => {
                             let b = mode.composite_with(Rgba { a: 255, ..*p }, *color, 255, math);
                             let a = p.a as u32;
                             let ch = |f: u8, b: u8| (((255 - a) * f as u32 + a * b as u32 + 127) / 255) as u8;
                             Rgba::new(ch(color.r, b.r), ch(color.g, b.g), ch(color.b, b.b), p.a)
                         }
+                        // Precise: composite_with blends in f64 and rounds once.
                         _ => mode.composite_with(*p, *color, op, math),
                     };
                     *p = Rgba { a: p.a, ..c };
@@ -508,7 +521,7 @@ impl Effect {
             }
             Effect::Bevel(b) => b.apply_with(img, math),
             Effect::BevelBoss(b) => b.apply(img),
-            Effect::MotionTrail(m) => m.apply(img),
+            Effect::MotionTrail(m) => m.apply_with(img, math),
             Effect::Edges(e) => e.apply(img),
             Effect::Marble(m) => m.apply(img),
             Effect::Glow {
@@ -731,7 +744,17 @@ fn perceptual_gray(r: f32, g: f32, b: f32) -> f32 {
 /// o + (i − o)·a/A, the step truncated toward zero. Faint pixels land near the middle (alpha 1
 /// gives about 128 whatever the colour). Oracle, bit-exact: SOLAR.png's sun (white at every
 /// alpha) and supermarket.png's shading (black at every alpha), crates/io/examples/stack_probe.rs.
-fn invert_over_original(inv: Rgba) -> Rgba {
+/// Precise colour math: the same blend in f64, rounded once.
+fn invert_over_original(inv: Rgba, math: crate::ColorMath) -> Rgba {
+    if math == crate::ColorMath::Precise {
+        let a = inv.a as f64;
+        let out_a = a + a * (255.0 - a) / 255.0;
+        let ch = |i: u8| {
+            let (i, o) = (i as f64, 255.0 - i as f64);
+            (o + (i - o) * a / out_a).round().clamp(0.0, 255.0) as u8
+        };
+        return Rgba::new(ch(inv.r), ch(inv.g), ch(inv.b), out_a.round().min(255.0) as u8);
+    }
     let a = inv.a as i32;
     let out_a = a + (a * (255 - a) + 127) / 255;
     let ch = |i: u8| {
@@ -1138,6 +1161,39 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Precise colour math keeps Fireworks MX's model for Invert and Color Fill on
+    /// semi-transparent pixels and only drops its intermediate rounding: within 1 level, or 3
+    /// for Invert on very faint pixels (MX rounds the new alpha first: 23.44 → 23 at alpha 12).
+    #[test]
+    fn invert_and_color_fill_precise_round_once() {
+        use crate::ColorMath::{Classic, Precise};
+        for a in [1u8, 12, 60, 128, 200, 254] {
+            for v in [0u8, 77, 255] {
+                let p = Rgba::new(v, 255 - v, 128, a);
+                let (c, q) = (invert_over_original(p, Classic), invert_over_original(p, Precise));
+                let tol = if a < 32 { 3 } else { 1 };
+                for (x, y) in [(c.r, q.r), (c.g, q.g), (c.b, q.b), (c.a, q.a)] {
+                    assert!(x.abs_diff(y) <= tol, "invert {p:?}: {c:?} vs {q:?}");
+                }
+                for mode in [BlendMode::Multiply, BlendMode::Screen, BlendMode::Tint, BlendMode::Invert] {
+                    let fill = Effect::ColorFill {
+                        color: Rgba::new(200, 60, 30, 255),
+                        opacity: 1.0,
+                        mode,
+                    };
+                    let (mut c, mut q) = (RgbaImage::new(1, 1, p), RgbaImage::new(1, 1, p));
+                    fill.apply_with(&mut c, Classic);
+                    fill.apply_with(&mut q, Precise);
+                    let (c, q) = (c.pixels()[0], q.pixels()[0]);
+                    for (x, y) in [(c.r, q.r), (c.g, q.g), (c.b, q.b)] {
+                        assert!(x.abs_diff(y) <= 1, "{mode:?} on {p:?}: {c:?} vs {q:?}");
+                    }
+                    assert_eq!(q.a, a, "Color Fill keeps the pixel's alpha");
+                }
+            }
+        }
+    }
 
     #[test]
     fn only_fireworks_mx_math_truncates_the_softness_filter() {
