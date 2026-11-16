@@ -183,18 +183,21 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                 | PaletteKind::Exact
                 | PaletteKind::Grayscale
                 | PaletteKind::Uniform
+                | PaletteKind::Web216
+                | PaletteKind::Windows
+                | PaletteKind::Macintosh
         );
         ui.add_enabled(adaptive, egui::Checkbox::new(&mut s.frame_palettes, "Maximize colors per frame"))
             .on_hover_text(
                 "Each frame gets its own color table (up to the Colors count), made for the pixels \
                  it draws, so the animation can show more than 256 colors in all. With Auto Crop \
-                 and Auto Difference each table only has to cover what changed. Takes longer to \
-                 export. With dithering, areas a frame redraws can shimmer between frames \
+                 and Auto Difference each table only has to cover what changed. With Web 216, \
+                 Windows or Macintosh and fewer colors than the palette has, each frame takes the \
+                 palette's entries that fit it best. Takes longer to export. With dithering, areas a frame redraws can shimmer between frames \
                  (Auto Difference leaves unchanged pixels alone).",
             )
             .on_disabled_hover_text(
-                "For the Adaptive, WebSnap Adaptive, Exact, Grayscale and Uniform palettes (a \
-                 fixed palette is the same in every frame)",
+                "Not for Black & White (always the same two colors)",
             );
         ui.horizontal(|ui| {
             ui.label("Loops:");

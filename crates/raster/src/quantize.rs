@@ -358,6 +358,105 @@ pub fn most_used(palette: &[Entry], hist: &HashMap<u32, u32>, n: usize) -> Vec<E
     keep.into_iter().filter_map(|i| palette.get(i).copied()).collect()
 }
 
+/// The `n` entries of a fixed palette that fit the pixels best: chosen one at a time, each time
+/// the entry that lowers the total squared error the most (a greedy pick, close to the best
+/// possible subset). Unlike [`most_used`] it keeps an entry that only a few pixels need when
+/// nothing else is near them. The pixels are grouped by 4 bits per channel (their mean colour)
+/// for the choice; the gains are re-evaluated lazily (they only shrink as entries are added).
+/// In the palette's order.
+pub fn best_subset(palette: &[Entry], hist: &HashMap<u32, u32>, n: usize) -> Vec<Entry> {
+    if palette.len() <= n {
+        return palette.to_vec();
+    }
+    // Groups of similar colours: weight and summed channels.
+    let mut groups: HashMap<u16, (u64, [u64; 3])> = HashMap::new();
+    for (&k, &c) in hist {
+        let e = unkey(k);
+        let cell = (u16::from(e[0] >> 4) << 8) | (u16::from(e[1] >> 4) << 4) | u16::from(e[2] >> 4);
+        let g = groups.entry(cell).or_insert((0, [0; 3]));
+        g.0 += u64::from(c);
+        for (sum, &v) in g.1.iter_mut().zip(&e) {
+            *sum += u64::from(v) * u64::from(c);
+        }
+    }
+    let mut cells: Vec<(u16, (u64, [u64; 3]))> = groups.into_iter().collect();
+    cells.sort_unstable_by_key(|c| c.0);
+    let points: Vec<(u64, [i64; 3])> = cells
+        .iter()
+        .map(|&(_, (w, s))| (w, s.map(|v| (v / w.max(1)) as i64)))
+        .collect();
+    let dist = |p: &[i64; 3], e: &Entry| -> u64 {
+        p.iter()
+            .zip(e)
+            .map(|(&a, &b)| {
+                let d = a - i64::from(b);
+                (d * d) as u64
+            })
+            .sum()
+    };
+    // Each point's error with the entries chosen so far (none yet: unbounded).
+    let mut current: Vec<u64> = vec![u64::MAX; points.len()];
+    let gain = |current: &[u64], e: &Entry| -> u64 {
+        points
+            .iter()
+            .zip(current)
+            .map(|((w, p), &now)| {
+                let d = dist(p, e);
+                if now == u64::MAX {
+                    // Counted against a large error, so the first pick covers the most.
+                    w * (1u64 << 20).saturating_sub(d)
+                } else {
+                    w * now.saturating_sub(d)
+                }
+            })
+            .sum()
+    };
+    let mut chosen = vec![false; palette.len()];
+    // Upper bounds of each entry's gain (lazy greedy).
+    let mut bound: Vec<u64> = palette.iter().map(|e| gain(&current, e)).collect();
+    for _ in 0..n {
+        let pick = loop {
+            let Some((i, _)) = bound
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| !chosen.get(i).copied().unwrap_or(true))
+                .max_by_key(|&(i, &b)| (b, std::cmp::Reverse(i)))
+            else {
+                break None;
+            };
+            let fresh = palette.get(i).map_or(0, |e| gain(&current, e));
+            let next = bound
+                .iter()
+                .enumerate()
+                .filter(|&(j, _)| j != i && !chosen.get(j).copied().unwrap_or(true))
+                .map(|(_, &b)| b)
+                .max()
+                .unwrap_or(0);
+            if let Some(b) = bound.get_mut(i) {
+                *b = fresh;
+            }
+            if fresh >= next {
+                break Some(i);
+            }
+        };
+        let Some(i) = pick else { break };
+        if let Some(c) = chosen.get_mut(i) {
+            *c = true;
+        }
+        if let Some(e) = palette.get(i) {
+            for (now, (_, p)) in current.iter_mut().zip(&points) {
+                *now = (*now).min(dist(p, e));
+            }
+        }
+    }
+    palette
+        .iter()
+        .zip(&chosen)
+        .filter(|&(_, &c)| c)
+        .map(|(&e, _)| e)
+        .collect()
+}
+
 /// The index of the palette entry nearest `c` (squared RGB distance, plus alpha when `alpha`).
 pub fn nearest(palette: &[Entry], c: Entry, alpha: bool) -> usize {
     let mut best = (u32::MAX, 0usize);
@@ -462,6 +561,38 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_best_subset_keeps_a_rare_color_nothing_else_is_near() {
+        // Many shades of red and a few pure blue pixels: the most used entries are all reds
+        // and blue maps to a red; the best subset spends one entry on blue.
+        let palette = web216();
+        let mut px = Vec::new();
+        for (i, r) in [255u8, 204, 153, 102].into_iter().enumerate() {
+            px.extend(std::iter::repeat_n([r, 0, 0, 255], 100 - i * 10));
+            px.extend(std::iter::repeat_n([r, 51, 0, 255], 60 - i * 10));
+        }
+        px.extend(std::iter::repeat_n([0, 0, 255, 255], 5));
+        let hist = histogram(&px);
+        let error = |pal: &[Entry]| -> u64 {
+            px.iter()
+                .map(|q| {
+                    pal.iter()
+                        .map(|c| (0..3).map(|k| (i64::from(q[k]) - i64::from(c[k])).pow(2) as u64).sum::<u64>())
+                        .min()
+                        .unwrap_or(u64::MAX)
+                })
+                .sum()
+        };
+        let most = most_used(&palette, &hist, 8);
+        let best = best_subset(&palette, &hist, 8);
+        assert_eq!(best.len(), 8);
+        assert!(best.iter().all(|c| palette.contains(c)));
+        assert!(best.contains(&[0, 0, 255, 255]) && !most.contains(&[0, 0, 255, 255]));
+        assert!(error(&best) < error(&most));
+        // Enough room: the whole palette.
+        assert_eq!(best_subset(&palette, &hist, 256).len(), 216);
+    }
 
     #[test]
     fn a_fitted_grid_spans_the_colors_and_fills_the_count() {

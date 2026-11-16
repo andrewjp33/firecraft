@@ -167,6 +167,18 @@ the 6 × 6 × 6 cube; a channel without spread gets one level). Compared with th
 92 / 123 → 52 / 64; demoanim.gif 18 / 25 → 14 / 21; gifColors.gif (frames spanning nearly the whole
 color range) 12 / 25 → 15 / 21.
 
+**Web 216, Windows, Macintosh** below their full size (e.g. Macintosh at 16 colors): Fireworks MX
+keeps the entries the pixels use most (`quantize::most_used`, still what a shared table does). Per
+frame, each frame takes the entries of the palette that fit it best (`quantize::best_subset`:
+picked one at a time, each the entry lowering the total squared error most, on colors grouped by
+4 bits per channel), which unlike "most used" keeps an entry a few pixels need when nothing else is
+near them. Over tc217, demoanim, gifColors, tubes and anim2 at 16 and 64 colors: per frame against
+shared, the average error drops (Macintosh 16 on demoanim 24 → 17, on gifColors 38 → 23); best fit
+against most used per frame, the average is about the same and the largest error mostly much lower
+(gifColors Macintosh 16: 148 → 81, tubes 180 → 114, demoanim Macintosh 64: 93 → 38; slightly higher
+in a few, tc217 25 → 30), for about 10% more time. At the full palette size every entry is kept, so
+the option changes nothing there.
+
 Opening GIFs: the document takes the GIF's screen size (it used to take the frames' extent, which
 was too small when every frame was cropped).
 

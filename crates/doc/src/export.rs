@@ -183,8 +183,9 @@ pub struct ExportSettings {
     /// Animated GIF: each frame gets its own color table, made for the pixels it draws
     /// ("Maximize colors per frame", a FireCraft addition): with Auto Crop / Auto Difference an
     /// animation can show far more than 256 colors in all. Applies to the adaptive palettes
-    /// (Adaptive, WebSnap Adaptive, Exact), Grayscale (the best grays for each frame) and
-    /// Uniform (a grid over each frame's own color range); see
+    /// (Adaptive, WebSnap Adaptive, Exact), Grayscale (the best grays for each frame), Uniform (a
+    /// grid over each frame's own color range) and Web 216 / Windows / Macintosh below 216 / 256
+    /// colors (each frame's best-fitting entries of the palette); see
     /// [`ExportSettings::frame_palettes_apply`].
     pub frame_palettes: bool,
     /// JPEG quality 0..100.
@@ -265,6 +266,9 @@ impl ExportSettings {
                     | PaletteKind::Exact
                     | PaletteKind::Grayscale
                     | PaletteKind::Uniform
+                    | PaletteKind::Web216
+                    | PaletteKind::Windows
+                    | PaletteKind::Macintosh
             )
     }
 

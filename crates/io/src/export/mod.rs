@@ -291,6 +291,18 @@ fn palette_for(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> V
             p.dedup();
             p
         }
+        // Per frame: the entries that fit each frame best (FireCraft); otherwise the most used,
+        // as Fireworks MX trims a fixed palette.
+        PaletteKind::Web216 | PaletteKind::Windows | PaletteKind::Macintosh
+            if s.frame_palettes_apply() =>
+        {
+            let fixed = match s.palette {
+                PaletteKind::Web216 => quantize::web216(),
+                PaletteKind::Windows => quantize::windows(),
+                _ => quantize::macintosh(),
+            };
+            quantize::best_subset(&fixed, &hist, n)
+        }
         PaletteKind::Web216 => quantize::most_used(&quantize::web216(), &hist, n),
         // Each frame's own grid, over its colors' range.
         PaletteKind::Uniform if s.frame_palettes_apply() => quantize::uniform_fitted(&hist, n),
