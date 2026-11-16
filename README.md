@@ -41,7 +41,7 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### Recently added
 
-The latest work, newest first (the full list is in the release notes):
+Highlights of recent work (the full list is in the release notes):
 
 - **Animation symbols** play, as in Fireworks MX: moving, scaling, rotating and fading over the
   frames. Create and edit them with Modify > Animation (Animate Selection, Settings, Remove
@@ -79,8 +79,8 @@ Things no version of Fireworks has:
   frames; a lossless **PNG optimizer** (OptiPNG-style levels) on export.
 - **Better exports**: PNG 8 keeps transparency exactly whenever the colors fit (*Smoother alpha*
   for when they don't); **Maximize colors per frame** for animated GIFs, with each frame's
-  best-fitting grays, grid or fixed-palette colors.
-- **Adjust Color > Grayscale** by perceived lightness (luminance), kept in the file so Fireworks MX
+  best-fitting colors.
+- **Adjust Color > Grayscale** by human perceived lightness (luminance), kept in the file so Fireworks MX
   shows its own desaturation ([docs/behavior/effects.md](docs/behavior/effects.md)).
 - **Magic Wand with a smooth edge** at any tolerance (Fireworks MX's own edge is still an option)
   ([docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)).
@@ -89,7 +89,8 @@ Things no version of Fireworks has:
   - The frame number under the canvas is editable: type a frame and press Enter.
   - Dragging an animation's motion path moves the animation along live (Fireworks MX moves it on
     mouse up).
-  - UI Scale: the whole interface 50-200% larger or smaller than the system's display scaling.
+  - UI Scale: the whole interface can be shown at 50-200% of the system's display scaling, and
+    follows each monitor's DPI.
   - The system's own cursors for the tools, if you prefer them to FireCraft's.
 
 ### Working today
