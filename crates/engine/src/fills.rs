@@ -1025,6 +1025,7 @@ mod tests {
         d.add_shape((200.0, 20.0, 300.0, 100.0), false, &o);
         let stripes = Texture {
             name: "stripes".into(),
+            display_name: None,
             width: 1,
             height: 3,
             mask: std::sync::Arc::new(vec![255, 0, 255]),

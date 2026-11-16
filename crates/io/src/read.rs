@@ -584,7 +584,9 @@ fn read_texture(n: &Node, ctx: &Ctx) -> Option<firecraft_doc::Texture> {
     if !found {
         return None;
     }
-    firecraft_doc::Texture::new(name, w, h, data)
+    let mut texture = firecraft_doc::Texture::new(name, w, h, data)?;
+    texture.display_name = n.str_of("UNM").map(str::to_owned);
+    Some(texture)
 }
 
 /// Fireworks' flattened outline (`PCLv { PPLv* { ISCb, PPTv* { XLCf YLCf PRSf VELf RNDi } } }`,

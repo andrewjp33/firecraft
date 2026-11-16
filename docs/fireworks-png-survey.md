@@ -41,19 +41,29 @@ Intended, already documented elsewhere:
 * A document without export settings gets FireCraft's (`EXPv` and its children, seen as added in
   shapes_fc).
 
-To investigate (could lose data, or Fireworks may mind):
+Checked in Fireworks MX (2026-11-15): Fireworks MX opened each original and FireCraft's re-save,
+exported every frame as PNG 32 and re-saved; the frames were compared pixel for pixel and the two
+Fireworks re-saves tag by tag (mechscene2, mechscene3, Animations, Buttons, Nav Bar Buttons,
+Themes, Symbian_Series60, 769_edit2, tablet, tut2_final; 56 frames).
 
-| What | Files | Notes |
-|---|---|---|
-| Cells of a layer shared across frames | mechscene2 (10 -> 1), mechscene3, mechscene2_loop* | Fireworks writes one cell per frame (content in the first, the rest empty); FireCraft writes one. Check Fireworks MX opens the result with all frames right. |
-| Cells inside symbols | Animations (symbol cells 68 -> 53) | Multi-frame (animated or button) symbols; probably empty cells as above. Check frames and button states survive. |
-| `VISb` in symbol cells | Buttons (12 lost), Nav Bar Buttons, Symbian_Series60, Themes, 769_edit2 | Per-cell visibility inside button symbols; dropped. |
-| `UNMs` in a texture (`TXFv`) | Buttons, Themes | A texture's second name (FireCraft reads `INMs`); dropped. |
-| `FGDb` in a gradient (`FGYv`) | the CS5 9-slice test files | A gradient flag (dither?) inside a symbol; dropped. |
-| Gradient data added | Themes | FireCraft writes `FGLv/FGYv/FG0v/FG1v` for fills that had none. Harmless if Fireworks ignores it; check. |
+| What | Result |
+|---|---|
+| Cells of a layer shared across frames (Fireworks writes one per frame, the rest empty; FireCraft one) | **Fine:** all 10 frames of mechscene2 and mechscene3 identical; Fireworks fills the cells in again. |
+| Empty cells inside multi-frame symbols (Animations 68 -> 53) | **Fine:** all 8 frames identical, Fireworks' re-saves identical. |
+| `VISb` in symbol cells (Buttons, Nav Bar Buttons, Symbian_Series60, Themes, 769_edit2) | **Fine:** Fireworks' re-saves identical (it writes the same flags back). |
+| `UNMs` in a texture (`TXFv`) | **Was lost, fixed:** a user texture's short name ("Line-Horiz 2"; `INMs` is its file path). Now kept (`Texture::display_name`); Fireworks' re-saves of Buttons and Themes now identical too. |
+| `FGDb` in a gradient (`FGYv`) | Always 0 in the reference set (308 times); lost once per CS5 9-slice test file, inside a symbol. Not checkable in Fireworks MX (CS5 originals); low priority. |
+| Gradient data added (Themes) | Fine: Fireworks' re-saves identical. |
+| `RNDi` (stroke random seeds) on paths FireCraft rewrote | Fireworks gives such paths new seeds on opening; no visible change in these files (frames identical). Belongs with writing `PCLv` for new paths (roadmap item 4). |
 
-The parity report's "save" check only compares the first frame's render, so frame, button state
-and symbol-frame losses would not show there.
+Frames, button states (symbol cells and their flags) and symbols therefore survive a FireCraft save.
+The parity report's "save" check covers only the first frame; the method above covers the rest.
+
+**Not implemented (found here): animation symbols.** mechscene2's moving hatch is an instance with
+animation settings (`ALSv` with `ANNi` frames, `ANXf`/`ANYf` movement, `ASCf` scale; the
+JavaScript setters name opacity, rotation, start frame and loop count too), placed only in the
+first frame's cell. Fireworks MX moves it through the frames; FireCraft shows it in frame 1 only.
+Roadmap item 8.
 
 ## Tags FireCraft doesn't interpret (kept on save)
 

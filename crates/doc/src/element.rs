@@ -380,6 +380,10 @@ pub struct Path {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Texture {
     pub name: String,
+    /// `UNMs`: the short name Fireworks shows for a texture loaded from a file of the user's own,
+    /// whose `name` (`INMs`) is the file's full path (`Disk:Folder:Line-Horiz 2.gif` →
+    /// `Line-Horiz 2`). Fireworks' own textures have none.
+    pub display_name: Option<String>,
     pub width: u32,
     pub height: u32,
     /// `width` x `height` coverage values, row by row (shared between copies).
@@ -391,6 +395,7 @@ impl Texture {
     pub fn new(name: impl Into<String>, width: u32, height: u32, mask: Vec<u8>) -> Option<Texture> {
         (width > 0 && height > 0 && mask.len() == width as usize * height as usize).then(|| Texture {
             name: name.into(),
+            display_name: None,
             width,
             height,
             mask: std::sync::Arc::new(mask),

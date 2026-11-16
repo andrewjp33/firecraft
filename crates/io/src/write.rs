@@ -1058,11 +1058,12 @@ fn texture_node(tag: &str, t: &firecraft_doc::Texture, w: &mut Writer) -> Node {
         w.texture_tiles.push((t.mask.clone(), t.width, ids.clone()));
         ids
     });
-    Node::vector(
-        tag,
-        vec![
-            Node::string("INM", &t.name),
-            Node::vector(
+    let mut kids = vec![Node::string("INM", &t.name)];
+    // A user texture's short name, after INMs as Fireworks writes it.
+    if let Some(short) = &t.display_name {
+        kids.push(Node::string("UNM", short));
+    }
+    kids.push(Node::vector(
                 "MSK",
                 vec![
                     Node::int("WPX", t.width as i64),
@@ -1073,9 +1074,8 @@ fn texture_node(tag: &str, t: &firecraft_doc::Texture, w: &mut Writer) -> Node {
                         ids.into_iter().map(|id| Node::int("TID", id as i64)).collect(),
                     ),
                 ],
-            ),
-        ],
-    )
+            ));
+    Node::vector(tag, kids)
 }
 
 fn contour_node(c: &Contour, origin: (f64, f64)) -> Node {
@@ -1714,6 +1714,50 @@ mod single_colour_tile_tests {
             assert_eq!((a.x, a.y), (b.x, b.y));
             assert!(a.image.pixels() == b.image.pixels(), "pixels differ after the round trip");
         }
+    }
+}
+
+#[cfg(test)]
+mod texture_name_tests {
+    use firecraft_doc::{Document, Element, ElementKind, Fill, Path, RectShape, Texture};
+
+    #[test]
+    fn a_user_texture_keeps_its_short_name() {
+        // Buttons.png: INMs is the texture file's path, UNMs the name Fireworks shows.
+        let mut texture = Texture::new("Disk:Textures:Line-Horiz 2.gif", 2, 2, vec![0, 255, 255, 0])
+            .expect("a texture");
+        texture.display_name = Some("Line-Horiz 2".into());
+        let r = RectShape::new(10.0, 20.0, 110.0, 80.0, 0.0);
+        let path = Path {
+            contours: vec![r.contour()],
+            rect: Some(r),
+            fill: Some(Fill {
+                color: firecraft_raster::Rgba::new(0, 0, 255, 255),
+                category: "fc_Solid".into(),
+                anti_alias: true,
+                feather: 0,
+                gradient: None,
+                pattern: None,
+                dither: None,
+                dither_transparent: false,
+                texture: Some(texture),
+                texture_amount: 500,
+                texture_transparent: false,
+            }),
+            ..Path::default()
+        };
+        let mut doc = Document::new(200, 100, 72.0, None);
+        doc.layers[0]
+            .elements_mut(0)
+            .expect("a cell")
+            .push(Element::new(ElementKind::Path(path)));
+        let back = crate::open(&crate::save_fireworks_png(&doc).expect("saved"), None).expect("opened");
+        let ElementKind::Path(p) = &back.layers[0].elements(0)[0].kind else {
+            panic!("not a path")
+        };
+        let t = p.fill.as_ref().and_then(|f| f.texture.as_ref()).expect("the texture");
+        assert_eq!(t.name, "Disk:Textures:Line-Horiz 2.gif");
+        assert_eq!(t.display_name.as_deref(), Some("Line-Horiz 2"));
     }
 }
 

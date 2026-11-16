@@ -74,6 +74,12 @@ Other items keep their numbers.
      pipeline, 16-bit PNG/TIFF/PSD import, and a document setting
 8. **Frames**: adding/removing/timing frames, onion skinning, animated GIF export; Tween
    Instances; button symbol states
+   - **Animation symbols** (Modify > Animation > Animate Selection): an instance with animation
+     settings (`ANNi` frames, `ANXf`/`ANYf` movement, `ASCf` scale, plus opacity, rotation, start
+     frame and loops per the JavaScript setters `setAnimInstance*`) placed in one cell and played
+     across frames. Not drawn yet beyond its first frame (mechscene2's hatch;
+     [fireworks-png-survey.md](fireworks-png-survey.md)). Measure each setting with the oracle
+     (`fw.exportDocumentAs` exports the current frame).
 9. **Web layer**: slices, hotspots, HTML export, rollovers (Behaviors panel)
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu, the rest: Levels/Curves eyedroppers; check the menu's Sharpen strengths and
