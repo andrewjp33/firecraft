@@ -121,17 +121,23 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
     match s.format {
         ExportFormat::Gif => gif(&[(img, 0)], s, m, 0),
         ExportFormat::AnimatedGif => {
-            let exported: Vec<usize> = (0..doc.frames.len()).filter(|&i| doc.frames[i].export).collect();
+            let exported: Vec<(usize, u32)> = doc
+                .frames
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.export)
+                .map(|(i, f)| (i, f.delay))
+                .collect();
             let frames: Vec<(RgbaImage, u32)> = exported
                 .iter()
-                .map(|&i| (if i == frame { img.clone() } else { doc.render(i) }, doc.frames[i].delay))
+                .map(|&(i, delay)| (if i == frame { img.clone() } else { doc.render(i) }, delay))
                 .collect();
             if frames.is_empty() {
                 return Err(Error::Unsupported("no frame is set to export".into()));
             }
             // The preview shows the current frame as the animation shows it (or, when it isn't
             // exported, the exported frame before it).
-            let show = exported.iter().filter(|&&i| i <= frame).count().saturating_sub(1);
+            let show = exported.iter().filter(|&&(i, _)| i <= frame).count().saturating_sub(1);
             gif(&frames, s, m, show)
         }
         ExportFormat::Png8 => png8(&img, s, m, doc.resolution),
