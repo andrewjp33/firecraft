@@ -1072,11 +1072,18 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                         d.pixels = None;
                     }
                     Some(_) => {}
-                    None => d.deselect(),
+                    // Empty canvas: a selection band (Fireworks MX). With Shift it adds to and
+                    // removes from the selection, so that stays for now.
+                    None => {
+                        if !mods.shift {
+                            d.deselect();
+                        }
+                        view.band = tool == Tool::Pointer;
+                    }
                 },
             }
             // Live dragging: the objects themselves move (one undo step for the whole drag).
-            if live_drag && !d.selection.is_empty() && !view.drag_secondary {
+            if live_drag && !d.selection.is_empty() && !view.drag_secondary && !view.band {
                 d.begin_live_edit("Move");
                 view.live_move = Some((0.0, 0.0));
             }
@@ -1100,6 +1107,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             let (ax, ay) = to_doc(a);
             let (bx, by) = to_doc(b);
             match tool {
+                _ if view.band => d.select_in_rect((ax, ay, bx, by), mods.shift),
                 _ if view.marquee_drag => {
                     d.move_pixel_selection((bx - ax).round() as i64, (by - ay).round() as i64)
                 }
@@ -1147,6 +1155,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         view.drag_start = None;
         view.live_move = None;
         view.marquee_drag = false;
+        view.band = false;
     }
     if dragging && tool == Tool::Hand {
         view.pan += resp.drag_delta();
@@ -1287,7 +1296,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     if !view.preview && paint_tool(tool).is_none() {
         // Object selection: light-blue bounds with corner handles.
         let drag_offset = match (tool, dragging, view.drag_start, drag_now) {
-            (Tool::Pointer, true, Some(a), Some(b)) if view.live_move.is_none() => b - a,
+            (Tool::Pointer, true, Some(a), Some(b)) if view.live_move.is_none() && !view.band => b - a,
             _ => Vec2::ZERO,
         };
         // While pixels are selected (bitmap editing) only the marquee shows, as in Fireworks MX.
@@ -1382,7 +1391,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 Tool::Line | Tool::Gradient => {
                     p.line_segment([a, b], Stroke::new(1.0, theme::HANDLE_BLUE));
                 }
-                Tool::Zoom => {
+                // The Pointer's selection band: a thin black rectangle, as in Fireworks MX.
+                Tool::Zoom | Tool::Pointer if tool == Tool::Zoom || view.band => {
                     p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::BLACK), StrokeKind::Middle);
                 }
                 _ => {}

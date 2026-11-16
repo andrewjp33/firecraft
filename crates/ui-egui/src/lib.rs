@@ -363,6 +363,8 @@ struct View {
     /// The drag in progress moves the marquee (a marquee tool or the Magic Wand pressed inside
     /// the pixel selection).
     marquee_drag: bool,
+    /// The Pointer drag in progress is a selection band (pressed on empty canvas).
+    band: bool,
     preview: bool,
     /// The Preview tab's picture: the document exported with its Optimize settings.
     optimized: Option<canvas::Optimized>,

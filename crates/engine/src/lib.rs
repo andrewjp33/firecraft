@@ -1481,6 +1481,52 @@ impl DocState {
         });
     }
 
+    /// Pointer drag on empty canvas (rubber band from (`x0`, `y0`) to (`x1`, `y1`)): select every
+    /// object whose bounds the band overlaps, as Fireworks MX does (measured 2026-11-15: a band
+    /// over part of an object selects it, even over a corner of its box with none of its pixels,
+    /// e.g. a sparse diagonal of dots; a band touching only its glow doesn't). `toggle` (Shift)
+    /// adds the objects that weren't selected and removes those that were. Hidden or locked
+    /// objects and layers are skipped. Not an undo step.
+    pub fn select_in_rect(&mut self, (x0, y0, x1, y1): (f64, f64, f64, f64), toggle: bool) {
+        let (l, t, r, b) = (x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1));
+        let f = self.frame();
+        let mut hits = Vec::new();
+        for (li, layer) in self.doc.layers.iter().enumerate() {
+            if !layer.visible || layer.locked || layer.web {
+                continue;
+            }
+            for (ei, el) in layer.elements(f).iter().enumerate() {
+                if !el.visible || el.locked {
+                    continue;
+                }
+                if let Some((bx, by, bw, bh)) = el.bounds()
+                    && bx < r
+                    && bx + bw > l
+                    && by < b
+                    && by + bh > t
+                {
+                    hits.push(ElementRef::new(li, ei));
+                }
+            }
+        }
+        if toggle {
+            for h in hits {
+                if let Some(k) = self.selection.iter().position(|s| *s == h) {
+                    self.selection.remove(k);
+                } else {
+                    self.selection.push(h);
+                }
+            }
+        } else {
+            self.selection = hits;
+        }
+        if let Some(top) = self.selection.iter().max() {
+            self.doc.current_layer = top.layer;
+        }
+        self.pixels = None;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// Union of the selected objects' bounds (x, y, w, h).
     pub fn selection_bounds(&self) -> Option<(f64, f64, f64, f64)> {
         let bs: Vec<_> = self
@@ -2503,6 +2549,45 @@ mod tests {
         d.paint_bucket(50.0, 40.0, &fill_options());
         assert_eq!(d.history.next_undo(), Some("Fill"));
         assert_eq!(bounds_of(&d, r), (10, 10, 170, 120));
+    }
+
+    #[test]
+    fn a_pointer_band_selects_what_it_overlaps() {
+        // Fireworks MX (2026-11-15): a band from 2,2 to 115,95 selects red (inside) and blue
+        // (only partly covered); 2,2 to 60,60 selects red; a Shift band toggles.
+        let (mut d, red, blue) = red_and_blue();
+        d.select_in_rect((2.0, 2.0, 115.0, 95.0), false);
+        assert_eq!(d.selection.len(), 2);
+        assert!(d.selection.contains(&red) && d.selection.contains(&blue));
+        d.select_in_rect((2.0, 2.0, 60.0, 60.0), false);
+        assert_eq!(d.selection, vec![red]);
+        d.select_in_rect((193.0, 146.0, 83.0, 61.0), true);
+        assert_eq!(d.selection, vec![blue], "red toggled off, blue on");
+        // A band over empty canvas only selects nothing.
+        d.select_in_rect((185.0, 5.0, 195.0, 40.0), false);
+        assert!(d.selection.is_empty());
+    }
+
+    #[test]
+    fn a_band_over_an_empty_corner_of_the_box_selects_sparse_pixels() {
+        // glowpx.png: a diagonal of single pixels in a 129x169 bitmap at 704,423. MX selects it
+        // with a band in the empty top-left corner of its box.
+        let mut img = RgbaImage::new(129, 169, Rgba::TRANSPARENT);
+        for i in 0..20 {
+            img.set(i * 6, 168 - i * 8, Rgba::new(0, 0, 0, 255));
+        }
+        let mut d = DocState::new(Document::new(1920, 1080, 72.0, None));
+        d.add_element(
+            Element::new(ElementKind::Bitmap(Bitmap { x: 704, y: 423, image: img })),
+            "Add",
+        );
+        let r = d.selection[0];
+        d.selection.clear();
+        d.select_in_rect((706.0, 424.0, 736.0, 456.0), false);
+        assert_eq!(d.selection, vec![r]);
+        // Left of the box (where only a glow would reach): nothing.
+        d.select_in_rect((688.0, 568.0, 700.0, 600.0), false);
+        assert!(d.selection.is_empty());
     }
 
     #[test]

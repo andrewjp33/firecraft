@@ -9,6 +9,15 @@
   on top (Fireworks). Objects are picked where they have pixels (a pixel test, 2 px tolerance),
   not by bounding box. **Select Behind** (the Pointer's flyout) selects the next object down at
   the same spot on each click.
+* **Selection band** (Pointer dragged from empty canvas): a thin black rectangle; on release every
+  object whose **bounding box** it overlaps is selected, objects only partly inside included.
+  Shift+drag toggles the objects it touches (adds the unselected, removes the selected). Measured
+  in Fireworks MX on 2026-11-15: a band from 2,2 to 115,95 selected a red bitmap at 10,10 100x80
+  and a blue one at 80,50 100x80 it only partly covered; a band in the empty top-left corner of a
+  sparse diagonal of single pixels (glowpx.png: 129x169 bitmap at 704,423) selected it, while a
+  band just outside the box, over its glow only, didn't. Not an undo step. Hidden and locked
+  objects and layers are skipped, as with Select All. This is the easy way to pick objects with
+  few pixels, which a click hits only on a pixel.
 * **Mouse highlight** (Preferences > Editing, on by default, as in Fireworks): with the Pointer,
   the object a click would select is outlined in red under the mouse (a path along its own
   outline with red squares at an open path's ends, other objects by their box); with Select
