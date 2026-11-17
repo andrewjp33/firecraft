@@ -559,8 +559,23 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                 ui.end_row();
                 ui.label("Resolution:");
                 ui.horizontal(|ui| {
-                    ui.add(DragValue::new(&mut dl.new_res).range(1.0..=5000.0).max_decimals(4));
-                    // Changing the unit keeps the resolution, as a number in the other unit.
+                    // 1 to 100000, as Fireworks MX accepts; whole numbers without decimals, others
+                    // with at least two (MX shows 37.80).
+                    ui.add(
+                        DragValue::new(&mut dl.new_res)
+                            .range(1.0..=100_000.0)
+                            .custom_formatter(|v, _| {
+                                if v.fract() == 0.0 {
+                                    format!("{v}")
+                                } else {
+                                    let s = format!("{v:.6}");
+                                    let s = s.trim_end_matches('0');
+                                    let decimals = s.split_once('.').map_or(0, |(_, d)| d.len());
+                                    if decimals < 2 { format!("{v:.2}") } else { s.to_owned() }
+                                }
+                            }),
+                    );
+                    // Changing the unit converts the number as Fireworks MX does.
                     let was_cm = dl.new_res_cm;
                     egui::ComboBox::from_id_salt("new_doc_res_unit")
                         .selected_text(if dl.new_res_cm { "Pixels/cm" } else { "Pixels/Inch" })
@@ -569,7 +584,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                             ui.selectable_value(&mut dl.new_res_cm, true, "Pixels/cm");
                         });
                     if dl.new_res_cm != was_cm {
-                        dl.new_res = if dl.new_res_cm { dl.new_res / 2.54 } else { dl.new_res * 2.54 };
+                        dl.new_res = firecraft_io::convert_resolution_unit(dl.new_res, dl.new_res_cm);
                     }
                 });
                 ui.end_row();

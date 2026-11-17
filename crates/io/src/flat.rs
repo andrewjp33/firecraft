@@ -60,6 +60,24 @@ pub fn jfif_dpi((value, cm): Resolution) -> u16 {
     ppi.trunc().clamp(1.0, 65535.0) as u16
 }
 
+/// A resolution converted to the other unit as Fireworks MX's New Document dialog does when its
+/// unit changes (measured 2026-11-16, 39 conversions): in float32, times or divided by 2.54;
+/// a result within 0.02 of a whole number becomes that number, anything else is rounded to two
+/// decimals (72 ppi -> 28.35 px/cm -> 72; 28.34 px/cm -> 72; 73.63 ppi -> 29 px/cm; 73.6092 ppi
+/// -> 28.98, being 0.0200005 from 29 in float32). The dialog keeps the converted value, so
+/// switching back converts the rounded one (28.99 px/cm -> 73.63 ppi -> 29 px/cm), and a
+/// document made right after stores it (28.35). Typed values are kept as typed.
+pub fn convert_resolution_unit(value: f64, to_cm: bool) -> f64 {
+    let (x, k) = (value as f32, 2.54_f32);
+    let v = if to_cm { x / k } else { x * k };
+    let whole = v.round();
+    if (v - whole).abs() < 0.02 {
+        return f64::from(whole);
+    }
+    // printf("%.2f") of the float, as the dialog shows it.
+    format!("{:.2}", f64::from(v)).parse().unwrap_or(f64::from(v))
+}
+
 /// A flat 32-bit PNG at `ppi` pixels/inch.
 pub fn encode_png(img: &RgbaImage, ppi: f64) -> Result<Vec<u8>> {
     encode_png_at(img, (ppi, false))
@@ -117,6 +135,39 @@ mod resolution_tests {
             assert_eq!(png_ppm((pcm, true)), ppm, "{pcm} px/cm");
         }
         assert_eq!(png_ppm((0.0, true)), 0);
+    }
+
+    #[test]
+    fn unit_changes_convert_as_fireworks_mx() {
+        // (from inches?, typed, shown after the change), measured in the New Document dialog.
+        for (to_cm, x, want) in [
+            (true, 72.0, 28.35),
+            (true, 73.63, 29.0),
+            (true, 73.6, 28.98),
+            (true, 96.0, 37.8),
+            (true, 150.0, 59.06),
+            (true, 72.5, 28.54),
+            (true, 71.99, 28.34),
+            (true, 50.79, 20.0),
+            (true, 300.0, 118.11),
+            (true, 254.0, 100.0),
+            (true, 73.6117, 29.0),
+            (true, 73.6092, 28.98),
+            (false, 28.35, 72.0),
+            (false, 28.99, 73.63),
+            (false, 29.0, 73.66),
+            (false, 10.0, 25.4),
+            (false, 37.8, 96.0),
+            (false, 28.34, 72.0),
+            (false, 59.06, 150.0),
+            (false, 1.5, 3.81),
+            (false, 28.3, 71.88),
+            (false, 28.3386, 72.0),
+            (false, 28.3378, 71.98),
+            (false, 28.355, 72.02),
+        ] {
+            assert_eq!(convert_resolution_unit(x, to_cm), want, "{x} to cm: {to_cm}");
+        }
     }
 
     #[test]

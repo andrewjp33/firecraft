@@ -1117,7 +1117,7 @@ pub(crate) fn open_new_doc(app: &mut FireCraftApp) {
         let dl = &mut app.dialogs;
         (dl.new_w, dl.new_h) = (w.clamp(1, 32000), h.clamp(1, 32000));
         if let Some((r, cm)) = res {
-            (dl.new_res, dl.new_res_cm) = (r.clamp(1.0, 5000.0), cm);
+            (dl.new_res, dl.new_res_cm) = (r.clamp(1.0, 100_000.0), cm);
         }
     }
 }

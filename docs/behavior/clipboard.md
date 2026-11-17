@@ -62,6 +62,16 @@ in the picture's own resolution unit:
 | Fireworks PNG of a 28.99 px/cm document (`pHYs` 2800) | 40 x 30, 28.9899 Pixels/cm |
 | nothing (a copied file included) | the last document's settings |
 
+Changing the dialog's unit converts the number (measured 2026-11-16, 39 conversions,
+`firecraft_io::convert_resolution_unit`): in float32, times or divided by 2.54; a result within
+0.02 of a whole number becomes that number, anything else is rounded to two decimals and shown
+with two (37.80). The rounded number is what the dialog keeps: switching back converts it
+(28.99 px/cm -> 73.63 ppi -> 29 px/cm), and OK stores it (72 ppi switched to cm gave `RESf`
+28.35, `RSUi` 1). Typed values are stored as typed (73.6143 -> `RESf` 73.614304). Examples:
+72 ppi -> 28.35; 28.34 px/cm -> 72 (71.98 at two decimals); 73.6117 ppi -> 29; 73.6092 ppi ->
+28.98 (0.0200005 from 29 in float32; in float64 it would snap). The field accepts 1 to 100000
+("Please enter a number between 1 and 100000."), so 1 ppi switched to cm (0.39) is refused.
+
 The canvas color stays as last used. FireCraft does the same
 (`firecraft_io::clipboard_image_info`; DIBs by their pixels/metre like PNG, unmeasured) and has
 the same Pixels/Inch | Pixels/cm choice. Its additions: a copied image file gives its size and

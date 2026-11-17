@@ -333,7 +333,7 @@ fn parse_new_doc(v: &str) -> Option<((u32, u32, f64, Option<firecraft_raster::Rg
     let (res, canvas) = rest.split_once(':')?;
     let (res, cm) = res.strip_suffix("cm").map_or((res, false), |r| (r, true));
     let (w, h, res): (u32, u32, f64) = (w.parse().ok()?, h.parse().ok()?, res.parse().ok()?);
-    if !(1..=32_000).contains(&w) || !(1..=32_000).contains(&h) || !(1.0..=5000.0).contains(&res) {
+    if !(1..=32_000).contains(&w) || !(1..=32_000).contains(&h) || !(1.0..=100_000.0).contains(&res) {
         return None;
     }
     let canvas = if canvas == "transparent" {
