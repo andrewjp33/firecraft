@@ -3,7 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
         Some("get") => {
-            let data = firecraft_sysclip::get_png().ok_or("no PNG on the clipboard")?;
+            let data = firecraft_sysclip::get_image().ok_or("no picture on the clipboard")?;
             std::fs::write(a.get(2).ok_or("OUT")?, &data)?;
             println!("got {} bytes", data.len());
         }

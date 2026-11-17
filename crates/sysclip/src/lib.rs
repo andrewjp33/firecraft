@@ -9,6 +9,9 @@
 //!
 //! Where no system clipboard is reachable (the browser, Wayland without XWayland) these do
 //! nothing and FireCraft keeps copied objects to itself.
+//!
+//! Pictures other programs copy (screenshots, browser images) are read too: as a DIB on
+//! Windows, `image/png`/`image/bmp`/`image/jpeg` on X11.
 
 #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
 mod x11;
@@ -28,7 +31,7 @@ mod platform {
     pub fn set_png(_data: Vec<u8>) -> bool {
         false
     }
-    pub fn get_png() -> Option<Vec<u8>> {
+    pub fn get_image() -> Option<Vec<u8>> {
         None
     }
     pub fn owns() -> bool {
@@ -49,9 +52,11 @@ pub fn set_png(data: Vec<u8>) -> bool {
     platform::set_png(data)
 }
 
-/// The PNG on the system clipboard (from Fireworks, FireCraft or any application), if any.
-pub fn get_png() -> Option<Vec<u8>> {
-    platform::get_png()
+/// The picture on the system clipboard, if any: a PNG (Fireworks objects from Fireworks or
+/// FireCraft, or a plain picture), else a DIB (Windows `CF_DIB`/`CF_DIBV5`), a BMP file or a
+/// JPEG, as the clipboard holds it (`firecraft_io::read_clipboard` reads them all).
+pub fn get_image() -> Option<Vec<u8>> {
+    platform::get_image()
 }
 
 /// The text on the system clipboard (for text fields: FireCraft handles Ctrl+V itself).

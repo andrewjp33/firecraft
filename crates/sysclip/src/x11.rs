@@ -1,4 +1,5 @@
-//! X11 (also under Wayland through XWayland): the CLIPBOARD selection, target `image/png`.
+//! X11 (also under Wayland through XWayland): the CLIPBOARD selection. FireCraft offers
+//! `image/png`; it reads `image/png`, `image/bmp` or `image/jpeg`.
 //!
 //! A background thread owns the selection while FireCraft holds the clipboard and answers
 //! requests (TARGETS, TIMESTAMP, image/png; large data with the INCR protocol). Reading uses a
@@ -254,8 +255,36 @@ fn wait<T>(conn: &RustConnection, until: Instant, mut f: impl FnMut(&Event) -> O
     None
 }
 
-pub fn get_png() -> Option<Vec<u8>> {
-    get("image/png")
+/// Picture targets, most preferred first: `image/png` carries Fireworks objects (and is what
+/// most programs offer); Wine offers a Windows program's `CF_DIB` as `image/bmp`.
+const IMAGE_TARGETS: [&str; 5] = ["image/png", "image/bmp", "image/x-bmp", "image/x-MS-bmp", "image/jpeg"];
+
+pub fn get_image() -> Option<Vec<u8>> {
+    let Some(offered) = targets() else {
+        // An owner that can't list its targets: try the usual one.
+        return get("image/png");
+    };
+    IMAGE_TARGETS
+        .iter()
+        .filter(|t| offered.iter().any(|o| o == *t))
+        .find_map(|t| get(t))
+}
+
+/// The names of the targets the clipboard's owner offers.
+fn targets() -> Option<Vec<String>> {
+    let raw = get("TARGETS")?;
+    let (conn, _) = RustConnection::connect(None).ok()?;
+    let names = raw
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_ne_bytes(*c))
+        .filter_map(|atom| {
+            let reply = conn.get_atom_name(atom).ok()?.reply().ok()?;
+            String::from_utf8(reply.name).ok()
+        })
+        .collect();
+    Some(names)
 }
 
 pub fn get_text() -> Option<String> {

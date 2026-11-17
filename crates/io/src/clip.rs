@@ -88,6 +88,43 @@ pub fn read_clipboard_png(bytes: &[u8]) -> Result<(Vec<Element>, Vec<Symbol>, Ve
     ))
 }
 
+/// What a paste brings in.
+pub enum Pasted {
+    /// Objects from Fireworks (or FireCraft), at their places, with the symbols and tiles they
+    /// use.
+    Objects(Vec<Element>, Vec<Symbol>, Vec<Tile>),
+    /// A picture from another application (a screenshot, a browser image...): Fireworks MX
+    /// pastes it as a bitmap object centred on the canvas.
+    Image(firecraft_raster::RgbaImage),
+}
+
+/// The system clipboard's data: a Fireworks PNG (objects), or a picture as a PNG, a DIB
+/// (`CF_DIB`/`CF_DIBV5`), a BMP file or a JPEG.
+pub fn read_clipboard(bytes: &[u8]) -> Result<Pasted> {
+    if bytes.starts_with(b"\x89PNG") {
+        if firecraft_fwpng::FwPng::read(bytes).is_ok_and(|fw| fw.is_fireworks()) {
+            let (e, s, t) = read_clipboard_png(bytes)?;
+            return Ok(Pasted::Objects(e, s, t));
+        }
+        return crate::decode_png(bytes).map(Pasted::Image);
+    }
+    if bytes.starts_with(b"BM") {
+        return crate::dib::decode_bmp(bytes).map(Pasted::Image);
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return crate::textures::decode_image(bytes).map(Pasted::Image);
+    }
+    crate::dib::decode_dib(bytes).map(Pasted::Image)
+}
+
+/// Where Fireworks MX puts a pasted picture of `size` on a canvas of `canvas` size: centred,
+/// halves rounded away from zero (measured 2026-11-16: 101 x 61 on 300 x 200 at (100, 70),
+/// 303 x 203 at (-2, -2), 500 x 400 at (-100, -100); the canvas doesn't grow).
+pub fn pasted_image_origin(canvas: (u32, u32), size: (u32, u32)) -> (i64, i64) {
+    let c = |canvas: u32, size: u32| ((f64::from(canvas) - f64::from(size)) / 2.0).round() as i64;
+    (c(canvas.0, size.0), c(canvas.1, size.1))
+}
+
 fn put(n: &mut Node, child: Node) {
     match n.children.iter_mut().find(|c| c.tag == child.tag) {
         Some(slot) => *slot = child,

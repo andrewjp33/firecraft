@@ -7,6 +7,7 @@
 //! * [`export_png`] writes a flat PNG.
 
 mod clip;
+mod dib;
 pub mod export;
 mod flat;
 pub mod formats;
@@ -14,7 +15,8 @@ mod read;
 pub mod textures;
 mod write;
 
-pub use clip::{clipboard_png, read_clipboard_png};
+pub use clip::{Pasted, clipboard_png, pasted_image_origin, read_clipboard, read_clipboard_png};
+pub use dib::{decode_bmp, decode_dib};
 pub use flat::{decode_png, encode_png};
 pub use read::document_from_fireworks;
 pub use write::fireworks_tree;

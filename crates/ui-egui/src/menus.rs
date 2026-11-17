@@ -1033,14 +1033,14 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
 }
 
 /// Edit > Paste: objects or a picture on the system clipboard (from Fireworks MX, another
-/// FireCraft, any application), else FireCraft's own last copy.
+/// FireCraft, a screenshot, any application), else FireCraft's own last copy.
 fn paste(app: &mut FireCraftApp) {
     if firecraft_sysclip::available()
         && !firecraft_sysclip::owns()
-        && let Some(png) = firecraft_sysclip::get_png()
+        && let Some(data) = firecraft_sysclip::get_image()
     {
-        match firecraft_io::read_clipboard_png(&png) {
-            Ok((elements, symbols, tiles)) => {
+        match firecraft_io::read_clipboard(&data) {
+            Ok(firecraft_io::Pasted::Objects(elements, symbols, tiles)) => {
                 let clip = firecraft_engine::Clipboard {
                     elements,
                     symbols,
@@ -1048,6 +1048,7 @@ fn paste(app: &mut FireCraftApp) {
                 };
                 with_doc(app, |d| d.paste(&clip));
             }
+            Ok(firecraft_io::Pasted::Image(image)) => paste_image(app, image),
             Err(e) => app.status = Some((format!("Can't paste the clipboard's image: {e}"), true)),
         }
         return;
@@ -1057,12 +1058,29 @@ fn paste(app: &mut FireCraftApp) {
     }
 }
 
+/// A picture from another application, pasted as Fireworks MX does: a new bitmap object
+/// centred on the canvas (the canvas keeps its size), selected.
+fn paste_image(app: &mut FireCraftApp, image: firecraft_raster::RgbaImage) {
+    with_doc(app, |d| {
+        let (x, y) = firecraft_io::pasted_image_origin(
+            (d.doc.width, d.doc.height),
+            (image.width(), image.height()),
+        );
+        let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap {
+            x,
+            y,
+            image,
+        }));
+        d.add_element(el, "Paste");
+    });
+}
+
 /// Fireworks MX's message when a symbol dropped from the Library into a Symbol Editor would
 /// end up containing itself (the drop is refused).
 pub const SELF_NEST: &str = "Could not drag and drop.\nAlthough symbols may contain other symbols, a symbol can not contain a copy of itself.";
 
 /// Ctrl+X / Ctrl+C / Ctrl+V (egui turns them into clipboard events). An image from another
-/// application pastes as a new bitmap object in the middle of the canvas.
+/// application pastes as a new bitmap object in the middle of the canvas (see `paste_image`).
 fn clipboard_events(app: &mut FireCraftApp, ctx: &egui::Context) {
     if app.session.active_doc().is_none() {
         return;
@@ -1089,19 +1107,9 @@ fn clipboard_events(app: &mut FireCraftApp, ctx: &egui::Context) {
                     .flat_map(|c| c.to_srgba_unmultiplied())
                     .collect();
                 let (w, h) = (img.size[0] as u32, img.size[1] as u32);
-                let Some(image) = firecraft_raster::RgbaImage::from_rgba_bytes(w, h, &rgba) else {
-                    continue;
-                };
-                with_doc(app, |d| {
-                    let (x, y) = (
-                        (d.doc.width as i64 - w as i64) / 2,
-                        (d.doc.height as i64 - h as i64) / 2,
-                    );
-                    let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
-                        firecraft_doc::Bitmap { x, y, image },
-                    ));
-                    d.add_element(el, "Paste");
-                });
+                if let Some(image) = firecraft_raster::RgbaImage::from_rgba_bytes(w, h, &rgba) {
+                    paste_image(app, image);
+                }
             }
             _ => {}
         }
