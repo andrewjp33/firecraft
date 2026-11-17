@@ -1094,6 +1094,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
         return;
     }
+    // The Hand and Zoom tools (Space too) keep the crop box and show it.
+    if matches!(tool, Tool::Hand | Tool::Zoom) && active {
+        crate::crop_tool::overlay(&app.crop, d, &p, (origin, z));
+    }
     // The 9-slice tool handles its own input and overlay.
     if tool == Tool::NineSlice {
         crate::nine::canvas(&mut app.nine, d, view, &p, resp, origin, z);

@@ -12,11 +12,12 @@ Probe: `crates/engine/examples/crop_probe.rs`, a 300 x 200 white canvas with a r
 |---|---|
 | Drag on the canvas | A box from where the drag began to the pointer. The start isn't limited, but the dragged corner stays on the canvas (dragging 60 px past the bottom right stopped at the canvas corner; a drag from -11,-18 towards -30,-30 gave -11,-18 to 0,0) |
 | Drag one of the 8 handles | Resizes the box, past the canvas too (+10, +30, +120 px all kept); dragged past the opposite side the box turns over (top-left handle 20,20 dragged to 190,100 over a box to 170,90 gave 170,90 20x10) |
+| Drag a side of the box (between handles) | Moves that side, as its middle handle does (reported by the user from Fireworks MX, 2026-11-16) |
 | Drag inside the box | Moves it |
 | Drag outside the box | Draws a new one |
 | Double-click inside, or Enter | Crops ("Crop Document"); the Crop tool stays chosen |
 | Escape | Removes the box and chooses the Pointer tool (also when the Crop tool was chosen from the Pencil) |
-| Choose another tool | Removes the box; nothing is cropped |
+| Choose another tool | Removes the box; nothing is cropped. The Hand and Zoom tools (and holding Space) keep it and show it, so you can zoom or scroll and carry on (reported by the user from Fireworks MX, 2026-11-16) |
 | Look | Marching ants with 8 small black square handles; the outside is not dimmed |
 | Property inspector | The Document inspector plus W, H, X, Y of the box |
 

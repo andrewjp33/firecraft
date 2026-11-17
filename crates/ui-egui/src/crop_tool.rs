@@ -3,10 +3,12 @@
 //!
 //! * Dragging outside the box draws a new one. Where the drag began isn't limited, but the
 //!   corner being dragged stays on the canvas.
-//! * The eight handles resize it, also past the canvas (the canvas then grows), and turn it
-//!   over when dragged past the opposite side. Dragging inside the box moves it.
+//! * The eight handles and the four sides resize it, also past the canvas (the canvas then
+//!   grows), and turn it over when dragged past the opposite side. Dragging inside the box
+//!   moves it.
 //! * Double-clicking inside or pressing Enter crops; the Crop tool stays chosen. Escape drops
-//!   the box and chooses the Pointer tool; choosing another tool drops it too.
+//!   the box and chooses the Pointer tool; choosing another tool drops it too, except the Hand
+//!   and Zoom tools, which keep it.
 //! * The box is marching ants with small black handles; the outside isn't dimmed.
 //! * Crop Selected Bitmap puts the box around the bitmap; cropping trims the bitmap (undo step
 //!   "Crop Image") and goes back to the Pointer tool.
@@ -49,6 +51,8 @@ const HANDLES: [(i8, i8); 8] = [(-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 
 /// Handle size and how near the pointer must be to take one (screen points).
 const HANDLE: f32 = 5.0;
 const GRAB: f32 = 5.0;
+/// How near a side of the box the pointer must be to drag that side (screen points).
+const SIDE_GRAB: f32 = 3.0;
 
 fn handle_pos(r: CropRect, (hx, hy): (i8, i8)) -> (f64, f64) {
     let pick = |a: i64, b: i64, k: i8| match k {
@@ -137,15 +141,36 @@ pub fn canvas(
 
     let (cw, ch) = (i64::from(d.doc.width), i64::from(d.doc.height));
     let screen_rect = |r: CropRect| Rect::from_min_max(to_screen(r.0 as f64, r.1 as f64), to_screen(r.2 as f64, r.3 as f64));
+    // A handle, or else a side of the box (sides move like their middle handles, as in
+    // Fireworks MX).
     let handle_at = |r: CropRect, q: Pos2| {
         // Corners first, so a small box's corners stay reachable.
         let mut order = HANDLES;
         order.sort_by_key(|h| (h.0 == 0 || h.1 == 0) as u8);
-        order.into_iter().find(|&h| {
-            let (x, y) = handle_pos(r, h);
-            let c = to_screen(x, y);
-            (q.x - c.x).abs() <= GRAB && (q.y - c.y).abs() <= GRAB
-        })
+        order
+            .into_iter()
+            .find(|&h| {
+                let (x, y) = handle_pos(r, h);
+                let c = to_screen(x, y);
+                (q.x - c.x).abs() <= GRAB && (q.y - c.y).abs() <= GRAB
+            })
+            .or_else(|| {
+                let s = screen_rect(r);
+                let near = |a: f32, b: f32| (a - b).abs() <= SIDE_GRAB;
+                let across = (s.left()..=s.right()).contains(&q.x);
+                let down = (s.top()..=s.bottom()).contains(&q.y);
+                if down && near(q.x, s.left()) {
+                    Some((-1, 0))
+                } else if down && near(q.x, s.right()) {
+                    Some((1, 0))
+                } else if across && near(q.y, s.top()) {
+                    Some((0, -1))
+                } else if across && near(q.y, s.bottom()) {
+                    Some((0, 1))
+                } else {
+                    None
+                }
+            })
     };
     let inside = |r: CropRect, q: Pos2| screen_rect(r).contains(q);
 
@@ -223,19 +248,27 @@ pub fn canvas(
         }
     }
 
-    // Overlay.
-    if let Some(r) = edit.rect {
-        let phase = (ctx.input(|i| i.time) * 8.0) as i64;
-        ants(p, screen_rect(r), phase);
-        for h in HANDLES {
-            let (x, y) = handle_pos(r, h);
-            let c = to_screen(x, y);
-            let hr = Rect::from_center_size(c.floor() + vec2(0.5, 0.5), vec2(HANDLE, HANDLE));
-            p.rect_filled(hr, 0.0, Color32::BLACK);
-        }
-        ctx.request_repaint_after(std::time::Duration::from_millis(120));
-    }
+    overlay(crop, d, p, (origin, z));
     false
+}
+
+/// Draw the crop box of document `d`, if it has one (also while the Hand or Zoom tool is in
+/// use, which keep it).
+pub fn overlay(crop: &Option<CropEdit>, d: &DocState, p: &egui::Painter, (origin, z): (Pos2, f32)) {
+    let Some(r) = crop.as_ref().filter(|c| c.doc == d.id).and_then(|c| c.rect) else {
+        return;
+    };
+    let to_screen = |x: i64, y: i64| pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
+    let ctx = p.ctx();
+    let phase = (ctx.input(|i| i.time) * 8.0) as i64;
+    ants(p, Rect::from_min_max(to_screen(r.0, r.1), to_screen(r.2, r.3)), phase);
+    for h in HANDLES {
+        let (x, y) = handle_pos(r, h);
+        let c = pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
+        let hr = Rect::from_center_size(c.floor() + vec2(0.5, 0.5), vec2(HANDLE, HANDLE));
+        p.rect_filled(hr, 0.0, Color32::BLACK);
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(120));
 }
 
 /// A rectangle drawn as marching ants (4 px black, 4 px white, moving with `phase`).

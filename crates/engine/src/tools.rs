@@ -132,6 +132,7 @@ impl Tool {
                 | Tool::PaintBucket
                 | Tool::Gradient
                 | Tool::Scale
+                | Tool::Crop
                 | Tool::Skew
                 | Tool::Distort
                 | Tool::NineSlice

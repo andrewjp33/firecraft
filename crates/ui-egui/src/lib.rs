@@ -943,8 +943,12 @@ impl FireCraftApp {
         ) {
             self.path_edit.end_pen();
         }
-        // Choosing another tool drops the crop box without cropping (Fireworks MX).
-        if self.session.tool != firecraft_engine::Tool::Crop {
+        // Choosing another tool drops the crop box without cropping; the Hand and Zoom tools
+        // keep it (Fireworks MX).
+        if !matches!(
+            self.session.tool,
+            firecraft_engine::Tool::Crop | firecraft_engine::Tool::Hand | firecraft_engine::Tool::Zoom
+        ) {
             self.crop = None;
         }
         if let Some((doc, id)) =

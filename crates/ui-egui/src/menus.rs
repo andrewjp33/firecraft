@@ -926,9 +926,10 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     // Single-letter tool shortcuts (pressing again cycles a shared slot, as in Fireworks; keys from
     // Fireworks MX's shortcut file).
-    let letters: [(Key, &[Tool]); 17] = [
+    let letters: [(Key, &[Tool]); 18] = [
         (Key::V, &[Tool::Pointer, Tool::SelectBehind]),
         (Key::A, &[Tool::Subselect]),
+        (Key::C, &[Tool::Crop]),
         (Key::Q, &[Tool::Scale, Tool::Skew, Tool::Distort, Tool::NineSlice]),
         (Key::M, &[Tool::Marquee, Tool::OvalMarquee]),
         (Key::W, &[Tool::MagicWand]),
