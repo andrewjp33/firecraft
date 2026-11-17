@@ -287,6 +287,47 @@ fn targets() -> Option<Vec<String>> {
     Some(names)
 }
 
+pub fn copied_files() -> Vec<std::path::PathBuf> {
+    get("text/uri-list").map_or_else(Vec::new, |b| file_uris(&b))
+}
+
+/// The local files in a `text/uri-list` (RFC 2483: one URI per line, `#` comments).
+fn file_uris(list: &[u8]) -> Vec<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStringExt as _;
+    String::from_utf8_lossy(list)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|uri| {
+            let rest = uri.strip_prefix("file://")?;
+            // An empty host or localhost; other hosts aren't local files.
+            let path = rest.strip_prefix("localhost").unwrap_or(rest);
+            path.starts_with('/')
+                .then(|| std::path::PathBuf::from(std::ffi::OsString::from_vec(percent_decode(path))))
+        })
+        .collect()
+}
+
+fn percent_decode(s: &str) -> Vec<u8> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        let hex = b.get(i + 1..i + 3).and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (c, hex) {
+            (b'%', Some(v)) => {
+                out.push(v);
+                i += 3;
+            }
+            _ => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 pub fn get_text() -> Option<String> {
     get("UTF8_STRING").and_then(|b| String::from_utf8(b).ok())
 }
@@ -349,4 +390,21 @@ fn get(target: &str) -> Option<Vec<u8>> {
         out.extend_from_slice(&piece.value);
     }
     (!out.is_empty()).then_some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uri_lists_give_local_paths() {
+        let list = b"# copied\r\nfile:///home/me/My%20Shots/a%C3%A9.png\r\nfile://localhost/tmp/b.jpg\r\nhttp://x/c.png\r\nfile://other/d.png\r\n";
+        assert_eq!(
+            file_uris(list),
+            vec![
+                std::path::PathBuf::from("/home/me/My Shots/a\u{e9}.png"),
+                std::path::PathBuf::from("/tmp/b.jpg"),
+            ]
+        );
+    }
 }

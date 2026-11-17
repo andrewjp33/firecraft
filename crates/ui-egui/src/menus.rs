@@ -52,7 +52,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
             if item(ui, "New...", NEW_KEY, true) {
-                app.dialogs.new_doc = true;
+                open_new_doc(app);
             }
             if item(ui, "Open...", "Ctrl+O", true) {
                 open(app);
@@ -786,7 +786,7 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
     // Browsers keep Ctrl+N, Ctrl+W and Ctrl+T for themselves: these work there.
     let cmd_alt = cmd | Modifiers::ALT;
     if pressed(cmd_alt, Key::N) || pressed(cmd, Key::N) {
-        app.dialogs.new_doc = true;
+        open_new_doc(app);
     }
     if pressed(cmd, Key::O) {
         open(app);
@@ -1006,6 +1006,7 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
     let Some(d) = app.session.active_doc_mut() else {
         return;
     };
+    let res = (d.doc.resolution, d.doc.resolution_cm);
     let clip = if cut { d.cut() } else { d.copy() };
     let Some(clip) = clip else { return };
     let bounds = clip
@@ -1022,7 +1023,7 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
             )
         });
     let shared = bounds
-        .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b).ok())
+        .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b, res).ok())
         .is_some_and(firecraft_sysclip::set_png);
     let note = clipboard_note(clip.elements.len());
     // Without a system clipboard for objects (the browser), a note comes back as a paste.
@@ -1053,9 +1054,99 @@ fn paste(app: &mut FireCraftApp) {
         }
         return;
     }
+    if firecraft_sysclip::available() {
+        let files = copied_pictures();
+        if !files.is_empty() {
+            paste_files(app, &files);
+            return;
+        }
+    }
     if let (Some((clip, _)), Some(d)) = (&app.clipboard, app.session.docs.get_mut(app.session.active)) {
         d.paste(clip);
     }
+}
+
+/// Copied files (from Explorer or a file manager) that File > Open would take, by extension.
+/// Copied files exist only where the system clipboard does (the desktop app).
+fn copied_pictures() -> Vec<std::path::PathBuf> {
+    firecraft_sysclip::copied_files()
+        .into_iter()
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| firecraft_io::formats::OPEN_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+        })
+        .collect()
+}
+
+/// Edit > Paste with image files copied in a file manager (FireCraft's own addition: Fireworks
+/// MX can't paste files). Each file pastes as File > Open would read it, centred on the canvas:
+/// a picture as a bitmap, a Fireworks PNG as its objects. One undo step per file.
+fn paste_files(app: &mut FireCraftApp, files: &[std::path::PathBuf]) {
+    let Some(d) = app.session.active_doc_mut() else {
+        return;
+    };
+    let canvas = (d.doc.width, d.doc.height);
+    let mut failed = Vec::new();
+    for path in files {
+        let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let pasted = std::fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| firecraft_io::file_as_paste(&bytes, &name, canvas).map_err(|e| e.to_string()));
+        match pasted {
+            Ok((elements, symbols, tiles)) => d.paste(&firecraft_engine::Clipboard {
+                elements,
+                symbols,
+                tiles,
+            }),
+            Err(e) => failed.push(format!("{name}: {e}")),
+        }
+    }
+    if !failed.is_empty() {
+        app.status = Some((format!("Can't paste {}", failed.join("; ")), true));
+    }
+}
+
+/// File > New: the last document's settings, or, with a picture on the clipboard, its size and
+/// resolution (in its own unit) as in Fireworks MX.
+pub(crate) fn open_new_doc(app: &mut FireCraftApp) {
+    app.dialogs.new_doc = true;
+    app.dialogs.set_new_doc(app.prefs.new_doc);
+    app.dialogs.new_res_cm = app.prefs.new_doc_cm;
+    if let Some((w, h, res)) = clipboard_canvas(app) {
+        let dl = &mut app.dialogs;
+        (dl.new_w, dl.new_h) = (w.clamp(1, 32000), h.clamp(1, 32000));
+        if let Some((r, cm)) = res {
+            (dl.new_res, dl.new_res_cm) = (r.clamp(1.0, 5000.0), cm);
+        }
+    }
+}
+
+/// The size (and resolution, if known) of what Edit > Paste would bring in.
+fn clipboard_canvas(app: &FireCraftApp) -> Option<(u32, u32, Option<firecraft_io::Resolution>)> {
+    if firecraft_sysclip::available() {
+        if let Some(data) = firecraft_sysclip::get_image() {
+            return firecraft_io::clipboard_image_info(&data).map(|(w, h, r)| (w, h, Some(r)));
+        }
+        // A copied file (FireCraft's addition): the first one that opens, at the resolution
+        // File > Open gives it.
+        if let Some(doc) = copied_pictures().iter().find_map(|p| {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned());
+            firecraft_io::open(&std::fs::read(p).ok()?, name).ok()
+        }) {
+            return Some((doc.width, doc.height, Some((doc.resolution, doc.resolution_cm))));
+        }
+    }
+    // FireCraft's own copy (the browser, where no system clipboard holds it).
+    let (clip, _) = app.clipboard.as_ref()?;
+    let (x0, y0, x1, y1) = clip
+        .elements
+        .iter()
+        .filter_map(firecraft_doc::Element::bounds)
+        .map(|(x, y, w, h)| (x, y, x + w, y + h))
+        .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))?;
+    let res = app.session.active_doc().map(|d| (d.doc.resolution, d.doc.resolution_cm));
+    Some(((x1.ceil() - x0.floor()) as u32, (y1.ceil() - y0.floor()) as u32, res))
 }
 
 /// A picture from another application, pasted as Fireworks MX does: a new bitmap object

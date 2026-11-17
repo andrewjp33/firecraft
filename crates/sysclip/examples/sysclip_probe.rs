@@ -1,4 +1,4 @@
-//! Exercise the system clipboard: sysclip_probe get OUT | sysclip_probe set FILE SECONDS
+//! Exercise the system clipboard: sysclip_probe get OUT | files | set FILE SECONDS
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
@@ -6,6 +6,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let data = firecraft_sysclip::get_image().ok_or("no picture on the clipboard")?;
             std::fs::write(a.get(2).ok_or("OUT")?, &data)?;
             println!("got {} bytes", data.len());
+        }
+        Some("files") => {
+            for f in firecraft_sysclip::copied_files() {
+                println!("{}", f.display());
+            }
         }
         Some("set") => {
             let data = std::fs::read(a.get(2).ok_or("FILE")?)?;
@@ -19,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::thread::sleep(std::time::Duration::from_secs(secs));
             println!("still owner: {}", firecraft_sysclip::owns());
         }
-        _ => return Err("usage: sysclip_probe get OUT | set FILE SECONDS".into()),
+        _ => return Err("usage: sysclip_probe get OUT | files | set FILE SECONDS".into()),
     }
     Ok(())
 }

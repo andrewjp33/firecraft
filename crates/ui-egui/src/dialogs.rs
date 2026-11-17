@@ -25,6 +25,8 @@ pub struct Dialogs {
     pub new_w: u32,
     pub new_h: u32,
     pub new_res: f64,
+    /// The resolution is in pixels/cm (else pixels/inch).
+    pub new_res_cm: bool,
     pub new_canvas: CanvasChoice,
     pub new_custom: [u8; 3],
     pub canvas_size: Option<(u32, u32)>,
@@ -402,6 +404,7 @@ impl Default for Dialogs {
             new_w: 660,
             new_h: 440,
             new_res: 72.0,
+            new_res_cm: false,
             new_canvas: CanvasChoice::White,
             new_custom: [255, 255, 255],
             canvas_size: None,
@@ -555,11 +558,20 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                 ui.add(DragValue::new(&mut dl.new_h).range(1..=32000).suffix(" Pixels"));
                 ui.end_row();
                 ui.label("Resolution:");
-                ui.add(
-                    DragValue::new(&mut dl.new_res)
-                        .range(1.0..=5000.0)
-                        .suffix(" Pixels/Inch"),
-                );
+                ui.horizontal(|ui| {
+                    ui.add(DragValue::new(&mut dl.new_res).range(1.0..=5000.0).max_decimals(4));
+                    // Changing the unit keeps the resolution, as a number in the other unit.
+                    let was_cm = dl.new_res_cm;
+                    egui::ComboBox::from_id_salt("new_doc_res_unit")
+                        .selected_text(if dl.new_res_cm { "Pixels/cm" } else { "Pixels/Inch" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut dl.new_res_cm, false, "Pixels/Inch");
+                            ui.selectable_value(&mut dl.new_res_cm, true, "Pixels/cm");
+                        });
+                    if dl.new_res_cm != was_cm {
+                        dl.new_res = if dl.new_res_cm { dl.new_res / 2.54 } else { dl.new_res * 2.54 };
+                    }
+                });
                 ui.end_row();
             });
             ui.separator();
@@ -605,12 +617,14 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                     255,
                 )),
             };
-            let (w, h, r) = (dl.new_w, dl.new_h, dl.new_res);
+            let (w, h, r, cm) = (dl.new_w, dl.new_h, dl.new_res, dl.new_res_cm);
             dl.new_doc = false;
             // Remembered for next time (and across sessions), as in Fireworks.
             app.prefs.new_doc = (w, h, r, canvas);
+            app.prefs.new_doc_cm = cm;
             app.session.new_document(w, h, r, canvas);
             if let Some(d) = app.session.active_doc_mut() {
+                d.doc.resolution_cm = cm;
                 d.doc.color_math = app.prefs.color_math;
                 d.doc.mx_perspective = app.prefs.mx_perspective;
             }

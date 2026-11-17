@@ -40,6 +40,9 @@ mod platform {
     pub fn get_text() -> Option<String> {
         None
     }
+    pub fn copied_files() -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
 }
 
 /// Whether a system clipboard is reachable.
@@ -57,6 +60,12 @@ pub fn set_png(data: Vec<u8>) -> bool {
 /// JPEG, as the clipboard holds it (`firecraft_io::read_clipboard` reads them all).
 pub fn get_image() -> Option<Vec<u8>> {
     platform::get_image()
+}
+
+/// The files copied in a file manager (Explorer's `CF_HDROP`, X11 `text/uri-list` from
+/// Nautilus, Dolphin, Wine...), if that's what the clipboard holds.
+pub fn copied_files() -> Vec<std::path::PathBuf> {
+    platform::copied_files()
 }
 
 /// The text on the system clipboard (for text fields: FireCraft handles Ctrl+V itself).

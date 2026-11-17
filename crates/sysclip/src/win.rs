@@ -50,6 +50,14 @@ pub fn get_image() -> Option<Vec<u8>> {
         })
 }
 
+pub fn copied_files() -> Vec<std::path::PathBuf> {
+    clipboard_win::get_clipboard::<Vec<String>, _>(clipboard_win::formats::FileList)
+        .unwrap_or_default()
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .collect()
+}
+
 pub fn get_text() -> Option<String> {
     clipboard_win::get_clipboard_string().ok()
 }

@@ -38,7 +38,54 @@ first; decoding it is on the roadmap (lowest priority).
   also offer `PNG`, which comes first. Wine passes a Windows program's `CF_DIB` to X11 as
   `image/bmp` and an X11 `image/bmp` to Windows programs as a 32-bit `BI_RGB` `CF_DIB` with
   the fourth byte 0 (checked 2026-11-16 with `sysclip_probe.exe` under Wine; decoded exactly).
-  RLE-compressed DIBs and copied image *files* (`CF_HDROP`, `text/uri-list`) aren't read yet.
+  RLE-compressed DIBs aren't read.
+* Copied image files (FireCraft's addition): with no picture on the clipboard, Paste takes the
+  files copied in Explorer (`CF_HDROP`) or a Linux file manager (`text/uri-list`, `file://`
+  URIs percent-decoded) whose extension File > Open accepts, and pastes each as File > Open
+  reads it (`firecraft_io::file_as_paste`): a picture as one bitmap, a Fireworks PNG as the
+  objects of its visible layers (frame 1), the file's canvas centred like a pasted picture; one
+  undo step per file. Fireworks MX doesn't do this: with only a file on the clipboard (X11
+  `text/uri-list`, which Wine offers as `CF_HDROP`) its Edit > Paste stays disabled
+  (2026-11-16). Checked: Wine turns `text/uri-list` into a `CF_HDROP` that `sysclip_probe.exe
+  files` lists with Windows paths (spaces included).
+
+## File > New starts from the clipboard
+
+Fireworks MX's New Document dialog starts from the clipboard's picture (measured 2026-11-16),
+in the picture's own resolution unit:
+
+| Clipboard | Width x Height, Resolution |
+|---|---|
+| PNG without `pHYs`, 101 x 61 | 101 x 61, 28.34 Pixels/cm (its 72 ppi as `pHYs` gives it: 2834 px/m) |
+| PNG, `pHYs` 5906 px/m | 123 x 45, 59.06 Pixels/cm |
+| Fireworks PNG of a 2540 ppi document (`pHYs` 100000) | 40 x 30, 2540 Pixels/Inch (from `RESf`/`RSUi`) |
+| Fireworks PNG of a 28.99 px/cm document (`pHYs` 2800) | 40 x 30, 28.9899 Pixels/cm |
+| nothing (a copied file included) | the last document's settings |
+
+The canvas color stays as last used. FireCraft does the same
+(`firecraft_io::clipboard_image_info`; DIBs by their pixels/metre like PNG, unmeasured) and has
+the same Pixels/Inch | Pixels/cm choice. Its additions: a copied image file gives its size and
+the resolution File > Open would give it; in the browser its own copied objects give their
+bounds.
+
+## Resolution in PNG and JPEG data
+
+Fireworks MX keeps the editable resolution in the tree (`RESf` value, `RSUi` 1 = pixels/cm)
+and writes `pHYs` (pixels/metre, whole numbers) in saved files, exports and its clipboard PNG
+by truncating the resolution to a whole number in its own unit first: pixels/inch
+`trunc(ppi) * 10000 / 254` (integer division), pixels/cm `trunc(px/cm) * 100`. Measured
+2026-11-16 with documents made by script and saved: 72, 72.5, 72.01 ppi -> 2834; 71.99 -> 2795;
+96 -> 3779; 150 -> 5905; 254 -> 10000 (a float `* 39.37` would give 9999); 2540 -> 100000;
+28.35, 28.3465, 28.99 px/cm -> 2800; 37.8 -> 3700. PNG 8 and PNG 32 exports write the same.
+JPEG exports write JFIF density in dots per inch, truncated: 72.5 ppi -> 72, 28.99 px/cm -> 73
+(73.6), 28.35 px/cm -> 72. FireCraft writes the same (`firecraft_io::png_ppm`, `jfif_dpi`; it
+used to round, writing 2835 for 72 ppi, and ignored the pixels/cm unit). FirePixel measured
+the same `pHYs` rule on CS6 but rounds the JPEG density.
+
+Its clipboard PNG carries the source document's resolution (a 150 ppi document's copy:
+`RESf` 150, `RSUi` 0, `pHYs` 5905), and so does FireCraft's, so objects pasted between the two
+keep the document's resolution (Fireworks MX asks to resample a paste whose resolution differs
+from the document's).
 
 ## Where Fireworks MX puts a pasted picture
 

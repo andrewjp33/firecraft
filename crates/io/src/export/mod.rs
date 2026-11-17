@@ -189,10 +189,10 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
             }
             Ok(e)
         }
-        ExportFormat::Png8 => png8(&img, s, m, doc.resolution),
+        ExportFormat::Png8 => png8(&img, s, m, (doc.resolution, doc.resolution_cm)),
         ExportFormat::Png24 => {
             let flat = flatten(&img, m);
-            let bytes = png_rgb(&flat, doc.resolution, false)?;
+            let bytes = png_rgb(&flat, (doc.resolution, doc.resolution_cm), false)?;
             Ok(Exported {
                 animation: None,
                 bytes,
@@ -202,11 +202,11 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
         }
         ExportFormat::Png32 => Ok(Exported {
             animation: None,
-            bytes: png_rgb(&img, doc.resolution, true)?,
+            bytes: png_rgb(&img, (doc.resolution, doc.resolution_cm), true)?,
             preview: img,
             palette: Vec::new(),
         }),
-        ExportFormat::Jpeg => jpeg(&img, s, m, doc.resolution),
+        ExportFormat::Jpeg => jpeg(&img, s, m, (doc.resolution, doc.resolution_cm)),
         ExportFormat::WebP => webp(&img, s),
         ExportFormat::JpegXl => jxl(&img, s),
     }
@@ -955,10 +955,10 @@ fn bounding(w: u32, h: u32, hit: impl Fn(usize) -> bool) -> Option<Rect> {
 
 // --- PNG ---------------------------------------------------------------------------------------
 
-fn png_header(enc: &mut png::Encoder<'_, &mut Vec<u8>>, ppi: f64) {
+fn png_header(enc: &mut png::Encoder<'_, &mut Vec<u8>>, res: crate::Resolution) {
     // Exports are written once and downloaded many times: the smallest file is worth the time.
     enc.set_compression(png::Compression::High);
-    let ppm = (ppi.max(1.0) / 0.0254).round() as u32;
+    let ppm = crate::png_ppm(res);
     enc.set_pixel_dims(Some(png::PixelDimensions {
         xppu: ppm,
         yppu: ppm,
@@ -966,14 +966,14 @@ fn png_header(enc: &mut png::Encoder<'_, &mut Vec<u8>>, ppi: f64) {
     }));
 }
 
-fn png_rgb(img: &RgbaImage, ppi: f64, alpha: bool) -> Result<Vec<u8>> {
+fn png_rgb(img: &RgbaImage, res: crate::Resolution, alpha: bool) -> Result<Vec<u8>> {
     let err = |e: png::EncodingError| Error::Png(e.to_string());
     let mut out = Vec::new();
     {
         let mut enc = png::Encoder::new(&mut out, img.width(), img.height());
         enc.set_color(if alpha { png::ColorType::Rgba } else { png::ColorType::Rgb });
         enc.set_depth(png::BitDepth::Eight);
-        png_header(&mut enc, ppi);
+        png_header(&mut enc, res);
         let mut w = enc.write_header().map_err(err)?;
         let data: Vec<u8> = if alpha {
             img.to_rgba_bytes()
@@ -985,7 +985,7 @@ fn png_rgb(img: &RgbaImage, ppi: f64, alpha: bool) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<Exported> {
+fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, res: crate::Resolution) -> Result<Exported> {
     let err = |e: png::EncodingError| Error::Png(e.to_string());
     let ix = index(&[img], s, matte, true, false, None);
     let (w, h) = (img.width(), img.height());
@@ -1018,7 +1018,7 @@ fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<E
         enc.set_color(png::ColorType::Indexed);
         enc.set_depth(depth);
         // Palette images compress best unfiltered (as libpng and Fireworks write them).
-        png_header(&mut enc, ppi);
+        png_header(&mut enc, res);
         enc.set_filter(png::Filter::NoFilter);
         enc.set_palette(ix.palette.iter().flat_map(|c| [c[0], c[1], c[2]]).collect::<Vec<u8>>());
         let trns: Vec<u8> = ix.shown().iter().map(|c| c[3]).collect();
@@ -1041,7 +1041,7 @@ fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<E
 
 // --- JPEG --------------------------------------------------------------------------------------
 
-fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<Exported> {
+fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Matte, res: crate::Resolution) -> Result<Exported> {
     let mut flat = flatten(img, matte);
     if s.jpeg_smoothing > 0 {
         // Smoothing blurs before compressing (an approximation of Fireworks MX's levels 1-8).
@@ -1064,7 +1064,7 @@ fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Matte, ppi: f64) -> Result<E
     } else {
         jpeg_encoder::SamplingFactor::R_4_2_0
     });
-    let dpi = ppi.round().clamp(1.0, 65535.0) as u16;
+    let dpi = crate::jfif_dpi(res);
     enc.set_density(jpeg_encoder::PixelDensity {
         density: (dpi, dpi),
         unit: jpeg_encoder::PixelDensityUnit::Inches,

@@ -15,9 +15,11 @@ mod read;
 pub mod textures;
 mod write;
 
-pub use clip::{Pasted, clipboard_png, pasted_image_origin, read_clipboard, read_clipboard_png};
+pub use clip::{
+    Pasted, clipboard_image_info, clipboard_png, file_as_paste, pasted_image_origin, read_clipboard, read_clipboard_png,
+};
 pub use dib::{decode_bmp, decode_dib};
-pub use flat::{decode_png, encode_png};
+pub use flat::{Resolution, decode_png, encode_png, encode_png_at, jfif_dpi, png_ppm};
 pub use read::document_from_fireworks;
 pub use write::fireworks_tree;
 
@@ -68,7 +70,7 @@ pub fn png_name(path: &str) -> String {
 
 /// Save as Fireworks PNG.
 pub fn save_fireworks_png(doc: &Document) -> Result<Vec<u8>> {
-    let flat = encode_png(&doc.render(0), doc.resolution)?;
+    let flat = encode_png_at(&doc.render(0), (doc.resolution, doc.resolution_cm))?;
     let (tree, tiles) = fireworks_tree(doc);
     let fw = firecraft_fwpng::FwPng::assemble(&flat, &tree, doc.raw_secondary.as_ref(), &tiles, &[])?;
     Ok(fw.to_bytes())
@@ -76,5 +78,5 @@ pub fn save_fireworks_png(doc: &Document) -> Result<Vec<u8>> {
 
 /// Export the current frame as a flat 32-bit PNG.
 pub fn export_png(doc: &Document) -> Result<Vec<u8>> {
-    encode_png(&doc.render(doc.current_frame), doc.resolution)
+    encode_png_at(&doc.render(doc.current_frame), (doc.resolution, doc.resolution_cm))
 }

@@ -174,6 +174,8 @@ pub struct Prefs {
     pub aa_style: firecraft_raster::AntiAliasStyle,
     /// File > New's last settings: width, height, resolution, canvas (None = transparent).
     pub new_doc: (u32, u32, f64, Option<firecraft_raster::Rgba>),
+    /// File > New's last resolution unit: pixels/cm (else pixels/inch).
+    pub new_doc_cm: bool,
     /// Tool cursors: FireCraft's own (Fireworks style) or the system's.
     pub cursor_style: cursors::CursorStyle,
     /// New documents draw perspective symbols as Fireworks MX does (else a pixel-correct warp).
@@ -230,7 +232,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -239,6 +241,7 @@ impl Prefs {
             self.new_doc.0,
             self.new_doc.1,
             self.new_doc.2,
+            if self.new_doc_cm { "cm" } else { "" },
             self.new_doc
                 .3
                 .map_or_else(|| "transparent".to_owned(), |c| c.to_hex()),
@@ -282,8 +285,9 @@ impl Prefs {
                     }
                 }
                 "new_doc" => {
-                    if let Some(d) = parse_new_doc(v.trim()) {
+                    if let Some((d, cm)) = parse_new_doc(v.trim()) {
                         p.new_doc = d;
+                        p.new_doc_cm = cm;
                     }
                 }
                 "cursor_style" => p.cursor_style = cursors::CursorStyle::from_key(v.trim()),
@@ -321,10 +325,13 @@ impl Prefs {
 }
 
 /// `WxH@RES:canvas` with canvas `transparent` or a hex colour.
-fn parse_new_doc(v: &str) -> Option<(u32, u32, f64, Option<firecraft_raster::Rgba>)> {
+/// `WxH@R:canvas`, R in pixels/inch or `Rcm` in pixels/cm.
+#[allow(clippy::type_complexity)]
+fn parse_new_doc(v: &str) -> Option<((u32, u32, f64, Option<firecraft_raster::Rgba>), bool)> {
     let (size, rest) = v.split_once('@')?;
     let (w, h) = size.split_once('x')?;
     let (res, canvas) = rest.split_once(':')?;
+    let (res, cm) = res.strip_suffix("cm").map_or((res, false), |r| (r, true));
     let (w, h, res): (u32, u32, f64) = (w.parse().ok()?, h.parse().ok()?, res.parse().ok()?);
     if !(1..=32_000).contains(&w) || !(1..=32_000).contains(&h) || !(1.0..=5000.0).contains(&res) {
         return None;
@@ -334,7 +341,7 @@ fn parse_new_doc(v: &str) -> Option<(u32, u32, f64, Option<firecraft_raster::Rgb
     } else {
         Some(firecraft_raster::Rgba::from_hex(canvas)?)
     };
-    Some((w, h, res, canvas))
+    Some(((w, h, res, canvas), cm))
 }
 
 impl Default for Prefs {
@@ -349,6 +356,7 @@ impl Default for Prefs {
             color_math: firecraft_raster::ColorMath::Precise,
             aa_style: firecraft_raster::AntiAliasStyle::Smooth,
             new_doc: (660, 440, 72.0, Some(firecraft_raster::Rgba::WHITE)),
+            new_doc_cm: false,
             cursor_style: cursors::CursorStyle::Fireworks,
             mx_perspective: false,
             live_drag: true,
@@ -843,6 +851,7 @@ impl FireCraftApp {
     pub fn set_prefs(&mut self, prefs: Prefs) {
         self.session.options.aa_style = prefs.aa_style;
         self.dialogs.set_new_doc(prefs.new_doc);
+        self.dialogs.new_res_cm = prefs.new_doc_cm;
         self.prefs = prefs;
     }
 

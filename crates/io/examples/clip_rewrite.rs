@@ -1,7 +1,9 @@
 //! Re-encode clipboard PNG data the way FireCraft writes it: clip_rewrite <in> <out>
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().collect();
-    let (els, syms, tiles) = firecraft_io::read_clipboard_png(&std::fs::read(a.get(1).ok_or("in")?)?)?;
+    let input = std::fs::read(a.get(1).ok_or("in")?)?;
+    let (els, syms, tiles) = firecraft_io::read_clipboard_png(&input)?;
+    let res = firecraft_io::clipboard_image_info(&input).map_or((72.0, false), |i| i.2);
     let b = els.iter().filter_map(|e| e.bounds()).reduce(|a, b| {
         let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
         (
@@ -11,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (a.1 + a.3).max(b.1 + b.3) - y0,
         )
     });
-    let png = firecraft_io::clipboard_png(&els, &syms, &tiles, b.ok_or("no bounds")?)?;
+    let png = firecraft_io::clipboard_png(&els, &syms, &tiles, b.ok_or("no bounds")?, res)?;
     std::fs::write(a.get(2).ok_or("out")?, png)?;
     Ok(())
 }
