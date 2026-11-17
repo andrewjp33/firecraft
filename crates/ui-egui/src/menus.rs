@@ -912,6 +912,21 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
         } else {
             continue;
         };
+        // The crop box with the Crop tool; the marquee with the marquee tools and the Magic
+        // Wand (Fireworks MX).
+        let (sx, sy) = ((dx * step) as i64, (dy * step) as i64);
+        if app.session.tool == Tool::Crop {
+            crate::crop_tool::nudge(app, sx, sy);
+            continue;
+        }
+        let marquee_tool = matches!(
+            app.session.tool,
+            Tool::Marquee | Tool::OvalMarquee | Tool::Lasso | Tool::MagicWand
+        );
+        if marquee_tool && app.session.active_doc().is_some_and(|d| d.pixels.is_some()) {
+            with_doc(app, |d| d.move_pixel_selection(sx, sy));
+            continue;
+        }
         // Selected path points (Subselection/Pen), else the selected objects.
         let i = app.session.active;
         let points = point_tool

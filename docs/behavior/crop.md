@@ -18,6 +18,8 @@ Probe: `crates/engine/examples/crop_probe.rs`, a 300 x 200 white canvas with a r
 | Double-click inside, or Enter | Crops ("Crop Document"); the Crop tool stays chosen |
 | Escape | Removes the box and chooses the Pointer tool (also when the Crop tool was chosen from the Pencil) |
 | Choose another tool | Removes the box; nothing is cropped. The Hand and Zoom tools (and holding Space) keep it and show it, so you can zoom or scroll and carry on (reported by the user from Fireworks MX, 2026-11-16) |
+| Choose the Crop tool with a marquee | The marquee becomes a crop box of the same size (reported by the user from Fireworks MX, 2026-11-16) |
+| Arrow keys | Move the crop box (Shift: 10 px); with a marquee tool they move the marquee (reported by the user from Fireworks MX, 2026-11-16) |
 | Look | Marching ants with 8 small black square handles; the outside is not dimmed |
 | Property inspector | The Document inspector plus W, H, X, Y of the box |
 

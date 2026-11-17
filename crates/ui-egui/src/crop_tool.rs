@@ -10,6 +10,8 @@
 //!   the box and chooses the Pointer tool; choosing another tool drops it too, except the Hand
 //!   and Zoom tools, which keep it.
 //! * The box is marching ants with small black handles; the outside isn't dimmed.
+//! * Choosing the Crop tool with pixels selected makes a box of the selection's size. The arrow
+//!   keys move the box (Shift: 10 px).
 //! * Crop Selected Bitmap puts the box around the bitmap; cropping trims the bitmap (undo step
 //!   "Crop Image") and goes back to the Pointer tool.
 
@@ -126,7 +128,20 @@ pub fn canvas(
     }) {
         *crop = None;
     }
-    let edit = crop.get_or_insert_with(|| CropEdit::new(d.id, CropTarget::Document, None));
+    if crop.is_none() {
+        // Choosing the Crop tool with pixels selected turns the selection into a crop box of
+        // the same size (Fireworks MX); bitmap editing ends, as choosing the Pointer ends it.
+        let from_pixels = d.pixels.as_ref().and_then(|p| {
+            let (x, y, w, h) = p.mask.bounds()?;
+            let (l, t) = (p.x + i64::from(x), p.y + i64::from(y));
+            Some((l, t, l + i64::from(w), t + i64::from(h)))
+        });
+        if from_pixels.is_some() {
+            d.exit_bitmap_mode();
+        }
+        *crop = Some(CropEdit::new(d.id, CropTarget::Document, from_pixels));
+    }
+    let Some(edit) = crop.as_mut() else { return false };
 
     // Keys: Enter crops, Escape cancels (and takes the Pointer tool, as Fireworks MX does).
     if keys_free {
@@ -250,6 +265,18 @@ pub fn canvas(
 
     overlay(crop, d, p, (origin, z));
     false
+}
+
+/// Arrow keys: move the crop box of the active document by (`dx`, `dy`) canvas pixels.
+/// `false` if it has none.
+pub fn nudge(app: &mut FireCraftApp, dx: i64, dy: i64) -> bool {
+    let Some(id) = app.session.active_doc().map(|d| d.id) else { return false };
+    let Some(edit) = app.crop.as_mut().filter(|c| c.doc == id && c.drag.is_none()) else {
+        return false;
+    };
+    let Some(r) = edit.rect else { return false };
+    edit.rect = Some((r.0 + dx, r.1 + dy, r.2 + dx, r.3 + dy));
+    true
 }
 
 /// Draw the crop box of document `d`, if it has one (also while the Hand or Zoom tool is in
