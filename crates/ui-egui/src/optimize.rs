@@ -220,7 +220,7 @@ fn deferred_drag<T: egui::emath::Numeric>(
     value: &mut T,
     widget: impl FnOnce(&mut T) -> DragValue<'_>,
 ) {
-    let key = egui::Id::new(("deferred_drag", id));
+    let key = egui::Id::unique(("deferred_drag", id));
     let pending: Option<f64> = ui.data(|m| m.get_temp(key));
     let mut shown = pending.map_or(*value, T::from_f64);
     let resp = ui.add(widget(&mut shown).update_while_editing(false));

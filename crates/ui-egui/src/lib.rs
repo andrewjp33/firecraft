@@ -921,6 +921,25 @@ impl FireCraftApp {
         // Whether Escape is free for ending bitmap editing this update, decided before anything
         // else that takes Escape gets a look at it.
         let escape_free = self.escape_is_free(&ctx);
+        // Selection and vector tools leave the Pen's path open, to resume on returning; any
+        // other tool finishes it (Fireworks MX).
+        if !matches!(
+            self.session.tool,
+            firecraft_engine::Tool::Pen
+                | firecraft_engine::Tool::Pointer
+                | firecraft_engine::Tool::SelectBehind
+                | firecraft_engine::Tool::Subselect
+                | firecraft_engine::Tool::Scale
+                | firecraft_engine::Tool::Skew
+                | firecraft_engine::Tool::Distort
+                | firecraft_engine::Tool::Line
+                | firecraft_engine::Tool::Rectangle
+                | firecraft_engine::Tool::Ellipse
+                | firecraft_engine::Tool::Freeform
+                | firecraft_engine::Tool::Knife
+        ) {
+            self.path_edit.end_pen();
+        }
         if let Some((doc, id)) =
             ctx.data_mut(|m| m.remove_temp::<(usize, u32)>(egui::Id::unique("edit_symbol")))
         {

@@ -1,5 +1,5 @@
 //! Probe document for Color Fill on semi-transparent pixels: one row per blend mode, columns at
-//! 100% and 50% opacity: fill_probe <out.png>
+//! 100% and 50% opacity: color_fill_probe <out.png>
 //!
 //! Content: 256x52 bitmaps, colour (x, 255 - x, 128) across, alpha 5..255 down (rows of 5), so
 //! every mode meets faint, half and opaque pixels. Fill colour #c83c1e. Compare Fireworks MX's
@@ -8,7 +8,7 @@ use firecraft_doc::{Bitmap, Document, EffectEntry, EffectParam, Element, Element
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out = std::env::args().nth(1).ok_or("usage: fill_probe <out.png>")?;
+    let out = std::env::args().nth(1).ok_or("usage: color_fill_probe <out.png>")?;
     let mut img = RgbaImage::new(256, 52, Rgba::TRANSPARENT);
     for y in 0..52u32 {
         for x in 0..256u32 {
