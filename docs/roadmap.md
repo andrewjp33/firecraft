@@ -16,6 +16,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
   Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
+- Crop tool, Edit > Crop Document and Crop Selected Bitmap, saved as Fireworks MX saves a crop
+  (moved canvas origin) ([behavior/crop.md](behavior/crop.md))
 - Pixel selections belong to the canvas: picking another bitmap in the Layers panel keeps the
   marquee and applies it to that bitmap ("Edit Bitmap"); selection changes are undo steps and undo
   brings the marquee back ([behavior/selection.md](behavior/selection.md))
@@ -52,7 +54,7 @@ Other items keep their numbers.
    Polygon/Star tool
 2. **Group members, the rest**: Group, Ungroup, Break Apart and Convert to Symbol for members
    selected with the Subselection tool (they do nothing yet); Layers panel rows for members
-3. **Crop tool**; Lasso and Polygon Lasso
+3. **Lasso and Polygon Lasso** (the Crop tool is done); the Export Area tool
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
    - Investigate the Outline brush's soft-edge opacity (alpha remap 5) against Fireworks MX

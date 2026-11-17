@@ -92,6 +92,10 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             Tool::PaintBucket => paint_bucket(app, ui),
             Tool::Gradient => gradient_tool(app, ui),
             Tool::NineSlice => crate::nine::inspector(app, ui),
+            Tool::Crop => {
+                document(app, ui);
+                crate::crop_tool::inspector(app, ui);
+            }
             t @ (Tool::Scale | Tool::Skew | Tool::Distort) => crate::transform_tool::inspector(app, ui, t),
             Tool::Marquee | Tool::OvalMarquee | Tool::Lasso => marquee(app, ui, tool),
             Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Pen if !has_selection => {

@@ -17,6 +17,7 @@
 //! All edits go through `firecraft-engine`; this crate only draws state and maps input.
 
 mod canvas;
+mod crop_tool;
 pub mod cursors;
 mod dialogs;
 mod motion_path;
@@ -447,6 +448,7 @@ pub struct FireCraftApp {
     pi_open: bool,
     styled: bool,
     nine: Option<nine::NineEdit>,
+    crop: Option<crop_tool::CropEdit>,
     transform: Option<transform_tool::TransformEdit>,
     path_edit: path_tool::PathEdit,
     gradient_popup: Option<gradient_ui::Popup>,
@@ -505,6 +507,7 @@ impl FireCraftApp {
             pi_open: true,
             styled: false,
             nine: None,
+            crop: None,
             transform: None,
             path_edit: path_tool::PathEdit::default(),
             gradient_popup: None,
@@ -939,6 +942,10 @@ impl FireCraftApp {
                 | firecraft_engine::Tool::Knife
         ) {
             self.path_edit.end_pen();
+        }
+        // Choosing another tool drops the crop box without cropping (Fireworks MX).
+        if self.session.tool != firecraft_engine::Tool::Crop {
+            self.crop = None;
         }
         if let Some((doc, id)) =
             ctx.data_mut(|m| m.remove_temp::<(usize, u32)>(egui::Id::unique("edit_symbol")))

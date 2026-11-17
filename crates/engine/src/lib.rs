@@ -3,6 +3,8 @@
 //!
 //! The UI is a thin shell over this crate: it renders state and turns input into calls here.
 
+mod crop;
+pub use crop::CropRect;
 mod fills;
 mod filters;
 pub use filters::filter_image;

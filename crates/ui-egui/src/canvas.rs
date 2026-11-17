@@ -793,6 +793,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let tool = if space { Tool::Hand } else { app.session.tool };
     let options = app.session.options.clone();
     let live_drag = app.prefs.live_drag;
+    // Whether Enter and Escape are free for the crop box (no dialog or text field wants them).
+    let keys_free = app.escape_is_free(&ctx);
     // A press on a window makes it active in time for the tool to act on that press.
     if resp.hovered() && ctx.input(|i| i.pointer.primary_pressed()) {
         app.session.active = index;
@@ -1066,7 +1068,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     if !active
         && matches!(
             tool,
-            Tool::NineSlice | Tool::Scale | Tool::Skew | Tool::Distort | Tool::Pen | Tool::Subselect
+            Tool::NineSlice | Tool::Scale | Tool::Skew | Tool::Distort | Tool::Pen | Tool::Subselect | Tool::Crop
         )
     {
         return;
@@ -1083,6 +1085,13 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             &app.session.options,
             (app.prefs.cursor_style, app.prefs.mouse_highlight),
         );
+        return;
+    }
+    // The Crop tool too (Escape and finished bitmap crops go back to the Pointer tool).
+    if tool == Tool::Crop {
+        if crate::crop_tool::canvas(&mut app.crop, d, &p, resp, (origin, z), keys_free) {
+            app.session.tool = Tool::Pointer;
+        }
         return;
     }
     // The 9-slice tool handles its own input and overlay.

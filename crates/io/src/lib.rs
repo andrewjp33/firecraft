@@ -21,7 +21,7 @@ pub use clip::{
 pub use dib::{decode_bmp, decode_dib};
 pub use flat::{Resolution, convert_resolution_unit, decode_png, encode_png, encode_png_at, jfif_dpi, png_ppm};
 pub use read::document_from_fireworks;
-pub use write::fireworks_tree;
+pub use write::{fireworks_tree, shift_canvas_origin};
 
 use firecraft_doc::Document;
 

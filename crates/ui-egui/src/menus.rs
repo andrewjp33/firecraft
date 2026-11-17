@@ -138,8 +138,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 with_doc(app, |d| d.duplicate(false));
             }
             ui.separator();
-            todo(ui, "Crop Selected Bitmap", "");
-            todo(ui, "Crop Document", "");
+            crop_items(app, ui);
             ui.separator();
             if item(ui, "Preferences...", "Ctrl+U", true) {
                 app.dialogs.prefs = true;
@@ -393,6 +392,24 @@ fn has_bitmap_pixels(app: &FireCraftApp) -> bool {
         .is_some_and(|d| d.pixels.as_ref().is_some_and(|p| p.target.is_some()))
 }
 
+/// Edit > Crop Selected Bitmap (a crop box around the bitmap) and Crop Document (at once, to
+/// the selection's bounds). Both need something selected, as in Fireworks MX.
+fn crop_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let d = app.session.active_doc();
+    let bitmap = d.is_some_and(|d| d.symbol_link.is_none() && d.crop_bitmap_target().is_some());
+    let rect = d.filter(|d| d.symbol_link.is_none()).and_then(|d| d.crop_document_rect());
+    if item(ui, "Crop Selected Bitmap", "", bitmap) {
+        crate::crop_tool::begin_bitmap_crop(app);
+    }
+    if item(ui, "Crop Document", "", rect.is_some())
+        && let Some(r) = rect
+    {
+        with_doc(app, |d| {
+            d.crop_document(r);
+        });
+    }
+}
+
 /// The document window's context menu (right-click), as Fireworks MX shows it: one for bitmap
 /// editing (a pixel selection), one for selected objects, one for the empty canvas (measured
 /// 2026-11-15). Items FireCraft doesn't have yet are shown disabled.
@@ -408,8 +425,7 @@ pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     if has_pixels {
         ui.menu_button("Edit", |ui| edit_items(app, ui, can_paste, false));
         ui.menu_button("Magnification", |ui| magnification_items(app, ui));
-        todo(ui, "Crop Selected Bitmap", "");
-        todo(ui, "Crop Document", "");
+        crop_items(app, ui);
         ui.separator();
         if item(ui, "New Bitmap Via Copy", "", has_bitmap_pixels(app)) {
             with_doc(app, |d| d.bitmap_via(false));
