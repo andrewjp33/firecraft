@@ -776,7 +776,9 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if ui.button("Canvas Size...").clicked() {
                 app.dialogs.open_canvas_size(app.session.active_doc());
             }
-            ui.add_enabled(false, egui::Button::new("Image Size...")).on_disabled_hover_text("Coming soon");
+            if ui.button("Image Size...").clicked() {
+                app.dialogs.open_image_size(app.session.active_doc());
+            }
         });
         ui.horizontal(|ui| {
             ui.label("Color math:");

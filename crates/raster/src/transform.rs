@@ -257,9 +257,60 @@ impl Affine {
     }
 }
 
+/// How pixels are resampled when an image is scaled (Fireworks MX's Image Size dialog offers
+/// these four; its preference `ImageSizeTransformMode`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Resample {
+    #[default]
+    Bicubic,
+    Bilinear,
+    /// A softer cubic (B-spline): smooth, slightly blurred.
+    Soft,
+    NearestNeighbor,
+}
+
+impl Resample {
+    pub const ALL: [Resample; 4] = [Self::Bicubic, Self::Bilinear, Self::Soft, Self::NearestNeighbor];
+
+    /// As Fireworks MX names it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bicubic => "Bicubic",
+            Self::Bilinear => "Bilinear",
+            Self::Soft => "Soft",
+            Self::NearestNeighbor => "Nearest Neighbor",
+        }
+    }
+
+    /// Stable key for preferences.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Bicubic => "bicubic",
+            Self::Bilinear => "bilinear",
+            Self::Soft => "soft",
+            Self::NearestNeighbor => "nearest",
+        }
+    }
+
+    pub fn from_key(k: &str) -> Self {
+        Self::ALL.into_iter().find(|m| m.key() == k).unwrap_or_default()
+    }
+}
+
 /// Transform an image placed at (`x`, `y`): returns the new image and its integer position.
 /// Bilinear sampling on premultiplied colour. `None` for degenerate or huge results.
 pub fn transform_image(img: &RgbaImage, x: i64, y: i64, m: &Affine) -> Option<(RgbaImage, i64, i64)> {
+    transform_image_with(img, x, y, m, Resample::Bilinear)
+}
+
+/// [`transform_image`] with a choice of resampling.
+pub fn transform_image_with(
+    img: &RgbaImage,
+    x: i64,
+    y: i64,
+    m: &Affine,
+    method: Resample,
+) -> Option<(RgbaImage, i64, i64)> {
     let inv = m.invert()?;
     let (bx, by, bw, bh) = m.map_rect(x as f64, y as f64, img.width() as f64, img.height() as f64);
     // A tolerance keeps float noise (an exact 90 degree turn landing on 9.999999) from adding
@@ -278,10 +329,95 @@ pub fn transform_image(img: &RgbaImage, x: i64, y: i64, m: &Affine) -> Option<(R
         for tx in 0..w {
             let (sx, sy) = inv.apply((x0 + tx) as f64 + 0.5, (y0 + ty) as f64 + 0.5);
             let (sx, sy) = (sx - x as f64 - 0.5, sy - y as f64 - 0.5);
-            out.set(tx, ty, sample(img, sx, sy));
+            let px = match method {
+                Resample::Bilinear => sample(img, sx, sy),
+                Resample::NearestNeighbor => {
+                    img.get(sx.round() as i64, sy.round() as i64).unwrap_or(Rgba::TRANSPARENT)
+                }
+                Resample::Bicubic => sample_cubic(img, sx, sy, catmull_rom),
+                Resample::Soft => sample_cubic(img, sx, sy, b_spline),
+            };
+            out.set(tx, ty, px);
         }
     }
     Some((out, x0, y0))
+}
+
+/// Resize an image to `w` x `h` with `method` (pixel centres mapped onto pixel centres).
+pub fn resize_image(img: &RgbaImage, w: u32, h: u32, method: Resample) -> RgbaImage {
+    let mut out = RgbaImage::new(w.max(1), h.max(1), Rgba::TRANSPARENT);
+    let (kx, ky) = (
+        f64::from(img.width()) / f64::from(w.max(1)),
+        f64::from(img.height()) / f64::from(h.max(1)),
+    );
+    for ty in 0..i64::from(h) {
+        for tx in 0..i64::from(w) {
+            let (sx, sy) = ((tx as f64 + 0.5) * kx - 0.5, (ty as f64 + 0.5) * ky - 0.5);
+            let px = match method {
+                Resample::Bilinear => sample(img, sx, sy),
+                Resample::NearestNeighbor => {
+                    img.get(sx.round() as i64, sy.round() as i64).unwrap_or(Rgba::TRANSPARENT)
+                }
+                Resample::Bicubic => sample_cubic(img, sx, sy, catmull_rom),
+                Resample::Soft => sample_cubic(img, sx, sy, b_spline),
+            };
+            out.set(tx, ty, px);
+        }
+    }
+    out
+}
+
+/// Catmull-Rom cubic weight (a = -0.5): sharp, may overshoot slightly.
+fn catmull_rom(t: f64) -> f64 {
+    let t = t.abs();
+    if t < 1.0 {
+        1.5 * t * t * t - 2.5 * t * t + 1.0
+    } else if t < 2.0 {
+        -0.5 * t * t * t + 2.5 * t * t - 4.0 * t + 2.0
+    } else {
+        0.0
+    }
+}
+
+/// Cubic B-spline weight: smooth, no overshoot.
+fn b_spline(t: f64) -> f64 {
+    let t = t.abs();
+    if t < 1.0 {
+        (4.0 - 6.0 * t * t + 3.0 * t * t * t) / 6.0
+    } else if t < 2.0 {
+        let u = 2.0 - t;
+        u * u * u / 6.0
+    } else {
+        0.0
+    }
+}
+
+/// 4x4 cubic sample on premultiplied colour, transparent outside.
+fn sample_cubic(img: &RgbaImage, x: f64, y: f64, k: fn(f64) -> f64) -> Rgba {
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let (xi, yi) = (x0 as i64, y0 as i64);
+    let (mut a, mut r, mut g, mut b) = (0.0, 0.0, 0.0, 0.0);
+    for j in -1..=2_i64 {
+        let wy = k(j as f64 - fy);
+        for i in -1..=2_i64 {
+            let w = wy * k(i as f64 - fx);
+            if w == 0.0 {
+                continue;
+            }
+            let p = img.get(xi + i, yi + j).unwrap_or(Rgba::TRANSPARENT);
+            let pa = f64::from(p.a) * w;
+            a += pa;
+            r += f64::from(p.r) * pa;
+            g += f64::from(p.g) * pa;
+            b += f64::from(p.b) * pa;
+        }
+    }
+    if a < 0.5 {
+        return Rgba::TRANSPARENT;
+    }
+    let ch = |v: f64| (v / a).round().clamp(0.0, 255.0) as u8;
+    Rgba::new(ch(r), ch(g), ch(b), a.round().clamp(0.0, 255.0) as u8)
 }
 
 /// Bilinear sample with transparent outside (premultiplied interpolation).

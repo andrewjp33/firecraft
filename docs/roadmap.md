@@ -18,6 +18,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
 - Crop tool, Edit > Crop Document and Crop Selected Bitmap, saved as Fireworks MX saves a crop
   (moved canvas origin) ([behavior/crop.md](behavior/crop.md))
+- Modify > Canvas > Canvas Size (units, anchor) and Image Size (pixel/print size, resolution,
+  constrain, resample methods) ([behavior/canvas-size.md](behavior/canvas-size.md))
 - Pixel selections belong to the canvas: picking another bitmap in the Layers panel keeps the
   marquee and applies it to that bitmap ("Edit Bitmap"); selection changes are undo steps and undo
   brings the marquee back ([behavior/selection.md](behavior/selection.md))

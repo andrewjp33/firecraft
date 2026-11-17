@@ -36,7 +36,9 @@ never clamped. Not reproduced since; FireCraft doesn't clamp handle drags.
 Cropping the probe to 40,30 to 250,160 gave a 210 x 130 canvas with:
 
 * the red and green rectangles kept whole (red crosses the left and top edges);
-* the 120x90 bitmap trimmed to 100x70 (the part inside the box), its pixels unmoved;
+* the 120x90 bitmap trimmed to 100x70 (the part inside the box), its pixels unmoved (a bitmap
+  whose part inside is wholly transparent is deleted: seen with Canvas Size, which crops the
+  same way, [canvas-size.md](canvas-size.md));
 * the blue ellipse (255..295 across) and the small bitmap, wholly outside, deleted.
 
 Cropping to 40,30 to 330,230 (past the right and bottom) gave 290 x 200: only the small bitmap

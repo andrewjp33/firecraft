@@ -18,6 +18,7 @@
 
 mod canvas;
 mod crop_tool;
+mod size_dialogs;
 pub mod cursors;
 mod dialogs;
 mod motion_path;
@@ -203,6 +204,11 @@ pub struct Prefs {
     /// The answer to "Automatically add new frames?" when an animation runs past the last frame,
     /// once "Don't show again" was ticked (Fireworks MX's prompt); `None`: ask.
     pub add_frames: Option<bool>,
+    /// Image Size's Constrain Proportions, Resample Image and method, kept as Fireworks MX keeps
+    /// them (its preferences `ResizeConstrain`, `ResizeResample`, `ImageSizeTransformMode`).
+    pub image_size_constrain: bool,
+    pub image_size_resample: bool,
+    pub image_size_method: firecraft_raster::transform::Resample,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -233,7 +239,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -259,6 +265,9 @@ impl Prefs {
                 Some(true) => "yes",
                 Some(false) => "no",
             },
+            self.image_size_constrain,
+            self.image_size_resample,
+            self.image_size_method.key(),
         )
     }
 
@@ -298,6 +307,11 @@ impl Prefs {
                 // `fireworks_dir` is the older name; an install folder still finds its textures.
                 "textures_dir" | "fireworks_dir" => p.textures_dir = v.trim().to_owned(),
                 "patterns_dir" => p.patterns_dir = v.trim().to_owned(),
+                "image_size_constrain" => p.image_size_constrain = flag,
+                "image_size_resample" => p.image_size_resample = flag,
+                "image_size_method" => {
+                    p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
+                }
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
                 "ui_scale" => {
                     if let Ok(n) = v.trim().parse::<u32>() {
@@ -367,6 +381,9 @@ impl Default for Prefs {
             fonts_dir: String::new(),
             ui_scale: 100,
             add_frames: None,
+            image_size_constrain: true,
+            image_size_resample: true,
+            image_size_method: firecraft_raster::transform::Resample::Bicubic,
         }
     }
 }

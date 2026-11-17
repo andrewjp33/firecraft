@@ -165,6 +165,14 @@ fn collect_tile_refs(n: &Node, out: &mut Vec<u32>, depth: usize) {
     }
 }
 
+/// The canvas's top-left in the document's own coordinates (root `XLCf`/`YLCf`; 0, 0 for a new
+/// document).
+pub fn canvas_origin(doc: &firecraft_doc::Document) -> (f64, f64) {
+    let root = doc.raw.as_ref();
+    let get = |tag| root.and_then(|r| r.float_of(tag)).unwrap_or(0.0);
+    (get("XLC"), get("YLC"))
+}
+
 /// Move the canvas within the document's own coordinates by (`dx`, `dy`), as Crop Document does
 /// in Fireworks MX: objects keep their document coordinates and the canvas's top-left (root
 /// `XLCf`/`YLCf`) moves. FireCraft's objects are in canvas coordinates, so the caller moves them

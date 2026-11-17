@@ -166,7 +166,25 @@ which matches answering "Don't Resample".
 
 ## Image Size (Modify > Canvas)
 
-Not measured in Fireworks yet; expected to store the chosen unit as File > New does.
+Measured 2026-11-16 (the dialog itself: [canvas-size.md](canvas-size.md#image-size)).
+
+**Fireworks MX's Image Size dialog always reads `RESf` as pixels/inch** and uses `RSUi` only
+to choose the unit it shows: a document made by script at 28.35 px/cm (`RESf` 28.35,
+`RSUi` 1) shows 11.161 Pixels/cm there (28.35 / 2.54). That disagrees with New Document and the
+`pHYs` writer, which read `RESf` in the document's unit.
+
+Switching the dialog's unit converts the number exactly and shows 3 decimals (72 ppi ->
+28.346, 108 -> 42.52 Pixels/cm), but OK with only the unit changed **stores the old number
+with the new unit**: a 108 ppi document became `RESf` 108, `RSUi` 1, and its saved `pHYs` was
+10800 (108 px/cm, about 274 ppi, to other programs). Reopened, Fireworks' own dialog still
+shows 42.52 Pixels/cm. A resolution typed in the dialog (resample on, 108 ppi) is stored as
+typed (`RESf` 108, `RSUi` 0).
+
+FireCraft doesn't copy this: its Image Size keeps the resolution in the document's unit, as New
+Document and `pHYs` do (72 ppi switched to cm stores 28.346457 px/cm), so the file is right for
+other programs and for Fireworks' New Document and saving. Fireworks' Image Size dialog will
+show such a pixels/cm document divided by 2.54, as it shows its own.
+
 FirePixel's Image Size dialog converts on a unit change (without Fireworks' rounding), then
 sends only pixels/inch and leaves the document's unit flag unchanged: 100 Pixels/cm on an inch
 document is saved as 254 Pixels/Inch (seen by the user in Fireworks MX, 2026-11-16), and, from
@@ -174,7 +192,8 @@ its code, a pixels/inch value would be written into a pixels/cm document unconve
 
 ## Open questions
 
-* Fireworks' Image Size dialog: unit conversion, rounding and what it stores.
+* Whether Fireworks' Image Size, with a resolution typed in Pixels/cm, stores it as typed
+  (and so as pixels/cm in `pHYs`) or converts it.
 * Fireworks' File > Open of a flat PNG without `pHYs` (72 ppi or 28.34 px/cm?).
 * CS6's JPEG density (truncated like MX, or rounded as FirePixel does) and its resolution
   range.

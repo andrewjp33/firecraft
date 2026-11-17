@@ -300,13 +300,16 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 /// Modify > Canvas (also the canvas context menu's Modify Canvas).
 fn canvas_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let has_doc = app.session.active_doc().is_some();
+    // In Fireworks MX's order.
+    if item(ui, "Image Size...", "", has_doc) {
+        app.dialogs.open_image_size(app.session.active_doc());
+    }
     if item(ui, "Canvas Size...", "", has_doc) {
         app.dialogs.open_canvas_size(app.session.active_doc());
     }
     if item(ui, "Canvas Color...", "", has_doc) {
         app.dialogs.canvas_color = true;
     }
-    todo(ui, "Image Size...", "");
     todo(ui, "Fit Canvas", "");
     todo(ui, "Rotate 180°", "");
 }

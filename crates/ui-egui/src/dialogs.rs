@@ -29,7 +29,9 @@ pub struct Dialogs {
     pub new_res_cm: bool,
     pub new_canvas: CanvasChoice,
     pub new_custom: [u8; 3],
-    pub canvas_size: Option<(u32, u32)>,
+    /// Modify > Canvas > Canvas Size and Image Size.
+    pub canvas_size: Option<crate::size_dialogs::CanvasSize>,
+    pub image_size: Option<crate::size_dialogs::ImageSize>,
     pub canvas_color: bool,
     pub prefs: bool,
     /// Preferences > UI Scale while it's being set (applied on release, Enter or leaving the
@@ -89,6 +91,7 @@ impl Dialogs {
             || self.missing_fonts.is_some()
             || self.new_doc
             || self.canvas_size.is_some()
+            || self.image_size.is_some()
             || self.canvas_color
             || self.prefs
             || self.about
@@ -408,6 +411,7 @@ impl Default for Dialogs {
             new_canvas: CanvasChoice::White,
             new_custom: [255, 255, 255],
             canvas_size: None,
+            image_size: None,
             canvas_color: false,
             prefs: false,
             ui_scale_edit: None,
@@ -438,13 +442,15 @@ impl Dialogs {
     }
 
     pub fn open_canvas_size(&mut self, d: Option<&DocState>) {
-        if let Some(d) = d {
-            self.canvas_size = Some((d.doc.width, d.doc.height));
-        }
+        self.canvas_size = d.map(crate::size_dialogs::CanvasSize::new);
+    }
+
+    pub fn open_image_size(&mut self, d: Option<&DocState>) {
+        self.image_size = d.map(crate::size_dialogs::ImageSize::new);
     }
 }
 
-fn dialog(title: &str) -> egui::Window<'_> {
+pub(crate) fn dialog(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
@@ -649,35 +655,8 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
             dl.new_doc = false;
         }
     }
-    let dl = &mut app.dialogs;
-    if let Some((mut w, mut h)) = dl.canvas_size {
-        let mut ok = false;
-        let mut cancel = false;
-        dialog("Canvas Size").show(ctx, |ui| {
-            egui::Grid::new("canvassize").show(ui, |ui| {
-                ui.label("Width:");
-                ui.add(DragValue::new(&mut w).range(1..=32000).suffix(" Pixels"));
-                ui.end_row();
-                ui.label("Height:");
-                ui.add(DragValue::new(&mut h).range(1..=32000).suffix(" Pixels"));
-                ui.end_row();
-            });
-            ui.weak("Anchor: top left (other anchors coming soon)");
-            ui.horizontal(|ui| {
-                ok = ui.button("OK").clicked();
-                cancel = ui.button("Cancel").clicked();
-            });
-        });
-        dl.canvas_size = Some((w, h));
-        if ok {
-            dl.canvas_size = None;
-            if let Some(d) = app.session.active_doc_mut() {
-                d.set_canvas_size(w, h);
-            }
-        } else if cancel {
-            dl.canvas_size = None;
-        }
-    }
+    crate::size_dialogs::canvas_size(app, ctx);
+    crate::size_dialogs::image_size(app, ctx);
     let dl = &mut app.dialogs;
     if dl.canvas_color {
         let mut close = false;

@@ -3,6 +3,8 @@
 //!
 //! The UI is a thin shell over this crate: it renders state and turns input into calls here.
 
+mod canvas;
+pub use canvas::Anchor;
 mod crop;
 pub use crop::CropRect;
 mod fills;
@@ -1936,16 +1938,6 @@ impl DocState {
         }
     }
 
-    /// Modify > Canvas > Canvas Size (anchored top-left).
-    pub fn set_canvas_size(&mut self, w: u32, h: u32) {
-        if w == 0 || h == 0 || w > 32_000 || h > 32_000 {
-            return;
-        }
-        self.edit("Canvas Size", |s| {
-            s.doc.width = w;
-            s.doc.height = h;
-        });
-    }
 }
 
 /// The whole application state independent of the UI.

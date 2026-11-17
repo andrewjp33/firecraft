@@ -6,7 +6,7 @@ use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{AxisMap, resample};
 use firecraft_raster::path::{Pt, fill_polygons_feathered, fill_polygons_with, flatten_cubic};
 use firecraft_raster::pattern::{PatternFill, web_dither_at};
-use firecraft_raster::transform::{Affine, sample, transform_image};
+use firecraft_raster::transform::{Affine, Resample, sample, transform_image_with};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
 
 use crate::{MAX_SYMBOL_DEPTH, RenderCtx};
@@ -975,10 +975,15 @@ impl Element {
     }
 
     /// Apply an affine transform to the element's geometry: path anchors and handles, gradient
-    /// handles and stroke widths are transformed; bitmaps are resampled.
+    /// handles and stroke widths are transformed; bitmaps are resampled (bilinear).
     pub fn transform(&mut self, m: &Affine) {
+        self.transform_with(m, Resample::Bilinear);
+    }
+
+    /// [`transform`](Self::transform) resampling bitmaps with `method` (Image Size).
+    pub fn transform_with(&mut self, m: &Affine, method: Resample) {
         let map_bitmap = |b: &mut Bitmap| {
-            if let Some((img, x, y)) = transform_image(&b.image, b.x, b.y, m) {
+            if let Some((img, x, y)) = transform_image_with(&b.image, b.x, b.y, m, method) {
                 *b = Bitmap { x, y, image: img };
             }
         };
@@ -1045,14 +1050,14 @@ impl Element {
                 }
             }
             ElementKind::Other { cached: Some(b), .. } => map_bitmap(b),
-            ElementKind::Group(children) => children.iter_mut().for_each(|c| c.transform(m)),
+            ElementKind::Group(children) => children.iter_mut().for_each(|c| c.transform_with(m, method)),
             ElementKind::Masked {
                 content, mask, cache, ..
             } => {
-                content.iter_mut().for_each(|c| c.transform(m));
-                mask.transform(m);
+                content.iter_mut().for_each(|c| c.transform_with(m, method));
+                mask.transform_with(m, method);
                 if let Some(c) = cache {
-                    c.transform(m);
+                    c.transform_with(m, method);
                 }
             }
             ElementKind::Instance { matrix, bounds, .. } => {

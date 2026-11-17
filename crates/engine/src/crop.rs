@@ -6,7 +6,8 @@
 //!   canvas's top-left (root `XLCf`/`YLCf`); FireCraft keeps objects in canvas coordinates, so
 //!   it moves the objects and the saved origin together and writes the same file.
 //! * Objects wholly outside the rectangle are deleted, in every layer and frame.
-//! * Bitmaps are trimmed to the rectangle (preference `CropDocCropsImages`, on by default);
+//! * Bitmaps are trimmed to the rectangle (preference `CropDocCropsImages`, on by default),
+//!   and deleted if nothing visible is left of them;
 //!   vector objects, text and symbol instances that cross its edge are kept whole.
 //! * Crop Image trims one bitmap to the rectangle; it never grows the bitmap.
 
@@ -19,14 +20,16 @@ use crate::{DocState, ElementRef};
 pub type CropRect = (i64, i64, i64, i64);
 
 /// The largest canvas side (as Modify > Canvas > Canvas Size).
-const MAX_SIDE: i64 = 32_000;
+pub(crate) const MAX_SIDE: i64 = 32_000;
 
 /// Whether bounds `b` (x, y, w, h) and `r` share any area.
 fn overlaps(b: (f64, f64, f64, f64), r: CropRect) -> bool {
     b.0 < r.2 as f64 && b.0 + b.2 > r.0 as f64 && b.1 < r.3 as f64 && b.1 + b.3 > r.1 as f64
 }
 
-/// Trim a bitmap's pixels to `r` (canvas pixels). `false` if nothing of it is left.
+/// Trim a bitmap's pixels to `r` (canvas pixels). `false` if nothing of it is left: no pixels,
+/// or (once trimmed) only transparent ones. Fireworks MX deleted a 120x90 bitmap whose 10x10
+/// corner inside a smaller canvas was transparent (Canvas Size, 2026-11-16).
 fn trim_to(b: &mut firecraft_doc::Bitmap, r: CropRect) -> bool {
     let (w, h) = (i64::from(b.image.width()), i64::from(b.image.height()));
     let (l, t) = (b.x.max(r.0), b.y.max(r.1));
@@ -37,6 +40,9 @@ fn trim_to(b: &mut firecraft_doc::Bitmap, r: CropRect) -> bool {
     if (l, t, rr, bb) != (b.x, b.y, b.x + w, b.y + h) {
         let mut img = RgbaImage::new((rr - l) as u32, (bb - t) as u32, Rgba::TRANSPARENT);
         img.copy_from(&b.image, b.x - l, b.y - t);
+        if crate::paint::opaque_bounds(&img).is_none() {
+            return false;
+        }
         b.image = img;
         b.x = l;
         b.y = t;
@@ -65,9 +71,15 @@ impl DocState {
     /// Crop the document to `r` (Fireworks MX's undo step "Crop Document"). Nothing happens for
     /// an empty or oversized rectangle, the whole canvas, or in the Symbol Editor.
     pub fn crop_document(&mut self, r: CropRect) -> bool {
+        self.symbol_link.is_none() && self.crop_to(r)
+    }
+
+    /// The canvas becomes `r` (Crop Document and Canvas Size: Fireworks MX names both undo
+    /// steps "Crop Document").
+    pub(crate) fn crop_to(&mut self, r: CropRect) -> bool {
         let (w, h) = (r.2 - r.0, r.3 - r.1);
         let whole = r == (0, 0, i64::from(self.doc.width), i64::from(self.doc.height));
-        if w < 1 || h < 1 || w > MAX_SIDE || h > MAX_SIDE || whole || self.symbol_link.is_some() {
+        if w < 1 || h < 1 || w > MAX_SIDE || h > MAX_SIDE || whole {
             return false;
         }
         self.edit("Crop Document", |s| {
@@ -251,6 +263,21 @@ mod tests {
         assert!(d.crop_document((10, 10, 100, 100)));
         let (root, _) = firecraft_io::fireworks_tree(&d.doc);
         assert_eq!((root.float_of("XLC"), root.float_of("YLC")), (Some(50.0), Some(40.0)));
+    }
+
+    #[test]
+    fn a_bitmap_left_transparent_goes() {
+        let mut d = DocState::new(Document::new(300, 200, 72.0, Some(Rgba::WHITE)));
+        // Opaque only in its right half.
+        let mut img = RgbaImage::new(100, 50, Rgba::TRANSPARENT);
+        for y in 0..50 {
+            for x in 50..100 {
+                img.set(x, y, Rgba::new(1, 2, 3, 255));
+            }
+        }
+        d.add_element(Element::new(ElementKind::Bitmap(Bitmap { x: 100, y: 100, image: img })), "Bitmap");
+        assert!(d.crop_document((0, 0, 140, 200)));
+        assert!(d.doc.layers[0].elements(0).is_empty());
     }
 
     #[test]
