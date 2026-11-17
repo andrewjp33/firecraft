@@ -173,6 +173,20 @@ fn element_hit(el: &Element, x: f64, y: f64, ctx: &firecraft_doc::RenderCtx) -> 
 /// Whether `el`, drawn alone (full opacity, Normal) around a point, has pixels within `tol` of it.
 fn solo_probe(el: &Element, px: i64, py: i64, tol: i64, ctx: &firecraft_doc::RenderCtx) -> bool {
     let n = (2 * tol + 1) as u32;
+    // A path without effects or a feathered fill draws each pixel on its own: draw just the probe
+    // (drawing it whole cost 95 ms per mouse movement on spectrum_wave.png's canvas-sized
+    // textured gradient, which made the Pointer's hover highlight, and so every repaint and zoom,
+    // sluggish).
+    if let ElementKind::Path(p) = &el.kind
+        && el.effects.iter().all(|e| e.active().is_none())
+        && p.fill.as_ref().is_none_or(|f| f.feather == 0)
+    {
+        return el
+            .rasterize(px - tol, py - tol, n, n, ctx)
+            .is_some_and(|(img, x, y)| {
+                (0..n as i64).any(|v| (0..n as i64).any(|u| img.get(u - x, v - y).is_some_and(|q| q.a > 0)))
+            });
+    }
     let mut probe = firecraft_raster::RgbaImage::new(n, n, Rgba::TRANSPARENT);
     let mut solo = el.clone();
     solo.opacity = 100.0;

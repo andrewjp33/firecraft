@@ -2,7 +2,8 @@
 """Minimal XTest input driver for the oracle harness (no xdotool needed).
 
 Usage: xin.py click X Y | rclick X Y | move X Y | down | up | key KEYSYM | kdown KEYSYM | kup KEYSYM
-       | combo Control_L+q | focus | dclick X Y | type TEXT | resize W H | sleep SECONDS ...
+       | combo Control_L+q | focus | dclick X Y | type TEXT | resize W H | sleep SECONDS
+       | scroll N (wheel notches, + up, - down) ...
 (resize: the top-level window under the pointer, e.g. to simulate the main window growing)
 (focus: give keyboard focus to the top-level window under the pointer; without a window
 manager, winit apps otherwise never see key events)
@@ -35,6 +36,12 @@ def type_text(text):
         key(name)
 def button(down):
     xt.XTestFakeButtonEvent(ctypes.c_void_p(d), 1, 1 if down else 0, 0); flush(); time.sleep(0.15)
+def scroll(n, delay=0.05):
+    # Wheel notches: positive scrolls up (X button 4), negative down (button 5).
+    b = 4 if n > 0 else 5
+    for _ in range(abs(n)):
+        xt.XTestFakeButtonEvent(ctypes.c_void_p(d), b, 1, 0); flush()
+        xt.XTestFakeButtonEvent(ctypes.c_void_p(d), b, 0, 0); flush(); time.sleep(delay)
 def keyev(name, down):
     kc = x11.XKeysymToKeycode(ctypes.c_void_p(d), x11.XStringToKeysym(name.encode()))
     xt.XTestFakeKeyEvent(ctypes.c_void_p(d), kc, 1 if down else 0, 0); flush(); time.sleep(0.1)
@@ -81,4 +88,5 @@ while a:
     elif c == "dclick": dclick(int(a.pop(0)), int(a.pop(0)))
     elif c == "type": type_text(a.pop(0))
     elif c == "sleep": time.sleep(float(a.pop(0)))
+    elif c == "scroll": scroll(int(a.pop(0)))
 
