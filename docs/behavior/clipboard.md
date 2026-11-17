@@ -71,6 +71,9 @@ with two (37.80). The rounded number is what the dialog keeps: switching back co
 72 ppi -> 28.35; 28.34 px/cm -> 72 (71.98 at two decimals); 73.6117 ppi -> 29; 73.6092 ppi ->
 28.98 (0.0200005 from 29 in float32; in float64 it would snap). The field accepts 1 to 100000
 ("Please enter a number between 1 and 100000."), so 1 ppi switched to cm (0.39) is refused.
+Fireworks CS6 converts identically (the same 22 conversions checked 2026-11-16, edge cases
+included). FirePixel's dialog doesn't convert: it only relabels the number, and makes a
+Pixels/cm document as pixels/inch (value x 2.54).
 
 The canvas color stays as last used. FireCraft does the same
 (`firecraft_io::clipboard_image_info`; DIBs by their pixels/metre like PNG, unmeasured) and has
