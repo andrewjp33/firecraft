@@ -209,6 +209,10 @@ pub struct Prefs {
     pub image_size_constrain: bool,
     pub image_size_resample: bool,
     pub image_size_method: firecraft_raster::transform::Resample,
+    /// Preferences > Interpolation: how bitmaps are resampled when objects are scaled, rotated,
+    /// skewed or distorted (Fireworks MX: General > Interpolation, `EditTransformMode`,
+    /// Bicubic by default; Image Size keeps its own).
+    pub interpolation: firecraft_raster::transform::Resample,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -239,7 +243,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -268,6 +272,7 @@ impl Prefs {
             self.image_size_constrain,
             self.image_size_resample,
             self.image_size_method.key(),
+            self.interpolation.key(),
         )
     }
 
@@ -309,6 +314,9 @@ impl Prefs {
                 "patterns_dir" => p.patterns_dir = v.trim().to_owned(),
                 "image_size_constrain" => p.image_size_constrain = flag,
                 "image_size_resample" => p.image_size_resample = flag,
+                "interpolation" => {
+                    p.interpolation = firecraft_raster::transform::Resample::from_key(v.trim());
+                }
                 "image_size_method" => {
                     p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
                 }
@@ -384,6 +392,7 @@ impl Default for Prefs {
             image_size_constrain: true,
             image_size_resample: true,
             image_size_method: firecraft_raster::transform::Resample::Bicubic,
+            interpolation: firecraft_raster::transform::Resample::Bicubic,
         }
     }
 }
@@ -959,6 +968,10 @@ impl FireCraftApp {
                 | firecraft_engine::Tool::Knife
         ) {
             self.path_edit.end_pen();
+        }
+        // Objects are transformed with the Interpolation preference.
+        for d in &mut self.session.docs {
+            d.interpolation = self.prefs.interpolation;
         }
         // Choosing another tool drops the crop box without cropping; the Hand and Zoom tools
         // keep it (Fireworks MX).

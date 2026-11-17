@@ -325,6 +325,9 @@ pub fn transform_image_with(
         return None;
     }
     let mut out = RgbaImage::new(w as u32, h as u32, Rgba::TRANSPARENT);
+    // Turns by 90 degrees, flips and whole-pixel moves put every pixel exactly on another: copy
+    // them, whatever the method (a soft kernel would otherwise blur them).
+    let method = if whole_pixels(m) { Resample::NearestNeighbor } else { method };
     for ty in 0..h {
         for tx in 0..w {
             let (sx, sy) = inv.apply((x0 + tx) as f64 + 0.5, (y0 + ty) as f64 + 0.5);
@@ -365,6 +368,21 @@ pub fn resize_image(img: &RgbaImage, w: u32, h: u32, method: Resample) -> RgbaIm
         }
     }
     out
+}
+
+/// Whether `m` maps whole pixels onto whole pixels: an affine map made of 90 degree turns,
+/// flips and a whole-pixel move.
+fn whole_pixels(m: &Affine) -> bool {
+    const EPS: f64 = 1e-9;
+    let unit = |v: f64| v.abs() < EPS || (v.abs() - 1.0).abs() < EPS;
+    let whole = |v: f64| (v - v.round()).abs() < EPS;
+    m.is_affine()
+        && (m.i - 1.0).abs() < EPS
+        && [m.a, m.b, m.c, m.d].into_iter().all(unit)
+        && (m.a.abs() + m.b.abs() - 1.0).abs() < EPS
+        && (m.c.abs() + m.d.abs() - 1.0).abs() < EPS
+        && whole(m.e)
+        && whole(m.f)
 }
 
 /// Catmull-Rom cubic weight (a = -0.5): sharp, may overshoot slightly.

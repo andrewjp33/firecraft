@@ -33,7 +33,10 @@ Percent | Inches | Centimeters, and Resolution with Pixels/Inch | Pixels/cm), a 
 lock beside the constrained rows, **Constrain Proportions**, **Resample Image** with Bicubic |
 Bilinear | Soft | Nearest Neighbor, OK, Cancel. Constrain, Resample and the method are
 remembered (preferences `ResizeConstrain`, `ResizeResample`, `ImageSizeTransformMode`); print
-sizes start in Centimeters for a pixels/cm document.
+sizes start in Centimeters for a pixels/cm document. The method is Image Size's own, separate
+from Preferences > General > Interpolation (`EditTransformMode`, used for transforming
+objects: [objects.md](objects.md#interpolation)): setting that to Soft left Image Size at
+Bicubic.
 
 | What | Fireworks MX (160 x 100 at 72 ppi unless stated) |
 |---|---|

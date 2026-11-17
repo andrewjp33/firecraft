@@ -818,6 +818,18 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             ui.label("Undo Steps:");
             ui.add(DragValue::new(&mut prefs.undo_steps).range(1..=firecraft_engine::MAX_UNDO_STEPS));
         });
+        ui.horizontal(|ui| {
+            ui.label("Interpolation:");
+            egui::ComboBox::from_id_salt("prefs_interpolation")
+                .selected_text(prefs.interpolation.label())
+                .show_ui(ui, |ui| {
+                    for m in firecraft_raster::transform::Resample::ALL {
+                        ui.selectable_value(&mut prefs.interpolation, m, m.label());
+                    }
+                });
+        })
+        .response
+        .on_hover_text("Set the default pixel transformation algorithm: how bitmaps are resampled when objects are scaled, rotated, skewed or distorted. Image Size has its own choice.");
         ui.separator();
         ui.strong("Fireworks compatibility");
         ui.label("New documents:");

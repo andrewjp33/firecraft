@@ -998,6 +998,53 @@ mod tests {
     }
 
     #[test]
+    fn turns_are_pixel_exact_with_every_interpolation() {
+        use firecraft_raster::transform::Resample;
+        for method in Resample::ALL {
+            let mut d = DocState::new(Document::new(50, 50, 72.0, None));
+            d.interpolation = method;
+            let mut img = RgbaImage::new(3, 2, Rgba::TRANSPARENT);
+            for (i, (x, y)) in [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)].into_iter().enumerate() {
+                img.set(x, y, Rgba::new(40 * i as u8, 0, 0, 255));
+            }
+            d.add_element(Element::new(ElementKind::Bitmap(Bitmap { x: 10, y: 10, image: img.clone() })), "Add");
+            d.turn(Turn::Rotate90Cw);
+            d.turn(Turn::FlipHorizontal);
+            d.turn(Turn::FlipHorizontal);
+            d.turn(Turn::Rotate90Ccw);
+            match &d.element(ElementRef::new(0, 0)).map(|e| e.kind.clone()) {
+                Some(ElementKind::Bitmap(b)) => assert_eq!((b.x, b.y, &b.image), (10, 10, &img), "{method:?}"),
+                _ => panic!("not a bitmap"),
+            }
+        }
+    }
+
+    #[test]
+    fn scaling_follows_the_interpolation_preference() {
+        use firecraft_raster::transform::{Affine, Resample};
+        let scaled = |method| {
+            let mut d = DocState::new(Document::new(50, 50, 72.0, None));
+            d.interpolation = method;
+            let mut img = RgbaImage::new(4, 4, Rgba::new(0, 0, 0, 255));
+            img.set(1, 1, Rgba::new(255, 255, 255, 255));
+            d.add_element(Element::new(ElementKind::Bitmap(Bitmap { x: 0, y: 0, image: img })), "Add");
+            let originals = vec![(ElementRef::new(0, 0), d.element(ElementRef::new(0, 0)).unwrap().clone())];
+            let m = Affine { a: 2.5, d: 2.5, ..Affine::IDENTITY };
+            d.transform_from(&originals, &m, "Scale");
+            match &d.element(ElementRef::new(0, 0)).unwrap().kind {
+                ElementKind::Bitmap(b) => b.image.clone(),
+                _ => panic!(),
+            }
+        };
+        let near = scaled(Resample::NearestNeighbor);
+        // Nearest neighbour keeps only the two colours; the others blend.
+        assert!(near.pixels().iter().all(|p| p.r == 0 || p.r == 255));
+        for m in [Resample::Bicubic, Resample::Bilinear, Resample::Soft] {
+            assert_ne!(scaled(m), near, "{m:?}");
+        }
+    }
+
+    #[test]
     fn turns_are_pixel_exact() {
         let mut d = DocState::new(Document::new(50, 50, 72.0, None));
         let mut img = RgbaImage::new(3, 2, Rgba::TRANSPARENT);

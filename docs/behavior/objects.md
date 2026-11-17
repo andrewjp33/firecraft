@@ -68,6 +68,18 @@ Objects follow the pointer while dragged ("Show objects while moving them" in Pr
 shows only an outline, for slower PCs). The Scale, Skew and Distort tools and rotating preview
 live under the same preference.
 
+## Interpolation
+
+Fireworks MX's Preferences > General > Interpolation ("Set the default pixel transformation
+algorithm": Bicubic, Bilinear, Soft, Nearest Neighbor; Bicubic by default) is the preference
+key `EditTransformMode` (Bicubic 1, Soft 3; measured 2026-11-16). FireCraft's Preferences >
+Interpolation does the same job: bitmaps scaled, rotated, skewed or distorted (the tools,
+Rotate/Flip, Numeric Transform) are resampled with it. Turns by 90 degrees, flips and
+whole-pixel moves copy pixels exactly whatever the choice. Image Size keeps its own choice
+(`ImageSizeTransformMode`; setting General to Soft left Image Size at Bicubic); MX also has
+`ExportTransformMode` (export scaling) and `AliasTransformMode` (unknown), not used yet. The
+kernels are standard ones, not yet measured against MX's ([canvas-size.md](canvas-size.md#not-matched-yet)).
+
 ## Colour pop-up
 
 Every colour box (Tools panel stroke and fill, the Property inspector's tool options, a

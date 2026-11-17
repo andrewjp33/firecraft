@@ -333,6 +333,10 @@ pub struct DocState {
     empty_bitmaps: Vec<u64>,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
+    /// How bitmaps are resampled when objects are scaled, rotated, skewed or distorted
+    /// (Fireworks MX's Preferences > General > Interpolation, `EditTransformMode`; the app sets
+    /// it from its preferences).
+    pub interpolation: firecraft_raster::transform::Resample,
 }
 
 /// A live edit in progress (see [`DocState::begin_live_edit`]).
@@ -364,6 +368,7 @@ impl DocState {
             empty_bitmaps: Vec::new(),
             bitmap_edit: None,
             revision: 0,
+            interpolation: firecraft_raster::transform::Resample::Bicubic,
         }
     }
 
@@ -1260,10 +1265,11 @@ impl DocState {
         originals: &[(ElementRef, Element)],
         m: &firecraft_raster::transform::Affine,
     ) {
+        let method = self.interpolation;
         for (r, orig) in originals {
             if let Some(e) = self.element_mut(*r) {
                 let mut t = orig.clone();
-                t.transform(m);
+                t.transform_with(m, method);
                 *e = t;
             }
         }
@@ -1333,11 +1339,12 @@ impl DocState {
         }
         let items = originals.to_vec();
         let m = *m;
+        let method = self.interpolation;
         self.edit(label, |s| {
             for (r, orig) in items {
                 if let Some(e) = s.element_mut(r) {
                     let mut t = orig;
-                    t.transform(&m);
+                    t.transform_with(&m, method);
                     // Edited text is drawn again through its new matrix rather than resampled.
                     if let ElementKind::Text(text) = &mut t.kind
                         && text.edited
