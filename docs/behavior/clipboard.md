@@ -62,18 +62,8 @@ in the picture's own resolution unit:
 | Fireworks PNG of a 28.99 px/cm document (`pHYs` 2800) | 40 x 30, 28.9899 Pixels/cm |
 | nothing (a copied file included) | the last document's settings |
 
-Changing the dialog's unit converts the number (measured 2026-11-16, 39 conversions,
-`firecraft_io::convert_resolution_unit`): in float32, times or divided by 2.54; a result within
-0.02 of a whole number becomes that number, anything else is rounded to two decimals and shown
-with two (37.80). The rounded number is what the dialog keeps: switching back converts it
-(28.99 px/cm -> 73.63 ppi -> 29 px/cm), and OK stores it (72 ppi switched to cm gave `RESf`
-28.35, `RSUi` 1). Typed values are stored as typed (73.6143 -> `RESf` 73.614304). Examples:
-72 ppi -> 28.35; 28.34 px/cm -> 72 (71.98 at two decimals); 73.6117 ppi -> 29; 73.6092 ppi ->
-28.98 (0.0200005 from 29 in float32; in float64 it would snap). The field accepts 1 to 100000
-("Please enter a number between 1 and 100000."), so 1 ppi switched to cm (0.39) is refused.
-Fireworks CS6 converts identically (the same 22 conversions checked 2026-11-16, edge cases
-included). FirePixel's dialog doesn't convert: it only relabels the number, and makes a
-Pixels/cm document as pixels/inch (value x 2.54).
+Changing the dialog's unit converts the number with Fireworks' own rounding; see
+[resolution.md](resolution.md).
 
 The canvas color stays as last used. FireCraft does the same
 (`firecraft_io::clipboard_image_info`; DIBs by their pixels/metre like PNG, unmeasured) and has
@@ -81,24 +71,10 @@ the same Pixels/Inch | Pixels/cm choice. Its additions: a copied image file give
 the resolution File > Open would give it; in the browser its own copied objects give their
 bounds.
 
-## Resolution in PNG and JPEG data
+## Resolution
 
-Fireworks MX keeps the editable resolution in the tree (`RESf` value, `RSUi` 1 = pixels/cm)
-and writes `pHYs` (pixels/metre, whole numbers) in saved files, exports and its clipboard PNG
-by truncating the resolution to a whole number in its own unit first: pixels/inch
-`trunc(ppi) * 10000 / 254` (integer division), pixels/cm `trunc(px/cm) * 100`. Measured
-2026-11-16 with documents made by script and saved: 72, 72.5, 72.01 ppi -> 2834; 71.99 -> 2795;
-96 -> 3779; 150 -> 5905; 254 -> 10000 (a float `* 39.37` would give 9999); 2540 -> 100000;
-28.35, 28.3465, 28.99 px/cm -> 2800; 37.8 -> 3700. PNG 8 and PNG 32 exports write the same.
-JPEG exports write JFIF density in dots per inch, truncated: 72.5 ppi -> 72, 28.99 px/cm -> 73
-(73.6), 28.35 px/cm -> 72. FireCraft writes the same (`firecraft_io::png_ppm`, `jfif_dpi`; it
-used to round, writing 2835 for 72 ppi, and ignored the pixels/cm unit). FirePixel measured
-the same `pHYs` rule on CS6 but rounds the JPEG density.
-
-Its clipboard PNG carries the source document's resolution (a 150 ppi document's copy:
-`RESf` 150, `RSUi` 0, `pHYs` 5905), and so does FireCraft's, so objects pasted between the two
-keep the document's resolution (Fireworks MX asks to resample a paste whose resolution differs
-from the document's).
+The clipboard PNG carries the source document's resolution and unit, in Fireworks MX's and in
+FireCraft's, and `pHYs` follows Fireworks' truncating rule; see [resolution.md](resolution.md).
 
 ## Where Fireworks MX puts a pasted picture
 

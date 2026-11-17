@@ -35,7 +35,7 @@ frame delays and the resolution, on 60×40 probes written by ImageMagick (2026-1
 - **Canvas**: transparent (`BGCi = 00ffffff`).
 - **Resolution**: JPEG's JFIF density (300 → 300 pixels/inch); TIFF's XResolution (200 → 200);
   PNG's `pHYs` is shown in **pixels/cm** (5905 px/m → 59.05 pixels/cm, `RSUi = 1`); Targa and
-  BMP open at 72.
+  BMP open at 72. More in [resolution.md](resolution.md).
 - Fireworks MX ignores EXIF orientation (phone photos open sideways); FireCraft applies it.
 - Fireworks MX refused the BMPs ImageMagick writes by default (v5 header, 24- and 32-bit) with
   error -2147216341, and opened a BMP3 file. FireCraft reads both.
