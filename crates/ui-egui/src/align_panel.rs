@@ -293,36 +293,95 @@ fn digits_only(text: &str) -> String {
         .collect()
 }
 
-/// The Space section's field (Fireworks CS6): "Evenly", or a gap in pixels. Clicking it while
-/// it shows Evenly turns it into the last gap (0 at first), selected so typing replaces it; its
-/// menu offers that gap ("12 px") and Evenly.
+/// The spacing field's accessible name and tooltip.
+const SPACING_NAME: &str = "Space between objects: Evenly, or a gap in pixels";
+
+/// The spacing field's menu: the last gap ("12 px") and Evenly. Whether the gap was chosen.
+fn spacing_menu(ui: &mut egui::Ui, value: &mut Option<i32>, last: i32) -> bool {
+    let mut gap = false;
+    if ui.button(format!("{last} px")).clicked() {
+        *value = Some(last);
+        gap = true;
+        ui.close();
+    }
+    if ui.button("Evenly").clicked() {
+        *value = None;
+        ui.close();
+    }
+    gap
+}
+
+/// The Space section's field (after Fireworks CS6's): "Evenly", or a gap in pixels. Showing
+/// Evenly it is a drop-down: a click on the text or the arrow opens the menu (the last gap,
+/// "12 px", or Evenly), and clicking elsewhere leaves it as it was. Choosing the gap turns it
+/// into a number field with the gap selected, so typing replaces it.
 fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
-    let id = egui::Id::unique("align_spacing_text");
+    let text_id = egui::Id::unique("align_spacing_text");
+    let edit_id = egui::Id::unique("align_spacing_edit");
+    let focus_id = egui::Id::unique("align_spacing_focus");
+    let field = vec2(58.0, 18.0);
+    if value.is_none() {
+        let (rect, resp) = ui.allocate_exact_size(vec2(field.x + 15.0, field.y), egui::Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, SPACING_NAME));
+        let p = ui.painter();
+        let text_rect = Rect::from_min_size(rect.min, field);
+        p.rect_filled(text_rect, 0.0, Color32::WHITE);
+        p.rect_stroke(text_rect, 0.0, Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+        p.text(
+            text_rect.left_center() + vec2(4.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            "Evenly",
+            egui::FontId::proportional(12.0),
+            ui.visuals().text_color(),
+        );
+        let arrow = Rect::from_min_max(pos2(text_rect.right() + 1.0, rect.top()), rect.max);
+        if resp.hovered() {
+            p.rect_stroke(arrow, 1.0, Stroke::new(1.0, Color32::from_gray(150)), egui::StrokeKind::Inside);
+        }
+        crate::icons::paint_glyph(
+            p,
+            Rect::from_center_size(arrow.center(), vec2(10.0, 10.0)),
+            crate::icons::Glyph::TriangleDown,
+            Color32::from_gray(30),
+        );
+        let resp = resp.on_hover_text(SPACING_NAME);
+        egui::Popup::menu(&resp).show(|ui| {
+            if spacing_menu(ui, value, *last) {
+                ui.data_mut(|d| d.insert_temp(focus_id, true));
+            }
+        });
+        ui.data_mut(|d| d.insert_temp(text_id, spacing_text(*value)));
+        return;
+    }
     let mut text = ui
-        .data(|d| d.get_temp::<String>(id))
+        .data(|d| d.get_temp::<String>(text_id))
         .unwrap_or_else(|| spacing_text(*value));
+    // Just switched from Evenly by the menu: the gap, selected, ready to type over.
+    if ui.data_mut(|d| d.remove_temp::<bool>(focus_id)).unwrap_or(false) {
+        text = spacing_text(*value);
+        let mut state = egui::text_edit::TextEditState::load(ui.ctx(), edit_id).unwrap_or_default();
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::select_all_str(&text)));
+        state.store(ui.ctx(), edit_id);
+        ui.memory_mut(|m| m.request_focus(edit_id));
+    }
     // A visible box on the panel.
-    let out = egui::Frame::new()
+    let resp = egui::Frame::new()
         .stroke(Stroke::new(1.0, theme::BORDER))
         .fill(Color32::WHITE)
         .inner_margin(egui::Margin::symmetric(2, 0))
         .show(ui, |ui| {
-            egui::TextEdit::singleline(&mut text)
-                .frame(egui::Frame::NONE)
-                .desired_width(52.0)
-                .show(ui)
+            ui.add(
+                egui::TextEdit::singleline(&mut text)
+                    .id(edit_id)
+                    .frame(egui::Frame::NONE)
+                    .desired_width(52.0),
+            )
         })
-        .inner;
-    let resp = out.response.response.clone().on_hover_text("Space between objects: Evenly, or a gap in pixels");
-    if resp.gained_focus() && value.is_none() {
-        *value = Some(*last);
-        text = last.to_string();
-        let mut state = out.state;
-        state
-            .cursor
-            .set_char_range(Some(egui::text::CCursorRange::select_all_str(&text)));
-        state.store(ui.ctx(), resp.id);
-    } else if resp.changed() {
+        .inner
+        .on_hover_text(SPACING_NAME);
+    if resp.changed() {
         text = digits_only(&text);
         *value = parse_spacing(&text);
         if let Some(n) = *value {
@@ -335,18 +394,11 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
     let menu = crate::icons::glyph_button(ui, crate::icons::Glyph::TriangleDown, 14.0, true)
         .on_hover_text("Spacing");
     egui::Popup::menu(&menu).show(|ui| {
-        if ui.button(format!("{last} px")).clicked() {
-            *value = Some(*last);
-            text = spacing_text(*value);
-            ui.close();
-        }
-        if ui.button("Evenly").clicked() {
-            *value = None;
-            text = spacing_text(None);
-            ui.close();
+        if spacing_menu(ui, value, *last) {
+            ui.data_mut(|d| d.insert_temp(focus_id, true));
         }
     });
-    ui.data_mut(|d| d.insert_temp(id, text));
+    ui.data_mut(|d| d.insert_temp(text_id, text));
 }
 
 fn label(ui: &mut egui::Ui, text: &str) {
