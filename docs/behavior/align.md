@@ -24,6 +24,10 @@ the preferences, as MX's panel keeps them between sessions.
 * **Match Size:** width, height, width and height. **Space:** evenly vertically, evenly
   horizontally, and under them (from Fireworks CS6, which puts the three in a grey box of
   their own) a field with "Evenly" or a gap in pixels, with a menu.
+* In **Anchors** mode To Canvas, Distribute, Match Size and Space are hidden. Under the Align
+  row are three toggles for the part of each selected point that lines up: preceding control
+  points, anchors and control points (the default), succeeding control points; the text under
+  them describes the one chosen.
 
 The spacing field follows Fireworks CS6's (watched in CS6, 2026-11-18): it takes digits and a
 leading minus sign only (letters are ignored), its menu lists the last gap ("12 px") and
@@ -32,10 +36,6 @@ straight into a number field (0 at first), which was too easy to do by accident 
 that way until the menu set it back. In FireCraft, while the field shows Evenly, a click on it
 opens the menu, and clicking elsewhere leaves it as it was. Choosing the gap turns it into a
 number field with the gap selected, ready to type over. The last gap is kept between sessions.
-* In **Anchors** mode To Canvas, Distribute, Match Size and Space are hidden. Under the Align
-  row are three toggles for the part of each selected point that lines up: preceding control
-  points, anchors and control points (the default), succeeding control points; the text under
-  them describes the one chosen.
 
 Tooltips are MX's ("Align left edge", "Distribute vertical center", "Match width and height",
 "Space evenly horizontally", ...).
