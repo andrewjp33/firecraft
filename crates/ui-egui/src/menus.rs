@@ -258,13 +258,8 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 app.prefs.show_dock = v;
             }
             ui.separator();
-            let mut v = app.prefs.show_align;
-            if ui.checkbox(&mut v, "Align").changed() {
-                if v {
-                    crate::panels::show_align(app, ui.ctx());
-                } else {
-                    app.prefs.show_align = false;
-                }
+            if item(ui, "Align", "", true) {
+                crate::panels::show_align(app, ui.ctx());
             }
             ui.separator();
             let mut tabs = app.prefs.tabs;

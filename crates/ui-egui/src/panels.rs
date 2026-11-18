@@ -59,15 +59,8 @@ fn dock_contents(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Window > Align joins the Align panel to the Optimize group as a second tab, as
-            // Fireworks MX's "Optimize and Align".
-            if app.prefs.show_align {
-                group(ui, Group::Optimize, "Optimize and Align", false, |ui| {
-                    optimize_align(app, ui)
-                });
-            } else {
-                group(ui, Group::Optimize, "Optimize", false, |ui| crate::optimize::panel(app, ui));
-            }
+            // Fireworks MX groups the Align panel with Optimize as a second tab.
+            group(ui, Group::Optimize, "Optimize and Align", false, |ui| optimize_align(app, ui));
             group(ui, Group::Layers, "Layers", true, |ui| layers(app, ui));
             group(ui, Group::Frames, "Frames and History", true, |ui| {
                 frames_history(app, ui)
@@ -505,9 +498,8 @@ fn align_tab_id() -> egui::Id {
     egui::Id::unique("optimize_align_tab")
 }
 
-/// Window > Align: show the Align panel, opening its group on the Align tab.
+/// Window > Align: open the Optimize and Align group on its Align tab (as Fireworks MX does).
 pub fn show_align(app: &mut FireCraftApp, ctx: &egui::Context) {
-    app.prefs.show_align = true;
     ctx.data_mut(|d| {
         d.insert_temp(egui::Id::unique(("dock_open", Group::Optimize as u8)), true);
         d.insert_temp(align_tab_id(), true);
@@ -516,7 +508,7 @@ pub fn show_align(app: &mut FireCraftApp, ctx: &egui::Context) {
 }
 
 fn optimize_align(app: &mut FireCraftApp, ui: &mut egui::Ui) {
-    let mut align = ui.ctx().data(|d| d.get_temp::<bool>(align_tab_id())).unwrap_or(true);
+    let mut align = ui.ctx().data(|d| d.get_temp::<bool>(align_tab_id())).unwrap_or(false);
     ui.horizontal(|ui| {
         ui.selectable_value(&mut align, false, "Optimize");
         ui.selectable_value(&mut align, true, "Align");

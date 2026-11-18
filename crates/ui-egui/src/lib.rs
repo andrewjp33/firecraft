@@ -214,9 +214,8 @@ pub struct Prefs {
     /// skewed or distorted (Fireworks MX: General > Interpolation, `EditTransformMode`,
     /// Bicubic by default; Image Size keeps its own).
     pub interpolation: firecraft_raster::transform::Resample,
-    /// Window > Align: the Align panel is open (a tab beside Optimize in the dock); its To Canvas and Anchors toggles and the part
-    /// of each point Anchors mode lines up (Fireworks MX's panel keeps these between sessions).
-    pub show_align: bool,
+    /// The Align panel's To Canvas and Anchors toggles and the part of each point Anchors mode
+    /// lines up (Fireworks MX's panel keeps these between sessions).
     pub align_to_canvas: bool,
     pub align_anchors: bool,
     pub align_part: firecraft_engine::align_panel::PointPart,
@@ -250,7 +249,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nshow_align={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -280,7 +279,6 @@ impl Prefs {
             self.image_size_resample,
             self.image_size_method.key(),
             self.interpolation.key(),
-            self.show_align,
             self.align_to_canvas,
             self.align_anchors,
             align_panel::part_key(self.align_part),
@@ -332,7 +330,6 @@ impl Prefs {
                     p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
                 }
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
-                "show_align" => p.show_align = flag,
                 "align_to_canvas" => p.align_to_canvas = flag,
                 "align_anchors" => p.align_anchors = flag,
                 "align_part" => p.align_part = align_panel::part_from_key(v.trim()),
@@ -408,7 +405,6 @@ impl Default for Prefs {
             image_size_resample: true,
             image_size_method: firecraft_raster::transform::Resample::Bicubic,
             interpolation: firecraft_raster::transform::Resample::Bicubic,
-            show_align: false,
             align_to_canvas: false,
             align_anchors: false,
             align_part: firecraft_engine::align_panel::PointPart::Anchor,

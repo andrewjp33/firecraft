@@ -129,6 +129,9 @@ Other items keep their numbers.
 
 ## Lowest priority
 
+- Customizable panels as in Fireworks MX: drag panels out to float, regroup them (the panel
+  options menu's "Group ... with", "Rename panel group"), and keep the layout between sessions.
+  Today the dock's groups are fixed (Align is a tab of "Optimize and Align", as in a fresh MX).
 - Infinite Symbol Editor canvas (as in later Fireworks): render only the visible region. For
   now the editor's canvas has room all around the symbol (at least its own size), recomputed
   each time the symbol is opened.

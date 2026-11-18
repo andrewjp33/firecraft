@@ -8,12 +8,11 @@ Wine; what each button does was found from the script calls the movie makes and 
 measured in Fireworks MX (2026-11-18), with the numbers in
 `crates/engine/src/align_panel.rs`'s tests.
 
-In FireCraft the panel shares the dock's Optimize group, as in Fireworks MX after "Group Align
-with > Optimize": the group is then titled **Optimize and Align**, with the tabs Optimize and
-Align (Align second). Window > Align adds the tab and opens the group on it; unticking it
-leaves plain "Optimize". (MX opens the panel floating at first; FireCraft has no floating
-panels.) The open state, To Canvas, Anchors mode and the point part are kept in the
-preferences, as MX's panel keeps them between sessions.
+As in a fresh Fireworks MX install, the panel shares a group with Optimize: the dock's
+**Optimize and Align** group has the tabs Optimize and Align (Align second), and Window > Align
+opens the group on the Align tab. (The oracle's Wine prefix had Align floating on its own, a
+saved panel layout, not MX's default.) To Canvas, Anchors mode and the point part are kept in
+the preferences, as MX's panel keeps them between sessions.
 
 ## Layout
 
