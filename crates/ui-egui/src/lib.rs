@@ -461,6 +461,9 @@ struct View {
     /// A live move in progress (Pointer drag with live dragging on): the whole-pixel offset
     /// applied to the selection so far.
     live_move: Option<(f64, f64)>,
+    /// The live move duplicates (Alt held, Fireworks MX), and the objects it started with.
+    live_dup: bool,
+    drag_originals: Vec<firecraft_engine::ElementRef>,
     /// The drag in progress uses the secondary (right) button.
     drag_secondary: bool,
     /// The drag in progress moves the marquee (a marquee tool or the Magic Wand pressed inside

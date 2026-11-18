@@ -42,6 +42,7 @@
 | Cut / Copy / Paste | Ctrl+X / C / V | shared with Fireworks through the system clipboard ([clipboard.md](clipboard.md)) |
 | Clear | Backspace / Delete | with path points selected (Subselection, Pen) removes the points instead |
 | Duplicate / Clone | Ctrl+Alt+D / Ctrl+Shift+D | Duplicate offsets the copy by 10 px; Clone keeps it in place |
+| Alt+drag | (Pointer) | copies the selection and drags the copies (see below) |
 | Group / Ungroup | Ctrl+G / Ctrl+Shift+G | the group takes the place of the topmost grouped object |
 | Arrange | Ctrl+Up/Down (Shift: to front/back) | within each layer, or within a group for members |
 | Align | Ctrl+Alt+1..7, 9 | left, centre, right, top, centre, bottom; distribute widths/heights (the objects between the outermost land on whole pixels); more in Window > Align ([align.md](align.md)) |
@@ -51,6 +52,25 @@
 
 Group, Ungroup, Break Apart and Convert to Symbol don't act on members selected with the
 Subselection tool yet (roadmap).
+
+## Alt+drag duplicates
+
+With the Pointer (or Select Behind), dragging with Alt held drags copies of the selection and
+leaves the originals where they were, as in Fireworks MX (measured 2026-11-18):
+
+* Each copy goes **just above its own original** in the stacking order (two non-adjacent
+  objects give two copies, each over its original), unlike Edit > Duplicate, which stacks the
+  copies together.
+* The copies end up selected; the whole drag is one undo step, "Duplicate".
+* Pressing on an unselected object with Alt selects it first and copies it.
+* **Alt's state when the mouse button is let go decides**: Alt pressed only during the drag
+  still duplicates, and Alt let go before the button makes it a plain Move. FireCraft switches
+  the live drag the moment Alt changes, so what you see is what you get.
+* An Alt+click that doesn't move makes no copy.
+
+Linux desktops often use Alt+drag to move windows (MATE's default "Movement Key"); the window
+manager then takes the drag before FireCraft (or Fireworks under Wine) sees it. Choose another
+key in the desktop's window preferences to use Alt+drag here.
 
 ## Layers panel
 

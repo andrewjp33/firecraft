@@ -1206,14 +1206,26 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 },
             }
             // Live dragging: the objects themselves move (one undo step for the whole drag).
+            // With Alt, copies move and the originals stay (Fireworks MX's Alt+drag).
             if live_drag && !d.selection.is_empty() && !view.drag_secondary && !view.band {
-                d.begin_live_edit("Move");
+                view.drag_originals = d.selection.clone();
+                view.live_dup = mods.alt;
+                d.begin_drag(mods.alt);
                 view.live_move = Some((0.0, 0.0));
             }
         }
     }
     let drag_now = resp.interact_pointer_pos();
     let dragging = resp.dragged() && view.drag_start.is_some();
+    // Alt pressed or let go during the drag: what Alt says at the release decides between
+    // moving and duplicating (Fireworks MX), so switch the live drag now.
+    if let Some((dx, dy)) = view.live_move
+        && mods.alt != view.live_dup
+    {
+        view.live_dup = mods.alt;
+        d.switch_drag(mods.alt, &view.drag_originals, dx, dy);
+        ctx.request_repaint();
+    }
     // Live move: follow the pointer in whole pixels.
     if let (Some(applied), Some(a), Some(b)) = (view.live_move, view.drag_start, drag_now.or(hover)) {
         let ((ax, ay), (bx, by)) = (to_doc(a), to_doc(b));
@@ -1237,9 +1249,17 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 // A live move already moved the objects: keep it, or drop it if it went nowhere.
                 Tool::Pointer | Tool::SelectBehind if view.live_move.is_some() => {
                     if view.live_move == Some((0.0, 0.0)) {
+                        // An Alt+click makes no copy; the objects stay selected.
                         d.cancel_live_edit();
+                        d.selection = std::mem::take(&mut view.drag_originals);
                     } else {
                         d.commit_live_edit();
+                    }
+                }
+                Tool::Pointer | Tool::SelectBehind if mods.alt => {
+                    let (dx, dy) = ((bx - ax).round(), (by - ay).round());
+                    if dx != 0.0 || dy != 0.0 {
+                        d.duplicate_moved(dx, dy);
                     }
                 }
                 Tool::Pointer | Tool::SelectBehind => {
@@ -1277,6 +1297,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
         view.drag_start = None;
         view.live_move = None;
+        view.live_dup = false;
+        view.drag_originals.clear();
         view.marquee_drag = false;
         view.band = false;
     }

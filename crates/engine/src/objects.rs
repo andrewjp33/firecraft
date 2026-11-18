@@ -323,6 +323,64 @@ impl DocState {
         });
     }
 
+    /// Copy each selected object to just above itself (Alt+drag, Fireworks MX), without an undo
+    /// step; the copies become the selection. Nothing happens with a pixel selection.
+    fn copy_each_above(&mut self) {
+        let refs = self.stacking_selection();
+        if refs.is_empty() || self.pixels.is_some() {
+            return;
+        }
+        let mut selection = Vec::new();
+        for (first, mine) in by_list(&refs) {
+            let Some(cell) = self.list_mut(first) else {
+                continue;
+            };
+            // Bottom first: the k-th original has k copies below it once they are in.
+            for (k, &i) in mine.iter().enumerate() {
+                let at = i + k;
+                if let Some(copy) = cell.get(at).cloned() {
+                    cell.insert(at + 1, copy);
+                    selection.push(first.sibling(at + 1));
+                }
+            }
+        }
+        self.selection = selection;
+        self.touch();
+    }
+
+    /// Pointer drag, live: start moving the selection, or with `duplicate` (Alt held, Fireworks
+    /// MX) copy each selected object to just above itself and move the copies, the originals
+    /// staying where they are. One undo step ("Move" or "Duplicate") when it is committed.
+    pub fn begin_drag(&mut self, duplicate: bool) {
+        if duplicate && self.pixels.is_none() {
+            self.begin_live_edit("Duplicate");
+            self.copy_each_above();
+        } else {
+            self.begin_live_edit("Move");
+        }
+    }
+
+    /// Alt pressed or released during a live Pointer drag: undo the drag so far and redo it the
+    /// other way, `originals` being the objects the drag started with and (`dx`, `dy`) how far it
+    /// has gone.
+    pub fn switch_drag(&mut self, duplicate: bool, originals: &[ElementRef], dx: f64, dy: f64) {
+        self.cancel_live_edit();
+        self.selection = originals.to_vec();
+        self.begin_drag(duplicate);
+        self.move_selection_live(dx, dy);
+    }
+
+    /// Alt+drag without live dragging: copies of the selected objects, each just above its
+    /// original, moved by (`dx`, `dy`); one undo step, "Duplicate" (Fireworks MX).
+    pub fn duplicate_moved(&mut self, dx: f64, dy: f64) {
+        if self.selection.is_empty() || self.pixels.is_some() {
+            return;
+        }
+        self.begin_drag(true);
+        self.move_selection_live(dx, dy);
+        self.commit_live_edit();
+    }
+
     /// Remove `refs` (stacking order) from the document, returning them in the same order.
     pub(crate) fn take(&mut self, refs: &[ElementRef]) -> Vec<Element> {
         let f = self.frame();
@@ -973,6 +1031,42 @@ mod tests {
         assert!(d.cut().is_some());
         assert_eq!(names(&d).len(), n - 1);
         assert_eq!(d.history.next_undo(), Some("Cut"));
+    }
+
+    /// Measured in Fireworks MX: Alt+drag puts each copy just above its own original, moved;
+    /// the copies stay selected; one undo step "Duplicate".
+    #[test]
+    fn alt_drag_copies_each_object_above_itself() {
+        let mut d = doc(&[1, 2, 3, 4]);
+        sel(&mut d, &[0, 2]);
+        d.begin_drag(true);
+        d.move_selection_live(5.0, 7.0);
+        d.commit_live_edit();
+        assert_eq!(names(&d), ["e0", "e0", "e1", "e2", "e2", "e3"]);
+        assert_eq!(d.selection, [ElementRef::new(0, 1), ElementRef::new(0, 4)]);
+        let x = |d: &DocState, i| d.element(ElementRef::new(0, i)).and_then(Element::bounds).map(|b| (b.0, b.1));
+        assert_eq!((x(&d, 0), x(&d, 1)), (Some((0.0, 5.0)), Some((5.0, 12.0))));
+        assert_eq!((x(&d, 3), x(&d, 4)), (Some((20.0, 5.0)), Some((25.0, 12.0))));
+        assert_eq!(d.history.next_undo(), Some("Duplicate"));
+        d.undo();
+        assert_eq!(names(&d), ["e0", "e1", "e2", "e3"]);
+
+        // Alt released during the drag: a plain move after all.
+        sel(&mut d, &[1]);
+        let originals = d.selection.clone();
+        d.begin_drag(true);
+        d.move_selection_live(3.0, 0.0);
+        d.switch_drag(false, &originals, 3.0, 0.0);
+        d.commit_live_edit();
+        assert_eq!(names(&d), ["e0", "e1", "e2", "e3"]);
+        assert_eq!(d.history.next_undo(), Some("Move"));
+        assert_eq!(x(&d, 1), Some((13.0, 5.0)));
+
+        // Without live dragging.
+        sel(&mut d, &[3]);
+        d.duplicate_moved(0.0, 10.0);
+        assert_eq!(names(&d), ["e0", "e1", "e2", "e3", "e3"]);
+        assert_eq!(d.selection, [ElementRef::new(0, 4)]);
     }
 
     #[test]
