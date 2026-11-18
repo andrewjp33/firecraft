@@ -221,6 +221,9 @@ pub struct Prefs {
     pub align_part: firecraft_engine::align_panel::PointPart,
     /// The Space buttons' gap in pixels (Fireworks CS6's spacing field); `None`: Evenly.
     pub align_spacing: Option<i32>,
+    /// The last gap typed (Fireworks CS6 offers it in the field's menu and brings it back when
+    /// the field is clicked while showing Evenly).
+    pub align_spacing_px: i32,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -251,7 +254,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -285,6 +288,7 @@ impl Prefs {
             self.align_anchors,
             align_panel::part_key(self.align_part),
             align_panel::spacing_text(self.align_spacing),
+            self.align_spacing_px,
         )
     }
 
@@ -337,6 +341,7 @@ impl Prefs {
                 "align_anchors" => p.align_anchors = flag,
                 "align_part" => p.align_part = align_panel::part_from_key(v.trim()),
                 "align_spacing" => p.align_spacing = align_panel::parse_spacing(v),
+                "align_spacing_px" => p.align_spacing_px = align_panel::parse_spacing(v).unwrap_or(0),
                 "ui_scale" => {
                     if let Ok(n) = v.trim().parse::<u32>() {
                         p.ui_scale = n.clamp(*UI_SCALE_RANGE.start(), *UI_SCALE_RANGE.end());
@@ -413,6 +418,7 @@ impl Default for Prefs {
             align_anchors: false,
             align_part: firecraft_engine::align_panel::PointPart::Anchor,
             align_spacing: None,
+            align_spacing_px: 0,
         }
     }
 }

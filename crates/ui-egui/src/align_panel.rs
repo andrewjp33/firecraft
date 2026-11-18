@@ -284,36 +284,62 @@ pub fn parse_spacing(text: &str) -> Option<i32> {
     Some(if neg { -n } else { n })
 }
 
-/// The Space row's field (Fireworks CS6): Evenly, or a gap in pixels to type; its menu goes
-/// back to Evenly.
-fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>) {
+/// Keep what Fireworks CS6's field accepts: digits, and a minus sign in front.
+fn digits_only(text: &str) -> String {
+    text.chars()
+        .enumerate()
+        .filter(|&(i, c)| c.is_ascii_digit() || (i == 0 && c == '-'))
+        .map(|(_, c)| c)
+        .collect()
+}
+
+/// The Space section's field (Fireworks CS6): "Evenly", or a gap in pixels. Clicking it while
+/// it shows Evenly turns it into the last gap (0 at first), selected so typing replaces it; its
+/// menu offers that gap ("12 px") and Evenly.
+fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
     let id = egui::Id::unique("align_spacing_text");
     let mut text = ui
         .data(|d| d.get_temp::<String>(id))
         .unwrap_or_else(|| spacing_text(*value));
-    // A visible box on the white panel.
-    let resp = egui::Frame::new()
+    // A visible box on the panel.
+    let out = egui::Frame::new()
         .stroke(Stroke::new(1.0, theme::BORDER))
         .fill(Color32::WHITE)
+        .inner_margin(egui::Margin::symmetric(2, 0))
         .show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut text)
-                    .frame(egui::Frame::NONE)
-                    .desired_width(38.0)
-                    .hint_text("Evenly"),
-            )
+            egui::TextEdit::singleline(&mut text)
+                .frame(egui::Frame::NONE)
+                .desired_width(52.0)
+                .show(ui)
         })
         .inner;
-    if resp.changed() {
+    let resp = out.response.response.clone().on_hover_text("Space between objects: Evenly, or a gap in pixels");
+    if resp.gained_focus() && value.is_none() {
+        *value = Some(*last);
+        text = last.to_string();
+        let mut state = out.state;
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::select_all_str(&text)));
+        state.store(ui.ctx(), resp.id);
+    } else if resp.changed() {
+        text = digits_only(&text);
         *value = parse_spacing(&text);
+        if let Some(n) = *value {
+            *last = n;
+        }
     }
     if !resp.has_focus() {
         text = spacing_text(*value);
     }
-    resp.on_hover_text("Space between objects: Evenly, or a gap in pixels");
     let menu = crate::icons::glyph_button(ui, crate::icons::Glyph::TriangleDown, 14.0, true)
         .on_hover_text("Spacing");
     egui::Popup::menu(&menu).show(|ui| {
+        if ui.button(format!("{last} px")).clicked() {
+            *value = Some(*last);
+            text = spacing_text(*value);
+            ui.close();
+        }
         if ui.button("Evenly").clicked() {
             *value = None;
             text = spacing_text(None);
@@ -441,13 +467,23 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                             ));
                         });
                         ui.add_space(10.0);
-                        ui.vertical(|ui| {
-                            label(ui, "Space:");
-                            ui.horizontal(|ui| {
-                                hit = hit.or(row(ui, &[Icon::Space(Space::Vertical), Icon::Space(Space::Horizontal)]));
-                                spacing_field(ui, &mut app.prefs.align_spacing);
+                        // As in Fireworks CS6: the Space buttons and the spacing field in a
+                        // grey box of their own.
+                        egui::Frame::new()
+                            .fill(Color32::from_gray(0xEC))
+                            .corner_radius(4)
+                            .inner_margin(egui::Margin::symmetric(6, 3))
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    label(ui, "Space:");
+                                    hit = hit.or(row(ui, &[Icon::Space(Space::Vertical), Icon::Space(Space::Horizontal)]));
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 1.0;
+                                        let prefs = &mut app.prefs;
+                                        spacing_field(ui, &mut prefs.align_spacing, &mut prefs.align_spacing_px);
+                                    });
+                                });
                             });
-                        });
                     });
                 });
         });
@@ -512,6 +548,8 @@ mod tests {
         assert_eq!(parse_spacing(""), None);
         assert_eq!(parse_spacing("-"), None);
         assert_eq!(parse_spacing(&spacing_text(Some(-3))), Some(-3));
+        assert_eq!(digits_only("-1a2-3"), "-123");
+        assert_eq!(digits_only("Evenly"), "");
     }
 
     #[test]

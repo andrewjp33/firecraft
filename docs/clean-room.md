@@ -63,6 +63,10 @@ tools/fwcs6-oracle/cs6_launch.sh [file.png]          # interactive, with the mou
   (started by both scripts) calls `AttachThreadInput` for them. Not a GPU or Wine-setting issue.
 * "Missing Fonts" stops every file with text that uses fonts the prefix lacks; `cs6_inspect.sh`
   answers it with "No Change" (`CS6_NOFONTS=1` does the same for `cs6_launch.sh`).
+* **Run a window manager on the virtual display** (`marco --no-composite`, started on that
+  display and stopped by its PID): without one CS6 starts and runs scripts but never shows its
+  panel dock or the workspace switcher (resizing and F4 don't help). With one it looks as on
+  the desktop.
 * On Xvfb, resize the main window (`xin.py move 600 400 resize 1600 1000`) to see the docked
   Layers/Properties panels. New rectangles from scripts take the current stroke; `setBrush(null)`.
 * CS6 renders Hue/Saturation/Color/Luminosity with different math from MX (see

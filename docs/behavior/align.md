@@ -22,7 +22,15 @@ the preferences, as MX's panel keeps them between sessions.
 * **Distribute:** top edge, vertical center, bottom edge | left edge, horizontal center,
   right edge.
 * **Match Size:** width, height, width and height. **Space:** evenly vertically, evenly
-  horizontally, then (from Fireworks CS6) a field with "Evenly" or a gap in pixels.
+  horizontally, and under them (from Fireworks CS6, which puts the three in a grey box of
+  their own) a field with "Evenly" or a gap in pixels, with a menu.
+
+The spacing field works as in Fireworks CS6 (watched in CS6, 2026-11-18): it shows "Evenly"
+until clicked; a click turns it into the last gap typed (0 at first) so a number can be typed
+straight away (CS6 selects the 0 on the first click only and later puts the caret after the
+old gap; FireCraft always selects it, so typing replaces it). It takes digits and a leading
+minus sign only; letters are ignored. Its menu lists the gap ("12 px") and Evenly. Emptied, it
+means Evenly, as in CS6. The last gap is kept between sessions.
 * In **Anchors** mode To Canvas, Distribute, Match Size and Space are hidden. Under the Align
   row are three toggles for the part of each selected point that lines up: preceding control
   points, anchors and control points (the default), succeeding control points; the text under
@@ -48,10 +56,8 @@ the canvas with To Canvas on.
 * **Space**: without To Canvas this is Modify > Align > Distribute Widths/Heights (Fireworks'
   `distribute`). With To Canvas the objects, ordered by left (top) edge, fill the canvas from
   edge to edge with equal gaps, each placed after where the previous one ended up.
-* **Space by a gap (from Fireworks CS6)**: the field after the Space buttons holds "Evenly"
-  (the default, its drop-down brings it back) or a gap in pixels, read as CS6 reads it
-  (JavaScript `parseInt`: "12px" is 12, "1.9" is 1, negative gaps overlap; anything else means
-  Evenly). With a gap, the objects in order of their top (left) edges follow each other with
+* **Space by a gap (from Fireworks CS6)**: with a gap in the spacing field (negative gaps
+  overlap), the objects in order of their top (left) edges follow each other with
   that many pixels between them: the first stays where it is, or with To Canvas goes to the
   canvas's top (left) edge, and the others follow, the last one included. Every object after
   the first lands on a whole pixel (halves up), while the running position adds up exactly
