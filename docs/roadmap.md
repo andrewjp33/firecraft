@@ -34,7 +34,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Superselect/Subselect, live dragging
 - Live Effects editor in the Property inspector
 - Window > Align: Fireworks MX's Align panel (Align, Distribute, Match Size, Space, To Canvas,
-  and Anchors mode for path points) ([behavior/align.md](behavior/align.md))
+  and Anchors mode for path points), plus Fireworks CS6's Space by a gap in pixels
+  ([behavior/align.md](behavior/align.md))
 - All of Fireworks MX's filters as Live Effects and in the Filters menu: Auto Levels, Levels and Curves
   (editors with histograms and Auto), Blur, Blur More, Sharpen, Sharpen More, Unsharp Mask, Find Edges,
   Invert; bit-exact except Unsharp Mask and Invert's soft edges ([behavior/effects.md](behavior/effects.md))

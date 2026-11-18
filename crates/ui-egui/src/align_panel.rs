@@ -263,6 +263,66 @@ fn paint(p: &Painter, r: Rect, icon: Icon, accent: Color32) {
     }
 }
 
+/// The spacing field's text: "Evenly" or the gap in pixels.
+pub fn spacing_text(v: Option<i32>) -> String {
+    v.map_or_else(|| "Evenly".to_owned(), |n| n.to_string())
+}
+
+/// The gap typed in the spacing field, read as Fireworks CS6 reads it (JavaScript `parseInt`:
+/// leading spaces, a sign and the digits that follow; "12px" is 12, "1.9" is 1); anything
+/// else, "Evenly" included, means Evenly.
+pub fn parse_spacing(text: &str) -> Option<i32> {
+    let t = text.trim_start();
+    let (neg, rest) = match t.as_bytes().first() {
+        Some(b'-') => (true, &t[1..]),
+        Some(b'+') => (false, &t[1..]),
+        _ => (false, t),
+    };
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let n: i64 = digits.get(..digits.len().min(9))?.parse().ok()?;
+    let n = n.min(100_000) as i32;
+    Some(if neg { -n } else { n })
+}
+
+/// The Space row's field (Fireworks CS6): Evenly, or a gap in pixels to type; its menu goes
+/// back to Evenly.
+fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>) {
+    let id = egui::Id::unique("align_spacing_text");
+    let mut text = ui
+        .data(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(|| spacing_text(*value));
+    // A visible box on the white panel.
+    let resp = egui::Frame::new()
+        .stroke(Stroke::new(1.0, theme::BORDER))
+        .fill(Color32::WHITE)
+        .show(ui, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut text)
+                    .frame(egui::Frame::NONE)
+                    .desired_width(38.0)
+                    .hint_text("Evenly"),
+            )
+        })
+        .inner;
+    if resp.changed() {
+        *value = parse_spacing(&text);
+    }
+    if !resp.has_focus() {
+        text = spacing_text(*value);
+    }
+    resp.on_hover_text("Space between objects: Evenly, or a gap in pixels");
+    let menu = crate::icons::glyph_button(ui, crate::icons::Glyph::TriangleDown, 14.0, true)
+        .on_hover_text("Spacing");
+    egui::Popup::menu(&menu).show(|ui| {
+        if ui.button("Evenly").clicked() {
+            *value = None;
+            text = spacing_text(None);
+            ui.close();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, text));
+}
+
 fn label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text).color(LABEL).size(11.0));
 }
@@ -383,7 +443,10 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         ui.add_space(10.0);
                         ui.vertical(|ui| {
                             label(ui, "Space:");
-                            hit = hit.or(row(ui, &[Icon::Space(Space::Vertical), Icon::Space(Space::Horizontal)]));
+                            ui.horizontal(|ui| {
+                                hit = hit.or(row(ui, &[Icon::Space(Space::Vertical), Icon::Space(Space::Horizontal)]));
+                                spacing_field(ui, &mut app.prefs.align_spacing);
+                            });
                         });
                     });
                 });
@@ -408,7 +471,10 @@ fn act(app: &mut FireCraftApp, icon: Icon) {
                 Icon::Align(e) => d.panel_align(e, to_canvas),
                 Icon::Distribute(e) => d.panel_distribute(e, to_canvas),
                 Icon::Match(m) => d.match_size(m, to_canvas),
-                Icon::Space(s) => d.space(s, to_canvas),
+                Icon::Space(s) => match app.prefs.align_spacing {
+                    None => d.space(s, to_canvas),
+                    Some(gap) => d.space_by(s, gap, to_canvas),
+                },
                 _ => {}
             }
         }
@@ -435,6 +501,18 @@ fn align_points(app: &mut FireCraftApp, edge: Edge) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spacing_reads_like_parse_int() {
+        assert_eq!(parse_spacing("10"), Some(10));
+        assert_eq!(parse_spacing("  -5"), Some(-5));
+        assert_eq!(parse_spacing("12px"), Some(12));
+        assert_eq!(parse_spacing("1.9"), Some(1));
+        assert_eq!(parse_spacing("Evenly"), None);
+        assert_eq!(parse_spacing(""), None);
+        assert_eq!(parse_spacing("-"), None);
+        assert_eq!(parse_spacing(&spacing_text(Some(-3))), Some(-3));
+    }
 
     #[test]
     fn part_keys_round_trip() {

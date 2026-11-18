@@ -311,6 +311,45 @@ impl DocState {
         self.panel_moves("Space", moves);
     }
 
+    /// Align panel > Space with a gap of `gap` pixels (Fireworks CS6's spacing field): the
+    /// objects, in order of their top (left) edges, follow each other with `gap` pixels between
+    /// them. The first stays where it is, or with To Canvas goes to the canvas's top (left)
+    /// edge. Each lands on a whole pixel (halves up) while the running position stays exact,
+    /// as CS6's panel does (`__space` in its Align.swf, run in CS6 2026-11-18).
+    pub fn space_by(&mut self, how: Space, gap: i32, to_canvas: bool) {
+        let horizontal = how == Space::Horizontal;
+        let mut items = self.panel_items();
+        let pos = |b: &Bounds| if horizontal { b.0 } else { b.1 };
+        let size = |b: &Bounds| if horizontal { b.2 } else { b.3 };
+        // Stable: ties keep the selection's order (CS6 takes the first of equals).
+        items.sort_by(|a, b| pos(&a.1).total_cmp(&pos(&b.1)));
+        let Some(&(_, first)) = items.first() else {
+            return;
+        };
+        let gap = f64::from(gap);
+        let mut at = if to_canvas { 0.0 } else { pos(&first) };
+        let mut moves: Vec<(ElementRef, f64, f64)> = Vec::new();
+        for (i, (r, b)) in items.into_iter().enumerate() {
+            if i > 0 || to_canvas {
+                let d = (at + 0.5).floor() - pos(&b);
+                if d != 0.0 {
+                    moves.push(if horizontal { (r, d, 0.0) } else { (r, 0.0, d) });
+                }
+            }
+            at += size(&b) + gap;
+        }
+        if moves.is_empty() {
+            return;
+        }
+        self.edit("Space", |s| {
+            for (r, dx, dy) in moves {
+                if let Some(e) = s.element_mut(r) {
+                    e.translate(dx, dy);
+                }
+            }
+        });
+    }
+
     /// Align panel in Anchors mode: line up the selected points `pts` of path `r` (two or more).
     /// Left/Right/Top/Bottom use the outermost point (for handle parts, the point whose handle
     /// is outermost, and that handle's position); the centres use the middle between the
@@ -605,5 +644,42 @@ mod tests {
         let before = d.path(r).cloned();
         d.align_points(r, &pts[..1], Edge::Top, PointPart::Anchor);
         assert_eq!(d.path(r).cloned(), before);
+    }
+    /// Fireworks CS6's panel script run in CS6 on the same rectangles.
+    #[test]
+    fn space_by_pixels_like_cs6() {
+        let three = || {
+            vec![
+                rect(20.0, 30.0, 60.0, 40.0),
+                rect(150.0, 100.0, 41.0, 75.0),
+                rect(260.0, 60.0, 85.0, 33.0),
+            ]
+        };
+        let xs = |d: &DocState| boxes(d).iter().map(|b| b.0).collect::<Vec<_>>();
+        let ys = |d: &DocState| boxes(d).iter().map(|b| b.1).collect::<Vec<_>>();
+        let mut d = doc(three());
+        d.space_by(Space::Horizontal, 10, false);
+        assert_eq!(xs(&d), [20.0, 90.0, 141.0]);
+        let mut d = doc(three());
+        d.space_by(Space::Horizontal, 10, true);
+        assert_eq!(xs(&d), [0.0, 70.0, 121.0]);
+        let mut d = doc(three());
+        d.space_by(Space::Vertical, -5, false);
+        assert_eq!(ys(&d), [30.0, 93.0, 65.0]);
+        // Fractional: the first stays at 20.5, the others land on whole pixels (87.5 -> 88).
+        let mut d = doc(vec![
+            rect(20.5, 30.0, 60.0, 40.0),
+            rect(150.0, 100.0, 41.5, 75.0),
+            rect(260.0, 60.0, 85.0, 33.0),
+        ]);
+        d.space_by(Space::Horizontal, 7, false);
+        assert_eq!(xs(&d), [20.5, 88.0, 136.0]);
+        // One object goes to the canvas's edge with To Canvas, else stays.
+        let mut d = doc(vec![rect(20.0, 30.0, 60.0, 40.0)]);
+        d.space_by(Space::Horizontal, 12, false);
+        assert_eq!(xs(&d), [20.0]);
+        d.space_by(Space::Horizontal, 12, true);
+        assert_eq!(xs(&d), [0.0]);
+        assert_eq!(d.history.next_undo(), Some("Space"));
     }
 }

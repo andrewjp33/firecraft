@@ -22,7 +22,7 @@ the preferences, as MX's panel keeps them between sessions.
 * **Distribute:** top edge, vertical center, bottom edge | left edge, horizontal center,
   right edge.
 * **Match Size:** width, height, width and height. **Space:** evenly vertically, evenly
-  horizontally.
+  horizontally, then (from Fireworks CS6) a field with "Evenly" or a gap in pixels.
 * In **Anchors** mode To Canvas, Distribute, Match Size and Space are hidden. Under the Align
   row are three toggles for the part of each selected point that lines up: preceding control
   points, anchors and control points (the default), succeeding control points; the text under
@@ -48,6 +48,19 @@ the canvas with To Canvas on.
 * **Space**: without To Canvas this is Modify > Align > Distribute Widths/Heights (Fireworks'
   `distribute`). With To Canvas the objects, ordered by left (top) edge, fill the canvas from
   edge to edge with equal gaps, each placed after where the previous one ended up.
+* **Space by a gap (from Fireworks CS6)**: the field after the Space buttons holds "Evenly"
+  (the default, its drop-down brings it back) or a gap in pixels, read as CS6 reads it
+  (JavaScript `parseInt`: "12px" is 12, "1.9" is 1, negative gaps overlap; anything else means
+  Evenly). With a gap, the objects in order of their top (left) edges follow each other with
+  that many pixels between them: the first stays where it is, or with To Canvas goes to the
+  canvas's top (left) edge, and the others follow, the last one included. Every object after
+  the first lands on a whole pixel (halves up), while the running position adds up exactly
+  (a path at 20.5, 60 wide, then a 41.5-wide one with a 7 px gap: 20.5, 88, 136). This is
+  CS6's panel script (`__space` in its `Align.swf`, a Flex panel), recovered from the movie's
+  bytecode and run in Fireworks CS6 on 2026-11-18; every case in the tests matched. Fireworks
+  MX files keep the result (it is only moved objects).
+  CS6's own Evenly differs a little from MX's (it rounds the gap to whole pixels and, with To
+  Canvas, puts the last object at the canvas's end); FireCraft's Evenly stays MX's.
 * **Anchors mode**: the selected points of the selected path (Subselection or Pen) line up,
   two or more of them. Left/Right/Top/Bottom take the outermost point; for a handle part, the
   point whose handle is outermost, and that handle's position. The centres take the middle
