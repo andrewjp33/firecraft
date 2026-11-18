@@ -314,7 +314,8 @@ fn spacing_menu(ui: &mut egui::Ui, value: &mut Option<i32>, last: i32) -> bool {
 /// The Space section's field (after Fireworks CS6's): "Evenly", or a gap in pixels. Showing
 /// Evenly it is a drop-down: a click on the text or the arrow opens the menu (the last gap,
 /// "12 px", or Evenly), and clicking elsewhere leaves it as it was. Choosing the gap turns it
-/// into a number field with the gap selected, so typing replaces it.
+/// into a number field with the gap selected, so typing replaces it; only the menu goes back to
+/// Evenly.
 fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
     let text_id = egui::Id::unique("align_spacing_text");
     let edit_id = egui::Id::unique("align_spacing_edit");
@@ -381,10 +382,12 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
         })
         .inner
         .on_hover_text(SPACING_NAME);
+    // Typing never switches to Evenly (only the menu does): while the text is empty or just a
+    // minus sign the gap stays what it was, and leaving the field puts that gap back.
     if resp.changed() {
         text = digits_only(&text);
-        *value = parse_spacing(&text);
-        if let Some(n) = *value {
+        if let Some(n) = parse_spacing(&text) {
+            *value = Some(n);
             *last = n;
         }
     }

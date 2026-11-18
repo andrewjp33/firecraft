@@ -31,7 +31,9 @@ the preferences, as MX's panel keeps them between sessions.
 
 The spacing field follows Fireworks CS6's (watched in CS6, 2026-11-18): it takes digits and a
 leading minus sign only (letters are ignored), its menu lists the last gap ("12 px") and
-Evenly, and an emptied field means Evenly. One difference: in CS6 a click on "Evenly" turns it
+Evenly. Differences: in CS6 an emptied field means Evenly; in FireCraft typing never switches
+to Evenly (an empty field or a lone minus sign keeps the last gap, and leaving the field puts
+it back), only the menu does. And in CS6 a click on "Evenly" turns it
 straight into a number field (0 at first), which was too easy to do by accident and stayed
 that way until the menu set it back. In FireCraft, while the field shows Evenly, a click on it
 opens the menu, and clicking elsewhere leaves it as it was. Choosing the gap turns it into a
