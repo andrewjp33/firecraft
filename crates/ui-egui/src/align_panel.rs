@@ -281,12 +281,9 @@ fn row(ui: &mut egui::Ui, icons: &[Icon]) -> Option<Icon> {
     hit
 }
 
-/// Show the Align panel (Window > Align) and do what its buttons ask.
-pub fn window(app: &mut FireCraftApp, ctx: &egui::Context) {
-    if !app.prefs.show_align {
-        return;
-    }
-    let mut open = true;
+/// The Align tab of the dock's "Optimize and Align" group (Window > Align), and what its
+/// buttons ask.
+pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut hit: Option<Icon> = None;
     let anchors = app.prefs.align_anchors;
     let to_canvas = app.prefs.align_to_canvas;
@@ -295,23 +292,14 @@ pub fn window(app: &mut FireCraftApp, ctx: &egui::Context) {
         [Icon::Align(Edge::Left), Icon::Align(Edge::HorizCenter), Icon::Align(Edge::Right)],
         [Icon::Align(Edge::Top), Icon::Align(Edge::VertCenter), Icon::Align(Edge::Bottom)],
     );
-    egui::Window::new("Align")
-        .open(&mut open)
-        .resizable(false)
-        // Above the document windows (they are windows too), as Fireworks' floating panels.
-        .order(egui::Order::Foreground)
-        .min_width(WIDTH)
-        .max_width(WIDTH)
-        .default_pos(pos2(320.0, 160.0))
-        .frame(
-            egui::Frame::window(&ctx.global_style())
-                .fill(theme::SECTION)
-                .inner_margin(egui::Margin::symmetric(8, 6)),
-        )
-        .show(ctx, |ui| {
-            ui.set_width(WIDTH);
+    // White, as Fireworks MX's panel.
+    egui::Frame::new()
+        .fill(theme::SECTION)
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            let width = ui.available_width().min(WIDTH);
             // To Canvas on the left, Anchors on the right (To Canvas hides in Anchors mode).
-            let (top, _) = ui.allocate_exact_size(vec2(WIDTH, 46.0), egui::Sense::hover());
+            let (top, _) = ui.allocate_exact_size(vec2(width, 46.0), egui::Sense::hover());
             let mut toggle = |ui: &mut egui::Ui, rect: Rect, text: &str, icon: Icon, on: bool, align: egui::Align| {
                 let mut c = ui.new_child(
                     egui::UiBuilder::new()
@@ -400,9 +388,6 @@ pub fn window(app: &mut FireCraftApp, ctx: &egui::Context) {
                     });
                 });
         });
-    if !open {
-        app.prefs.show_align = false;
-    }
     if let Some(i) = hit {
         act(app, i);
     }

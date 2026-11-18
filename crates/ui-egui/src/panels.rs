@@ -59,7 +59,15 @@ fn dock_contents(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            group(ui, Group::Optimize, "Optimize", false, |ui| crate::optimize::panel(app, ui));
+            // Window > Align joins the Align panel to the Optimize group as a second tab, as
+            // Fireworks MX's "Optimize and Align".
+            if app.prefs.show_align {
+                group(ui, Group::Optimize, "Optimize and Align", false, |ui| {
+                    optimize_align(app, ui)
+                });
+            } else {
+                group(ui, Group::Optimize, "Optimize", false, |ui| crate::optimize::panel(app, ui));
+            }
             group(ui, Group::Layers, "Layers", true, |ui| layers(app, ui));
             group(ui, Group::Frames, "Frames and History", true, |ui| {
                 frames_history(app, ui)
@@ -491,6 +499,34 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
         });
     });
+}
+
+fn align_tab_id() -> egui::Id {
+    egui::Id::unique("optimize_align_tab")
+}
+
+/// Window > Align: show the Align panel, opening its group on the Align tab.
+pub fn show_align(app: &mut FireCraftApp, ctx: &egui::Context) {
+    app.prefs.show_align = true;
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::unique(("dock_open", Group::Optimize as u8)), true);
+        d.insert_temp(align_tab_id(), true);
+    });
+    app.prefs.show_dock = true;
+}
+
+fn optimize_align(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let mut align = ui.ctx().data(|d| d.get_temp::<bool>(align_tab_id())).unwrap_or(true);
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut align, false, "Optimize");
+        ui.selectable_value(&mut align, true, "Align");
+    });
+    ui.ctx().data_mut(|d| d.insert_temp(align_tab_id(), align));
+    if align {
+        crate::align_panel::panel(app, ui);
+    } else {
+        crate::optimize::panel(app, ui);
+    }
 }
 
 fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {

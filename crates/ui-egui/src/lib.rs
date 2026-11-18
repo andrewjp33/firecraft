@@ -214,7 +214,7 @@ pub struct Prefs {
     /// skewed or distorted (Fireworks MX: General > Interpolation, `EditTransformMode`,
     /// Bicubic by default; Image Size keeps its own).
     pub interpolation: firecraft_raster::transform::Resample,
-    /// Window > Align: the Align panel is open; its To Canvas and Anchors toggles and the part
+    /// Window > Align: the Align panel is open (a tab beside Optimize in the dock); its To Canvas and Anchors toggles and the part
     /// of each point Anchors mode lines up (Fireworks MX's panel keeps these between sessions).
     pub show_align: bool,
     pub align_to_canvas: bool,
@@ -1099,7 +1099,6 @@ impl FireCraftApp {
         fill_ui::stroke_window(self, &ctx);
         effects_ui::editor(self, &ctx);
         effects_ui::filter_dialog(self, &ctx);
-        align_panel::window(self, &ctx);
         // Escape that nothing else wanted stops playback, or else ends bitmap editing (as in
         // Fireworks MX).
         if escape_free && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
