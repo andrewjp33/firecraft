@@ -16,6 +16,7 @@
 //!
 //! All edits go through `firecraft-engine`; this crate only draws state and maps input.
 
+mod align_panel;
 mod canvas;
 mod crop_tool;
 mod size_dialogs;
@@ -213,6 +214,12 @@ pub struct Prefs {
     /// skewed or distorted (Fireworks MX: General > Interpolation, `EditTransformMode`,
     /// Bicubic by default; Image Size keeps its own).
     pub interpolation: firecraft_raster::transform::Resample,
+    /// Window > Align: the Align panel is open; its To Canvas and Anchors toggles and the part
+    /// of each point Anchors mode lines up (Fireworks MX's panel keeps these between sessions).
+    pub show_align: bool,
+    pub align_to_canvas: bool,
+    pub align_anchors: bool,
+    pub align_part: firecraft_engine::align_panel::PointPart,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -243,7 +250,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nshow_align={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -273,6 +280,10 @@ impl Prefs {
             self.image_size_resample,
             self.image_size_method.key(),
             self.interpolation.key(),
+            self.show_align,
+            self.align_to_canvas,
+            self.align_anchors,
+            align_panel::part_key(self.align_part),
         )
     }
 
@@ -321,6 +332,10 @@ impl Prefs {
                     p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
                 }
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
+                "show_align" => p.show_align = flag,
+                "align_to_canvas" => p.align_to_canvas = flag,
+                "align_anchors" => p.align_anchors = flag,
+                "align_part" => p.align_part = align_panel::part_from_key(v.trim()),
                 "ui_scale" => {
                     if let Ok(n) = v.trim().parse::<u32>() {
                         p.ui_scale = n.clamp(*UI_SCALE_RANGE.start(), *UI_SCALE_RANGE.end());
@@ -393,6 +408,10 @@ impl Default for Prefs {
             image_size_resample: true,
             image_size_method: firecraft_raster::transform::Resample::Bicubic,
             interpolation: firecraft_raster::transform::Resample::Bicubic,
+            show_align: false,
+            align_to_canvas: false,
+            align_anchors: false,
+            align_part: firecraft_engine::align_panel::PointPart::Anchor,
         }
     }
 }
@@ -1080,6 +1099,7 @@ impl FireCraftApp {
         fill_ui::stroke_window(self, &ctx);
         effects_ui::editor(self, &ctx);
         effects_ui::filter_dialog(self, &ctx);
+        align_panel::window(self, &ctx);
         // Escape that nothing else wanted stops playback, or else ends bitmap editing (as in
         // Fireworks MX).
         if escape_free && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {

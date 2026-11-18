@@ -471,12 +471,13 @@ impl DocState {
 
     /// Modify > Align. Several objects line up with each other (their combined bounds); a
     /// single object lines up with the canvas. Distribute spaces three or more objects evenly
-    /// between the outermost ones (equal gaps).
+    /// between the outermost ones (equal gaps, in the order of their centres; the ones between
+    /// land on whole pixels).
     pub fn align(&mut self, how: Align) {
         let refs = self.stacking_selection();
         let items: Vec<(ElementRef, (f64, f64, f64, f64))> = refs
             .iter()
-            .filter_map(|r| Some((*r, self.element(*r)?.bounds()?)))
+            .filter_map(|r| Some((*r, crate::align_panel::tidy_bounds(self.element(*r)?.bounds()?))))
             .collect();
         if items.is_empty() {
             return;
@@ -505,9 +506,14 @@ impl DocState {
                 let (start, span) = if horizontal { (ax, aw) } else { (ay, ah) };
                 let gap = (span - total) / (sorted.len() - 1) as f64;
                 let mut at = start;
-                for (r, b) in &sorted {
+                let last = sorted.len() - 1;
+                for (i, (r, b)) in sorted.iter().enumerate() {
                     let (p, size) = pos(b);
-                    let d = at - p;
+                    // Fireworks MX puts the objects between the ends on whole pixels, rounded
+                    // down from where equal gaps would put them (measured: 94.5 -> 94,
+                    // 66.67 -> 66, 133.33 -> 133).
+                    let to = if i == 0 || i == last { at } else { (at + 1e-9).floor() };
+                    let d = to - p;
                     moves.push(if horizontal { (*r, d, 0.0) } else { (*r, 0.0, d) });
                     at += size + gap;
                 }

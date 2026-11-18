@@ -242,6 +242,13 @@ pub fn delete(edit: &mut PathEdit, d: &mut DocState) -> bool {
     true
 }
 
+/// The path whose points are selected (Subselection, Pen) and those points, if any.
+pub fn selected_points(edit: &mut PathEdit, d: &DocState) -> Option<(ElementRef, Vec<PointRef>)> {
+    edit.sync(d);
+    let r = edit.target?;
+    (!edit.points.is_empty()).then(|| (r, edit.points.clone()))
+}
+
 /// Nudge the selected points (arrow keys). Whether it did.
 pub fn nudge(edit: &mut PathEdit, d: &mut DocState, dx: f64, dy: f64) -> bool {
     edit.sync(d);

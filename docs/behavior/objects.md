@@ -44,7 +44,7 @@
 | Duplicate / Clone | Ctrl+Alt+D / Ctrl+Shift+D | Duplicate offsets the copy by 10 px; Clone keeps it in place |
 | Group / Ungroup | Ctrl+G / Ctrl+Shift+G | the group takes the place of the topmost grouped object |
 | Arrange | Ctrl+Up/Down (Shift: to front/back) | within each layer, or within a group for members |
-| Align | Ctrl+Alt+1..7, 9 | left, centre, right, top, centre, bottom; distribute widths/heights |
+| Align | Ctrl+Alt+1..7, 9 | left, centre, right, top, centre, bottom; distribute widths/heights (the objects between the outermost land on whole pixels); more in Window > Align ([align.md](align.md)) |
 | Rotate / Flip | Ctrl+Shift+9 / 7 | Modify > Transform; also Numeric Transform (Ctrl+Shift+T) |
 | Convert to Symbol | F8 | see [symbols.md](symbols.md) |
 | Arrow keys | (Shift: 10 px) | nudge the selection, or the selected path points |

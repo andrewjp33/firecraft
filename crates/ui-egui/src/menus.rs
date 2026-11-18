@@ -258,6 +258,11 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 app.prefs.show_dock = v;
             }
             ui.separator();
+            let mut v = app.prefs.show_align;
+            if ui.checkbox(&mut v, "Align").changed() {
+                app.prefs.show_align = v;
+            }
+            ui.separator();
             let mut tabs = app.prefs.tabs;
             if ui.checkbox(&mut tabs, "Documents in Tabs").changed() {
                 app.prefs.tabs = tabs;

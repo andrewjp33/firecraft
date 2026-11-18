@@ -3,6 +3,7 @@
 //!
 //! The UI is a thin shell over this crate: it renders state and turns input into calls here.
 
+pub mod align_panel;
 mod canvas;
 pub use canvas::Anchor;
 mod crop;
