@@ -68,9 +68,10 @@ leaves the originals where they were, as in Fireworks MX (measured 2026-11-18):
   the live drag the moment Alt changes, so what you see is what you get.
 * An Alt+click that doesn't move makes no copy.
 
-Linux desktops often use Alt+drag to move windows (MATE's default "Movement Key"); the window
-manager then takes the drag before FireCraft (or Fireworks under Wine) sees it. Choose another
-key in the desktop's window preferences to use Alt+drag here.
+Ctrl+Alt+drag duplicates too, in Fireworks MX and in FireCraft. That helps on Linux desktops
+that use Alt+drag to move windows (MATE's default "Movement Key"): there Fireworks MX under
+Wine never gets a plain Alt+drag, but Ctrl+Alt+drag still reaches it. FireCraft got plain
+Alt+drag on the same MATE desktop (checked 2026-11-18).
 
 ## Layers panel
 
