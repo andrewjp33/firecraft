@@ -180,6 +180,21 @@ fn name_edit(ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<Rename>) 
 /// tree marks such rows the same way).
 const HOLDS_SELECTION: Color32 = Color32::from_rgb(0x99, 0x77, 0xFF);
 
+/// The same for a group (mint, told apart from a mask's purple; the user's choice). Dark text
+/// reads on it.
+const GROUP_HOLDS_SELECTION: Color32 = Color32::from_rgb(0x77, 0xFF, 0xCC);
+
+/// A row's band and text colours: blue and white when selected; while it holds the
+/// selection, purple and white for a mask or masked object, mint and dark for a group.
+fn row_colors(selected: bool, holds: bool, group: bool) -> Option<(Color32, Color32)> {
+    match (selected, holds, group) {
+        (true, ..) => Some((theme::SELECT_BLUE, Color32::WHITE)),
+        (false, true, true) => Some((GROUP_HOLDS_SELECTION, Color32::from_gray(20))),
+        (false, true, false) => Some((HOLDS_SELECTION, Color32::WHITE)),
+        _ => None,
+    }
+}
+
 /// The frame of a selected mask's thumbnail (Fireworks CS).
 pub(crate) const MASK_EDIT_GREEN: Color32 = Color32::from_rgb(0x66, 0xFF, 0x00);
 
@@ -382,11 +397,10 @@ fn object_rows(
             return;
         }
         let label = row_label(el);
-        // White on the blue of a selected row and the purple of one holding the selection.
-        let text = if selected || holds {
-            RichText::new(label).color(Color32::WHITE)
-        } else {
-            RichText::new(label)
+        let group = matches!(el.kind, ElementKind::Group(_));
+        let text = match row_colors(selected, holds, group) {
+            Some((_, c)) => RichText::new(label).color(c),
+            None => RichText::new(label),
         };
         ui.add(egui::Label::new(text).selectable(false));
         ui.add_space(ui.available_width());
@@ -394,8 +408,7 @@ fn object_rows(
     let rect = row.response.rect;
     rows.push((rect, Row::Object(r)));
     let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
-    if selected || holds {
-        let fill = if selected { theme::SELECT_BLUE } else { HOLDS_SELECTION };
+    if let Some((fill, _)) = row_colors(selected, holds, matches!(el.kind, ElementKind::Group(_))) {
         ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
     }
     if !editing {
@@ -506,6 +519,8 @@ fn mask_row(
     let mut buttons = Rect::NOTHING;
     let mut arrow = Rect::NOTHING;
     let mut thumb = Rect::NOTHING;
+    let mut inner_link = Rect::NOTHING;
+    let mut inner_thumb = Rect::NOTHING;
     let row = ui.horizontal(|ui| {
         // Empty eye and lock columns: the mask shows and hides with its object.
         buttons = ui
@@ -529,17 +544,61 @@ fn mask_row(
                 out.toggle_open = Some(r);
             }
         }
-        let subject = Subject { elements: std::slice::from_ref(mask), mask: Some(mode) };
-        thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
+        match &mask.kind {
+            // A mask that has a mask of its own (cone3): shown like a masked object, its
+            // content, the chain of its own link, and its mask.
+            ElementKind::Masked {
+                content,
+                mask: inner,
+                mode: inner_mode,
+                flags: inner_flags,
+                ..
+            } => {
+                let subject = Subject { elements: content, mask: None };
+                thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Object), &subject, false).rect;
+                let (link, link_resp) = ui.allocate_exact_size(vec2(10.0, 23.0), Sense::hover());
+                inner_link = link;
+                let c = if inner_flags.linked {
+                    Color32::from_gray(60)
+                } else {
+                    Color32::from_rgba_unmultiplied(128, 128, 128, 45)
+                };
+                icons::paint_glyph(ui.painter(), link.shrink2(vec2(1.0, 4.0)), Glyph::Link, c);
+                link_resp.on_hover_text(if inner_flags.linked {
+                    "This mask's own mask is linked: its objects move together. Click to unlink"
+                } else {
+                    "This mask's own mask is unlinked: its objects move alone. Click to link"
+                });
+                let inner_sel = r.mask().is_some_and(|m| d.selection.contains(&m));
+                let subject = Subject {
+                    elements: std::slice::from_ref(&**inner),
+                    mask: Some(*inner_mode),
+                };
+                inner_thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, inner_sel)
+                    .on_hover_text(format!("{}: click to select this mask's mask", mask_kind(inner, *inner_mode)))
+                    .rect;
+                if !inner_flags.enabled {
+                    disabled_cross(ui.painter(), inner_thumb);
+                }
+            }
+            _ => {
+                let subject = Subject { elements: std::slice::from_ref(mask), mask: Some(mode) };
+                thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
+            }
+        }
         let text = RichText::new(mask_kind(mask, mode)).italics();
-        let text = if selected || holds { text.color(Color32::WHITE) } else { text };
+        let group = matches!(mask.kind, ElementKind::Group(_));
+        let text = match row_colors(selected, holds, group) {
+            Some((_, c)) => text.color(c),
+            None => text,
+        };
         ui.add(egui::Label::new(text).selectable(false));
         ui.add_space(ui.available_width());
     });
     let rect = row.response.rect;
     let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
     if selected || holds {
-        let fill = if selected { theme::SELECT_BLUE } else { HOLDS_SELECTION };
+        let fill = row_colors(selected, holds, matches!(mask.kind, ElementKind::Group(_))).map_or(HOLDS_SELECTION, |c| c.0);
         ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
     }
     let mode_text = match mode {
@@ -555,7 +614,14 @@ fn mask_row(
             mask.label()
         ));
     if click.clicked() && !locked {
-        out.select = Some(r);
+        let at = click.interact_pointer_pos();
+        if at.is_some_and(|p| inner_link.contains(p)) {
+            out.toggle_link = Some(r);
+        } else if at.is_some_and(|p| inner_thumb.contains(p)) {
+            out.select = r.mask().or(Some(r));
+        } else {
+            out.select = Some(r);
+        }
     }
     if let Some(owner) = r.parent() {
         click.context_menu(|ui| mask_menu(ui, d, owner, out));

@@ -464,26 +464,29 @@ mod tests {
     }
 
     #[test]
-    fn linked_masks_follow_their_content() {
+    fn linked_masked_objects_move_whole() {
         let mut d = doc();
         let o = ElementRef::new(0, 0);
-        let (a, m) = (o.child(0).expect("a"), o.mask().expect("mask"));
+        let (a, b, m) = (o.child(0).expect("a"), o.child(1).expect("b"), o.mask().expect("mask"));
         let x = |d: &DocState, r: ElementRef| d.element(r).and_then(Element::bounds).map(|b| b.0);
-        // Linked: moving one content object takes the mask along.
+        // Linked: moving one content object moves the whole masked object, its other content
+        // and its mask too.
         d.selection = vec![a];
-        assert_eq!(d.mask_followers(), [m]);
+        assert_eq!(d.motion_refs(), [o]);
         d.move_selection(4.0, 0.0, "Move");
-        assert_eq!((x(&d, a), x(&d, m)), (Some(4.0), Some(9.0)));
+        assert_eq!((x(&d, a), x(&d, b), x(&d, m)), (Some(4.0), Some(14.0), Some(9.0)));
         // Unlinked: the content moves alone.
         d.set_mask_linked(o, false);
         d.selection = vec![a];
-        assert!(d.mask_followers().is_empty());
+        assert_eq!(d.motion_refs(), [a]);
         d.move_selection(4.0, 0.0, "Move");
-        assert_eq!((x(&d, a), x(&d, m)), (Some(8.0), Some(9.0)));
-        // The mask selected moves alone (it is what is edited).
+        assert_eq!((x(&d, a), x(&d, b), x(&d, m)), (Some(8.0), Some(14.0), Some(9.0)));
+        // A selected mask moves alone (it is what is edited).
         d.set_mask_linked(o, true);
         d.selection = vec![m];
-        assert!(d.mask_followers().is_empty());
+        assert_eq!(d.motion_refs(), [m]);
+        // The Subselection tool picks the mask of a masked object (Fireworks MX).
+        assert_eq!(d.hit_sub(7.5, 5.5), Some(m));
     }
 
     #[test]

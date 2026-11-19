@@ -156,18 +156,27 @@ Measured 2026-11-18 in Fireworks MX through Edit > Paste Inside (Ctrl+Shift+V); 
 
 ## Selecting inside masks on the canvas
 
-A plain click (Pointer or Subselection) on a selected object keeps the selection when that object
-is part of the top-level object the click hit and the click lands on it (its own hit test): an
-object chosen inside a mask or group in the Layers panel, a mask's objects included (cone3's
-four gradient rectangles inside the inner mask), stays selected when clicked on the canvas,
-instead of giving way to the masked object or the content in front of it, so it can be dragged,
-its gradient edited or double-clicked (a selected symbol opens in the Symbol Editor). A
-Subselection click on a selected group's member still selects the member, as in Fireworks MX.
+Measured 2026-11-18 in Fireworks MX on cone3: a **Pointer** click selects the top-level masked
+object (the blue rectangle with its mask); a **Subselection** click selects that object's mask
+(`fw.selectedMask` set), and a second click stays on it (it doesn't go into a mask that has a
+mask of its own). FireCraft does the same (`DocState::hit_sub`: into groups down to the member,
+at a masked object its mask).
 
-**Linked masks follow their content**: a selected object inside a masked object's content takes
-that object's mask along when it moves or transforms, while the mask is linked
-(`DocState::mask_followers`); only unlinking lets the content move alone. A selected mask still
-moves alone (that is editing the mask).
+FireCraft addition, for objects chosen in the Layers panel: a Subselection click that lands on a
+selected object (its own hit test) belonging to the same top-level object keeps the selection,
+masks' objects included (cone3's four gradient rectangles inside the inner mask), so it can be
+dragged, its gradient edited or double-clicked to open a symbol. A Subselection click on a
+selected group's member still selects the member.
+
+**Linked masks move with their content, whole**: moving or transforming an object in a masked
+object's content moves the whole masked object (its mask and all its content) while the mask is
+linked (`DocState::motion_refs`); unlinked, the object moves alone. A selected mask moves alone
+(that is editing the mask). In the Layers panel a mask that has a mask of its own (cone3's inner
+mask) shows its content, its own chain and its mask side by side, so its link can be toggled
+there (unlinked, cone3's gradient rectangles drag one at a time).
+
+Rows holding the selection inside them: purple #9977FF with white text for masks and masked
+objects, mint #77FFCC with dark text for groups (the user's choices).
 
 **Group, Ungroup and Convert to Symbol inside a mask or group** (FireCraft): objects that share
 one list (a mask's content, or a group's members) group or become a symbol where they are, in the

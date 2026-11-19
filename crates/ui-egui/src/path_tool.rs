@@ -354,7 +354,7 @@ pub fn canvas(
         && let Some(h) = pointer
     {
         let at = to_doc(h);
-        if let Some(r) = d.hit_deep(at.0, at.1)
+        if let Some(r) = d.hit_sub(at.0, at.1)
             && !d.selection.contains(&r)
         {
             crate::canvas::mouse_highlight(painter, d, r, &|x, y| to_screen((x, y)));
@@ -803,7 +803,7 @@ fn subselect_press(
     // selects group members): select it (a path shows its points) and drag to move it. Pressing
     // inside the selection drags the selection, even under another object; a click there
     // without a drag selects what's on top (Fireworks MX).
-    let hit = d.hit_deep(at.0, at.1);
+    let hit = d.hit_sub(at.0, at.1);
     if d.selection_contains(at.0, at.1) {
         d.begin_live_edit("Move");
         edit.drag = Some(Drag::Object {

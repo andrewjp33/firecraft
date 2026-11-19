@@ -1376,9 +1376,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                         d.selection.push(hit);
                     }
                 }
-                // A click on what's selected keeps it (an object chosen inside a mask or group
-                // in the Layers panel stays selected rather than giving way to its parent).
-                Some(hit) if d.click_keeps_selection(x, y, hit) => {}
+                // A click selects the top-level object, a masked one whole (Fireworks MX).
                 Some(hit) => {
                     d.selection = vec![hit];
                     d.pixels = None;

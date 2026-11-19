@@ -628,36 +628,60 @@ impl DocState {
         self.selected_under(x, y, hit).is_some()
     }
 
-    /// The masks that move with the selection: a selected object inside a masked object's
-    /// content takes that object's mask along while it is linked (Fireworks: only an unlinked
-    /// mask stays when the content moves). Not when the masked object or the mask itself is
-    /// selected too (they move anyway).
-    pub fn mask_followers(&self) -> Vec<ElementRef> {
+    /// What moving or transforming the selection moves: each selected object, but for one in a
+    /// masked object's content while its mask is linked, that whole masked object (mask and all
+    /// its content move together; only unlinked content moves alone). A selected mask moves
+    /// alone (that is editing the mask).
+    pub fn motion_refs(&self) -> Vec<ElementRef> {
         let mut out: Vec<ElementRef> = Vec::new();
-        let covered = |r: ElementRef| self.selection.iter().any(|t| *t == r || r.is_within(*t) || t.is_within(r));
         for s in &self.selection {
-            let mut a = s.top();
-            for &i in s.sub.as_slice() {
-                if i != MASK_SLOT
-                    && let Some(Element {
-                        kind: ElementKind::Masked { flags, .. },
-                        ..
-                    }) = self.element(a)
-                    && flags.linked
-                    && let Some(m) = a.mask()
-                    && !covered(m)
-                    && !self.selection.iter().any(|t| *t == a || a.is_within(*t))
-                    && !out.contains(&m)
-                {
-                    out.push(m);
+            let mut cur = *s;
+            while let Some(p) = cur.parent() {
+                let linked = !cur.is_mask()
+                    && matches!(&self.element(p).map(|e| &e.kind), Some(ElementKind::Masked { flags, .. }) if flags.linked);
+                if !linked {
+                    break;
                 }
-                a = match if i == MASK_SLOT { a.mask() } else { a.child(i as usize) } {
-                    Some(n) => n,
-                    None => break,
-                };
+                cur = p;
+            }
+            if !out.contains(&cur) {
+                out.push(cur);
             }
         }
+        let all = out.clone();
+        out.retain(|r| !all.iter().any(|o| r.is_within(*o)));
         out
+    }
+
+    /// The Subselection tool's pick (measured in Fireworks MX on cone3): into groups down to the
+    /// member under the point, and at a masked object its mask (a second click stays there).
+    pub fn hit_sub(&self, x: f64, y: f64) -> Option<ElementRef> {
+        let ctx = firecraft_doc::RenderCtx {
+            mx_perspective: self.doc.mx_perspective,
+            symbols: &self.doc.symbols,
+            frame: self.frame(),
+            math: self.doc.color_math,
+            ..firecraft_doc::RenderCtx::EMPTY
+        };
+        let mut r = self.hit_test(x, y)?;
+        loop {
+            match &self.element(r)?.kind {
+                ElementKind::Masked { .. } => return r.mask().or(Some(r)),
+                ElementKind::Group(children) => {
+                    let next = children
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, c)| c.visible && !c.locked && element_hit(c, x, y, &ctx))
+                        .and_then(|(i, _)| r.child(i));
+                    match next {
+                        Some(n) => r = n,
+                        None => return Some(r),
+                    }
+                }
+                _ => return Some(r),
+            }
+        }
     }
 
     pub fn hit_deep(&self, x: f64, y: f64) -> Option<ElementRef> {
@@ -1353,8 +1377,7 @@ impl DocState {
         if self.selection.is_empty() || (dx == 0.0 && dy == 0.0) {
             return;
         }
-        let mut refs = self.selection.clone();
-        refs.extend(self.mask_followers());
+        let refs = self.motion_refs();
         self.edit(label, |s| {
             for r in refs {
                 if let Some(e) = s.element_mut(r) {
@@ -1370,9 +1393,7 @@ impl DocState {
         if self.selection.is_empty() || (dx == 0.0 && dy == 0.0) {
             return;
         }
-        let mut refs = self.selection.clone();
-        refs.extend(self.mask_followers());
-        for r in refs {
+        for r in self.motion_refs() {
             if let Some(e) = self.element_mut(r) {
                 e.move_by(dx, dy);
             }
@@ -1561,13 +1582,11 @@ impl DocState {
     }
 
     /// Copies of the selected objects (for [`transform_from`](Self::transform_from)).
-    /// The selected objects as they are now, with the linked masks that move along with them
-    /// ([`mask_followers`](Self::mask_followers)): what a transform changes.
+    /// What a transform changes, as it is now: the selected objects, a linked masked object
+    /// whole for its content ([`motion_refs`](Self::motion_refs)).
     pub fn selected_elements(&self) -> Vec<(ElementRef, Element)> {
-        self.selection
-            .iter()
-            .copied()
-            .chain(self.mask_followers())
+        self.motion_refs()
+            .into_iter()
             .filter_map(|r| Some((r, self.element(r)?.clone())))
             .collect()
     }
