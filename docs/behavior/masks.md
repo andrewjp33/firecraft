@@ -38,10 +38,14 @@ A masked object is a group (`GRPv`) with a type:
 * **Delete Mask** (`dom.removeElementMask`, `mask_probe_mx_removed.png`): "apply" turns the
   masked object into an Image of what showed, at the mask's bounds (80x60 at 30,30); "discard"
   leaves the content, a mask over two objects becoming a plain Group of them. CS6 asks "Apply
-  mask before removing?" (Apply, Discard, Cancel). FireCraft adds **Break Apart**: the content
-  objects and the mask become separate objects again, the mask on top, as before Group as Mask
-  (with the masked object's effects, opacity or blending, they stay together in a group that
-  keeps them).
+  mask before removing?" (Apply, Discard, Cancel). FireCraft adds **Break Apart**, which does
+  what Fireworks MX's **Modify > Ungroup** does to a masked object (measured 2026-11-18: four
+  rectangles pasted inside a group of two circles ungroup to a Group of the four and the
+  circles' group on top, both selected; `~/Documents/work/probes/ungroup_masked_mx.png`): the
+  content, several objects as one group, and the mask on top. The masked object's effects,
+  opacity and blending stay with the content. FireCraft's Ungroup does the same. This is MX's
+  model: a masked object holding several objects is a group with a mask attached (stored as the
+  group's members), which is why the Layers panel shows such content as "Group: N objects".
 * **Mask images are stored inverted**: colour channels hold 255 - value (alpha unchanged). Measured
   by masking a red rectangle with flattened ovals: a white oval is saved black and shows the
   content fully, black is saved white and hides it, red (luma 54) is saved `#c9c9c9` and shows

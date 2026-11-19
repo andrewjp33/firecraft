@@ -16,8 +16,8 @@ pub enum MaskRemoval {
     Apply,
     /// The mask goes; the content stays as it is (several objects as a group, as in MX).
     Discard,
-    /// Mask and content become separate objects again, the mask on top, as before they were
-    /// grouped as a mask (FireCraft).
+    /// Mask and content become separate objects again, the mask on top (several content objects
+    /// as one group): what Fireworks MX's Modify > Ungroup does to a masked object.
     BreakApart,
 }
 
@@ -261,7 +261,7 @@ impl DocState {
 
 /// What a masked object becomes when its mask is removed `how`, bottom first.
 fn removed(el: &Element, how: MaskRemoval, ctx: &RenderCtx) -> Option<Vec<Element>> {
-    let ElementKind::Masked { content, mask, .. } = &el.kind else {
+    let ElementKind::Masked { content, .. } = &el.kind else {
         return None;
     };
     // The object's own look (effects, opacity, blending) stays on what replaces it.
@@ -298,19 +298,42 @@ fn removed(el: &Element, how: MaskRemoval, ctx: &RenderCtx) -> Option<Vec<Elemen
             [one] if plain_look && el.name.is_none() => vec![one.clone()],
             _ => vec![carry(Element::new(ElementKind::Group(content.clone())))],
         },
-        MaskRemoval::BreakApart => {
-            let mut parts = content.clone();
-            let mut m = (**mask).clone();
-            m.visible = true;
-            parts.push(m);
-            if plain_look {
-                parts
-            } else {
-                // Keep the object's look on its parts together.
-                vec![carry(Element::new(ElementKind::Group(parts)))]
-            }
-        }
+        MaskRemoval::BreakApart => apart(el)?,
     })
+}
+
+/// A masked object split in two, as Fireworks MX's Ungroup does (measured: four rectangles
+/// pasted inside a group of two circles ungroup to a Group of the four and the circles' group on
+/// top): its content (several objects as one group) and its mask, bottom first. The masked
+/// object's effects, opacity and blending stay with the content.
+pub(crate) fn apart(el: &Element) -> Option<Vec<Element>> {
+    let ElementKind::Masked { content, mask, .. } = &el.kind else {
+        return None;
+    };
+    let plain_look = el.effects.is_empty() && el.opacity >= 100.0 && el.blend == BlendMode::Normal;
+    let unit = match content.as_slice() {
+        [one] if plain_look => one.clone(),
+        [one] if one.effects.is_empty() && one.opacity >= 100.0 && one.blend == BlendMode::Normal => {
+            let mut e = one.clone();
+            e.effects = el.effects.clone();
+            e.opacity = el.opacity;
+            e.blend = el.blend;
+            e
+        }
+        _ => {
+            let mut g = Element::new(ElementKind::Group(content.clone()));
+            g.effects = el.effects.clone();
+            g.opacity = el.opacity;
+            g.blend = el.blend;
+            g
+        }
+    };
+    let mut unit = unit;
+    unit.name = el.name.clone().or(unit.name);
+    unit.visible = el.visible;
+    let mut m = (**mask).clone();
+    m.visible = true;
+    Some(vec![unit, m])
 }
 
 #[cfg(test)]
@@ -525,6 +548,22 @@ mod tests {
     }
 
     #[test]
+    fn ungroup_splits_a_masked_object_as_fireworks_mx_does() {
+        let mut d = doc();
+        let o = ElementRef::new(0, 0);
+        d.selection = vec![o];
+        assert!(d.can_ungroup());
+        d.ungroup();
+        // The content as a group of its two objects, the mask on top; both selected.
+        assert_eq!(top(&d), ["Group", "m"]);
+        assert_eq!(d.selection, [ElementRef::new(0, 0), ElementRef::new(0, 1)]);
+        // Ungrouping that group gives the objects.
+        d.selection = vec![ElementRef::new(0, 0)];
+        d.ungroup();
+        assert_eq!(top(&d), ["a", "b", "m"]);
+    }
+
+    #[test]
     fn delete_mask_three_ways() {
         let o = ElementRef::new(0, 0);
         // Apply: one bitmap of what showed, the mask's bounds.
@@ -538,11 +577,12 @@ mod tests {
         let mut d = doc();
         d.delete_mask(o, MaskRemoval::Discard);
         assert_eq!(top(&d), ["Group"]);
-        // Break apart: the content objects and the mask, the mask on top.
+        // Break apart (as MX's Ungroup): the content, its two objects as a group, and the
+        // mask on top.
         let mut d = doc();
         d.delete_mask(o, MaskRemoval::BreakApart);
-        assert_eq!(top(&d), ["a", "b", "m"]);
-        assert_eq!(d.selection.len(), 3);
+        assert_eq!(top(&d), ["Group", "m"]);
+        assert_eq!(d.selection.len(), 2);
         d.undo();
         assert_eq!(top(&d), ["Masked Group"]);
     }

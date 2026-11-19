@@ -477,7 +477,7 @@ fn delete_mask(app: &mut FireCraftApp, ctx: &egui::Context) {
             }
             if ui
                 .button("Break Apart")
-                .on_hover_text("Keep the mask and the objects as separate objects, as they were before masking")
+                .on_hover_text("Keep the mask and the objects as separate objects (several objects as a group), as Modify > Ungroup does")
                 .clicked()
             {
                 how = Some(M::BreakApart);

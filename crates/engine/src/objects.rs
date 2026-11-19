@@ -493,15 +493,15 @@ impl DocState {
 
     /// Whether Ungroup has something to do.
     pub fn can_ungroup(&self) -> bool {
+        // Groups, and masked objects (Fireworks MX ungroups a masked object into its content
+        // and its mask).
+        let ungroupable =
+            |r: &ElementRef| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_) | ElementKind::Masked { .. }));
         if self.selection_nested() {
-            // One group inside a mask or another group.
-            return matches!(self.selection.as_slice(), [r] if !r.is_mask()
-                && matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_))));
+            // One inside a mask or another group.
+            return matches!(self.selection.as_slice(), [r] if !r.is_mask() && ungroupable(r));
         }
-        self
-                .selection
-                .iter()
-                .any(|r| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_))))
+        self.selection.iter().any(ungroupable)
     }
 
     /// Modify > Ungroup: selected groups are replaced by their objects (selected) in place.
@@ -516,11 +516,7 @@ impl DocState {
             self.edit("Ungroup", |s| {
                 let at = r.position();
                 let Some(list) = s.list_mut(r) else { return };
-                let Some(Element {
-                    kind: ElementKind::Group(children),
-                    ..
-                }) = list.get(at).cloned()
-                else {
+                let Some(children) = list.get(at).cloned().and_then(ungrouped) else {
                     return;
                 };
                 let n = children.len();
@@ -543,18 +539,19 @@ impl DocState {
                 let old = std::mem::take(cell);
                 for (i, e) in old.into_iter().enumerate() {
                     let sel = selected.contains(&ElementRef::new(li, i));
-                    match e.kind {
-                        ElementKind::Group(children) if sel => {
+                    let parts = if sel { ungrouped(e.clone()) } else { None };
+                    match parts {
+                        Some(children) => {
                             for c in children {
                                 selection.push(ElementRef::new(li, cell.len()));
                                 cell.push(c);
                             }
                         }
-                        kind => {
+                        None => {
                             if sel {
                                 selection.push(ElementRef::new(li, cell.len()));
                             }
-                            cell.push(Element { kind, ..e });
+                            cell.push(e);
                         }
                     }
                 }
@@ -948,6 +945,16 @@ impl DocState {
                 e.name = name;
             }
         });
+    }
+}
+
+/// What Ungroup turns an object into: a group's members, or a masked object's content and mask
+/// (see `masks::apart`); None for anything else.
+fn ungrouped(e: Element) -> Option<Vec<Element>> {
+    match e.kind {
+        ElementKind::Group(children) => Some(children),
+        ElementKind::Masked { .. } => crate::masks::apart(&e),
+        _ => None,
     }
 }
 
