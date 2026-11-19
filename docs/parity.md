@@ -31,6 +31,13 @@ to 50 files: Fireworks CS5 test files (9-slice symbols, per-object locks), files
 FireCraft for compatibility checks (`*_fc*`), and a few plain PNG screenshots (`r1`-`r6`; the
 report marks them "not a parity test").
 
+As of 2026-11-19 (v0.3.0): 93 Fireworks-saved reference files (FireCraft's own `*_fc*` saves and
+plain screenshots left out) average 96.0%: 41 match 100%, 9 more are above 99%, 34 are between
+90% and 99% and 9 are below 90%; every file round-trips losslessly and re-opens to the same
+render after a FireCraft save. One known difference is deliberate: Fireworks MX masks a single
+bitmap with no effects twice (circles_hi_mask2.png), and FireCraft follows Fireworks CS6 there
+([behavior/masks.md](behavior/masks.md)).
+
 As of 2026-11-02: container round trip and FireCraft save/re-open are lossless for every file.
 Render match on the original documents ranges from 34% (spectrum_wave) to 100%; most are above
 80%. The feature use below is for the original 21 files (objects inside layers):

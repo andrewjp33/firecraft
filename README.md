@@ -30,39 +30,45 @@ Or [build it from source](#build-and-run).
 
 FireCraft opens, edits and saves real Fireworks documents, and draws most of them very close to how
 Fireworks MX does. It is in active development. Vector and bitmap editing, text, fills, strokes, effects,
-symbols (animation symbols included), opening common image formats and exporting (the Optimize
-panel: GIF, JPEG, PNG, WebP, JPEG XL) are in place. Frame editing, slices and some tools are not yet
-([what's next](#not-done-yet)).
+masks, symbols (animation symbols included), opening common image formats and exporting (the
+Optimize panel: GIF, JPEG, PNG, WebP, JPEG XL) are in place. Frame editing, slices and some tools
+are not yet ([what's next](#not-done-yet)).
 
-**Rendering parity** on 81 Fireworks reference files, scored against Fireworks' own render of each
-file (10 November 2026): 39 match 100%, 11 more are above 99%, 18 are between 90% and 99%, and 13 are
-below 90%. The average is 94.1%. Every file survives the lossless round trip and a FireCraft save
+**Rendering parity** on 93 Fireworks reference files, scored against Fireworks' own render of each
+file (19 November 2026): 41 match 100%, 9 more are above 99%, 34 are between 90% and 99%, and 9 are
+below 90%. The average is 96.0%. Every file survives the lossless round trip and a FireCraft save
 that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
-### Recently added
+### New in 0.3.0
 
-Highlights of recent work (the full list is in the release notes):
+Highlights (the full list is in the release notes):
 
-- **Animation symbols** play, as in Fireworks MX: moving, scaling, rotating and fading over the
-  frames. Create and edit them with Modify > Animation (Animate Selection, Settings, Remove
-  Animation) or in the Property inspector, and drag the motion path's points on the canvas
-  (Shift for 45° steps) ([docs/behavior/symbols.md](docs/behavior/symbols.md#animation-symbols)).
-- **Animated GIF: "Maximize colors per frame"**: every frame gets its own color table, so an
-  animation can show thousands of colors (true-color GIFs export back exactly). Works with the
-  adaptive palettes, Grayscale, Uniform, Web 216, Windows and Macintosh
-  ([docs/behavior/export.md](docs/behavior/export.md#maximize-colors-per-frame-a-firecraft-addition)).
-- **Bitmap editing the Fireworks MX way**: double-click a bitmap to edit it; the marquee stays
-  when you pick another bitmap in the Layers panel; Delete, New Bitmap Image, right-click
-  New Bitmap Via Copy/Cut, and bitmaps shrink to their pixels afterwards; the Pointer and Escape
-  leave bitmap mode ([docs/behavior/selection.md](docs/behavior/selection.md)).
-- **Frame controls** under the canvas: previous/next frame, a frame number you can type into,
-  Exit Bitmap Mode; playback stops on the frame buttons and Escape.
-- **Speed**: smooth playback and dragging in effect-heavy documents, and animated GIF previews
-  and exports several times faster (frames drawn on all CPU cores).
-- **Filters menu**: all of Fireworks MX's classic filters, also as Live Effects
-  ([docs/behavior/effects.md](docs/behavior/effects.md)).
-- **UI Scale** preference (50-200%) and the `--ui-scale` launch option.
-- **Pointer**: drag on empty canvas to select with a band.
+- **Masks, fully editable** ([docs/behavior/masks.md](docs/behavior/masks.md)):
+  - Modify > Mask: Reveal All, Hide All, Reveal Selection, Hide Selection, Group as Mask, Disable
+    and Delete Mask; Edit > Paste as Mask and Paste Inside; the Layers panel's Add Mask button.
+    Each measured against Fireworks MX.
+  - Select a mask from its thumbnail; move and transform it alone; paint on bitmap masks, the
+    masking shown live as you paint.
+  - The **link** between an object and its mask (the chain in the Layers panel): linked, they move
+    together; unlinked, the objects move alone.
+  - The Property inspector's mask settings: Path outline or Grayscale, Alpha channel or Grayscale,
+    Show fill and stroke.
+  - A masked object is shown as the object it masks ("Rectangle"), its fill and stroke editable
+    there, as in Fireworks.
+- **Layers panel**: rendered **thumbnails** for every object, mask thumbnails and the link chain,
+  as in Fireworks CS; arrows that open masks and groups so the objects inside can be selected,
+  renamed and dragged ([docs/behavior/masks.md](docs/behavior/masks.md#layers-panel)).
+- **Crop tool**, Edit > Crop Document and Crop Selected Bitmap; **Canvas Size** with anchors and
+  units; **Image Size** with resampling; Preferences > Interpolation
+  ([docs/behavior/crop.md](docs/behavior/crop.md), [docs/behavior/canvas-size.md](docs/behavior/canvas-size.md)).
+- **Align panel** (Window > Align), with Fireworks CS6's Space by a gap in pixels
+  ([docs/behavior/align.md](docs/behavior/align.md)).
+- **Paste pictures from other applications** (screenshots, BMP, JPEG, copied files) and File >
+  New from the clipboard ([docs/behavior/clipboard.md](docs/behavior/clipboard.md)).
+- **Alt+drag duplicates** with the Pointer, as in Fireworks MX.
+- **Eye Candy filters closer to Fireworks**: Bevel Boss (profile, highlight, soft edges) and Motion
+  Trail fitted to Windows Fireworks MX renders ([docs/behavior/plugins.md](docs/behavior/plugins.md)).
+- Faster dragging and painting of masks over effect-heavy content.
 
 ### Only in FireCraft
 
@@ -84,6 +90,15 @@ Things no version of Fireworks has:
   shows its own desaturation ([docs/behavior/effects.md](docs/behavior/effects.md)).
 - **Magic Wand with a smooth edge** at any tolerance (Fireworks MX's own edge is still an option)
   ([docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)).
+- **Masks you can work inside** ([docs/behavior/masks.md](docs/behavior/masks.md)):
+  - In the Layers panel, open a mask to see its mask and the objects it masks; select, rename and
+    reorder them, drag objects into or out of a mask, and Group, Ungroup, Convert to Symbol or
+    Break Apart right there.
+  - **Invert Mask**: one click inverts a mask and stays editable (a path mask stays a path); the
+    file looks the same in Fireworks.
+  - **Delete Mask > Break Apart**: keep the mask and the objects as separate objects.
+  - Mask rendering follows Fireworks CS6 where Fireworks MX has a bug (a single bitmap under a
+    mask, with no effects, masked twice).
 - **Small things that add up**:
   - Ctrl + mouse wheel (or a trackpad pinch) zooms smoothly around the pointer, with any tool.
   - The frame number under the canvas is editable: type a frame and press Enter.
@@ -111,6 +126,9 @@ Things no version of Fireworks has:
   opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;
   the file's resolution and palette kept for re-export). Saving never overwrites the original: it
   asks for a `.png` name ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
+- **Masks**: vector and bitmap masks render as in Fireworks MX and can be made and edited with all
+  of Fireworks MX's mask commands, from the Layers panel and the Property inspector
+  ([docs/behavior/masks.md](docs/behavior/masks.md)).
 - **Rendering**:
   - Blend modes and all 11 MX gradient types.
   - Masks, symbol instances (with perspective), animation symbols and animation frames.
@@ -145,10 +163,11 @@ Things no version of Fireworks has:
   - The Tools panel's color boxes follow the selection, text included; fields with mixed values
     across the selection show blank, as in Fireworks MX.
 - **Tools** ([docs/behavior/paths.md](docs/behavior/paths.md)):
-  - Selection: Pointer (click a symbol's stroke or glow; drag a band on empty canvas), Select
-    Behind, **Subselection** (points of paths, members inside groups).
+  - Selection: Pointer (click a symbol's stroke or glow; drag a band on empty canvas; Alt+drag
+    duplicates), Select Behind, **Subselection** (points of paths, members inside groups, masks;
+    double-click opens a symbol).
   - Transform: Scale, Skew, Distort and rotate (live preview), the **9-slice Scaling tool**
-    from Fireworks CS5.
+    from Fireworks CS5, the **Crop tool**.
   - Bitmap: Marquee, Oval Marquee, Magic Wand, Brush, Pencil, Eraser, Paint Bucket, Gradient,
     with Fireworks' brush tips and sensitivities
     ([docs/behavior/painting.md](docs/behavior/painting.md)).
@@ -162,10 +181,12 @@ Things no version of Fireworks has:
 - **Objects** ([docs/behavior/objects.md](docs/behavior/objects.md)):
   - Cut/Copy/Paste, including **between FireCraft and Fireworks** (Windows, and Linux through
     Wine).
-  - Duplicate/Clone, Group/Ungroup, Arrange, Align, Rotate/Flip, Numeric Transform.
+  - Duplicate/Clone, Group/Ungroup, Arrange, Align (and the Align panel), Rotate/Flip, Numeric
+    Transform.
   - Names, per-object show/hide and **lock** (from Fireworks CS).
-  - Layers panel reordering by drag; Select > Superselect/Subselect; a right-click menu on the
-    canvas.
+  - Layers panel with thumbnails, reordering by drag, and objects inside groups and masks;
+    Select > Superselect/Subselect; a right-click menu on the canvas.
+  - Paste pictures from other applications; File > New from the clipboard.
 - **Live Effects editor** in the Property inspector, with live preview, OK/Cancel and fine
   sliders ([docs/behavior/effects.md](docs/behavior/effects.md)).
 - **Symbols** ([docs/behavior/symbols.md](docs/behavior/symbols.md)):
@@ -177,7 +198,8 @@ Things no version of Fireworks has:
   - **Perspective symbols**, drawn as Fireworks MX draws them (each object mapped, effects at
     canvas size, fill textures anchored to the canvas) or pixel-correct.
 - **Edit and document**:
-  - Select All, Deselect, Canvas Size and Canvas Color.
+  - Select All, Deselect, Canvas Size (anchors, units), Image Size, Canvas Color, Crop Document
+    and Crop Selected Bitmap.
   - Layers: new, delete, show/hide, lock.
   - Undo/redo (100 steps by default, up to 999 in Preferences) with a History panel; every drag
     is one undo step, recorded on mouse up, as in Fireworks MX.
@@ -197,12 +219,11 @@ Things no version of Fireworks has:
 
 From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Combine/Alter Path, Knife, Polygon/Star.
-- Crop and Lasso tools.
+- Lasso and Polygon Lasso tools.
 - Blur, Sharpen, Dodge, Burn, Smudge and Rubber Stamp.
 - Export: 2-Up/4-Up previews, GIF loss, custom palettes, animated WebP; WebP and the PNG
   optimizer in the browser version; 16-bit (PNG 64) export, which needs a 16-bit pipeline.
 - Editing frames (adding, removing, timing) in the Frames panel.
-- Editing masks (layer and object masks).
 - Slices, hotspots and HTML export.
 - Styles.
 - `.jsf` commands.

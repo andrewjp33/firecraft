@@ -18,6 +18,14 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
 - Crop tool, Edit > Crop Document and Crop Selected Bitmap, saved as Fireworks MX saves a crop
   (moved canvas origin) ([behavior/crop.md](behavior/crop.md))
+- Masks, editing (v0.3.0, [behavior/masks.md](behavior/masks.md)): the Layers panel's mask rows
+  with rendered thumbnails, the link chain and an arrow that lists a mask and the objects inside
+  (select, rename, drag in, within and out); selecting the mask; Modify > Mask (Reveal/Hide All,
+  Reveal/Hide Selection, Group as Mask, Disable, Link, Invert, Delete Mask with Apply, Discard
+  or Break Apart), Edit > Paste as Mask and Paste Inside, the Add Mask button; the Property
+  inspector's mask settings; painting on bitmap masks; Group/Ungroup/Convert to Symbol/Break
+  Apart inside masks; mask flags (`LNKb`, `MENb`, `MNAb`) and caches saved as Fireworks MX
+  saves them
 - Modify > Canvas > Canvas Size (units, anchor) and Image Size (pixel/print size, resolution,
   constrain, resample methods) ([behavior/canvas-size.md](behavior/canvas-size.md))
 - Pixel selections belong to the canvas: picking another bitmap in the Layers panel keeps the
@@ -57,8 +65,9 @@ Other items keep their numbers.
 1. **Paths, stage 2**: Modify > Combine Path (Join, Split, Union, Intersect, Punch, Crop), Alter
    Path (Simplify, Expand Stroke, Inset Path), Freeform and Reshape Area, Knife, Redraw Path,
    Polygon/Star tool
-2. **Group members, the rest**: Group, Ungroup, Break Apart and Convert to Symbol for members
-   selected with the Subselection tool (they do nothing yet); Layers panel rows for members
+2. **Group members, the rest**: Group, Ungroup, Break Apart and Convert to Symbol work for members
+   that share one group or mask (and the Layers panel lists, selects and drags them); members from
+   different groups or masks still do nothing
 3. **Lasso and Polygon Lasso** (the Crop tool is done); the Export Area tool
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
@@ -106,22 +115,6 @@ Other items keep their numbers.
     image on the canvas with a click or drag, as in Fireworks).
 15. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
-16. **Masks, editing**: masks render today (vector and bitmap masks, [behavior/masks.md](behavior/masks.md))
-    but can't be made or changed. Fireworks MX's masks are object masks (its help: Photoshop layer
-    masks import as object masks, which item 14's PSD import needs too): the Layers panel's Add Mask
-    button, Modify > Mask (Reveal All, Hide All, Reveal Selection, Hide Selection, Group as Mask,
-    Disable/Delete Mask), Edit > Paste as Mask and Paste Inside, the mask thumbnail and link toggle
-    in the Layers panel, painting on a bitmap
-    mask with the bitmap tools, and the Property inspector's mask settings (alpha channel or
-    grayscale, path outline). Measure each with the oracle first. Done: the Layers panel's masked
-    rows (content thumbnail, chain, mask thumbnail, CS6's names) and FireCraft's open arrow listing
-    the mask and the objects inside to select them, and selecting the mask from its thumbnail or
-    row (green frame, moved and transformed alone; its cache is redrawn on save) (masks.md,
-    "Layers panel"), real thumbnails, the link toggle, Disable/Enable Mask, the inspector's mask
-    settings, Delete Mask (Apply, Discard, Break Apart) and dragging rows into, within and out of
-    groups and masks, Edit > Paste as Mask and Paste Inside, Group/Ungroup/Convert to Symbol
-    inside masks, Reveal All / Hide All (and the Layers panel's Add Mask), Group as Mask, painting
-    on bitmap masks (live), Reveal Selection / Hide Selection
 17. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
     setting but the bevel profile (`BEvl`, `Bevel: n/x y f/...`) and Darken Deep Areas (`Drkn`).
     Add a curve editor like Eye Candy's (draggable points, add/remove, its preset profiles) with a
