@@ -679,6 +679,30 @@ pub enum MaskMode {
     PathOutline,
 }
 
+/// A mask's settings besides its mode (Fireworks' `ElementMask`), measured in Fireworks MX
+/// (docs/behavior/masks.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaskFlags {
+    /// `LNKb` (written only when off): moving or transforming the masked object moves its mask
+    /// too; unlinked, only the content moves.
+    pub linked: bool,
+    /// `MENb` (written only when off): off, the content shows unmasked (Disable Mask).
+    pub enabled: bool,
+    /// "Show fill and stroke" (`MNAb` = 1 when off, absent when on): a path-outline or
+    /// alpha-channel mask's own look is drawn under the content.
+    pub show_attrs: bool,
+}
+
+impl Default for MaskFlags {
+    fn default() -> Self {
+        Self {
+            linked: true,
+            enabled: true,
+            show_attrs: false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ElementKind {
     Bitmap(Bitmap),
@@ -695,6 +719,7 @@ pub enum ElementKind {
         /// [`element_key`](crate::element_key) of the mask `cache` was made from: when the
         /// mask has changed since, saving draws a new cache.
         cache_key: u64,
+        flags: MaskFlags,
     },
     /// An instance of a symbol from the document's library, placed by `matrix` (symbol space ->
     /// canvas). `bounds` is the placed symbol's bounding box, computed when the file is read.
@@ -904,6 +929,10 @@ impl Element {
                 (x0 <= x1).then(|| (x0, y0, x1 - x0, y1 - y0))
             }
             // Only what the mask reveals can show: its bounds bound the result.
+            // A disabled mask shows all of the content.
+            ElementKind::Masked { content, flags, .. } if !flags.enabled => {
+                union_rects(&mut content.iter().filter_map(Element::bounds))
+            }
             ElementKind::Masked { mask, .. } => mask.bounds(),
             ElementKind::Instance { bounds, .. } => *bounds,
             ElementKind::Group(children) => {
@@ -919,6 +948,29 @@ impl Element {
     }
 
     /// Move by (`dx`, `dy`) canvas pixels.
+    /// Move the object as the user moves it: like [`translate`](Self::translate), except that a
+    /// masked object whose mask is unlinked moves only its content (Fireworks MX, measured).
+    /// Canvas-wide moves (cropping, the canvas origin) use `translate`.
+    pub fn move_by(&mut self, dx: f64, dy: f64) {
+        match &mut self.kind {
+            ElementKind::Masked { content, flags, .. } if !flags.linked => {
+                content.iter_mut().for_each(|c| c.move_by(dx, dy));
+            }
+            _ => self.translate(dx, dy),
+        }
+    }
+
+    /// Transform the object as the user transforms it: an unlinked mask stays as it is (see
+    /// [`move_by`](Self::move_by)).
+    pub fn transform_by(&mut self, m: &Affine, method: Resample) {
+        match &mut self.kind {
+            ElementKind::Masked { content, flags, .. } if !flags.linked => {
+                content.iter_mut().for_each(|c| c.transform_by(m, method));
+            }
+            _ => self.transform_with(m, method),
+        }
+    }
+
     pub fn translate(&mut self, dx: f64, dy: f64) {
         match &mut self.kind {
             ElementKind::Text(t) => {
@@ -1476,15 +1528,32 @@ impl Element {
                 Some((layer, 0, 0))
             }
             ElementKind::Masked {
-                content, mask, mode, ..
+                content,
+                mask,
+                mode,
+                flags,
+                ..
             } => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
                 content
                     .iter()
                     .for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
+                if !flags.enabled {
+                    return Some((layer, 0, 0));
+                }
                 let coverage = mask_coverage(mask, *mode, ox, oy, w, h, ctx);
                 for (p, &m) in layer.pixels_mut().iter_mut().zip(coverage.pixels()) {
                     p.a = (p.a as u32 * m.a as u32 / 255) as u8;
+                }
+                // "Show fill and stroke": the mask's own look under the content (path outline
+                // and alpha channel masks; a grayscale mask never shows, measured in MX).
+                if flags.show_attrs && *mode != MaskMode::Grayscale {
+                    let mut under = RgbaImage::new(w, h, Rgba::TRANSPARENT);
+                    let mut shown = (**mask).clone();
+                    shown.visible = true;
+                    shown.render_onto(&mut under, ox, oy, ctx);
+                    under.draw_blend_with(&layer, 0, 0, 255, BlendMode::Normal, ctx.math);
+                    return Some((under, 0, 0));
                 }
                 Some((layer, 0, 0))
             }

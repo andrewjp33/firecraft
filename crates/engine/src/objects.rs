@@ -605,7 +605,7 @@ impl DocState {
         self.edit("Align", |s| {
             for (r, dx, dy) in moves {
                 if let Some(e) = s.element_mut(r) {
-                    e.translate(dx, dy);
+                    e.move_by(dx, dy);
                 }
             }
         });
@@ -731,6 +731,71 @@ impl DocState {
         });
     }
 
+    /// Layers panel: move the selected objects into a list, inserted at `index` of it as it is
+    /// now: the objects of `layer` (`parent` None), or those inside the object `parent` (a
+    /// group's members, a masked object's content, a group mask's objects). Objects can leave
+    /// and enter groups and masks this way. A group left empty goes; a mask left with no
+    /// content becomes an ordinary object (as if broken apart). They stay selected.
+    pub fn move_selection_into(&mut self, layer: usize, parent: Option<ElementRef>, index: usize) {
+        // Masks stay with their objects; an object inside another selected one moves with it.
+        let sel = self.stacking_selection();
+        let refs: Vec<ElementRef> = sel
+            .iter()
+            .copied()
+            .filter(|r| !r.is_mask() && !sel.iter().any(|a| is_inside(*r, *a)))
+            .collect();
+        if refs.is_empty() || self.pixels.is_some() || self.doc.layers.get(layer).is_none_or(|l| l.locked) {
+            return;
+        }
+        // Not into itself, nor into something inside it.
+        if let Some(p) = parent
+            && (refs.contains(&p) || refs.iter().any(|r| is_inside(p, *r)) || self.element(p).is_none())
+        {
+            return;
+        }
+        // Dropping the selection where it is changes nothing.
+        let same_list = refs.iter().all(|r| r.layer == layer && r.parent() == parent);
+        if same_list {
+            let before = refs.iter().filter(|r| r.position() < index).count();
+            let at = index - before;
+            if refs.iter().enumerate().all(|(k, r)| r.position() == at + k) {
+                return;
+            }
+        }
+        let moved: Vec<Element> = refs.iter().filter_map(|r| self.element(*r).cloned()).collect();
+        if moved.len() != refs.len() {
+            return;
+        }
+        let label = if same_list {
+            "Reorder"
+        } else if refs.iter().any(|r| r.layer != layer) {
+            "Move to Layer"
+        } else {
+            "Move"
+        };
+        let f = self.frame();
+        let mut layers: Vec<usize> = refs.iter().map(|r| r.layer).chain([layer]).collect();
+        layers.sort_unstable();
+        layers.dedup();
+        self.edit(label, |s| {
+            let mut tree = Tree {
+                refs: &refs,
+                dest: (layer, parent, index),
+                moved: &moved,
+                selection: Vec::new(),
+            };
+            for li in layers {
+                let Some(cell) = s.doc.layers.get_mut(li).and_then(|l| l.elements_mut(f)) else {
+                    continue;
+                };
+                let old = std::mem::take(cell);
+                *cell = tree.list(&old, li, None, None);
+            }
+            s.selection = tree.selection;
+            s.doc.current_layer = layer;
+        });
+    }
+
     /// Layers panel: move layer `from` so it ends up at position `to` (indices bottom first;
     /// the Web Layer stays on top).
     pub fn move_layer(&mut self, from: usize, to: usize) {
@@ -798,6 +863,95 @@ impl DocState {
                 e.name = name;
             }
         });
+    }
+}
+
+/// Whether `inner` is an object somewhere inside `outer`.
+fn is_inside(inner: ElementRef, outer: ElementRef) -> bool {
+    let mut p = inner.parent();
+    while let Some(x) = p {
+        if x == outer {
+            return true;
+        }
+        p = x.parent();
+    }
+    false
+}
+
+/// Rebuilding a layer's objects with some moved elsewhere ([`DocState::move_selection_into`]).
+struct Tree<'a> {
+    /// The objects that move, as they are addressed now.
+    refs: &'a [ElementRef],
+    /// Where they go: layer, the object whose list it is (None: the layer's), index.
+    dest: (usize, Option<ElementRef>, usize),
+    moved: &'a [Element],
+    /// Where they ended up.
+    selection: Vec<ElementRef>,
+}
+
+impl Tree<'_> {
+    /// A list rebuilt: `old` is the list of `owner` (None: layer `li`'s objects) as addressed
+    /// now, `new_owner` the same list's address afterwards.
+    fn list(&mut self, old: &[Element], li: usize, owner: Option<ElementRef>, new_owner: Option<ElementRef>) -> Vec<Element> {
+        let at = |o: Option<ElementRef>, i: usize| match o {
+            Some(p) => p.child(i),
+            None => Some(ElementRef::new(li, i)),
+        };
+        let mut out = Vec::with_capacity(old.len() + self.moved.len());
+        for i in 0..=old.len() {
+            if self.dest == (li, owner, i) {
+                for m in self.moved {
+                    if let Some(r) = at(new_owner, out.len()) {
+                        self.selection.push(r);
+                    }
+                    out.push(m.clone());
+                }
+            }
+            let Some(e) = old.get(i) else { continue };
+            let Some(was) = at(owner, i) else {
+                out.push(e.clone());
+                continue;
+            };
+            if self.refs.contains(&was) {
+                continue;
+            }
+            let now = at(new_owner, out.len());
+            if let Some(e) = self.element(e, was, now) {
+                out.push(e);
+            }
+        }
+        out
+    }
+
+    /// An element with the lists inside it rebuilt; None for a group left empty, the mask alone
+    /// for a masked object left with no content.
+    fn element(&mut self, e: &Element, was: ElementRef, now: Option<ElementRef>) -> Option<Element> {
+        let mut e = e.clone();
+        match &mut e.kind {
+            ElementKind::Group(children) => {
+                let before = children.len();
+                *children = self.list(children, was.layer, Some(was), now);
+                if children.is_empty() && before > 0 {
+                    return None;
+                }
+            }
+            ElementKind::Masked { content, mask, .. } => {
+                *content = self.list(content, was.layer, Some(was), now);
+                if let Some(m) = was.mask() {
+                    // A group mask left empty hides everything, but stays the mask.
+                    **mask = self
+                        .element(mask, m, now.and_then(ElementRef::mask))
+                        .unwrap_or_else(|| Element::new(ElementKind::Group(Vec::new())));
+                }
+                if content.is_empty() {
+                    let mut m = (**mask).clone();
+                    m.visible = true;
+                    return Some(m);
+                }
+            }
+            _ => {}
+        }
+        Some(e)
     }
 }
 
@@ -977,6 +1131,7 @@ mod tests {
             mode: firecraft_doc::MaskMode::Grayscale,
             cache: None,
             cache_key: 0,
+            flags: Default::default(),
         }));
         *d.doc.layers[0].elements_mut(0).expect("cell") = cell;
         d
@@ -1013,6 +1168,44 @@ mod tests {
         d.undo();
         d.undo();
         assert_eq!(d.element(m).and_then(|e| e.bounds()).map(|b| (b.0, b.1)), Some((10.0, 5.0)));
+    }
+
+    #[test]
+    fn layers_drags_reach_inside_groups_and_masks() {
+        // Reorder inside a group.
+        let mut d = grouped();
+        let g = ElementRef::new(0, 1);
+        d.selection = vec![g.child(0).expect("member")];
+        d.move_selection_into(0, Some(g), 3);
+        assert_eq!(member_names(&d), ["e2", "e3", "e1"]);
+        assert_eq!(d.selection, [g.child(2).expect("member")]);
+        d.undo();
+        assert_eq!(member_names(&d), ["e1", "e2", "e3"]);
+        // Out of the group, onto the layer above it; then the rest: the empty group goes.
+        d.selection = vec![g.child(2).expect("member")];
+        d.move_selection_into(0, None, 2);
+        assert_eq!(names(&d), ["e0", "Group", "e3"]);
+        d.selection = vec![g.child(0).expect("member"), g.child(1).expect("member")];
+        d.move_selection_into(0, None, 0);
+        assert_eq!(names(&d), ["e1", "e2", "e0", "e3"]);
+        assert_eq!(d.selection, [ElementRef::new(0, 0), ElementRef::new(0, 1)]);
+
+        // Into a mask's content, above what it masks.
+        let mut d = masked();
+        let o = ElementRef::new(0, 1);
+        d.selection = vec![ElementRef::new(0, 0)];
+        d.move_selection_into(0, Some(o), 1);
+        let o = ElementRef::new(0, 0);
+        assert_eq!(names(&d), ["Masked Group"]);
+        assert_eq!(d.element(o.child(1).expect("c")).map(|e| e.label()), Some("e0".into()));
+        // Not into itself.
+        d.selection = vec![o];
+        d.move_selection_into(0, Some(o), 0);
+        assert_eq!(names(&d), ["Masked Group"]);
+        // Dragging all the content out leaves the mask an ordinary object.
+        d.selection = vec![o.child(0).expect("c"), o.child(1).expect("c")];
+        d.move_selection_into(0, None, 0);
+        assert_eq!(names(&d), ["e2", "e0", "e1"]);
     }
 
     #[test]

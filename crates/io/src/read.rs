@@ -308,13 +308,19 @@ fn read_animation(n: &Node) -> firecraft_doc::Animation {
     }
 }
 
-/// Groups: `GRTi` 0 = plain group, 1 = "mask to image" (mask in `MRMv`, an `IMGv` mask cache
-/// first in `ELMv`), 2 = "mask to path" (the mask path is the top object in `ELMv`).
-/// `MNAb{1}` = grayscale mask, `0` = alpha channel (inferred; see docs/behavior/masks.md).
+/// Groups: `GRTi` 0 = plain group, 1 = "mask to image", a grayscale mask (a vector mask in
+/// `MRMv` with an `IMGv` mask cache first in `ELMv`, or a bitmap mask first in `ELMv`), 2 =
+/// "mask to path" (the mask is the top object in `ELMv`: a path outline, or for a bitmap its
+/// alpha channel). `LNKb`, `MENb` and `MNAb` are the mask's flags (measured in Fireworks MX,
+/// docs/behavior/masks.md).
 fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
     let elm = n.child("ELM");
     let mut kids: Vec<&Node> = elm.map(|e| e.children.iter().collect()).unwrap_or_default();
-    let grayscale = n.bool_of("MNA").unwrap_or(true);
+    let flags = firecraft_doc::MaskFlags {
+        linked: n.bool_of("LNK").unwrap_or(true),
+        enabled: n.bool_of("MEN").unwrap_or(true),
+        show_attrs: !n.bool_of("MNA").unwrap_or(false),
+    };
     match n.int_of("GRT").unwrap_or(0) {
         1 => {
             let Some(mask) = n
@@ -334,17 +340,13 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
                             .rev()
                             .filter_map(|c| read_element(c, ctx, depth + 1))
                             .collect();
-                        let mode = if grayscale {
-                            MaskMode::Grayscale
-                        } else {
-                            MaskMode::Alpha
-                        };
                         return ElementKind::Masked {
                             content,
                             mask: Box::new(mask),
-                            mode,
+                            mode: MaskMode::Grayscale,
                             cache: None,
                             cache_key: 0,
+                            flags,
                         };
                     }
                 }
@@ -382,18 +384,14 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
                 .rev()
                 .filter_map(|c| read_element(c, ctx, depth + 1))
                 .collect();
-            let mode = if grayscale {
-                MaskMode::Grayscale
-            } else {
-                MaskMode::Alpha
-            };
             let cache_key = firecraft_doc::element_key(&mask, &firecraft_doc::RenderCtx::EMPTY);
             ElementKind::Masked {
                 content,
                 mask: Box::new(mask),
-                mode,
+                mode: MaskMode::Grayscale,
                 cache,
                 cache_key,
+                flags,
             }
         }
         2 if kids.len() >= 2 => {
@@ -405,12 +403,19 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
                 .rev()
                 .filter_map(|c| read_element(c, ctx, depth + 1))
                 .collect();
+            // A bitmap masks by its alpha channel, anything else by its path outline.
+            let mode = if matches!(mask.kind, ElementKind::Bitmap(_)) {
+                MaskMode::Alpha
+            } else {
+                MaskMode::PathOutline
+            };
             ElementKind::Masked {
                 content,
                 mask: Box::new(mask),
-                mode: MaskMode::PathOutline,
+                mode,
                 cache: None,
                 cache_key: 0,
+                flags,
             }
         }
         _ => plain_group(n, ctx, depth),

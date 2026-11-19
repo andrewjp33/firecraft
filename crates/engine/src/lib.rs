@@ -13,6 +13,8 @@ mod filters;
 pub use filters::filter_image;
 mod animation;
 mod history;
+mod masks;
+pub use masks::MaskRemoval;
 mod objects;
 mod paint;
 pub mod paths;
@@ -1285,7 +1287,7 @@ impl DocState {
         self.edit(label, |s| {
             for r in refs {
                 if let Some(e) = s.element_mut(r) {
-                    e.translate(dx, dy);
+                    e.move_by(dx, dy);
                 }
             }
         });
@@ -1299,7 +1301,7 @@ impl DocState {
         }
         for r in self.selection.clone() {
             if let Some(e) = self.element_mut(r) {
-                e.translate(dx, dy);
+                e.move_by(dx, dy);
             }
         }
         self.touch();
@@ -1315,7 +1317,7 @@ impl DocState {
         for (r, orig) in originals {
             if let Some(e) = self.element_mut(*r) {
                 let mut t = orig.clone();
-                t.transform_with(m, method);
+                t.transform_by(m, method);
                 *e = t;
             }
         }
@@ -1390,7 +1392,7 @@ impl DocState {
             for (r, orig) in items {
                 if let Some(e) = s.element_mut(r) {
                     let mut t = orig;
-                    t.transform_with(&m, method);
+                    t.transform_by(&m, method);
                     // Edited text is drawn again through its new matrix rather than resampled.
                     if let ElementKind::Text(text) = &mut t.kind
                         && text.edited

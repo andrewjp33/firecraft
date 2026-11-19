@@ -48,6 +48,8 @@ pub struct Dialogs {
     pub animate: Option<AnimateDialog>,
     /// "Automatically add new frames?": the frames an animation lacks.
     pub add_frames: Option<AddFrames>,
+    /// Delete Mask: the masked object whose mask goes (Apply, Discard or Break Apart).
+    pub delete_mask: Option<firecraft_engine::ElementRef>,
 }
 
 /// The Animate dialog (Fireworks MX's, values as it shows them).
@@ -100,6 +102,7 @@ impl Dialogs {
             || self.convert_symbol.is_some()
             || self.animate.is_some()
             || self.add_frames.is_some()
+            || self.delete_mask.is_some()
     }
 }
 
@@ -421,6 +424,7 @@ impl Default for Dialogs {
             convert_symbol: None,
             animate: None,
             add_frames: None,
+            delete_mask: None,
         }
     }
 }
@@ -447,6 +451,43 @@ impl Dialogs {
 
     pub fn open_image_size(&mut self, d: Option<&DocState>) {
         self.image_size = d.map(crate::size_dialogs::ImageSize::new);
+    }
+}
+
+/// Delete Mask: Fireworks CS asks "Apply mask before removing?" (Apply, Discard, Cancel);
+/// FireCraft adds Break Apart, which keeps the mask and the content as separate objects.
+fn delete_mask(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(owner) = app.dialogs.delete_mask else { return };
+    let mut how = None;
+    let mut cancel = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    dialog("Delete Mask").show(ctx, |ui| {
+        ui.label("Apply mask before removing?");
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            use firecraft_engine::MaskRemoval as M;
+            if ui.button("Apply").on_hover_text("Keep what shows now, as a bitmap").clicked() {
+                how = Some(M::Apply);
+            }
+            if ui.button("Discard").on_hover_text("Remove the mask; the objects show whole").clicked() {
+                how = Some(M::Discard);
+            }
+            if ui
+                .button("Break Apart")
+                .on_hover_text("Keep the mask and the objects as separate objects, as they were before masking")
+                .clicked()
+            {
+                how = Some(M::BreakApart);
+            }
+            cancel |= ui.button("Cancel").clicked();
+        });
+    });
+    if let Some(how) = how {
+        app.dialogs.delete_mask = None;
+        if let Some(d) = app.session.active_doc_mut() {
+            d.delete_mask(owner, how);
+        }
+    } else if cancel {
+        app.dialogs.delete_mask = None;
     }
 }
 
@@ -712,6 +753,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
         preferences(app, ctx);
     }
     numeric_transform(app, ctx);
+    delete_mask(app, ctx);
     convert_symbol(app, ctx);
     animate(app, ctx);
     add_frames(app, ctx);

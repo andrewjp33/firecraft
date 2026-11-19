@@ -241,7 +241,10 @@ fn render(subject: &Subject, page: &Page, size: egui::Vec2) -> RgbaImage {
                     // A mask: how much it reveals, as grey.
                     Some(mode) => {
                         let v = match mode {
-                            MaskMode::Grayscale => (0.299 * px.r as f64 + 0.587 * px.g as f64 + 0.114 * px.b as f64) * a,
+                            // The luma masks reveal by (Fireworks' weights, as rendering).
+                            MaskMode::Grayscale => {
+                                ((px.r as u32 * 109 + px.g as u32 * 366 + px.b as u32 * 37) >> 9) as f64 * a
+                            }
                             MaskMode::Alpha | MaskMode::PathOutline => 255.0 * a,
                         };
                         (v, v, v)

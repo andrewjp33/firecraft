@@ -148,7 +148,7 @@ impl DocState {
         self.edit(label, |s| {
             for (r, dx, dy) in moves {
                 if let Some(e) = s.element_mut(r) {
-                    e.translate(dx, dy);
+                    e.move_by(dx, dy);
                 }
             }
         });
@@ -250,7 +250,7 @@ impl DocState {
             let Some(mut e) = self.element(r).cloned() else {
                 continue;
             };
-            e.transform_with(&m, method);
+            e.transform_by(&m, method);
             if let ElementKind::Text(text) = &mut e.kind
                 && text.edited
             {
@@ -344,7 +344,7 @@ impl DocState {
         self.edit("Space", |s| {
             for (r, dx, dy) in moves {
                 if let Some(e) = s.element_mut(r) {
-                    e.translate(dx, dy);
+                    e.move_by(dx, dy);
                 }
             }
         });

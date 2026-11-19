@@ -414,6 +414,41 @@ pub(crate) fn value_drag(
     }
 }
 
+/// A selected mask's settings: Mask: Path outline / Grayscale and "Show fill and stroke" for a
+/// vector mask, Mask: Alpha channel / Grayscale for a bitmap mask (Fireworks MX's names).
+fn mask_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, owner: firecraft_engine::ElementRef) {
+    use firecraft_doc::MaskMode;
+    let Some(d) = app.session.active_doc_mut() else { return };
+    let Some((mode, flags, bitmap)) = d.mask_settings(owner) else { return };
+    ui.vertical(|ui| {
+        let mut chosen = mode;
+        ui.label("Mask:");
+        let outline = if bitmap { MaskMode::Alpha } else { MaskMode::PathOutline };
+        let outline_name = if bitmap { "Alpha channel" } else { "Path outline" };
+        let outline_tip = if bitmap {
+            "The mask shows the objects where it is opaque"
+        } else {
+            "The mask shows the objects inside its path, ignoring its fill and stroke"
+        };
+        ui.radio_value(&mut chosen, outline, outline_name).on_hover_text(outline_tip);
+        ui.radio_value(&mut chosen, MaskMode::Grayscale, "Grayscale")
+            .on_hover_text("The mask shows the objects by its brightness: white shows, black hides");
+        if chosen != mode {
+            d.set_mask_mode(owner, chosen);
+        }
+        if !bitmap {
+            let mut show = flags.show_attrs;
+            if ui
+                .add_enabled(mode == MaskMode::PathOutline, egui::Checkbox::new(&mut show, "Show fill and stroke"))
+                .on_hover_text("Draw the mask path's fill and stroke under the objects")
+                .changed()
+            {
+                d.set_mask_show_attrs(owner, show);
+            }
+        }
+    });
+}
+
 fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
     let count = d.selection.len();
@@ -502,7 +537,17 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         });
         ui.separator();
     }
-    if matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_))) {
+    // A selected mask: its mode and "Show fill and stroke" (Fireworks MX/CS).
+    if let Some(owner) = app
+        .session
+        .active_doc()
+        .and_then(|d| d.selection.first().copied().filter(|r| mask && r.is_mask()))
+        .and_then(|r| app.session.active_doc()?.mask_owner(r))
+    {
+        mask_fields(app, ui, owner);
+        ui.separator();
+    }
+    if matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_))) && !mask {
         crate::text_tool::inspector(app, ui);
     }
     // Fill/stroke of a single path.

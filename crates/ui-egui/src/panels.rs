@@ -101,13 +101,15 @@ enum Dragged {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Row {
     Layer(usize),
-    Object(usize, usize),
+    /// An object's row: top-level, or inside a group or a mask.
+    Object(ElementRef),
 }
 
-/// Where a drag would drop: objects into (layer, index), or a layer to a slot (bottom first),
-/// and the y of the insertion line.
+/// Where a drag would drop: objects into a list (layer, the object whose list it is or None
+/// for the layer's, index), or a layer to a slot (bottom first), and the y of the insertion
+/// line.
 enum Drop {
-    Objects(usize, usize, f32),
+    Objects(usize, Option<ElementRef>, usize, f32),
     Layer(usize, f32),
 }
 
@@ -124,24 +126,28 @@ fn drop_target(
     let upper = y < rect.center().y;
     match dragged {
         Dragged::Objects => match row {
-            Row::Object(li, ei) => Some(Drop::Objects(
-                li,
-                if upper { ei + 1 } else { ei },
+            // Rows list the top of a stack first: the upper half drops above (after) it.
+            Row::Object(r) => Some(Drop::Objects(
+                r.layer,
+                r.parent(),
+                if upper { r.position() + 1 } else { r.position() },
                 if upper { rect.top() } else { rect.bottom() },
             )),
             Row::Layer(li) => {
                 let n = d.doc.layers.get(li)?.elements(d.doc.current_frame).len();
-                Some(Drop::Objects(li, n, rect.bottom()))
+                Some(Drop::Objects(li, None, n, rect.bottom()))
             }
         },
         Dragged::Layer(_) => {
             // The layer's whole block (its row and its objects' rows).
-            let li = match row {
-                Row::Layer(li) | Row::Object(li, _) => li,
+            let layer_of = |r: &Row| match r {
+                Row::Layer(li) => *li,
+                Row::Object(o) => o.layer,
             };
+            let li = layer_of(&row);
             let block = rows
                 .iter()
-                .filter(|(_, r)| matches!(r, Row::Layer(l) | Row::Object(l, _) if *l == li))
+                .filter(|(_, r)| layer_of(r) == li)
                 .map(|(r, _)| *r)
                 .reduce(|a, b| a.union(b))?;
             let above = y < block.center().y;
@@ -172,7 +178,7 @@ fn name_edit(ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<Rename>) 
 
 /// The tint of a row whose objects inside hold the selection (FireCraft; FirePixel's group
 /// tree marks such rows the same way).
-const HOLDS_SELECTION: Color32 = Color32::from_rgb(0xF5, 0xEB, 0xB5);
+const HOLDS_SELECTION: Color32 = Color32::from_rgb(0x99, 0x77, 0xFF);
 
 /// The frame of a selected mask's thumbnail (Fireworks CS).
 pub(crate) const MASK_EDIT_GREEN: Color32 = Color32::from_rgb(0x66, 0xFF, 0x00);
@@ -185,6 +191,12 @@ const LEVEL_INDENT: f32 = 12.0;
 #[derive(Default)]
 struct RowActions {
     select: Option<ElementRef>,
+    /// A masked object whose link to its mask toggles (the chain).
+    toggle_link: Option<ElementRef>,
+    /// Disable or enable a masked object's mask.
+    mask_enabled: Option<(ElementRef, bool)>,
+    /// Ask how to delete a masked object's mask.
+    delete_mask: Option<ElementRef>,
     toggle_vis: Option<ElementRef>,
     toggle_lock: Option<ElementRef>,
     toggle_open: Option<ElementRef>,
@@ -302,6 +314,7 @@ fn object_rows(
     let mut buttons = Rect::NOTHING;
     let mut arrow = Rect::NOTHING;
     let mut mask_thumb = Rect::NOTHING;
+    let mut link_rect = Rect::NOTHING;
     let row = ui.horizontal(|ui| {
         buttons = eye_and_lock(ui, r, el, edited, out);
         ui.add_space(depth as f32 * LEVEL_INDENT);
@@ -323,11 +336,26 @@ fn object_rows(
             }
         }
         match &el.kind {
-            ElementKind::Masked { content, mask, mode, .. } => {
+            ElementKind::Masked {
+                content,
+                mask,
+                mode,
+                flags,
+                ..
+            } => {
                 let subject = Subject { elements: content, mask: None };
                 thumbs::show(ui, &mut st.thumbs, page, (r, Which::Object), &subject, false);
-                let (link, _) = ui.allocate_exact_size(vec2(8.0, 20.0), Sense::hover());
-                icons::paint_glyph(ui.painter(), link.shrink2(vec2(0.0, 3.0)), Glyph::Link, Color32::from_gray(60));
+                // The chain: the mask moves with the object while it shows (Fireworks CS); a
+                // click links or unlinks.
+                let (link, link_resp) = ui.allocate_exact_size(vec2(10.0, 23.0), Sense::hover());
+                link_rect = link;
+                let c = if flags.linked { Color32::from_gray(60) } else { Color32::from_gray(200) };
+                icons::paint_glyph(ui.painter(), link.shrink2(vec2(1.0, 4.0)), Glyph::Link, c);
+                link_resp.on_hover_text(if flags.linked {
+                    "Linked: the mask moves with the objects. Click to unlink"
+                } else {
+                    "Unlinked: the objects move without their mask. Click to link"
+                });
                 let subject = Subject {
                     elements: std::slice::from_ref(&**mask),
                     mask: Some(*mode),
@@ -335,6 +363,9 @@ fn object_rows(
                 mask_thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, mask_selected)
                     .on_hover_text(format!("{}: click to select the mask", mask_kind(mask, *mode)))
                     .rect;
+                if !flags.enabled {
+                    disabled_cross(ui.painter(), mask_thumb);
+                }
             }
             _ => {
                 let subject = Subject { elements: std::slice::from_ref(el), mask: None };
@@ -355,9 +386,7 @@ fn object_rows(
         ui.add_space(ui.available_width());
     });
     let rect = row.response.rect;
-    if depth == 0 {
-        rows.push((rect, Row::Object(r.layer, r.index)));
-    }
+    rows.push((rect, Row::Object(r)));
     let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
     if selected || holds {
         let fill = if selected { theme::SELECT_BLUE } else { HOLDS_SELECTION };
@@ -366,9 +395,10 @@ fn object_rows(
     if !editing {
         let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
         let hint = if depth == 0 {
-            "Double-click to rename; drag to move (also to another layer)"
+            "Double-click to rename; drag to move (also to another layer, or into a group or mask)"
         } else {
-            "Click to select this object inside its group or mask; double-click to rename"
+            "Click to select this object inside its group or mask; double-click to rename; drag to \
+             reorder it, or out of the group or mask"
         };
         let click = ui
             .interact(hit, ui.scope_id().with(("layer_row", r)), Sense::click_and_drag())
@@ -377,14 +407,21 @@ fn object_rows(
         let selectable = !el.locked && !locked_above;
         if click.clicked() && selectable {
             // The mask thumbnail selects the mask, the rest of the row the object.
-            let on_mask = click.interact_pointer_pos().is_some_and(|p| mask_thumb.contains(p));
-            out.select = if on_mask { mask_ref.or(Some(r)) } else { Some(r) };
+            let at = click.interact_pointer_pos();
+            if at.is_some_and(|p| link_rect.contains(p)) {
+                out.toggle_link = Some(r);
+            } else {
+                let on_mask = at.is_some_and(|p| mask_thumb.contains(p));
+                out.select = if on_mask { mask_ref.or(Some(r)) } else { Some(r) };
+            }
+        }
+        if mask_ref.is_some() {
+            click.context_menu(|ui| mask_menu(ui, d, r, out));
         }
         if click.double_clicked() {
             st.renaming = Some((r.layer, Some(r), el.name.clone().unwrap_or_default()));
         }
-        // Objects inside groups and masks stay where they are: only top-level rows drag.
-        if click.drag_started() && selectable && depth == 0 {
+        if click.drag_started() && selectable {
             out.drag = Some(r);
         }
     }
@@ -414,6 +451,31 @@ fn object_rows(
     }
 }
 
+/// A disabled mask's thumbnail: a red cross over it (Fireworks CS).
+fn disabled_cross(p: &egui::Painter, r: Rect) {
+    let s = Stroke::new(2.0, Color32::from_rgb(0xE0, 0x10, 0x10));
+    let r = r.shrink(3.0);
+    p.line_segment([r.left_top(), r.right_bottom()], s);
+    p.line_segment([r.right_top(), r.left_bottom()], s);
+}
+
+/// The right-click menu of a masked object's row and its mask's row.
+fn mask_menu(ui: &mut egui::Ui, d: &DocState, owner: ElementRef, out: &mut RowActions) {
+    let Some((_, flags, _)) = d.mask_settings(owner) else { return };
+    if ui.button(if flags.enabled { "Disable Mask" } else { "Enable Mask" }).clicked() {
+        out.mask_enabled = Some((owner, !flags.enabled));
+        ui.close();
+    }
+    if ui.button(if flags.linked { "Unlink Mask" } else { "Link Mask" }).clicked() {
+        out.toggle_link = Some(owner);
+        ui.close();
+    }
+    if ui.button("Delete Mask...").clicked() {
+        out.delete_mask = Some(owner);
+        ui.close();
+    }
+}
+
 /// The row of a masked object's mask (`r`), above its content: a click selects the mask, as the
 /// mask thumbnail does. A mask that is a group or itself masked opens like other rows, and the
 /// objects in it can be selected.
@@ -437,6 +499,7 @@ fn mask_row(
     let background = ui.painter().add(egui::Shape::Noop);
     let mut buttons = Rect::NOTHING;
     let mut arrow = Rect::NOTHING;
+    let mut thumb = Rect::NOTHING;
     let row = ui.horizontal(|ui| {
         // Empty eye and lock columns: the mask shows and hides with its object.
         buttons = ui
@@ -461,7 +524,7 @@ fn mask_row(
             }
         }
         let subject = Subject { elements: std::slice::from_ref(mask), mask: Some(mode) };
-        thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected);
+        thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
         let text = RichText::new(mask_kind(mask, mode)).italics();
         let text = if selected { text.color(Color32::WHITE) } else { text };
         ui.add(egui::Label::new(text).selectable(false));
@@ -488,6 +551,12 @@ fn mask_row(
     if click.clicked() && !locked {
         out.select = Some(r);
     }
+    if let Some(owner) = r.parent() {
+        click.context_menu(|ui| mask_menu(ui, d, owner, out));
+        if d.mask_settings(owner).is_some_and(|s| !s.1.enabled) {
+            disabled_cross(ui.painter(), thumb);
+        }
+    }
     if !open {
         return;
     }
@@ -503,6 +572,31 @@ fn mask_row(
         if let Some(cr) = r.child(i) {
             object_rows(ui, st, d, page, cr, c, depth + 1, locked, out, rows);
         }
+    }
+}
+
+/// The object rows' drag start, open/close, link and Disable Mask requests.
+fn row_actions(d: &mut DocState, st: &mut LayersUi, actions: &mut RowActions) {
+    if let Some(r) = actions.drag {
+        // Dragging an unselected object moves just that one.
+        if !d.selection.contains(&r) {
+            d.selection = vec![r];
+            d.pixels = None;
+        }
+        st.dragging = Some(Dragged::Objects);
+    }
+    if let Some(r) = actions.toggle_open
+        && !st.open.remove(&r)
+    {
+        st.open.insert(r);
+    }
+    if let Some(o) = actions.toggle_link
+        && let Some((_, f, _)) = d.mask_settings(o)
+    {
+        d.set_mask_linked(o, !f.linked);
+    }
+    if let Some((o, on)) = actions.mask_enabled {
+        d.set_mask_enabled(o, on);
     }
 }
 
@@ -610,20 +704,11 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         // Thumbnails left for later frames.
         ui.ctx().request_repaint();
     }
-    if let Some(r) = actions.drag {
-        // Dragging an unselected object moves just that one.
-        if !d.selection.contains(&r) {
-            d.selection = vec![r];
-            d.pixels = None;
-        }
-        st.dragging = Some(Dragged::Objects);
-    }
-    if let Some(r) = actions.toggle_open
-        && !st.open.remove(&r)
-    {
-        st.open.insert(r);
-    }
+    row_actions(d, &mut st, &mut actions);
     rename = rename.or(actions.rename.take());
+    if let Some(o) = actions.delete_mask {
+        app.dialogs.delete_mask = Some(o);
+    }
     let (select, toggle_obj_vis, toggle_obj_lock) = (actions.select, actions.toggle_vis, actions.toggle_lock);
     // Drag in progress: show where it would land; drop on release.
     if let Some(dragged) = st.dragging {
@@ -637,7 +722,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let target = pos.and_then(|p| drop_target(d, &rows, dragged, p.y));
         if let Some(t) = &target {
             let y = match t {
-                Drop::Objects(_, _, y) | Drop::Layer(_, y) => *y,
+                Drop::Objects(_, _, _, y) | Drop::Layer(_, y) => *y,
             };
             let x = rows.first().map_or(ui.min_rect().x_range(), |(r, _)| r.x_range());
             ui.painter().hline(x, y, Stroke::new(2.0, theme::SELECT_BLUE));
@@ -645,7 +730,9 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
         if released || !down {
             match (dragged, target) {
-                (Dragged::Objects, Some(Drop::Objects(li, index, _))) => d.move_selection_to(li, index),
+                (Dragged::Objects, Some(Drop::Objects(li, parent, index, _))) => {
+                    d.move_selection_into(li, parent, index);
+                }
                 (Dragged::Layer(from), Some(Drop::Layer(slot, _))) => {
                     d.move_layer(from, if from < slot { slot - 1 } else { slot });
                 }
@@ -861,6 +948,7 @@ mod tests {
             mode: MaskMode::Grayscale,
             cache: None,
             cache_key: 0,
+            flags: Default::default(),
         })
     }
 

@@ -447,6 +447,24 @@ fn write_layer(layer: &Layer, frames: usize, w: &mut Writer) -> Node {
     n
 }
 
+/// A mask's flags, as Fireworks MX writes them: `LNKb{0}` and `MENb{0}` only when off, `MNAb{1}`
+/// when the fill and stroke are hidden; placed before `GRTi`.
+fn put_mask_flags(g: &mut Node, f: firecraft_doc::MaskFlags) {
+    g.children.retain(|c| !(c.is("LNK") || c.is("MEN") || c.is("MNA")));
+    let mut tags = Vec::new();
+    if !f.linked {
+        tags.push(Node::bool("LNK", false));
+    }
+    if !f.enabled {
+        tags.push(Node::bool("MEN", false));
+    }
+    if !f.show_attrs {
+        tags.push(Node::bool("MNA", true));
+    }
+    let at = g.children.iter().position(|c| c.is("GRT")).unwrap_or(g.children.len());
+    g.children.splice(at..at, tags);
+}
+
 /// A vector mask's cached render: kept while the mask is as it was read, drawn anew once it
 /// changed (or for a mask that never had one); Fireworks MX and CS6 save one with every vector
 /// mask.
@@ -506,26 +524,29 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             mode,
             cache,
             cache_key,
+            flags,
         } if depth < 64 => {
             let mut g = el
                 .raw
                 .clone()
                 .filter(|r| r.is("GRP"))
                 .unwrap_or_else(|| Node::vector("GRP", vec![]));
-            put(&mut g, Node::bool("MNA", *mode != MaskMode::Alpha));
+            put_mask_flags(&mut g, *flags);
             put(
                 &mut g,
-                Node::int("GRT", if *mode == MaskMode::PathOutline { 2 } else { 1 }),
+                Node::int("GRT", if *mode == MaskMode::Grayscale { 1 } else { 2 }),
             );
             let mut elm: Vec<Node> = Vec::new();
-            // A bitmap mask (no cached render of a separate mask object) is stored inline as
-            // the top ELMv child, without MRMv.
-            let inline = *mode == MaskMode::PathOutline
+            // The mask is stored inline as the top ELMv child, without MRMv, for "mask to path"
+            // (a path outline, or a bitmap's alpha channel) and for a grayscale bitmap mask (no
+            // cached render of a separate mask object).
+            let inline = *mode != MaskMode::Grayscale
                 || (cache.is_none() && matches!(mask.kind, ElementKind::Bitmap(_)));
             if inline {
                 let mut stored = (**mask).clone();
                 if let ElementKind::Bitmap(b) = &mut stored.kind {
-                    if *mode != MaskMode::PathOutline {
+                    // Grayscale bitmap masks are saved inverted; alpha-channel ones as they are.
+                    if *mode == MaskMode::Grayscale {
                         crate::read::invert_mask_bitmap(&mut b.image);
                     }
                 }
@@ -1706,6 +1727,7 @@ mod tests {
             mode: MaskMode::Grayscale,
             cache: None,
             cache_key: 0,
+            flags: Default::default(),
         }));
         crate::open(&crate::save_fireworks_png(&doc).unwrap(), None).unwrap()
     }
@@ -1732,6 +1754,31 @@ mod tests {
         let back = crate::open(&crate::save_fireworks_png(&moved).unwrap(), None).unwrap();
         assert_eq!(cache_bounds(&back), Some((30.0, 15.0, 50.0, 40.0)));
         assert_eq!(back.render(0), moved.render(0));
+    }
+
+    #[test]
+    fn mask_flags_and_modes_survive_a_save() {
+        // MX's file: MNAb, LNKb and MENb as measured, and the mode in GRTi.
+        let check = |mode: MaskMode, flags: firecraft_doc::MaskFlags| {
+            let mut doc = masked_sample();
+            if let ElementKind::Masked { mode: m, flags: f, .. } = &mut doc.layers[0].cells[0][1].kind {
+                *m = mode;
+                *f = flags;
+            }
+            let back = crate::open(&crate::save_fireworks_png(&doc).unwrap(), None).unwrap();
+            match &back.layers[0].elements(0)[1].kind {
+                ElementKind::Masked { mode: m, flags: f, .. } => (*m, *f),
+                _ => panic!("masked object expected"),
+            }
+        };
+        let off = firecraft_doc::MaskFlags {
+            linked: false,
+            enabled: false,
+            show_attrs: true,
+        };
+        assert_eq!(check(MaskMode::PathOutline, off), (MaskMode::PathOutline, off));
+        let on = firecraft_doc::MaskFlags::default();
+        assert_eq!(check(MaskMode::Grayscale, on), (MaskMode::Grayscale, on));
     }
 
     #[test]

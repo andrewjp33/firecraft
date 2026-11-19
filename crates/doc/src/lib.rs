@@ -22,7 +22,7 @@ pub use export::{ExportFormat, ExportSettings, PaletteKind, Transparency};
 pub use cache::{Dirty, RenderCache, element_key, kept_hit, perspective_hit};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
-    Animation, BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,
+    Animation, BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskFlags, MaskMode, Path, PolyLine, PolyPoint, RectShape,
     StoredPolyline, Stroke, Text, TextPath, TextRun, Texture, mask_cache, remap_tiles, tile_refs,
 };
 use firecraft_fwpng::Node;

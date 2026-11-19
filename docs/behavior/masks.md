@@ -13,9 +13,33 @@ A masked object is a group (`GRPv`) with a type:
 | 1 | Mask to image (bitmap mask) | `ELMv` = [mask `IMGv`, content...], no `MRMv` | content alpha x mask strength |
 | 2 | Mask to path | `ELMv` = [mask path, content...] (mask on top) | clip to the mask path's outline |
 
-* Mask strength for type 1 with `MNAb{1}`: Fireworks' luma of the mask pixel times its alpha
-  (grey `#808080` reveals 50%). `MNAb{0}` is taken to be "alpha channel" mode (not yet seen in a
-  file; the JS `setElementMaskMode` signature still has to be found to confirm it).
+* Mask strength for type 1 (grayscale): Fireworks' luma of the mask pixel times its alpha (grey
+  `#808080` reveals 50%). Type 2 with a bitmap as the mask is "alpha channel": the bitmap's
+  alpha, the bitmap stored as it is (not inverted).
+* **Flags** (measured 2026-11-18 with MX's script API on `~/Documents/work/probes/mask_probe_mx.png`;
+  the result is `mask_probe_mx_flags.png`): each mask has `element.mask` = { `mode` ("mask to
+  image" / "mask to path"), `linked`, `enabled`, `showAttrs`, `autoExpandImages` }, changed with
+  `dom.linkElementMask(bool)`, `enableElementMask(bool)`, `setElementMaskMode(mode)`,
+  `setElementMaskShowAttrs(bool)`. In the file: `LNKb{0}` when unlinked, `MENb{0}` when
+  disabled (both absent otherwise), `MNAb{1}` when the fill and stroke are hidden (MX's default;
+  absent when shown), placed before `GRTi`. Mode = `GRTi` (1 grayscale, 2 path outline or alpha
+  channel). FireCraft used to read `MNAb` as grayscale/alpha, which was wrong (FirePixel had it
+  right); parity on all reference files is unchanged by the fix.
+  * **Linked** (default): moving or transforming the masked object moves the mask too.
+    Unlinked, only the content moves: `moveSelectionBy(20, 0)` moved the content of an unlinked
+    mask from x 20 to 40 and left the mask at 30 (FireCraft: `Element::move_by` /
+    `transform_by`, used for the user's moves; canvas-wide moves still move everything).
+  * **Disabled**: the content shows whole, unmasked.
+  * **Show fill and stroke**: no visible change on a grayscale mask (measured); on a path
+    outline (or alpha channel) mask the mask's own look is drawn under the content.
+  FireCraft renders that file as MX does (100%).
+* **Delete Mask** (`dom.removeElementMask`, `mask_probe_mx_removed.png`): "apply" turns the
+  masked object into an Image of what showed, at the mask's bounds (80x60 at 30,30); "discard"
+  leaves the content, a mask over two objects becoming a plain Group of them. CS6 asks "Apply
+  mask before removing?" (Apply, Discard, Cancel). FireCraft adds **Break Apart**: the content
+  objects and the mask become separate objects again, the mask on top, as before Group as Mask
+  (with the masked object's effects, opacity or blending, they stay together in a group that
+  keeps them).
 * **Mask images are stored inverted**: colour channels hold 255 - value (alpha unchanged). Measured
   by masking a red rectangle with flattened ovals: a white oval is saved black and shows the
   content fully, black is saved white and hides it, red (luma 54) is saved `#c9c9c9` and shows
@@ -62,8 +86,7 @@ groups have an arrow before their thumbnail that opens them. An open masked obje
 ("Vector mask", "Vector mask (path outline)" or "Bitmap mask"), then its content objects; an open
 group lists its members; nested groups and masks open the same way. Clicking an object listed
 inside selects it alone, like the Subselection tool (Shift adds or removes it); its eye, lock and
-renaming work as on top-level rows. Rows whose objects hold the selection are tinted pale yellow.
-Objects inside can't be dragged to another place in the list. Which rows are open is kept per
+renaming work as on top-level rows. Which rows are open is kept per
 document while FireCraft runs, not saved.
 
 **Selecting the mask** (CS6, as FirePixel measured it): a click on a masked object's mask
@@ -72,9 +95,24 @@ object's row stays highlighted and the Property inspector says "Vector mask" or 
 A click on the content thumbnail or the name goes back to the object. With the mask selected the
 Pointer moves and transforms the mask alone, and the inspector's fill, stroke and effects apply
 to it. A mask that is a group (or itself masked) opens from its row, and the objects in it can be
-selected the same way (FirePixel's E-1). Delete, Cut, Duplicate and Alt-drag leave a selected mask
-in its object: they do nothing, and Alt-drag just moves it (Delete Mask belongs to Modify > Mask,
-not built). In the engine a mask is the reference's child slot `MASK_SLOT`
+selected the same way (FirePixel's E-1). Cut, Duplicate and Alt-drag leave a selected mask in its
+object (Alt-drag just moves it); Delete (or Edit > Clear) on a selected mask asks how to delete
+the mask, as CS6 does.
+
+With a mask selected the Property inspector shows its settings, Fireworks' names: **Mask: Path
+outline / Grayscale** and **Show fill and stroke** (enabled for path outline) for a vector mask,
+**Mask: Alpha channel / Grayscale** for a bitmap mask. Changing one is an undo step.
+
+The **chain** between the two thumbnails links and unlinks the mask (faded when unlinked); a
+disabled mask's thumbnail has a red cross (Fireworks CS). Right-clicking a masked object's row or
+its mask row offers Disable/Enable Mask, Link/Unlink Mask and Delete Mask...; Modify > Mask has
+the same.
+
+**Dragging rows** (FireCraft): objects inside groups and masks drag like top-level ones: within
+their list (reorder), out of it onto any other row (they leave the group or mask), or into an
+open group's or mask's list. A group left empty goes; a mask left with no content becomes an
+ordinary object, as if broken apart. An object can't be dropped inside itself. The rows whose
+objects hold the selection are tinted #9977FF (the user's choice). In the engine a mask is the reference's child slot `MASK_SLOT`
 (`ElementRef::mask`, `is_mask`).
 
 **Thumbnails** (Fireworks CS, as FirePixel measured it, its RE spec 73; `crates/ui-egui/src/thumbs.rs`):

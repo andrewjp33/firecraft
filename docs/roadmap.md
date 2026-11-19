@@ -117,10 +117,10 @@ Other items keep their numbers.
     rows (content thumbnail, chain, mask thumbnail, CS6's names) and FireCraft's open arrow listing
     the mask and the objects inside to select them, and selecting the mask from its thumbnail or
     row (green frame, moved and transformed alone; its cache is redrawn on save) (masks.md,
-    "Layers panel"), and real thumbnails (content; mask grey on black). Next, from FirePixel's
-    tester requests: painting on a bitmap mask with a live preview, the mask inspector (mode,
-    Show fill and stroke), the link toggle, Delete/Disable Mask. Measured: MX draws a vector mask
-    from the mask, not its cache
+    "Layers panel"), real thumbnails, the link toggle, Disable/Enable Mask, the inspector's mask
+    settings, Delete Mask (Apply, Discard, Break Apart) and dragging rows into, within and out of
+    groups and masks. Next: painting on a bitmap mask with a live preview, Reveal/Hide All and
+    Selection, Group as Mask, Paste as Mask / Paste Inside
 17. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
     setting but the bevel profile (`BEvl`, `Bevel: n/x y f/...`) and Darken Deep Areas (`Drkn`).
     Add a curve editor like Eye Candy's (draggable points, add/remove, its preset profiles) with a

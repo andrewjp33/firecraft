@@ -673,8 +673,10 @@ fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {
             mask,
             mode,
             cache,
+            flags,
             ..
         } => {
+            format!("{flags:?}").hash(h);
             for c in content {
                 hash_element(c, ctx, h);
                 c.opacity.to_bits().hash(h);

@@ -128,7 +128,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 paste(app);
             }
             if item(ui, "Clear", "Backspace", has_sel) {
-                with_doc(app, |d| d.delete());
+                delete_selection(app);
             }
             ui.separator();
             if item(ui, "Duplicate", "Ctrl+Alt+D", has_objects) {
@@ -200,7 +200,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ui.menu_button("Symbol", |ui| symbol_items(app, ui, has_objects));
             todo(ui, "Pop-up Menu", "");
             ui.separator();
-            todo(ui, "Mask", "");
+            ui.menu_button("Mask", |ui| mask_items(app, ui));
             todo(ui, "Selective JPEG", "");
             ui.separator();
             todo(ui, "Flatten Selection", "Ctrl+Alt+Shift+Z");
@@ -902,7 +902,7 @@ pub fn shortcuts(app: &mut FireCraftApp, ctx: &egui::Context) {
                 .get_mut(i)
                 .is_some_and(|d| crate::path_tool::delete(&mut app.path_edit, d));
         if !points {
-            with_doc(app, |d| d.delete());
+            delete_selection(app);
         }
     }
     // Arrow keys nudge the selection (Shift: 10 px).
@@ -1243,5 +1243,45 @@ fn clipboard_events(app: &mut FireCraftApp, ctx: &egui::Context) {
             }
             _ => {}
         }
+    }
+}
+
+/// Delete or Clear: a selected mask asks how to remove it (Delete Mask), anything else goes.
+fn delete_selection(app: &mut FireCraftApp) {
+    let mask = app.session.active_doc().and_then(|d| match d.selection.as_slice() {
+        [r] if r.is_mask() && d.pixels.is_none() => d.mask_owner(*r),
+        _ => None,
+    });
+    match mask {
+        Some(owner) => app.dialogs.delete_mask = Some(owner),
+        None => with_doc(app, |d| d.delete()),
+    }
+}
+
+/// Modify > Mask, for the selected masked object (or its mask).
+fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let owner = app.session.active_doc().and_then(|d| d.selected_mask_owner());
+    let settings = owner.and_then(|o| app.session.active_doc().and_then(|d| d.mask_settings(o)));
+    todo(ui, "Reveal All", "");
+    todo(ui, "Hide All", "");
+    todo(ui, "Reveal Selection", "");
+    todo(ui, "Hide Selection", "");
+    ui.separator();
+    todo(ui, "Group as Mask", "");
+    ui.separator();
+    let enabled = settings.is_none_or(|s| s.1.enabled);
+    if item(ui, if enabled { "Disable Mask" } else { "Enable Mask" }, "", owner.is_some())
+        && let Some(o) = owner
+    {
+        with_doc(app, |d| d.set_mask_enabled(o, !enabled));
+    }
+    let linked = settings.is_none_or(|s| s.1.linked);
+    if item(ui, if linked { "Unlink Mask" } else { "Link Mask" }, "", owner.is_some())
+        && let Some(o) = owner
+    {
+        with_doc(app, |d| d.set_mask_linked(o, !linked));
+    }
+    if item(ui, "Delete Mask...", "", owner.is_some()) {
+        app.dialogs.delete_mask = owner;
     }
 }
