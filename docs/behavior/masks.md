@@ -246,3 +246,23 @@ Measured 2026-11-18 in Fireworks MX through Modify > Mask (files
   mask over the canvas, white where the marquee is (its soft edge as alpha) and transparent
   elsewhere, or the reverse for Hide Selection; the mask is selected, history "Add Mask". With a
   marquee drawn, the Layers panel's Add Mask does Reveal Selection.
+
+## A Fireworks MX bug: a mask over one bitmap applied twice
+
+Found 2026-11-19 from the user's circles_hi_mask2.png (a FireCraft file with a painted grayscale
+bitmap mask over a bitmap of circles, re-saved in MX: MX showed the masked area much darker,
+FireCraft 56% alike). Measured with scripts (`~/Documents/work/probes/mask_greys_mx.png`,
+`mask_bitmap_content_mx.png`, `mask_bitmap_content2_mx.png`, `..._cs6.png`):
+
+* Path content, and a group holding a bitmap: linear in MX and CS6 (grey 133 shows 52%).
+* A masked object whose content is one bitmap: MX shows the mask's strength squared, in every
+  mode (grey 64/133/192 show 16/69/145; a black bitmap on white under grey 133 gives 186 =
+  255 x (1 - 0.52^2); a 50% alpha-channel mask shows 25%). CS6 is linear there too (122, 127):
+  Adobe fixed it.
+* Not every such case: MX's own fresh render of bolWNWide.png (bitmaps under bitmap masks)
+  matches linear (80.9%) better than squared (73.4%). What triggers it isn't known.
+
+**FireCraft keeps the linear (CS6) behaviour, by the user's choice** ("It was not expected when
+the mask was applied and the background got darker"). circles_hi_mask2.png stays at 56% against
+MX's render, a known difference. Probe tools: `crates/io/examples/mask_probe_pixels.rs` (mask,
+content and both renders at points), `mask_variant.rs`, `hide_object.rs`.
