@@ -113,7 +113,11 @@ Other items keep their numbers.
     Disable/Delete Mask), Edit > Paste as Mask and Paste Inside, the mask thumbnail and link toggle
     in the Layers panel, painting on a bitmap
     mask with the bitmap tools, and the Property inspector's mask settings (alpha channel or
-    grayscale, path outline). Measure each with the oracle first
+    grayscale, path outline). Measure each with the oracle first. Done: the Layers panel's masked
+    rows (content thumbnail, chain, mask thumbnail, CS6's names) and FireCraft's open arrow listing
+    the mask and the objects inside to select them (masks.md, "Layers panel"). Next: selecting the
+    mask from its thumbnail or its row (CS6: green frame, "Vector mask" in the inspector); a
+    changed vector mask needs its mask cache `IMGv` rewritten or dropped, to check in MX
 17. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
     setting but the bevel profile (`BEvl`, `Bevel: n/x y f/...`) and Darken Deep Areas (`Drkn`).
     Add a curve editor like Eye Candy's (draggable points, add/remove, its preset profiles) with a

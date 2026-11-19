@@ -1,8 +1,8 @@
 //! The right-hand panel dock: Optimize, Layers, Frames and History, Assets, Answers.
 
 use egui::{Color32, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
-use firecraft_doc::ElementKind;
-use firecraft_engine::ElementRef;
+use firecraft_doc::{Element, ElementKind, MaskMode};
+use firecraft_engine::{DocState, ElementRef};
 
 use crate::icons::{self, Glyph};
 use crate::{FireCraftApp, theme};
@@ -128,10 +128,15 @@ fn thumbnail(ui: &mut egui::Ui, kind: &ElementKind) {
 #[derive(Clone, Default)]
 struct LayersUi {
     /// Renaming a layer (object `None`) or an object, and the name being typed.
-    renaming: Option<(usize, Option<usize>, String)>,
+    renaming: Option<Rename>,
+    /// Masked objects and groups shown open, listing the objects inside them.
+    open: std::collections::HashSet<ElementRef>,
     /// A row being dragged.
     dragging: Option<Dragged>,
 }
+
+/// A layer (object `None`) or an object being renamed, and its name.
+type Rename = (usize, Option<ElementRef>, String);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Dragged {
@@ -195,6 +200,318 @@ fn drop_target(
     }
 }
 
+/// A name being edited: Enter or clicking elsewhere keeps it, Escape cancels.
+fn name_edit(ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<Rename>) {
+    let Some((li, obj, text)) = st.renaming.as_mut() else {
+        return;
+    };
+    let r = ui.add(egui::TextEdit::singleline(text).desired_width(110.0));
+    if !r.has_focus() && !r.lost_focus() {
+        r.request_focus();
+    }
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        st.renaming = None;
+    } else if r.lost_focus() {
+        *rename = Some((*li, *obj, text.clone()));
+        st.renaming = None;
+    }
+}
+
+/// The tint of a row whose objects inside hold the selection (FireCraft; FirePixel's group
+/// tree marks such rows the same way).
+const HOLDS_SELECTION: Color32 = Color32::from_rgb(0xF5, 0xEB, 0xB5);
+
+/// Width of an object row's open/close arrow, and the indent per level inside groups and masks.
+const ARROW_W: f32 = 12.0;
+const LEVEL_INDENT: f32 = 12.0;
+
+/// What the object rows asked for, applied once the list is drawn.
+#[derive(Default)]
+struct RowActions {
+    select: Option<ElementRef>,
+    toggle_vis: Option<ElementRef>,
+    toggle_lock: Option<ElementRef>,
+    toggle_open: Option<ElementRef>,
+    /// A drag started on this top-level object's row.
+    drag: Option<ElementRef>,
+    rename: Option<Rename>,
+}
+
+/// Whether the object opens in the Layers panel to list what is inside it: a group's members,
+/// a masked object's mask and content (FireCraft; Fireworks lists only top-level objects).
+fn expandable(el: &Element) -> bool {
+    match &el.kind {
+        ElementKind::Group(c) => !c.is_empty(),
+        ElementKind::Masked { .. } => true,
+        _ => false,
+    }
+}
+
+/// An object row's name, as Fireworks CS shows it: a masked object is named after its content
+/// (the mask thumbnail beside it shows it is masked), and an unnamed group, or a mask over
+/// several objects, by its number of objects.
+fn row_label(el: &Element) -> String {
+    let group = |n: usize| format!("Group: {n} objects");
+    match (&el.name, &el.kind) {
+        (None, ElementKind::Masked { content, .. }) => match content.as_slice() {
+            [one] => one.label(),
+            many => group(many.len()),
+        },
+        (None, ElementKind::Group(c)) => group(c.len()),
+        _ => el.label(),
+    }
+}
+
+/// Whether `inner` is an object somewhere inside `outer`.
+fn is_inside(inner: ElementRef, outer: ElementRef) -> bool {
+    let mut p = inner.parent();
+    while let Some(x) = p {
+        if x == outer {
+            return true;
+        }
+        p = x.parent();
+    }
+    false
+}
+
+/// The kind of mask, as Fireworks CS's Property inspector names it.
+fn mask_kind(mask: &Element, mode: MaskMode) -> &'static str {
+    match (&mask.kind, mode) {
+        (ElementKind::Bitmap(_), _) => "Bitmap mask",
+        (_, MaskMode::PathOutline) => "Vector mask (path outline)",
+        _ => "Vector mask",
+    }
+}
+
+/// A mask's thumbnail, in the style of Fireworks CS's: black where the mask hides the content,
+/// light where it shows it.
+fn mask_thumbnail(ui: &mut egui::Ui, mask: &Element, mode: MaskMode) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 20.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, Color32::BLACK);
+    p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_gray(170)), StrokeKind::Inside);
+    let inner = r.shrink(4.0);
+    match (&mask.kind, mode) {
+        (ElementKind::Bitmap(_), _) => {
+            // A grey ramp: bitmap masks reveal by their brightness.
+            let mut mesh = egui::Mesh::default();
+            mesh.colored_vertex(inner.left_top(), Color32::from_gray(40));
+            mesh.colored_vertex(inner.right_top(), Color32::WHITE);
+            mesh.colored_vertex(inner.right_bottom(), Color32::WHITE);
+            mesh.colored_vertex(inner.left_bottom(), Color32::from_gray(40));
+            mesh.add_triangle(0, 1, 2);
+            mesh.add_triangle(0, 2, 3);
+            p.add(egui::Shape::mesh(mesh));
+        }
+        (ElementKind::Text(_), _) => {
+            p.text(
+                r.center(),
+                egui::Align2::CENTER_CENTER,
+                "T",
+                egui::FontId::proportional(12.0),
+                Color32::WHITE,
+            );
+        }
+        (_, MaskMode::PathOutline) => {
+            p.add(egui::epaint::EllipseShape::stroke(
+                inner.center(),
+                inner.size() / 2.0,
+                Stroke::new(1.5, Color32::WHITE),
+            ));
+        }
+        _ => {
+            p.add(egui::epaint::EllipseShape::filled(
+                inner.center(),
+                inner.size() / 2.0,
+                Color32::WHITE,
+            ));
+        }
+    }
+    resp
+}
+
+/// The object's eye and lock (Fireworks CS), in the layer's eye and lock columns; returns the
+/// columns' rectangle.
+fn eye_and_lock(ui: &mut egui::Ui, r: ElementRef, el: &Element, edited: bool, out: &mut RowActions) -> Rect {
+    ui.horizontal(|ui| {
+        ui.add_space(14.0 + ui.spacing().item_spacing.x);
+        let eye = icons::glyph_button(ui, Glyph::Eye, 16.0, true);
+        if !el.visible {
+            ui.painter().rect_filled(eye.rect.shrink(1.0), 0.0, theme::PANEL);
+        }
+        if eye.on_hover_text("Show/Hide Object").clicked() {
+            out.toggle_vis = Some(r);
+        }
+        let lock = icons::glyph_button(ui, Glyph::Lock, 14.0, true);
+        if !el.locked {
+            ui.painter().rect_filled(lock.rect.shrink(1.0), 0.0, theme::PANEL);
+            // The bitmap the pixel selection applies to shows a pencil in this column, as in
+            // Fireworks MX.
+            if edited {
+                icons::paint_glyph(ui.painter(), lock.rect.shrink(2.0), Glyph::Pencil, Color32::from_gray(30));
+            }
+        }
+        if lock.on_hover_text("Lock/Unlock Object").clicked() {
+            out.toggle_lock = Some(r);
+        }
+    })
+    .response
+    .rect
+}
+
+/// An object's row and, when it is open, the rows of what is inside it: a masked object's
+/// mask, then its content; a group's members (top first). `depth` counts the levels inside
+/// top-level objects; `locked_above` is set inside a locked object, whose members can't be
+/// selected either.
+#[allow(clippy::too_many_arguments)]
+fn object_rows(
+    ui: &mut egui::Ui,
+    st: &mut LayersUi,
+    d: &DocState,
+    r: ElementRef,
+    el: &Element,
+    depth: usize,
+    locked_above: bool,
+    out: &mut RowActions,
+    rows: &mut Vec<(Rect, Row)>,
+) {
+    let selected = d.selection.contains(&r);
+    let holds = !selected && d.selection.iter().any(|s| is_inside(*s, r));
+    let edited = d.pixels.as_ref().and_then(|p| p.target) == Some(r);
+    let editing = st
+        .renaming
+        .as_ref()
+        .is_some_and(|(l, o, _)| *l == r.layer && *o == Some(r));
+    let open = expandable(el) && st.open.contains(&r);
+    // The whole row (thumbnail, name and the space after it) selects the object.
+    let background = ui.painter().add(egui::Shape::Noop);
+    let mut buttons = Rect::NOTHING;
+    let mut arrow = Rect::NOTHING;
+    let row = ui.horizontal(|ui| {
+        buttons = eye_and_lock(ui, r, el, edited, out);
+        ui.add_space(depth as f32 * LEVEL_INDENT);
+        let (a, resp) = ui.allocate_exact_size(vec2(ARROW_W, 20.0), Sense::click());
+        arrow = a;
+        if expandable(el) {
+            let g = if open { Glyph::TriangleDown } else { Glyph::TriangleRight };
+            let c = if resp.hovered() { theme::SELECT_BLUE } else { Color32::from_gray(90) };
+            icons::paint_glyph(ui.painter(), a.shrink2(vec2(0.0, 4.0)), g, c);
+            let name = format!("{} {}", if open { "Close" } else { "Open" }, row_label(el));
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
+            let tip = if matches!(el.kind, ElementKind::Masked { .. }) {
+                "Show or hide the mask and the objects it masks"
+            } else {
+                "Show or hide the objects in this group"
+            };
+            if resp.on_hover_text(tip).clicked() {
+                out.toggle_open = Some(r);
+            }
+        }
+        match &el.kind {
+            ElementKind::Masked { content, mask, mode, .. } => {
+                match content.as_slice() {
+                    [one] => thumbnail(ui, &one.kind),
+                    _ => thumbnail(ui, &ElementKind::Group(Vec::new())),
+                }
+                let (link, _) = ui.allocate_exact_size(vec2(8.0, 20.0), Sense::hover());
+                icons::paint_glyph(ui.painter(), link.shrink2(vec2(0.0, 3.0)), Glyph::Link, Color32::from_gray(60));
+                mask_thumbnail(ui, mask, *mode).on_hover_text(mask_kind(mask, *mode));
+            }
+            kind => thumbnail(ui, kind),
+        }
+        if editing {
+            name_edit(ui, st, &mut out.rename);
+            return;
+        }
+        let label = row_label(el);
+        let text = if selected {
+            RichText::new(label).color(Color32::WHITE)
+        } else {
+            RichText::new(label)
+        };
+        ui.add(egui::Label::new(text).selectable(false));
+        ui.add_space(ui.available_width());
+    });
+    let rect = row.response.rect;
+    if depth == 0 {
+        rows.push((rect, Row::Object(r.layer, r.index)));
+    }
+    let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
+    if selected || holds {
+        let fill = if selected { theme::SELECT_BLUE } else { HOLDS_SELECTION };
+        ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
+    }
+    if !editing {
+        let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
+        let hint = if depth == 0 {
+            "Double-click to rename; drag to move (also to another layer)"
+        } else {
+            "Click to select this object inside its group or mask; double-click to rename"
+        };
+        let click = ui
+            .interact(hit, ui.scope_id().with(("layer_row", r)), Sense::click_and_drag())
+            .on_hover_text(hint);
+        // Locked objects can't be selected (Fireworks CS).
+        let selectable = !el.locked && !locked_above;
+        if click.clicked() && selectable {
+            out.select = Some(r);
+        }
+        if click.double_clicked() {
+            st.renaming = Some((r.layer, Some(r), el.name.clone().unwrap_or_default()));
+        }
+        // Objects inside groups and masks stay where they are: only top-level rows drag.
+        if click.drag_started() && selectable && depth == 0 {
+            out.drag = Some(r);
+        }
+    }
+    if !open {
+        return;
+    }
+    let locked = locked_above || el.locked;
+    match &el.kind {
+        ElementKind::Masked { content, mask, mode, .. } => {
+            mask_row(ui, mask, *mode, depth + 1);
+            for (i, c) in content.iter().enumerate().rev() {
+                if let Some(cr) = r.child(i) {
+                    object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
+                }
+            }
+        }
+        ElementKind::Group(children) => {
+            for (i, c) in children.iter().enumerate().rev() {
+                if let Some(cr) = r.child(i) {
+                    object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The row of a masked object's mask, above its content.
+fn mask_row(ui: &mut egui::Ui, mask: &Element, mode: MaskMode, depth: usize) {
+    ui.horizontal(|ui| {
+        // Empty eye and lock columns: the mask shows and hides with its object.
+        ui.add_space(14.0 + ui.spacing().item_spacing.x);
+        ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+        ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+        ui.add_space(depth as f32 * LEVEL_INDENT);
+        ui.allocate_exact_size(vec2(ARROW_W, 20.0), Sense::hover());
+        mask_thumbnail(ui, mask, mode);
+        let mode_text = match mode {
+            MaskMode::Grayscale => "shows the content by its grayscale",
+            MaskMode::Alpha => "shows the content by its alpha channel",
+            MaskMode::PathOutline => "shows the content inside its path outline",
+        };
+        ui.add(egui::Label::new(RichText::new(mask_kind(mask, mode)).italics()).selectable(false))
+            .on_hover_text(format!(
+                "The mask ({}): it {mode_text}. Selecting and editing masks isn't built yet.",
+                mask.label()
+            ));
+        ui.add_space(ui.available_width());
+    });
+}
+
 fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc_mut() else {
         ui.weak("No document");
@@ -203,33 +520,15 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let state_id = egui::Id::unique(("layers_ui", d.id));
     let mut st: LayersUi = ui.ctx().data(|m| m.get_temp(state_id)).unwrap_or_default();
     let frame = d.doc.current_frame;
-    let mut select: Option<ElementRef> = None;
+    // Rows left open by objects that are gone (or moved) close.
+    st.open.retain(|r| d.element(*r).is_some_and(expandable));
     let mut set_current: Option<usize> = None;
     let mut toggle_vis: Option<usize> = None;
     let mut toggle_lock: Option<usize> = None;
     let mut toggle_disc: Option<usize> = None;
-    let mut toggle_obj_vis: Option<ElementRef> = None;
-    let mut toggle_obj_lock: Option<ElementRef> = None;
-    let mut rename: Option<(usize, Option<usize>, String)> = None;
+    let mut rename: Option<Rename> = None;
+    let mut actions = RowActions::default();
     let mut rows: Vec<(Rect, Row)> = Vec::new();
-    let edited = d.pixels.as_ref().and_then(|p| p.target);
-    // A name being edited: Enter or clicking elsewhere keeps it, Escape cancels.
-    let name_edit =
-        |ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<(usize, Option<usize>, String)>| {
-            let Some((li, obj, text)) = st.renaming.as_mut() else {
-                return;
-            };
-            let r = ui.add(egui::TextEdit::singleline(text).desired_width(110.0));
-            if !r.has_focus() && !r.lost_focus() {
-                r.request_focus();
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                st.renaming = None;
-            } else if r.lost_focus() {
-                *rename = Some((*li, *obj, text.clone()));
-                st.renaming = None;
-            }
-        };
     // Top layer first, as Fireworks lists them.
     for li in (0..d.doc.layers.len()).rev() {
         let Some(layer) = d.doc.layers.get(li) else {
@@ -295,97 +594,25 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         rows.push((header.response.rect, Row::Layer(li)));
         if layer.disclosed {
             for (ei, el) in layer.elements(frame).iter().enumerate().rev() {
-                let r = ElementRef::new(li, ei);
-                let selected = d.selection.contains(&r);
-                let editing = st
-                    .renaming
-                    .as_ref()
-                    .is_some_and(|(l, o, _)| *l == li && *o == Some(ei));
-                // The whole row (thumbnail, name and the space after it) selects the object.
-                let background = ui.painter().add(egui::Shape::Noop);
-                // The object's eye and lock (Fireworks CS), in the layer's eye and lock columns.
-                let mut buttons = egui::Rect::NOTHING;
-                let row = ui.horizontal(|ui| {
-                    let indent = ui.horizontal(|ui| {
-                        ui.add_space(14.0 + ui.spacing().item_spacing.x);
-                        let eye = icons::glyph_button(ui, Glyph::Eye, 16.0, true);
-                        if !el.visible {
-                            ui.painter().rect_filled(eye.rect.shrink(1.0), 0.0, theme::PANEL);
-                        }
-                        if eye.on_hover_text("Show/Hide Object").clicked() {
-                            toggle_obj_vis = Some(r);
-                        }
-                        let lock = icons::glyph_button(ui, Glyph::Lock, 14.0, true);
-                        if !el.locked {
-                            ui.painter().rect_filled(lock.rect.shrink(1.0), 0.0, theme::PANEL);
-                            // The bitmap the pixel selection applies to shows a pencil in this
-                            // column, as in Fireworks MX.
-                            if edited == Some(r) {
-                                icons::paint_glyph(
-                                    ui.painter(),
-                                    lock.rect.shrink(2.0),
-                                    Glyph::Pencil,
-                                    Color32::from_gray(30),
-                                );
-                            }
-                        }
-                        if lock.on_hover_text("Lock/Unlock Object").clicked() {
-                            toggle_obj_lock = Some(r);
-                        }
-                    });
-                    buttons = indent.response.rect;
-                    thumbnail(ui, &el.kind);
-                    if editing {
-                        name_edit(ui, &mut st, &mut rename);
-                        return;
-                    }
-                    let label = el.label();
-                    let text = if selected {
-                        RichText::new(label).color(Color32::WHITE)
-                    } else {
-                        RichText::new(label)
-                    };
-                    ui.add(egui::Label::new(text).selectable(false));
-                    ui.add_space(ui.available_width());
-                });
-                let rect = row.response.rect;
-                rows.push((rect, Row::Object(li, ei)));
-                if selected {
-                    let band = egui::Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
-                    ui.painter().set(
-                        background,
-                        egui::Shape::rect_filled(band, 0.0, theme::SELECT_BLUE),
-                    );
-                }
-                if editing {
-                    continue;
-                }
-                let hit = egui::Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
-                let click = ui
-                    .interact(
-                        hit,
-                        ui.scope_id().with(("layer_row", li, ei)),
-                        Sense::click_and_drag(),
-                    )
-                    .on_hover_text("Double-click to rename; drag to move (also to another layer)");
-                // Locked objects can't be selected (Fireworks CS).
-                if click.clicked() && !el.locked {
-                    select = Some(r);
-                }
-                if click.double_clicked() {
-                    st.renaming = Some((li, Some(ei), el.name.clone().unwrap_or_default()));
-                }
-                if click.drag_started() && !el.locked {
-                    // Dragging an unselected object moves just that one.
-                    if !selected {
-                        d.selection = vec![r];
-                        d.pixels = None;
-                    }
-                    st.dragging = Some(Dragged::Objects);
-                }
+                object_rows(ui, &mut st, d, ElementRef::new(li, ei), el, 0, false, &mut actions, &mut rows);
             }
         }
     }
+    if let Some(r) = actions.drag {
+        // Dragging an unselected object moves just that one.
+        if !d.selection.contains(&r) {
+            d.selection = vec![r];
+            d.pixels = None;
+        }
+        st.dragging = Some(Dragged::Objects);
+    }
+    if let Some(r) = actions.toggle_open
+        && !st.open.remove(&r)
+    {
+        st.open.insert(r);
+    }
+    rename = rename.or(actions.rename.take());
+    let (select, toggle_obj_vis, toggle_obj_lock) = (actions.select, actions.toggle_vis, actions.toggle_lock);
     // Drag in progress: show where it would land; drop on release.
     if let Some(dragged) = st.dragging {
         let (pos, released, down) = ui.input(|i| {
@@ -418,7 +645,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     if let Some((li, obj, name)) = rename {
         match obj {
             None => d.rename_layer(li, &name),
-            Some(ei) => d.rename_object(ElementRef::new(li, ei), &name),
+            Some(r) => d.rename_object(r, &name),
         }
     }
     if let Some(i) = toggle_vis {
@@ -604,5 +831,58 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             d.doc.current_frame = i;
         }
         ui.weak("Adding, removing and timing frames is on the roadmap.");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plain() -> Element {
+        Element::new(ElementKind::Group(Vec::new()))
+    }
+
+    fn masked(n: usize) -> Element {
+        Element::new(ElementKind::Masked {
+            content: (0..n).map(|_| plain()).collect(),
+            mask: Box::new(plain()),
+            mode: MaskMode::Grayscale,
+            cache: None,
+        })
+    }
+
+    #[test]
+    fn rows_are_named_as_in_fireworks_cs() {
+        // One masked object takes its content's name; several count as a group.
+        let mut one = masked(1);
+        if let ElementKind::Masked { content, .. } = &mut one.kind {
+            content[0].name = Some("Photo".into());
+        }
+        assert_eq!(row_label(&one), "Photo");
+        assert_eq!(row_label(&masked(3)), "Group: 3 objects");
+        let group = Element::new(ElementKind::Group(vec![plain(), plain()]));
+        assert_eq!(row_label(&group), "Group: 2 objects");
+        let mut named = masked(3);
+        named.name = Some("Banner".into());
+        assert_eq!(row_label(&named), "Banner");
+    }
+
+    #[test]
+    fn masked_objects_and_groups_open() {
+        assert!(expandable(&masked(1)));
+        assert!(expandable(&Element::new(ElementKind::Group(vec![plain()]))));
+        assert!(!expandable(&plain()));
+    }
+
+    #[test]
+    fn inside_follows_the_child_path() {
+        let top = ElementRef::new(1, 2);
+        let child = top.child(0).unwrap();
+        let grandchild = child.child(3).unwrap();
+        assert!(is_inside(child, top));
+        assert!(is_inside(grandchild, top));
+        assert!(is_inside(grandchild, child));
+        assert!(!is_inside(top, top));
+        assert!(!is_inside(child, ElementRef::new(1, 3)));
     }
 }

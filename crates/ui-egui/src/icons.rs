@@ -247,6 +247,8 @@ pub enum Glyph {
     TriangleRight,
     Eye,
     Lock,
+    /// A chain (the Layers panel's link between an object and its mask, Fireworks CS).
+    Link,
     Plus,
     Minus,
     Trash,
@@ -309,6 +311,18 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
         Glyph::Lock => {
             p.rect_filled(Rect::from_min_max(at(0.25, 0.45), at(0.75, 0.85)), 1.0, c);
             p.circle_stroke(at(0.5, 0.42), r.width() * 0.17, s);
+        }
+        Glyph::Link => {
+            // Two links of a vertical chain, overlapping in the middle.
+            let w = r.width() * 0.34;
+            for (top, bottom) in [(0.08, 0.58), (0.42, 0.92)] {
+                p.rect_stroke(
+                    Rect::from_min_max(pos2(r.center().x - w / 2.0, at(0.0, top).y), pos2(r.center().x + w / 2.0, at(0.0, bottom).y)),
+                    w / 2.0,
+                    s,
+                    egui::StrokeKind::Middle,
+                );
+            }
         }
         Glyph::Plus | Glyph::Minus => {
             p.line_segment([at(0.2, 0.5), at(0.8, 0.5)], Stroke::new(1.5, c));
