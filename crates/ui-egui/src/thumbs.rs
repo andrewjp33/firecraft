@@ -6,7 +6,10 @@
 //! released.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// Not std::time::Instant: it panics in the browser ("time not implemented on this platform").
+use instant::Instant;
 
 use egui::{Color32, Rect, Sense, Stroke, StrokeKind, vec2};
 use firecraft_doc::{Element, MaskMode, RenderCtx};
