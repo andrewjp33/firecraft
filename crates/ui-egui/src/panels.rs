@@ -528,6 +528,10 @@ fn mask_row(
     let mut thumb = Rect::NOTHING;
     let mut inner_link = Rect::NOTHING;
     let mut inner_thumb = Rect::NOTHING;
+    let editing = st
+        .renaming
+        .as_ref()
+        .is_some_and(|(l, o, _)| *l == r.layer && *o == Some(r));
     let row = ui.horizontal(|ui| {
         // Empty eye and lock columns: the mask shows and hides with its object.
         buttons = ui
@@ -593,9 +597,17 @@ fn mask_row(
                 thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
             }
         }
-        // A masked object's mask is named for its kind ("Vector mask"); the mask of a mask
-        // (cone3's two circles) for what it is ("Group: 2 objects").
-        let label = if named { row_label(mask) } else { mask_kind(mask, mode).to_owned() };
+        if editing {
+            name_edit(ui, st, &mut out.rename);
+            return;
+        }
+        // A masked object's mask is named for its kind ("Vector mask") unless given a name; the
+        // mask of a mask (cone3's two circles) for what it is ("Group: 2 objects").
+        let label = match &mask.name {
+            Some(n) => n.clone(),
+            None if named => row_label(mask),
+            None => mask_kind(mask, mode).to_owned(),
+        };
         let text = RichText::new(label).italics();
         let group = matches!(mask.kind, ElementKind::Group(_));
         let text = match row_colors(selected, holds, group) {
@@ -616,29 +628,37 @@ fn mask_row(
         MaskMode::Alpha => "shows the content by its alpha channel",
         MaskMode::PathOutline => "shows the content inside its path outline",
     };
-    let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
-    let click = ui
-        .interact(hit, ui.scope_id().with(("mask_row", r)), Sense::click())
-        .on_hover_text(format!(
-            "{} ({}): it {mode_text}. Click to select it.",
-            mask_kind(mask, mode),
-            row_label(mask)
-        ));
-    if click.clicked() && !locked {
-        let at = click.interact_pointer_pos();
-        if at.is_some_and(|p| inner_link.contains(p)) {
-            out.toggle_link = Some(r);
-        } else if at.is_some_and(|p| inner_thumb.contains(p)) {
-            out.select = r.mask().or(Some(r));
-        } else {
-            out.select = Some(r);
+    // (While its name is typed, the row takes no clicks.)
+    if !editing {
+        let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
+        let click = ui
+            .interact(hit, ui.scope_id().with(("mask_row", r)), Sense::click())
+            .on_hover_text(format!(
+                "{} ({}): it {mode_text}. Click to select it; double-click to rename it.",
+                mask_kind(mask, mode),
+                row_label(mask)
+            ));
+        if click.double_clicked() {
+            st.renaming = Some((r.layer, Some(r), mask.name.clone().unwrap_or_default()));
+        }
+        if click.clicked() && !locked {
+            let at = click.interact_pointer_pos();
+            if at.is_some_and(|p| inner_link.contains(p)) {
+                out.toggle_link = Some(r);
+            } else if at.is_some_and(|p| inner_thumb.contains(p)) {
+                out.select = r.mask().or(Some(r));
+            } else {
+                out.select = Some(r);
+            }
+        }
+        if let Some(owner) = r.parent() {
+            click.context_menu(|ui| mask_menu(ui, d, owner, out));
         }
     }
-    if let Some(owner) = r.parent() {
-        click.context_menu(|ui| mask_menu(ui, d, owner, out));
-        if d.mask_settings(owner).is_some_and(|s| !s.1.enabled) {
-            disabled_cross(ui.painter(), thumb);
-        }
+    if let Some(owner) = r.parent()
+        && d.mask_settings(owner).is_some_and(|s| !s.1.enabled)
+    {
+        disabled_cross(ui.painter(), thumb);
     }
     if !open {
         return;

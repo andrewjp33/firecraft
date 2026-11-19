@@ -179,6 +179,11 @@ linked (`DocState::motion_refs`); unlinked, the object moves alone. A selected m
 mask) shows its content, its own chain and its mask side by side, so its link can be toggled
 there (unlinked, cone3's gradient rectangles drag one at a time).
 
+A mask row can be renamed (double-click), like an object row; a named mask shows its name
+(italics, its kind on hover). The name is the mask object's own (`OBNs`), and Fireworks MX keeps
+it on re-save for bitmap, vector and path-outline masks (checked 2026-11-19 with
+`crates/io/examples/name_mask.rs` and fw_inspect.sh).
+
 Rows holding the selection inside them: purple #9977FF for masks and masked objects, mint
 #66EEBB for groups, both with white text (the user's choices).
 
