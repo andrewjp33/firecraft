@@ -62,7 +62,7 @@ fn shown(app: &FireCraftApp, target: Target) -> Option<Shown> {
         Target::Selection => {
             let d = app.session.active_doc()?;
             // The first selected path or text object's stroke.
-            let s: Option<&Stroke> = d.selection.iter().find_map(|r| d.element(*r)?.stroke_slot())?;
+            let s: Option<&Stroke> = d.paint_refs().iter().find_map(|r| d.element(*r)?.stroke_slot())?;
             Some(Shown {
                 has: s.is_some(),
                 color: s.map(|s| s.color),

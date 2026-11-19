@@ -586,7 +586,9 @@ fn mask_row(
                 thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
             }
         }
-        let text = RichText::new(mask_kind(mask, mode)).italics();
+        // Named for what the mask is ("Group: 2 objects", a mask over several objects counting
+        // as a group, as in Fireworks); italic, and its kind on hover.
+        let text = RichText::new(row_label(mask)).italics();
         let group = matches!(mask.kind, ElementKind::Group(_));
         let text = match row_colors(selected, holds, group) {
             Some((_, c)) => text.color(c),
@@ -610,8 +612,9 @@ fn mask_row(
     let click = ui
         .interact(hit, ui.scope_id().with(("mask_row", r)), Sense::click())
         .on_hover_text(format!(
-            "The mask ({}): it {mode_text}. Click to select it.",
-            mask.label()
+            "{} ({}): it {mode_text}. Click to select it.",
+            mask_kind(mask, mode),
+            row_label(mask)
         ));
     if click.clicked() && !locked {
         let at = click.interact_pointer_pos();

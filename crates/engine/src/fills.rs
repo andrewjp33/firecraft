@@ -371,7 +371,7 @@ impl DocState {
     /// stops if it already was one and gets default handles for the object.
     pub fn set_fill_category(&mut self, category: &str, opts: &ToolOptions) {
         let kind = GradientKind::from_category(category);
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit("Fill Options", |s| {
             for r in refs {
                 let bounds = s
@@ -423,7 +423,7 @@ impl DocState {
 
     /// The first selected gradient, if any.
     pub fn selected_gradient(&self) -> Option<(ElementRef, &Gradient)> {
-        self.selection.iter().find_map(|r| {
+        self.paint_refs().iter().find_map(|r| {
             let g = self.element(*r)?.fill_slot()??.gradient.as_ref()?;
             Some((*r, g))
         })
@@ -432,7 +432,7 @@ impl DocState {
     /// The first selected path's or text's fill: `None` with neither selected, `Some(None)` for
     /// no fill (or plain-coloured text).
     pub fn selected_fill(&self) -> Option<Option<&Fill>> {
-        self.selection.iter().find_map(|r| self.element(*r)?.fill_slot())
+        self.paint_refs().iter().find_map(|r| self.element(*r)?.fill_slot())
     }
 
     /// The handles of the selected gradient or pattern.
@@ -482,7 +482,7 @@ impl DocState {
     /// The first selected path's or text object's fill and stroke, for the Tools panel; plain
     /// text has a solid fill in its first character's colour. `None` with neither selected.
     pub fn selected_attributes(&self) -> Option<(Option<Fill>, Option<firecraft_doc::Stroke>)> {
-        self.selection.iter().find_map(|r| {
+        self.paint_refs().iter().find_map(|r| {
             let e = self.element(*r)?;
             let fill = match &e.kind {
                 ElementKind::Text(t) if t.fill.is_none() => {
@@ -506,7 +506,7 @@ impl DocState {
     /// The selected Pattern fills use another pattern, placed afresh on each object (Fireworks
     /// MX resets the handles).
     pub fn set_fill_pattern(&mut self, name: &str, image: &RgbaImage) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit("Fill Options", |s| {
             for r in refs {
                 let bounds = s

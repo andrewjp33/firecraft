@@ -109,7 +109,7 @@ impl DocState {
             }
             return;
         }
-        let refs: Vec<ElementRef> = self.selection.clone();
+        let refs: Vec<ElementRef> = self.paint_refs();
         let mut changes: Vec<(ElementRef, Element)> = Vec::new();
         for r in refs {
             let Some(e) = self.element(r) else { continue };

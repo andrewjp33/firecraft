@@ -453,11 +453,17 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
     let count = d.selection.len();
     let first = d.selection.first().and_then(|r| d.element(*r)).cloned();
+    // What the fill, stroke and text controls show: a masked object holding one object is that
+    // object (Fireworks MX); its opacity, blending and effects are the masked object's.
+    let paint = match d.selection.as_slice() {
+        [r] => d.element(d.paint_ref(*r)).cloned(),
+        _ => first.clone(),
+    };
     let animation = d.selected_animation().map(|(_, a)| a);
     // An animation symbol shows its whole motion (Fireworks MX).
     let bounds = d.animation_bounds().or_else(|| first.as_ref().and_then(|e| e.bounds()));
     let mask = count == 1 && d.selection.first().is_some_and(|r| r.is_mask());
-    let (title, tool) = match first.as_ref().map(|e| &e.kind) {
+    let (title, tool) = match paint.as_ref().map(|e| &e.kind) {
         _ if count > 1 => (format!("{count} objects"), Some(Tool::Pointer)),
         // A mask selected from the Layers panel (Fireworks CS's names).
         Some(ElementKind::Bitmap(_)) if mask => ("Bitmap mask".into(), Some(Tool::Marquee)),
@@ -468,7 +474,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         Some(ElementKind::Path(_)) => ("Path".into(), Some(Tool::Line)),
         Some(ElementKind::Text(_)) => ("Text".into(), Some(Tool::Text)),
         Some(ElementKind::Group(_)) => ("Group".into(), Some(Tool::Pointer)),
-        Some(ElementKind::Masked { .. }) => ("Masked Group".into(), Some(Tool::Pointer)),
+        Some(ElementKind::Masked { content, .. }) => (format!("Group: {} objects", content.len()), Some(Tool::Pointer)),
         Some(ElementKind::Instance { .. }) if animation.is_some() => ("Animation".into(), Some(Tool::Pointer)),
         Some(ElementKind::Instance { name, .. }) => (format!("Symbol: {name}"), Some(Tool::Pointer)),
         Some(ElementKind::Other { kind, .. }) => (kind.clone(), Some(Tool::Slice)),
@@ -514,7 +520,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
     // A symbol instance: edit its symbol, or turn it back into objects.
     if count == 1
-        && let Some(ElementKind::Instance { symbol, .. }) = first.as_ref().map(|e| &e.kind)
+        && let Some(ElementKind::Instance { symbol, .. }) = paint.as_ref().map(|e| &e.kind)
     {
         let id = *symbol;
         ui.vertical(|ui| {
@@ -547,13 +553,13 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         mask_fields(app, ui, owner);
         ui.separator();
     }
-    if matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_))) && !mask {
+    if matches!(paint.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_))) && !mask {
         crate::text_tool::inspector(app, ui);
     }
     // Fill/stroke of a single path.
     let mut fill_choice: Option<Option<firecraft_raster::Rgba>> = None;
-    let is_path = matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Path(_)));
-    if let Some(ElementKind::Path(p)) = first.as_ref().map(|e| &e.kind) {
+    let is_path = matches!(paint.as_ref().map(|e| &e.kind), Some(ElementKind::Path(_)));
+    if let Some(ElementKind::Path(p)) = paint.as_ref().map(|e| &e.kind) {
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 icons::glyph(ui, icons::Glyph::Bucket, 16.0);
@@ -670,7 +676,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         }
     }
     // Fireworks CS's stroke controls (FirePixel's layout).
-    let is_text = matches!(first.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_)));
+    let is_text = matches!(paint.as_ref().map(|e| &e.kind), Some(ElementKind::Text(_)));
     if is_path || is_text {
         crate::stroke_panel::show(app, ui, crate::stroke_panel::Target::Selection);
         ui.separator();

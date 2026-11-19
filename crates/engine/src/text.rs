@@ -851,7 +851,7 @@ impl DocState {
 
     /// Change the selected text objects' own settings, one History step.
     pub fn change_selected_text_objects(&mut self, label: &str, f: &dyn Fn(&mut Text)) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit(label, |s| {
             for r in refs {
                 if s.editable_text_at(r).is_some() {

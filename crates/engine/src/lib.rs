@@ -1499,15 +1499,61 @@ impl DocState {
         });
     }
 
+    /// The object that paint edits (fill, stroke, text) change for `r`: a masked object holding
+    /// one object stands for that object, through nested ones, as in Fireworks MX (whose masked
+    /// object is the object with a mask attached).
+    pub fn paint_ref(&self, r: ElementRef) -> ElementRef {
+        let mut cur = r;
+        while let Some(ElementKind::Masked { content, .. }) = self.element(cur).map(|e| &e.kind) {
+            match (content.len(), cur.child(0)) {
+                (1, Some(c)) => cur = c,
+                _ => break,
+            }
+        }
+        cur
+    }
+
+    /// [`paint_ref`](Self::paint_ref) of each selected object.
+    pub fn paint_refs(&self) -> Vec<ElementRef> {
+        let mut out: Vec<ElementRef> = self.selection.iter().map(|r| self.paint_ref(*r)).collect();
+        out.dedup();
+        out
+    }
+
+    /// The object whose effects (and the Property inspector's effects list) count for `r`: the
+    /// only object in a masked object's content, without effects of its own, shares the masked
+    /// object's (Fireworks keeps a masked object's effects on its mask group), up through
+    /// nested ones.
+    pub fn effect_ref(&self, r: ElementRef) -> ElementRef {
+        let mut cur = r;
+        while let Some(p) = cur.parent() {
+            let sole = !cur.is_mask()
+                && self.element(cur).is_some_and(|e| e.effects.is_empty())
+                && matches!(self.element(p).map(|e| &e.kind), Some(ElementKind::Masked { content, .. }) if content.len() == 1);
+            if !sole {
+                break;
+            }
+            cur = p;
+        }
+        cur
+    }
+
+    fn effect_refs(&self) -> Vec<ElementRef> {
+        let mut out: Vec<ElementRef> = self.selection.iter().map(|r| self.effect_ref(*r)).collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
     /// The first selected object's Live Effects (what the Property inspector lists).
     pub fn selected_effects(&self) -> Option<Vec<firecraft_doc::EffectEntry>> {
-        self.element(*self.selection.first()?).map(|e| e.effects.clone())
+        self.element(self.effect_ref(*self.selection.first()?)).map(|e| e.effects.clone())
     }
 
     /// The first selected object's pixels as they reach effect `index` of its list (the
     /// effects before it applied): what Levels' and Curves' histograms and Auto look at.
     pub fn effect_input(&self, index: usize) -> Option<RgbaImage> {
-        let r = *self.selection.first()?;
+        let r = self.effect_ref(*self.selection.first()?);
         let mut e = self.element(r)?.clone();
         e.effects.truncate(index);
         self.bake(&[(r, e)]).into_iter().next().map(|(_, _, img, _, _)| img)
@@ -1519,7 +1565,7 @@ impl DocState {
         if self.selection.is_empty() {
             return;
         }
-        let refs = self.selection.clone();
+        let refs = self.effect_refs();
         self.edit(label, |s| {
             for r in refs {
                 if let Some(e) = s.element_mut(r) {
@@ -1572,7 +1618,7 @@ impl DocState {
     }
 
     pub fn set_effects_live(&mut self, list: Vec<firecraft_doc::EffectEntry>) {
-        let refs = self.selection.clone();
+        let refs = self.effect_refs();
         for r in refs {
             if let Some(e) = self.element_mut(r) {
                 set_element_effects(e, &list);
@@ -1867,7 +1913,7 @@ impl DocState {
 
     /// The selected paths' stroke and fill colours, in one History step.
     pub fn set_colors(&mut self, label: &str, stroke: Option<Rgba>, fill: Option<Rgba>) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit(label, |s| {
             Self::apply_stroke_color(s, &refs, stroke);
             Self::apply_fill_color(s, &refs, fill);
@@ -1876,7 +1922,7 @@ impl DocState {
 
     /// The selected paths' fill colour (`None`: no fill; a path without fill gets a solid one).
     pub fn set_fill_color(&mut self, color: Option<Rgba>) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit(if color.is_some() { "Fill Color" } else { "No Fill" }, |s| {
             Self::apply_fill_color(s, &refs, color);
         });
@@ -1885,7 +1931,7 @@ impl DocState {
     /// The selected paths' stroke colour (`None`: no stroke; a path without stroke gets the
     /// 1-Pixel Anti-Aliased pencil).
     pub fn set_stroke_color(&mut self, color: Option<Rgba>) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit(
             if color.is_some() {
                 "Stroke Color"
@@ -1902,7 +1948,7 @@ impl DocState {
     /// begun with `begin_live_edit`, no undo step of its own).
     pub fn edit_stroke(&mut self, label: &str, live: bool, f: impl Fn(&mut Stroke)) {
         let apply = |s: &mut DocState| {
-            for r in s.selection.clone() {
+            for r in s.paint_refs() {
                 let Some(e) = s.element_mut(r) else { continue };
                 let Some(Some(st)) = e.stroke_slot_mut() else {
                     continue;
@@ -1925,7 +1971,7 @@ impl DocState {
     /// with `begin_live_edit`, no undo step of its own).
     pub fn edit_fill(&mut self, label: &str, live: bool, f: impl Fn(&mut Fill)) {
         let apply = |s: &mut DocState| {
-            for r in s.selection.clone() {
+            for r in s.paint_refs() {
                 let Some(e) = s.element_mut(r) else { continue };
                 let Some(Some(fl)) = e.fill_slot_mut() else {
                     continue;
@@ -1963,7 +2009,7 @@ impl DocState {
     /// "Fill over stroke" (Fireworks MX: draw the fill colour over the stroke) for the selected
     /// paths and text objects.
     pub fn set_fill_over_stroke(&mut self, on: bool) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         self.edit("Fill over Stroke", |s| {
             for r in refs {
                 let Some(e) = s.element_mut(r) else { continue };
@@ -1991,7 +2037,7 @@ impl DocState {
     /// The selected paths' stroke preset (Property inspector stroke category); paths without a
     /// stroke get one in the stroke colour of the tools, as Fireworks does.
     pub fn set_stroke_preset(&mut self, index: usize, opts: &ToolOptions) {
-        let refs = self.selection.clone();
+        let refs = self.paint_refs();
         let color = opts.stroke.unwrap_or(Rgba::BLACK);
         self.edit("Stroke", |s| {
             for r in refs {

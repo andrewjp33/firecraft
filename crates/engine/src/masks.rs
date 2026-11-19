@@ -504,6 +504,27 @@ mod tests {
     }
 
     #[test]
+    fn a_masked_object_is_its_content_for_paint_and_shares_effects() {
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(0, 30, Rgba::new(255, 0, 0, 255), "r"), "Add");
+        let r = ElementRef::new(0, 0);
+        d.selection = vec![r];
+        d.paste_as_mask(&crate::Clipboard { elements: vec![bitmap(5, 10, Rgba::WHITE, "m")], ..Default::default() }, MaskPaste::Replace);
+        let c = r.child(0).expect("content");
+        // The masked object stands for its one object in paint edits.
+        assert_eq!(d.paint_ref(r), c);
+        // Its effects are shared with that object (which has none of its own).
+        d.selection = vec![r];
+        let glow = firecraft_doc::EffectEntry::new(vec![("EffectMoaID".into(), firecraft_doc::EffectParam::Text("x".into()))]);
+        d.set_effects(vec![glow.clone()], "Add Effect");
+        d.selection = vec![c];
+        assert_eq!(d.selected_effects().map(|e| e.len()), Some(1));
+        d.set_effects(Vec::new(), "Remove Effect");
+        assert_eq!(d.element(r).map(|e| e.effects.len()), Some(0));
+        assert_eq!(d.element(c).map(|e| e.effects.len()), Some(0));
+    }
+
+    #[test]
     fn delete_mask_three_ways() {
         let o = ElementRef::new(0, 0);
         // Apply: one bitmap of what showed, the mask's bounds.
