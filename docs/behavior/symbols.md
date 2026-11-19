@@ -57,8 +57,10 @@ rest is resampling); with the original unflattened bitmap it leaves the text uns
 moves it, which FireCraft doesn't reproduce.
 
 Opening a symbol: double-clicking an instance with the Pointer (or Select Behind), or with the
-Subselection tool (as in Fireworks MX), which reaches an instance inside groups and masks: the
-instance under the pointer, however deep, opens in the Symbol Editor.
+Subselection tool (as in Fireworks MX), which reaches an instance inside groups and masks: a
+selected instance under the pointer first (chosen in the Layers panel, inside a mask too; a
+masked instance counts as its symbol), else the instance under the pointer, however deep, opens
+in the Symbol Editor.
 
 ## Where FireCraft differs from Fireworks MX
 

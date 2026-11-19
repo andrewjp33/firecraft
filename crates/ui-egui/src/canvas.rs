@@ -1080,7 +1080,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         && let Some(pos) = resp.interact_pointer_pos()
     {
         let (x, y) = to_doc(pos);
-        if let Some(id) = d.hit_deep(x, y).and_then(|r| d.instance_symbol(r)) {
+        // A selected symbol under the pointer first (chosen in the Layers panel, inside masks
+        // too; a masked one counts as its symbol), then the deepest one there.
+        let selected = d
+            .hit_test(x, y)
+            .and_then(|hit| d.selected_under(x, y, hit))
+            .map(|r| d.paint_ref(r))
+            .and_then(|r| d.instance_symbol(r));
+        if let Some(id) = selected.or_else(|| d.hit_deep(x, y).and_then(|r| d.instance_symbol(r))) {
             ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
         }
     }
@@ -1339,7 +1346,11 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         // A selected symbol under the pointer opens, even inside a mask or group (chosen in
         // the Layers panel); otherwise the top-level one.
         let selected = d.hit_test(x, y).and_then(|hit| d.selected_under(x, y, hit));
-        if let Some(id) = selected.or_else(|| d.hit_test(x, y)).and_then(|r| d.instance_symbol(r)) {
+        if let Some(id) = selected
+            .or_else(|| d.hit_test(x, y))
+            .map(|r| d.paint_ref(r))
+            .and_then(|r| d.instance_symbol(r))
+        {
             ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
         }
         // Double-clicking a bitmap edits it: bitmap mode, with the Marquee tool (Fireworks MX).
