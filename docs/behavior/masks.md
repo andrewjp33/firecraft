@@ -196,9 +196,10 @@ apart in Fireworks MX shows it: its own mask ("Group: 2 objects", the two circle
 style) and its content as one group row ("Group: 4 objects", the four gradient rectangles) side
 by side; that row selects all of its objects and opens to list them.
 
-**Group, Ungroup and Convert to Symbol inside a mask or group** (FireCraft): objects that share
-one list (a mask's content, or a group's members) group or become a symbol where they are, in the
-topmost one's place; one group selected inside a mask or group ungroups in place. Objects from
+**Group, Ungroup, Convert to Symbol and Break Apart inside a mask or group** (FireCraft): objects
+that share one list (a mask's content, or a group's members) group or become a symbol where they
+are, in the topmost one's place; one group selected inside a mask or group ungroups in place, and
+symbol instances sharing a list break apart in place (a masked instance counts as its symbol). Objects from
 different lists aren't grouped. In the engine a mask is the reference's child slot `MASK_SLOT`
 (`ElementRef::mask`, `is_mask`).
 

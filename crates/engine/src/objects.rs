@@ -1324,6 +1324,16 @@ mod tests {
         d.convert_to_symbol("inside", firecraft_doc::SymbolKind::Graphic).expect("symbol");
         assert_eq!(content(&d), ["inside"]);
         assert_eq!(names(&d), ["inside (masked)"]);
+        // Break Apart there: the objects again, in place, selected (the masked instance
+        // selected counts as its symbol too).
+        for sel in [o.child(0).expect("c"), o] {
+            d.selection = vec![sel];
+            assert!(d.can_break_apart());
+            d.break_apart();
+            assert_eq!(content(&d), ["e2", "e0"]);
+            assert_eq!(d.selection.len(), 2);
+            d.undo();
+        }
         // Objects from two lists: nothing.
         d.undo();
         d.selection = vec![o.child(0).expect("c"), o];

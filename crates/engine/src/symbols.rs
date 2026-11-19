@@ -293,16 +293,66 @@ impl DocState {
 
     /// Whether Break Apart has something to do.
     pub fn can_break_apart(&self) -> bool {
-        !self.selection_nested() && self.selection.iter().any(|r| self.instance_symbol(*r).is_some())
+        let refs = self.break_apart_refs();
+        !refs.is_empty() && (refs.iter().all(|r| !r.is_nested()) || self.one_list(&refs))
+    }
+
+    /// The instances Break Apart works on: the selected ones, a masked instance counting as its
+    /// symbol (as the Property inspector shows it). Inside a mask or group they must share one
+    /// list.
+    fn break_apart_refs(&self) -> Vec<ElementRef> {
+        let mut refs: Vec<ElementRef> = self
+            .selection
+            .iter()
+            .map(|r| self.paint_ref(*r))
+            .filter(|r| self.instance_symbol(*r).is_some())
+            .collect();
+        refs.sort();
+        refs.dedup();
+        refs
     }
 
     /// Modify > Symbol > Break Apart: selected instances become ordinary objects (the symbol's,
     /// placed as the instance shows them); the symbol stays in the Library.
     pub fn break_apart(&mut self) {
-        let refs = self.stacking_selection();
         if !self.can_break_apart() {
             return;
         }
+        let instances = self.break_apart_refs();
+        // Inside a mask or group: in place in that list.
+        if instances.iter().any(ElementRef::is_nested) {
+            let ctx = firecraft_doc::RenderCtx {
+                mx_perspective: self.doc.mx_perspective,
+                symbols: &self.doc.symbols,
+                frame: self.doc.current_frame,
+                ..firecraft_doc::RenderCtx::EMPTY
+            };
+            let parts: Vec<(ElementRef, Vec<Element>)> = instances
+                .iter()
+                .filter_map(|r| Some((*r, self.element(*r)?.pass_through_children(&ctx))))
+                .collect();
+            self.edit("Break Apart", |s| {
+                let mut selection: Vec<ElementRef> = Vec::new();
+                // Top-most first, so the places below stay valid.
+                for (r, objects) in parts.into_iter().rev() {
+                    let at = r.position();
+                    let n = objects.len();
+                    let Some(list) = s.list_mut(r) else { continue };
+                    if at >= list.len() {
+                        continue;
+                    }
+                    list.splice(at..=at, objects);
+                    for sel in &mut selection {
+                        *sel = sel.sibling(sel.position() + n - 1);
+                    }
+                    selection.extend((at..at + n).map(|i| r.sibling(i)));
+                }
+                selection.sort();
+                s.selection = selection;
+            });
+            return;
+        }
+        let refs = self.stacking_selection();
         let ctx = firecraft_doc::RenderCtx {
             mx_perspective: self.doc.mx_perspective,
             symbols: &self.doc.symbols,
