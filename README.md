@@ -66,7 +66,7 @@ Highlights (the full list is in the release notes):
 - **Paste pictures from other applications** (screenshots, BMP, JPEG, copied files) and File >
   New from the clipboard ([docs/behavior/clipboard.md](docs/behavior/clipboard.md)).
 - **Alt+drag duplicates** with the Pointer, as in Fireworks MX.
-- **Eye Candy filters closer to Fireworks**: Bevel Boss (profile, highlight, soft edges) and Motion
+- **Eye Candy filter improvements**: Bevel Boss (profile, highlight, soft edges) and Motion
   Trail fitted to Windows Fireworks MX renders ([docs/behavior/plugins.md](docs/behavior/plugins.md)).
 - Faster dragging and painting of masks over effect-heavy content.
 
@@ -90,15 +90,10 @@ Things no version of Fireworks has:
   shows its own desaturation ([docs/behavior/effects.md](docs/behavior/effects.md)).
 - **Magic Wand with a smooth edge** at any tolerance (Fireworks MX's own edge is still an option)
   ([docs/behavior/magic-wand.md](docs/behavior/magic-wand.md)).
-- **Masks you can work inside** ([docs/behavior/masks.md](docs/behavior/masks.md)):
-  - In the Layers panel, open a mask to see its mask and the objects it masks; select, rename and
-    reorder them, drag objects into or out of a mask, and Group, Ungroup, Convert to Symbol or
-    Break Apart right there.
-  - **Invert Mask**: one click inverts a mask and stays editable (a path mask stays a path); the
-    file looks the same in Fireworks.
-  - **Delete Mask > Break Apart**: keep the mask and the objects as separate objects.
-  - Mask rendering follows Fireworks CS6 where Fireworks MX has a bug (a single bitmap under a
-    mask, with no effects, masked twice).
+- **Masks you can work inside**: in the Layers panel, open a mask to see its mask and the
+  objects it masks; select, rename and reorder them, drag objects into or out of a mask, and
+  Group, Ungroup, Convert to Symbol or Break Apart right there
+  ([docs/behavior/masks.md](docs/behavior/masks.md)).
 - **Small things that add up**:
   - Ctrl + mouse wheel (or a trackpad pinch) zooms smoothly around the pointer, with any tool.
   - The frame number under the canvas is editable: type a frame and press Enter.
