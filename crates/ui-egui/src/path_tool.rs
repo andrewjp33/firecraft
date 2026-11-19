@@ -495,7 +495,14 @@ fn release(
             ..
         } => {
             d.cancel_live_edit();
-            if let Some(hit) = on_click {
+            // A click on what's selected, or on the mask or group around it, keeps it (as chosen
+            // in the Layers panel); one on a selected group's member selects the member.
+            let keep = |h: Option<ElementRef>| {
+                h.is_some_and(|h| !mods.shift && d.selection.iter().any(|s| *s == h || s.is_within(h)))
+            };
+            if let Some(hit) = on_click
+                && !keep(hit)
+            {
                 click_select(edit, d, hit, mods.shift);
             }
         }

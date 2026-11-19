@@ -400,6 +400,41 @@ impl DocState {
         self.commit_live_edit();
     }
 
+    /// Whether `refs` (none a mask) are all in one list: a layer's objects, a group's members, or
+    /// a masked object's content.
+    pub(crate) fn one_list(&self, refs: &[ElementRef]) -> bool {
+        let Some(first) = refs.first() else { return false };
+        refs.iter()
+            .all(|r| !r.is_mask() && r.layer == first.layer && r.parent() == first.parent())
+    }
+
+    /// Take `refs` (stacking order, all in one list) out of their list; returns them (bottom
+    /// first) and where something replacing them goes: the topmost one's place, after the
+    /// removal.
+    pub(crate) fn take_list(&mut self, refs: &[ElementRef]) -> Option<(Vec<Element>, ElementRef)> {
+        let top = *refs.last()?;
+        let list = self.list_mut(top)?;
+        let mut at: Vec<usize> = refs.iter().map(ElementRef::position).filter(|&i| i < list.len()).collect();
+        at.sort_unstable();
+        at.dedup();
+        let mut taken: Vec<Element> = at.iter().rev().map(|&i| list.remove(i)).collect();
+        taken.reverse();
+        let place = top.position() + 1 - at.len();
+        Some((taken, top.sibling(place)))
+    }
+
+    /// Insert `e` at `at` (a place in a layer's objects or inside an object).
+    pub(crate) fn insert_in_list(&mut self, at: ElementRef, e: Element) -> bool {
+        let i = at.position();
+        match self.list_mut(at) {
+            Some(list) if i <= list.len() => {
+                list.insert(i, e);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Remove `refs` (stacking order) from the document, returning them in the same order.
     pub(crate) fn take(&mut self, refs: &[ElementRef]) -> Vec<Element> {
         let f = self.frame();
@@ -420,8 +455,22 @@ impl DocState {
     pub fn group(&mut self) {
         let refs = self.stacking_selection();
         let Some(&top) = refs.last() else { return };
-        // (Not yet for group members selected with the Subselection tool.)
-        if self.pixels.is_some() || self.selection_nested() {
+        if self.pixels.is_some() {
+            return;
+        }
+        // Objects inside a mask or group (chosen in the Layers panel or with the Subselection
+        // tool): grouped where they are, if they share one list.
+        if self.selection_nested() {
+            if !self.one_list(&refs) {
+                return;
+            }
+            self.edit("Group", |s| {
+                if let Some((children, at)) = s.take_list(&refs)
+                    && s.insert_in_list(at, Element::new(ElementKind::Group(children)))
+                {
+                    s.selection = vec![at];
+                }
+            });
             return;
         }
         self.edit("Group", |s| {
@@ -444,8 +493,12 @@ impl DocState {
 
     /// Whether Ungroup has something to do.
     pub fn can_ungroup(&self) -> bool {
-        !self.selection_nested()
-            && self
+        if self.selection_nested() {
+            // One group inside a mask or another group.
+            return matches!(self.selection.as_slice(), [r] if !r.is_mask()
+                && matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_))));
+        }
+        self
                 .selection
                 .iter()
                 .any(|r| matches!(self.element(*r).map(|e| &e.kind), Some(ElementKind::Group(_))))
@@ -454,6 +507,26 @@ impl DocState {
     /// Modify > Ungroup: selected groups are replaced by their objects (selected) in place.
     pub fn ungroup(&mut self) {
         if !self.can_ungroup() {
+            return;
+        }
+        if let [r] = self.selection.as_slice()
+            && r.is_nested()
+        {
+            let r = *r;
+            self.edit("Ungroup", |s| {
+                let at = r.position();
+                let Some(list) = s.list_mut(r) else { return };
+                let Some(Element {
+                    kind: ElementKind::Group(children),
+                    ..
+                }) = list.get(at).cloned()
+                else {
+                    return;
+                };
+                let n = children.len();
+                list.splice(at..=at, children);
+                s.selection = (at..at + n).map(|i| r.sibling(i)).collect();
+            });
             return;
         }
         let selected: BTreeSet<ElementRef> = self.selection.iter().copied().collect();
@@ -1218,6 +1291,37 @@ mod tests {
         d.selection = vec![o.child(0).expect("c"), o.child(1).expect("c")];
         d.move_selection_into(0, None, 0);
         assert_eq!(names(&d), ["e2", "e0", "e1"]);
+    }
+
+    #[test]
+    fn group_symbol_and_ungroup_inside_a_mask() {
+        // e0, then e2 masked by e1; e0 moved into the mask: content [e2, e0].
+        let mut d = masked();
+        d.selection = vec![ElementRef::new(0, 0)];
+        d.move_selection_into(0, Some(ElementRef::new(0, 1)), 1);
+        let o = ElementRef::new(0, 0);
+        let content = |d: &DocState| match d.element(o).map(|e| &e.kind) {
+            Some(ElementKind::Masked { content, .. }) => content.iter().map(|e| e.label()).collect::<Vec<_>>(),
+            _ => vec![],
+        };
+        let both = vec![o.child(0).expect("c"), o.child(1).expect("c")];
+        d.selection = both.clone();
+        d.group();
+        assert_eq!(content(&d), ["Group"]);
+        assert_eq!(d.selection, [o.child(0).expect("c")]);
+        assert!(d.can_ungroup());
+        d.ungroup();
+        assert_eq!(content(&d), ["e2", "e0"]);
+        assert_eq!(d.selection, both);
+        // F8: a symbol in their place, inside the mask.
+        d.convert_to_symbol("inside", firecraft_doc::SymbolKind::Graphic).expect("symbol");
+        assert_eq!(content(&d), ["inside"]);
+        assert_eq!(names(&d), ["inside (masked)"]);
+        // Objects from two lists: nothing.
+        d.undo();
+        d.selection = vec![o.child(0).expect("c"), o];
+        d.group();
+        assert_eq!(content(&d), ["e2", "e0"]);
     }
 
     #[test]

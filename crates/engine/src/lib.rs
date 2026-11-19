@@ -132,6 +132,18 @@ impl ElementRef {
         Some(r)
     }
 
+    /// Whether this object is somewhere inside `outer` (its group, mask or one around them).
+    pub fn is_within(&self, outer: ElementRef) -> bool {
+        let mut p = self.parent();
+        while let Some(x) = p {
+            if x == outer {
+                return true;
+            }
+            p = x.parent();
+        }
+        false
+    }
+
     /// The top-level object this one is in (itself when top-level).
     pub fn top(self) -> Self {
         Self::new(self.layer, self.index)
@@ -590,6 +602,21 @@ impl DocState {
 
     /// The Subselection tool's pick: the object under the point, inside groups down to the
     /// innermost member (the topmost member at each level).
+    /// Whether a click at (`x`, `y`) that found `hit` lands on what is already selected: a
+    /// selected object there that is `hit` or inside it (an object chosen inside a group or
+    /// mask in the Layers panel). Such a click keeps the selection rather than choosing the
+    /// masked object or group around it. (A click on a selected group's member still selects
+    /// the member with the Subselection tool, as in Fireworks MX.)
+    pub fn click_keeps_selection(&self, x: f64, y: f64, hit: ElementRef) -> bool {
+        self.selection.iter().any(|s| {
+            (*s == hit || s.is_within(hit))
+                && self
+                    .element(*s)
+                    .and_then(Element::bounds)
+                    .is_some_and(|(bx, by, bw, bh)| x >= bx && y >= by && x < bx + bw && y < by + bh)
+        })
+    }
+
     pub fn hit_deep(&self, x: f64, y: f64) -> Option<ElementRef> {
         let ctx = firecraft_doc::RenderCtx {
             mx_perspective: self.doc.mx_perspective,

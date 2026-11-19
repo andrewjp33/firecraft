@@ -222,7 +222,7 @@ fn row_label(el: &Element) -> String {
     let group = |n: usize| format!("Group: {n} objects");
     match (&el.name, &el.kind) {
         (None, ElementKind::Masked { content, .. }) => match content.as_slice() {
-            [one] => one.label(),
+            [one] => row_label(one),
             many => group(many.len()),
         },
         (None, ElementKind::Group(c)) => group(c.len()),

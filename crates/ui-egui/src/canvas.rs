@@ -1336,7 +1336,15 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             app.text_tool.edit_all(d, r);
             return;
         }
-        if let Some(id) = d.hit_test(x, y).and_then(|r| d.instance_symbol(r)) {
+        // A selected symbol under the pointer opens, even inside a mask or group (chosen in
+        // the Layers panel); otherwise the top-level one.
+        let selected = d.hit_test(x, y).and_then(|hit| {
+            d.selection
+                .iter()
+                .copied()
+                .find(|s| (*s == hit || s.is_within(hit)) && d.click_keeps_selection(x, y, *s))
+        });
+        if let Some(id) = selected.or_else(|| d.hit_test(x, y)).and_then(|r| d.instance_symbol(r)) {
             ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
         }
         // Double-clicking a bitmap edits it: bitmap mode, with the Marquee tool (Fireworks MX).
@@ -1373,6 +1381,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                         d.selection.push(hit);
                     }
                 }
+                // A click on what's selected keeps it (an object chosen inside a mask or group
+                // in the Layers panel stays selected rather than giving way to its parent).
+                Some(hit) if d.click_keeps_selection(x, y, hit) => {}
                 Some(hit) => {
                     d.selection = vec![hit];
                     d.pixels = None;

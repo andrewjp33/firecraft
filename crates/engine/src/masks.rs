@@ -130,6 +130,49 @@ impl DocState {
         }
     }
 
+    /// Edit > Paste Inside (measured in Fireworks MX): the selected object becomes the mask of the
+    /// clipboard's objects (at their own places): a path by its outline, a bitmap by its alpha
+    /// channel, its fill and stroke shown under them. Pasted inside an object that already has
+    /// a mask, they join its content on top, the mask unchanged. The masked object is
+    /// selected; one undo step, "Paste".
+    pub fn paste_inside(&mut self, clip: &crate::Clipboard) {
+        let Some(target) = self.paste_as_mask_target() else { return };
+        if clip.elements.is_empty() {
+            return;
+        }
+        let clip = self.prepared(clip);
+        self.edit("Paste", |s| {
+            s.adopt(&clip);
+            let Some(el) = s.element_mut(target) else { return };
+            match &mut el.kind {
+                ElementKind::Masked { content, .. } => content.extend(clip.elements.iter().cloned()),
+                _ => {
+                    let mut mask = std::mem::replace(el, Element::new(ElementKind::Group(Vec::new())));
+                    mask.visible = true;
+                    let mode = if matches!(mask.kind, ElementKind::Bitmap(_)) {
+                        MaskMode::Alpha
+                    } else {
+                        MaskMode::PathOutline
+                    };
+                    *el = Element::new(ElementKind::Masked {
+                        content: clip.elements.clone(),
+                        mask: Box::new(mask),
+                        mode,
+                        cache: None,
+                        cache_key: 0,
+                        flags: MaskFlags {
+                            show_attrs: true,
+                            ..MaskFlags::default()
+                        },
+                    });
+                }
+            }
+            s.selection = vec![target];
+            s.doc.current_layer = target.layer;
+            s.pixels = None;
+        });
+    }
+
     /// The mask's mode and flags.
     pub fn mask_settings(&self, owner: ElementRef) -> Option<(MaskMode, MaskFlags, bool)> {
         match &self.element(owner)?.kind {
@@ -376,6 +419,48 @@ mod tests {
         d.paste_as_mask(&clip(two), MaskPaste::Replace);
         assert_eq!(d.element(m).map(Element::label), Some("Group".into()));
         assert_eq!(top(&d), ["r (masked)"]);
+    }
+
+    #[test]
+    fn deep_hits_reach_a_symbol_inside_a_mask() {
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(0, 20, Rgba::new(255, 0, 0, 255), "a"), "Add");
+        d.selection = vec![ElementRef::new(0, 0)];
+        d.convert_to_symbol("s", firecraft_doc::SymbolKind::Graphic).expect("symbol");
+        let clip = crate::Clipboard {
+            elements: vec![bitmap(0, 40, Rgba::WHITE, "m")],
+            ..Default::default()
+        };
+        d.selection = vec![ElementRef::new(0, 0)];
+        d.paste_as_mask(&clip, MaskPaste::Replace);
+        let o = ElementRef::new(0, 0);
+        assert_eq!(d.instance_symbol(o.child(0).expect("c")).is_some(), true);
+        assert_eq!(d.hit_deep(5.5, 5.5), o.child(0));
+    }
+
+    #[test]
+    fn paste_inside_as_fireworks_mx_does() {
+        let clip = |els: Vec<Element>| crate::Clipboard {
+            elements: els,
+            ..Default::default()
+        };
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(5, 10, Rgba::WHITE, "m"), "Add");
+        let r = ElementRef::new(0, 0);
+        d.selection = vec![r];
+        d.paste_inside(&clip(vec![bitmap(0, 30, Rgba::new(255, 0, 0, 255), "a")]));
+        // The bitmap became the mask (alpha channel, fill shown), the pasted object its content.
+        let (mode, flags, bitmap_mask) = d.mask_settings(r).expect("masked");
+        assert_eq!((mode, flags.show_attrs, bitmap_mask), (MaskMode::Alpha, true, true));
+        assert_eq!(d.selection, [r]);
+        assert_eq!(d.history.labels().last(), Some("Paste"));
+        // Again: the new objects join the content, on top.
+        d.paste_inside(&clip(vec![bitmap(0, 2, Rgba::WHITE, "b")]));
+        let names: Vec<String> = match d.element(r).map(|e| &e.kind) {
+            Some(ElementKind::Masked { content, .. }) => content.iter().map(Element::label).collect(),
+            _ => vec![],
+        };
+        assert_eq!(names, ["a", "b"]);
     }
 
     #[test]

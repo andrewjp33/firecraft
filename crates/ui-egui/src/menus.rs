@@ -1222,6 +1222,8 @@ fn clipboard_events(app: &mut FireCraftApp, ctx: &egui::Context) {
         match e {
             egui::Event::Copy => copy(app, ctx, false),
             egui::Event::Cut => copy(app, ctx, true),
+            // Ctrl+Shift+V comes as a paste too: Paste Inside.
+            egui::Event::Paste(_) if ctx.input(|i| i.modifiers.shift) => paste_inside(app),
             egui::Event::Paste(text) => {
                 if app.clipboard.as_ref().is_some_and(|(_, note)| *note == text) {
                     paste(app);
@@ -1295,7 +1297,20 @@ fn paste_mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui, can_paste: bool) 
     if item(ui, "Paste as Mask", "", can_paste && target.is_some()) {
         paste_as_mask(app);
     }
-    todo(ui, "Paste Inside", "Ctrl+Shift+V");
+    if item(ui, "Paste Inside", "Ctrl+Shift+V", can_paste && target.is_some()) {
+        paste_inside(app);
+    }
+}
+
+/// Edit > Paste Inside: the clipboard's objects inside the selected object, which becomes
+/// their mask (or joins an existing mask's content).
+fn paste_inside(app: &mut FireCraftApp) {
+    if app.session.active_doc().and_then(|d| d.paste_as_mask_target()).is_none() {
+        return;
+    }
+    if let Some(clip) = clipboard_contents(app) {
+        with_doc(app, |d| d.paste_inside(&clip));
+    }
 }
 
 /// What a paste would bring: the system clipboard's Fireworks objects or picture, copied

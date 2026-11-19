@@ -191,7 +191,9 @@ impl DocState {
     pub fn convert_to_symbol_with(&mut self, name: &str, kind: SymbolKind, nine: bool) -> Option<u32> {
         let refs = self.stacking_selection();
         let top = *refs.last()?;
-        if self.pixels.is_some() || self.selection_nested() {
+        // Objects inside a mask or group become a symbol where they are, if they share a list.
+        let nested = self.selection_nested();
+        if self.pixels.is_some() || (nested && !self.one_list(&refs)) {
             return None;
         }
         let (x, y, w, h) = self.selection_bounds()?;
@@ -204,7 +206,14 @@ impl DocState {
             name.trim().to_owned()
         };
         self.edit("Convert to Symbol", |s| {
-            let mut content = s.take(&refs);
+            let (mut content, nested_at) = if nested {
+                match s.take_list(&refs) {
+                    Some((c, at)) => (c, Some(at)),
+                    None => return,
+                }
+            } else {
+                (s.take(&refs), None)
+            };
             content.iter_mut().for_each(|e| e.translate(-cx, -cy));
             let mut layer = Layer::new("Layer 1");
             // Buttons have four states (Up, Over, Down, Over While Down); all start as Up.
@@ -229,6 +238,12 @@ impl DocState {
                 bounds: Some((x, y, w, h)),
                 anim: firecraft_doc::Animation::default(),
             });
+            if let Some(at) = nested_at {
+                if s.insert_in_list(at, instance) {
+                    s.selection = vec![at];
+                }
+                return;
+            }
             let below = refs
                 .iter()
                 .filter(|r| r.layer == top.layer && r.index < top.index)

@@ -135,7 +135,35 @@ Measured 2026-11-18 in Fireworks MX through Edit > Paste as Mask (menu clicks; t
 
 FireCraft takes what Edit > Paste would (Fireworks objects or a picture on the system clipboard,
 copied picture files, or its own clipboard); a picture from another application lands centred,
-as with Paste. Paste Inside is not built yet. In the engine a mask is the reference's child slot `MASK_SLOT`
+as with Paste.
+
+## Paste Inside
+
+Measured 2026-11-18 in Fireworks MX through Edit > Paste Inside (Ctrl+Shift+V); files
+`~/Documents/work/probes/paste_inside_pi1..4.png`, all rendered by FireCraft as MX does (100%).
+
+* For exactly one selected object, like Paste as Mask.
+* The selected object becomes the mask and the clipboard's objects (at their own places, each a
+  content object of its own) go inside it: a path masks by its outline, a bitmap by its alpha
+  channel ("mask to path" either way), with **Show fill and stroke** on, so the mask's own look
+  shows under the content.
+* Pasted inside an object that already has a mask: no question; the objects join its content on
+  top and the mask stays as it was.
+* History "Paste". MX's selection afterwards varied between runs (nothing, or the masked
+  object); FireCraft selects the masked object.
+
+## Selecting inside masks on the canvas
+
+A plain click (Pointer or Subselection) on something already selected keeps the selection: an
+object chosen inside a mask or group in the Layers panel stays selected when clicked on the
+canvas, instead of giving way to the masked object or group around it, so it can be dragged or
+double-clicked (a selected symbol opens in the Symbol Editor). A Subselection click on a selected
+group's member still selects the member, as in Fireworks MX.
+
+**Group, Ungroup and Convert to Symbol inside a mask or group** (FireCraft): objects that share
+one list (a mask's content, or a group's members) group or become a symbol where they are, in the
+topmost one's place; one group selected inside a mask or group ungroups in place. Objects from
+different lists aren't grouped. In the engine a mask is the reference's child slot `MASK_SLOT`
 (`ElementRef::mask`, `is_mask`).
 
 **Thumbnails** (Fireworks CS, as FirePixel measured it, its RE spec 73; `crates/ui-egui/src/thumbs.rs`):
