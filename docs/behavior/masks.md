@@ -267,8 +267,8 @@ FireCraft 56% alike). Measured with scripts (`~/Documents/work/probes/mask_greys
   probes 100% (tested 2026-11-19, then reverted). The user confirmed it in MX: a Brightness/
   Contrast effect set to 0/0 on the bitmap being masked (in MX that is the masked object's
   effect) makes MX render like FireCraft and CS6; the same effect on the masking bitmap doesn't.
-  That do-nothing effect is a workaround for files meant to look the same in MX. Unmeasured:
-  whether a switched-off effect counts.
+  That do-nothing effect is a workaround for files meant to look the same in MX. A switched-off
+  effect doesn't count (the user checked): only active effects avoid the doubling.
 
 **FireCraft keeps the linear (CS6) behaviour, by the user's choice** (an MX-compatible option could
 apply the doubling under the rule above) ("It was not expected when
