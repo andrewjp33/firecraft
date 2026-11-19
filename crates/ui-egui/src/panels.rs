@@ -1,10 +1,11 @@
 //! The right-hand panel dock: Optimize, Layers, Frames and History, Assets, Answers.
 
-use egui::{Color32, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
+use egui::{Color32, Rect, RichText, Sense, Stroke, vec2};
 use firecraft_doc::{Element, ElementKind, MaskMode};
 use firecraft_engine::{DocState, ElementRef};
 
 use crate::icons::{self, Glyph};
+use crate::thumbs::{self, Subject, Which};
 use crate::{FireCraftApp, theme};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -74,56 +75,6 @@ fn dock_contents(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         });
 }
 
-fn thumbnail(ui: &mut egui::Ui, kind: &ElementKind) {
-    let (r, _) = ui.allocate_exact_size(vec2(26.0, 20.0), Sense::hover());
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, Color32::WHITE);
-    p.rect_stroke(
-        r,
-        0.0,
-        Stroke::new(1.0, Color32::from_gray(170)),
-        StrokeKind::Inside,
-    );
-    let inner = r.shrink(4.0);
-    match kind {
-        ElementKind::Bitmap(_) => {
-            p.rect_filled(
-                Rect::from_min_size(inner.min, inner.size() / 2.0),
-                0.0,
-                Color32::from_rgb(230, 120, 60),
-            );
-            p.rect_filled(
-                Rect::from_min_size(inner.center(), inner.size() / 2.0),
-                0.0,
-                Color32::from_rgb(60, 130, 220),
-            );
-        }
-        ElementKind::Path(path) => {
-            let c = path
-                .fill
-                .as_ref()
-                .map(|f| f.color)
-                .or(path.stroke.as_ref().map(|s| s.color));
-            let c = c
-                .map(|c| Color32::from_rgb(c.r, c.g, c.b))
-                .unwrap_or(Color32::GRAY);
-            p.rect_stroke(inner, 0.0, Stroke::new(1.5, c), StrokeKind::Inside);
-        }
-        ElementKind::Text(_) => {
-            p.text(
-                r.center(),
-                egui::Align2::CENTER_CENTER,
-                "T",
-                egui::FontId::proportional(12.0),
-                Color32::BLACK,
-            );
-        }
-        _ => {
-            p.rect_filled(inner, 0.0, Color32::from_rgb(120, 220, 120));
-        }
-    }
-}
-
 /// Layers panel state between frames (kept in egui's temporary data).
 #[derive(Clone, Default)]
 struct LayersUi {
@@ -131,6 +82,8 @@ struct LayersUi {
     renaming: Option<Rename>,
     /// Masked objects and groups shown open, listing the objects inside them.
     open: std::collections::HashSet<ElementRef>,
+    /// The rows' thumbnails.
+    thumbs: thumbs::Cache,
     /// A row being dragged.
     dragging: Option<Dragged>,
 }
@@ -222,7 +175,7 @@ fn name_edit(ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<Rename>) 
 const HOLDS_SELECTION: Color32 = Color32::from_rgb(0xF5, 0xEB, 0xB5);
 
 /// The frame of a selected mask's thumbnail (Fireworks CS).
-const MASK_EDIT_GREEN: Color32 = Color32::from_rgb(0x66, 0xFF, 0x00);
+pub(crate) const MASK_EDIT_GREEN: Color32 = Color32::from_rgb(0x66, 0xFF, 0x00);
 
 /// Width of an object row's open/close arrow, and the indent per level inside groups and masks.
 const ARROW_W: f32 = 12.0;
@@ -286,60 +239,6 @@ fn mask_kind(mask: &Element, mode: MaskMode) -> &'static str {
     }
 }
 
-/// A mask's thumbnail, in the style of Fireworks CS's: black where the mask hides the content,
-/// light where it shows it.
-///
-/// `editing`: the mask is selected; Fireworks CS frames it green then (2 px #66FF00, growing
-/// outward; measured by FirePixel, its RE spec 73).
-fn mask_thumbnail(ui: &mut egui::Ui, mask: &Element, mode: MaskMode, editing: bool) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 20.0), Sense::hover());
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, Color32::BLACK);
-    if editing {
-        p.rect_stroke(r, 0.0, Stroke::new(2.0, MASK_EDIT_GREEN), StrokeKind::Outside);
-    } else {
-        p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_gray(170)), StrokeKind::Inside);
-    }
-    let inner = r.shrink(4.0);
-    match (&mask.kind, mode) {
-        (ElementKind::Bitmap(_), _) => {
-            // A grey ramp: bitmap masks reveal by their brightness.
-            let mut mesh = egui::Mesh::default();
-            mesh.colored_vertex(inner.left_top(), Color32::from_gray(40));
-            mesh.colored_vertex(inner.right_top(), Color32::WHITE);
-            mesh.colored_vertex(inner.right_bottom(), Color32::WHITE);
-            mesh.colored_vertex(inner.left_bottom(), Color32::from_gray(40));
-            mesh.add_triangle(0, 1, 2);
-            mesh.add_triangle(0, 2, 3);
-            p.add(egui::Shape::mesh(mesh));
-        }
-        (ElementKind::Text(_), _) => {
-            p.text(
-                r.center(),
-                egui::Align2::CENTER_CENTER,
-                "T",
-                egui::FontId::proportional(12.0),
-                Color32::WHITE,
-            );
-        }
-        (_, MaskMode::PathOutline) => {
-            p.add(egui::epaint::EllipseShape::stroke(
-                inner.center(),
-                inner.size() / 2.0,
-                Stroke::new(1.5, Color32::WHITE),
-            ));
-        }
-        _ => {
-            p.add(egui::epaint::EllipseShape::filled(
-                inner.center(),
-                inner.size() / 2.0,
-                Color32::WHITE,
-            ));
-        }
-    }
-    resp
-}
-
 /// The object's eye and lock (Fireworks CS), in the layer's eye and lock columns; returns the
 /// columns' rectangle.
 fn eye_and_lock(ui: &mut egui::Ui, r: ElementRef, el: &Element, edited: bool, out: &mut RowActions) -> Rect {
@@ -378,6 +277,7 @@ fn object_rows(
     ui: &mut egui::Ui,
     st: &mut LayersUi,
     d: &DocState,
+    page: &thumbs::Page,
     r: ElementRef,
     el: &Element,
     depth: usize,
@@ -424,17 +324,22 @@ fn object_rows(
         }
         match &el.kind {
             ElementKind::Masked { content, mask, mode, .. } => {
-                match content.as_slice() {
-                    [one] => thumbnail(ui, &one.kind),
-                    _ => thumbnail(ui, &ElementKind::Group(Vec::new())),
-                }
+                let subject = Subject { elements: content, mask: None };
+                thumbs::show(ui, &mut st.thumbs, page, (r, Which::Object), &subject, false);
                 let (link, _) = ui.allocate_exact_size(vec2(8.0, 20.0), Sense::hover());
                 icons::paint_glyph(ui.painter(), link.shrink2(vec2(0.0, 3.0)), Glyph::Link, Color32::from_gray(60));
-                mask_thumb = mask_thumbnail(ui, mask, *mode, mask_selected)
+                let subject = Subject {
+                    elements: std::slice::from_ref(&**mask),
+                    mask: Some(*mode),
+                };
+                mask_thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, mask_selected)
                     .on_hover_text(format!("{}: click to select the mask", mask_kind(mask, *mode)))
                     .rect;
             }
-            kind => thumbnail(ui, kind),
+            _ => {
+                let subject = Subject { elements: std::slice::from_ref(el), mask: None };
+                thumbs::show(ui, &mut st.thumbs, page, (r, Which::Object), &subject, false);
+            }
         }
         if editing {
             name_edit(ui, st, &mut out.rename);
@@ -490,18 +395,18 @@ fn object_rows(
     match &el.kind {
         ElementKind::Masked { content, mask, mode, .. } => {
             if let Some(m) = mask_ref {
-                mask_row(ui, st, d, m, mask, *mode, depth + 1, locked, out, rows);
+                mask_row(ui, st, d, page, m, mask, *mode, depth + 1, locked, out, rows);
             }
             for (i, c) in content.iter().enumerate().rev() {
                 if let Some(cr) = r.child(i) {
-                    object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
+                    object_rows(ui, st, d, page, cr, c, depth + 1, locked, out, rows);
                 }
             }
         }
         ElementKind::Group(children) => {
             for (i, c) in children.iter().enumerate().rev() {
                 if let Some(cr) = r.child(i) {
-                    object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
+                    object_rows(ui, st, d, page, cr, c, depth + 1, locked, out, rows);
                 }
             }
         }
@@ -517,6 +422,7 @@ fn mask_row(
     ui: &mut egui::Ui,
     st: &mut LayersUi,
     d: &DocState,
+    page: &thumbs::Page,
     r: ElementRef,
     mask: &Element,
     mode: MaskMode,
@@ -554,7 +460,8 @@ fn mask_row(
                 out.toggle_open = Some(r);
             }
         }
-        mask_thumbnail(ui, mask, mode, selected);
+        let subject = Subject { elements: std::slice::from_ref(mask), mask: Some(mode) };
+        thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected);
         let text = RichText::new(mask_kind(mask, mode)).italics();
         let text = if selected { text.color(Color32::WHITE) } else { text };
         ui.add(egui::Label::new(text).selectable(false));
@@ -590,11 +497,11 @@ fn mask_row(
         _ => return,
     };
     if let (ElementKind::Masked { mask: inner, mode: inner_mode, .. }, Some(m)) = (&mask.kind, r.mask()) {
-        mask_row(ui, st, d, m, inner, *inner_mode, depth + 1, locked, out, rows);
+        mask_row(ui, st, d, page, m, inner, *inner_mode, depth + 1, locked, out, rows);
     }
     for (i, c) in list.iter().enumerate().rev() {
         if let Some(cr) = r.child(i) {
-            object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
+            object_rows(ui, st, d, page, cr, c, depth + 1, locked, out, rows);
         }
     }
 }
@@ -616,6 +523,20 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut rename: Option<Rename> = None;
     let mut actions = RowActions::default();
     let mut rows: Vec<(Rect, Row)> = Vec::new();
+    let page = thumbs::Page {
+        doc_id: d.id,
+        revision: d.revision,
+        width: d.doc.width,
+        height: d.doc.height,
+        ctx: firecraft_doc::RenderCtx {
+            mx_perspective: d.doc.mx_perspective,
+            symbols: &d.doc.symbols,
+            frame,
+            math: d.doc.color_math,
+            ..firecraft_doc::RenderCtx::EMPTY
+        },
+    };
+    st.thumbs.begin();
     // Top layer first, as Fireworks lists them.
     for li in (0..d.doc.layers.len()).rev() {
         let Some(layer) = d.doc.layers.get(li) else {
@@ -681,9 +602,13 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         rows.push((header.response.rect, Row::Layer(li)));
         if layer.disclosed {
             for (ei, el) in layer.elements(frame).iter().enumerate().rev() {
-                object_rows(ui, &mut st, d, ElementRef::new(li, ei), el, 0, false, &mut actions, &mut rows);
+                object_rows(ui, &mut st, d, &page, ElementRef::new(li, ei), el, 0, false, &mut actions, &mut rows);
             }
         }
+    }
+    if st.thumbs.end() {
+        // Thumbnails left for later frames.
+        ui.ctx().request_repaint();
     }
     if let Some(r) = actions.drag {
         // Dragging an unselected object moves just that one.

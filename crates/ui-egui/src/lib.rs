@@ -43,6 +43,7 @@ mod text_editor;
 mod text_menu;
 mod text_tool;
 mod theme;
+mod thumbs;
 mod tools_panel;
 mod transform_tool;
 

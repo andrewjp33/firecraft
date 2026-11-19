@@ -1,8 +1,9 @@
 //! How Fireworks treats a vector mask's cached render (`IMGv` before the content in a "mask to
 //! image" group): mask_cache_probe <in.png> <outdir>. Lists the top-level masked objects, then
 //! for the first one with a cache writes variants with the mask moved 40 px right:
-//! `stale.png` (cache left where it was), `nocache.png` (cache dropped), `moved.png` (cache
-//! moved with the mask). Open them in Fireworks MX to see which it draws.
+//! `stale.png` (cache left where it was) and `fresh.png` (cache drawn anew, as saving does).
+//! Open them in Fireworks MX to see which it draws. Also compares each cache in the file with
+//! FireCraft's drawing of it (SHOW=1 prints sample differing pixels).
 use firecraft_doc::ElementKind;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,19 +75,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Some((li, ei)) = target else {
         return Err("no masked object with a cache".into());
     };
-    for variant in ["stale", "nocache", "moved"] {
+    for variant in ["stale", "fresh"] {
         let mut d = doc.clone();
         let el = d.layers[li].elements_mut(0).and_then(|c| c.get_mut(ei)).ok_or("gone")?;
-        if let ElementKind::Masked { mask, cache, .. } = &mut el.kind {
+        if let ElementKind::Masked { mask, cache_key, .. } = &mut el.kind {
             mask.translate(40.0, 0.0);
-            match variant {
-                "nocache" => *cache = None,
-                "moved" => {
-                    if let Some(c) = cache {
-                        c.translate(40.0, 0.0);
-                    }
-                }
-                _ => {}
+            if variant == "stale" {
+                // Pretend the mask is unchanged, so the cache stays where it was.
+                *cache_key = firecraft_doc::element_key(mask, &firecraft_doc::RenderCtx::EMPTY);
             }
         }
         let out = format!("{outdir}/{variant}.png");

@@ -31,8 +31,13 @@ A masked object is a group (`GRPv`) with a type:
   vector mask without one, saving draws a new cache (`firecraft_doc::mask_cache`). Checked with
   `crates/io/examples/mask_cache_probe.rs` against the caches in the files: Fireworks MX's
   (cone3, mean difference 0.04 per channel), CS6's (probe document, 0.1 to 0.2, antialiasing)
-  and 769_edit2 (0.002), with the same rectangles. Whether Fireworks MX draws from the cache or
-  from the mask is not yet measured.
+  and 769_edit2 (0.002), with the same rectangles, and a probe made in MX
+  (`~/Documents/work/probes/mask_probe_mx.png`: grey, white, path-outline and group masks; 0.01 to
+  0.03 for all three caches).
+* **Fireworks MX draws a mask from the mask, not from the cache** (measured 2026-11-18): the
+  probe with mask A moved 40 px and its cache left at the old place (`mask_cache_probe`'s
+  `stale.png`) and the same with a redrawn cache (`fresh.png`) re-save from MX identically
+  (0 differing pixels), the mask at its new place. FireCraft renders both as MX does (99.9%).
 * Masks nest: a mask can itself be a masked group (cone3.png).
 * Objects can be hidden individually: `VISb{0}` as the first child of the object.
 
@@ -71,3 +76,14 @@ selected the same way (FirePixel's E-1). Delete, Cut, Duplicate and Alt-drag lea
 in its object: they do nothing, and Alt-drag just moves it (Delete Mask belongs to Modify > Mask,
 not built). In the engine a mask is the reference's child slot `MASK_SLOT`
 (`ElementRef::mask`, `is_mask`).
+
+**Thumbnails** (Fireworks CS, as FirePixel measured it, its RE spec 73; `crates/ui-egui/src/thumbs.rs`):
+34 x 23 frames, the page fitted inside, the object drawn at its place on it (checkered where
+transparent; a hidden object still shows). A masked object's thumbnail is its content alone,
+unmasked; the mask's is the mask grey on black: its brightness times its alpha for a grayscale
+mask, its alpha for an alpha-channel or path-outline mask. A selected mask's thumbnail has the
+green frame. They follow the document, but not during a drag or a stroke: they change when the
+mouse is released. Not copied: CS6's "masked result with the fill underneath" content thumbnail
+when "Show fill and stroke" is on (FireCraft doesn't model that setting yet), its 10 x 10 bitmap
+badge and the pen badge of vector masks. Thumbnails are drawn a few per frame (12 ms, at least
+one), and an object's fingerprint is checked only after the document changed.
