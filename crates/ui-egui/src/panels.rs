@@ -998,6 +998,14 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             {
                 d.insert_empty_bitmap();
             }
+            // Fireworks MX's Add Mask: Reveal All on the selected object.
+            let can = d.can_add_mask();
+            if icons::glyph_button(ui, Glyph::AddMask, 16.0, can)
+                .on_hover_text("Add Mask (Reveal All): a white bitmap mask to paint on")
+                .clicked()
+            {
+                d.add_mask(true);
+            }
             if icons::glyph_button(ui, Glyph::Plus, 16.0, true)
                 .on_hover_text("New Layer")
                 .clicked()

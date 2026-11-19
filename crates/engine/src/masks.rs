@@ -99,14 +99,7 @@ impl DocState {
                 },
                 _ => {
                     let content = std::mem::replace(el, Element::new(ElementKind::Group(Vec::new())));
-                    *el = Element::new(ElementKind::Masked {
-                        content: vec![content],
-                        mask: Box::new(single(pasted)),
-                        mode: new_mode,
-                        cache: None,
-                        cache_key: 0,
-                        flags: MaskFlags::default(),
-                    });
+                    *el = masked_one(content, single(pasted), new_mode);
                     target.mask().into_iter().collect()
                 }
             };
@@ -128,6 +121,79 @@ impl DocState {
             [r] => self.mask_owner(*r),
             _ => None,
         }
+    }
+
+    /// Whether Modify > Mask > Reveal All / Hide All can add a mask: one selected object, not
+    /// already masked.
+    pub fn can_add_mask(&self) -> bool {
+        self.paste_as_mask_target()
+            .and_then(|r| self.element(r))
+            .is_some_and(|e| !matches!(e.kind, ElementKind::Masked { .. }))
+    }
+
+    /// Modify > Mask > Reveal All (`reveal`) / Hide All, and the Layers panel's Add Mask
+    /// (measured in Fireworks MX): the selected object gets a bitmap mask over the canvas, grown
+    /// to the object where it reaches past (an object at 400..600 on a 500 px canvas: a mask
+    /// 600 wide from 0), opaque white for Reveal All and transparent for Hide All, grayscale.
+    /// The mask is selected, ready to paint on; one undo step, "Add Mask".
+    pub fn add_mask(&mut self, reveal: bool) {
+        if !self.can_add_mask() {
+            return;
+        }
+        let Some(target) = self.paste_as_mask_target() else { return };
+        let (w, h) = (self.doc.width as f64, self.doc.height as f64);
+        let (bx, by, bw, bh) = self.element(target).and_then(Element::bounds).unwrap_or((0.0, 0.0, w, h));
+        const EPS: f64 = 1e-6;
+        let (x0, y0) = ((bx + EPS).floor().min(0.0) as i64, (by + EPS).floor().min(0.0) as i64);
+        let (x1, y1) = ((bx + bw - EPS).ceil().max(w) as i64, (by + bh - EPS).ceil().max(h) as i64);
+        if x1 <= x0 || y1 <= y0 || (x1 - x0) * (y1 - y0) > 100_000_000 {
+            return;
+        }
+        let fill = if reveal { Rgba::WHITE } else { Rgba::TRANSPARENT };
+        let image = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32, fill);
+        let mask = Element::new(ElementKind::Bitmap(firecraft_doc::Bitmap { x: x0, y: y0, image }));
+        self.edit("Add Mask", |s| {
+            let Some(el) = s.element_mut(target) else { return };
+            let content = std::mem::replace(el, Element::new(ElementKind::Group(Vec::new())));
+            *el = masked_one(content, mask, MaskMode::Grayscale);
+            s.selection = target.mask().into_iter().collect();
+            s.doc.current_layer = target.layer;
+            s.pixels = None;
+        });
+    }
+
+    /// Whether Modify > Mask > Group as Mask applies: two or more selected objects in one list.
+    pub fn can_group_as_mask(&self) -> bool {
+        let refs = self.stacking_selection();
+        refs.len() >= 2 && self.pixels.is_none() && self.one_list(&refs)
+    }
+
+    /// Modify > Mask > Group as Mask (measured in Fireworks MX): the topmost selected object
+    /// becomes the mask of the others, by its grayscale whether a path or a bitmap ("mask to
+    /// image"), fill and stroke hidden; several objects below make a group with a mask. The
+    /// masked object takes the topmost one's place and is selected; one undo step, "Group".
+    pub fn group_as_mask(&mut self) {
+        if !self.can_group_as_mask() {
+            return;
+        }
+        let refs = self.stacking_selection();
+        self.edit("Group", |s| {
+            let Some((mut taken, at)) = s.take_list(&refs) else { return };
+            let Some(mut mask) = taken.pop() else { return };
+            mask.visible = true;
+            let masked = Element::new(ElementKind::Masked {
+                content: taken,
+                mask: Box::new(mask),
+                mode: MaskMode::Grayscale,
+                cache: None,
+                cache_key: 0,
+                flags: MaskFlags::default(),
+            });
+            if s.insert_in_list(at, masked) {
+                s.selection = vec![at];
+                s.doc.current_layer = at.layer;
+            }
+        });
     }
 
     /// Edit > Paste Inside (measured in Fireworks MX): the selected object becomes the mask of the
@@ -257,6 +323,27 @@ impl DocState {
             s.pixels = None;
         });
     }
+}
+
+/// `content` masked by `mask`, as one object getting a mask: its effects, opacity and blending
+/// move to the masked object (where Fireworks keeps them: they apply to the masked look, and a
+/// blend mode left inside would only blend within it).
+fn masked_one(mut content: Element, mask: Element, mode: MaskMode) -> Element {
+    let mut el = Element::new(ElementKind::Group(Vec::new()));
+    el.effects = std::mem::take(&mut content.effects);
+    el.opacity = std::mem::replace(&mut content.opacity, 100.0);
+    el.blend = std::mem::replace(&mut content.blend, BlendMode::Normal);
+    el.visible = content.visible;
+    content.visible = true;
+    el.kind = ElementKind::Masked {
+        content: vec![content],
+        mask: Box::new(mask),
+        mode,
+        cache: None,
+        cache_key: 0,
+        flags: MaskFlags::default(),
+    };
+    el
 }
 
 /// What a masked object becomes when its mask is removed `how`, bottom first.
@@ -561,6 +648,49 @@ mod tests {
         d.selection = vec![ElementRef::new(0, 0)];
         d.ungroup();
         assert_eq!(top(&d), ["a", "b", "m"]);
+    }
+
+    #[test]
+    fn reveal_all_hide_all_and_group_as_mask() {
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(30, 20, Rgba::new(255, 0, 0, 255), "a"), "Add");
+        let r = ElementRef::new(0, 0);
+        d.selection = vec![r];
+        assert!(d.can_add_mask());
+        d.add_mask(true);
+        // A white bitmap over the canvas, grown to the object (30..50 on a 40 px canvas).
+        let m = r.mask().expect("mask");
+        assert_eq!(d.element(m).and_then(Element::bounds), Some((0.0, 0.0, 50.0, 10.0)));
+        assert_eq!(d.selection, [m]);
+        assert_eq!(d.mask_settings(r).map(|s| s.0), Some(MaskMode::Grayscale));
+        assert_eq!(d.history.labels().last(), Some("Add Mask"));
+        // The object's look moved to the masked object (a blend mode inside would only blend
+        // within it).
+        assert_eq!(d.element(r.child(0).expect("c")).map(|e| e.blend), Some(BlendMode::Normal));
+        // A masked object takes no second one.
+        d.selection = vec![r];
+        assert!(!d.can_add_mask());
+        // Hide All: transparent.
+        d.undo();
+        d.selection = vec![r];
+        d.add_mask(false);
+        let px = match d.element(m).map(|e| &e.kind) {
+            Some(ElementKind::Bitmap(b)) => b.image.get(1, 1),
+            _ => None,
+        };
+        assert_eq!(px.map(|p| p.a), Some(0));
+        // Group as Mask: the topmost masks the others; the masked object selected.
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        for (x, n) in [(0, "a"), (10, "b"), (5, "m")] {
+            d.add_element(bitmap(x, 10, Rgba::WHITE, n), "Add");
+        }
+        d.selection = vec![ElementRef::new(0, 0), ElementRef::new(0, 1), ElementRef::new(0, 2)];
+        assert!(d.can_group_as_mask());
+        d.group_as_mask();
+        assert_eq!(top(&d), ["Masked Group"]);
+        assert_eq!(d.element(ElementRef::new(0, 0).mask().expect("m")).map(Element::label), Some("m".into()));
+        assert_eq!(d.selection, [ElementRef::new(0, 0)]);
+        assert_eq!(d.history.labels().last(), Some("Group"));
     }
 
     #[test]

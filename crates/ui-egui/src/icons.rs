@@ -249,6 +249,8 @@ pub enum Glyph {
     Lock,
     /// A chain (the Layers panel's link between an object and its mask, Fireworks CS).
     Link,
+    /// Add Mask (the Layers panel's footer): a frame with a filled circle in it.
+    AddMask,
     Plus,
     Minus,
     Trash,
@@ -323,6 +325,11 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
                     egui::StrokeKind::Middle,
                 );
             }
+        }
+        Glyph::AddMask => {
+            let box_ = Rect::from_min_max(at(0.15, 0.2), at(0.85, 0.8));
+            p.rect_stroke(box_, 0.0, s, egui::StrokeKind::Inside);
+            p.circle_filled(box_.center(), box_.height() * 0.3, c);
         }
         Glyph::Plus | Glyph::Minus => {
             p.line_segment([at(0.2, 0.5), at(0.8, 0.5)], Stroke::new(1.5, c));

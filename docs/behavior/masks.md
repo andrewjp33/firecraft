@@ -213,3 +213,25 @@ mouse is released. Not copied: CS6's "masked result with the fill underneath" co
 when "Show fill and stroke" is on (FireCraft doesn't model that setting yet), its 10 x 10 bitmap
 badge and the pen badge of vector masks. Thumbnails are drawn a few per frame (12 ms, at least
 one), and an object's fingerprint is checked only after the document changed.
+
+## Reveal All, Hide All, Group as Mask, painting on a mask
+
+Measured 2026-11-18 in Fireworks MX through Modify > Mask (files
+`~/Documents/work/probes/mask_cmd_*.png`):
+
+* **Reveal All / Hide All** (one selected object, not already masked; the Layers panel's **Add
+  Mask** button does Reveal All): a bitmap mask over the canvas, grown to the object where it
+  reaches past (a 200x160 object at 400,400 on a 500 px canvas: a 600x560 mask at 0,0), opaque
+  white for Reveal All, fully transparent for Hide All; grayscale ("mask to image"), fill and
+  stroke hidden. The mask is selected (`fw.selectedMask`), ready to paint on. History "Add Mask".
+* **Group as Mask** (two or more selected objects; greyed out for one): the topmost becomes the
+  mask, grayscale whether a path or a bitmap, the others its content (several make a group with
+  a mask). The masked object is selected. History "Group".
+* An object getting a mask (Reveal/Hide All, Paste as Mask) hands its effects, opacity and blend
+  mode to the masked object, where Fireworks keeps them: left on the content, a blend mode would
+  only blend inside the masked object (circles_hi's Color layer lost its effect that way).
+* **Painting on a bitmap mask**: with the mask selected (its thumbnail, row, or right after
+  Reveal/Hide All) the Brush, Pencil, Eraser and other bitmap tools paint into it, and the
+  canvas shows the masking change live during the stroke (a grayscale mask: lighter shows more;
+  the Eraser makes it transparent, hiding). Not done: Reveal Selection / Hide Selection (from a
+  marquee).

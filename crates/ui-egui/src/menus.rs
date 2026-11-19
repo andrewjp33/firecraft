@@ -1266,12 +1266,26 @@ fn delete_selection(app: &mut FireCraftApp) {
 fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let owner = app.session.active_doc().and_then(|d| d.selected_mask_owner());
     let settings = owner.and_then(|o| app.session.active_doc().and_then(|d| d.mask_settings(o)));
-    todo(ui, "Reveal All", "");
-    todo(ui, "Hide All", "");
+    let (can_add, can_group) = app
+        .session
+        .active_doc()
+        .map_or((false, false), |d| (d.can_add_mask(), d.can_group_as_mask()));
+    if item(ui, "Reveal All", "", can_add) {
+        with_doc(app, |d| d.add_mask(true));
+    }
+    if item(ui, "Hide All", "", can_add) {
+        with_doc(app, |d| d.add_mask(false));
+    }
+    let can_paste = app.clipboard.is_some() || firecraft_sysclip::available();
+    if item(ui, "Paste as Mask", "", can_paste && app.session.active_doc().is_some_and(|d| d.paste_as_mask_target().is_some())) {
+        paste_as_mask(app);
+    }
+    if item(ui, "Group as Mask", "", can_group) {
+        with_doc(app, |d| d.group_as_mask());
+    }
+    ui.separator();
     todo(ui, "Reveal Selection", "");
     todo(ui, "Hide Selection", "");
-    ui.separator();
-    todo(ui, "Group as Mask", "");
     ui.separator();
     let enabled = settings.is_none_or(|s| s.1.enabled);
     if item(ui, if enabled { "Disable Mask" } else { "Enable Mask" }, "", owner.is_some())
