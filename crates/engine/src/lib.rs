@@ -53,6 +53,9 @@ pub struct ElementRef {
 /// How deep a reference reaches into nested groups.
 pub const MAX_SUB_DEPTH: usize = 8;
 
+/// The child index that stands for a masked object's mask (its content are 0, 1, ...).
+const MASK_SLOT: u16 = u16::MAX;
+
 /// Child indices from a top-level object into groups (a group's children, a masked group's
 /// content), outermost first.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -94,6 +97,26 @@ impl ElementRef {
         Some(r)
     }
 
+    /// The mask of this (masked) object, as Fireworks CS selects it from the Layers panel's
+    /// mask thumbnail.
+    pub fn mask(self) -> Option<Self> {
+        let mut r = self;
+        let slot = r.sub.idx.get_mut(r.sub.len as usize)?;
+        *slot = MASK_SLOT;
+        r.sub.len += 1;
+        Some(r)
+    }
+
+    /// Whether this is a masked object's mask.
+    pub fn is_mask(&self) -> bool {
+        self.sub.as_slice().last() == Some(&MASK_SLOT)
+    }
+
+    /// Whether this is a mask or an object inside one.
+    pub fn in_mask(&self) -> bool {
+        self.sub.as_slice().contains(&MASK_SLOT)
+    }
+
     /// The group this object is in (`None` for a top-level object).
     pub fn parent(self) -> Option<Self> {
         if self.sub.len == 0 {
@@ -127,6 +150,24 @@ impl ElementRef {
             None => Self::new(self.layer, i),
         }
     }
+}
+
+/// Child `i` of `e` along a reference: a member, or for [`MASK_SLOT`] a masked object's mask.
+fn step(e: &Element, i: u16) -> Option<&Element> {
+    match (&e.kind, i) {
+        (ElementKind::Masked { mask, .. }, MASK_SLOT) => Some(mask),
+        _ => members(e)?.get(i as usize),
+    }
+}
+
+fn step_mut(e: &mut Element, i: u16) -> Option<&mut Element> {
+    if i == MASK_SLOT {
+        return match &mut e.kind {
+            ElementKind::Masked { mask, .. } => Some(mask),
+            _ => None,
+        };
+    }
+    members_mut(e)?.get_mut(i as usize)
 }
 
 /// A group's children (or a masked group's content): the objects the Subselection tool reaches.
@@ -385,7 +426,7 @@ impl DocState {
             .elements(self.frame())
             .get(r.index)?;
         for &i in r.sub.as_slice() {
-            e = members(e)?.get(i as usize)?;
+            e = step(e, i)?;
         }
         Some(e)
     }
@@ -399,13 +440,17 @@ impl DocState {
             .elements_mut(f)?
             .get_mut(r.index)?;
         for &i in r.sub.as_slice() {
-            e = members_mut(e)?.get_mut(i as usize)?;
+            e = step_mut(e, i)?;
         }
         Some(e)
     }
 
     /// The list object `r` is in (its layer's objects, or its group's children).
     pub(crate) fn list_mut(&mut self, r: ElementRef) -> Option<&mut Vec<Element>> {
+        // A mask is no list's member: deleting, arranging or grouping leave it alone.
+        if r.is_mask() {
+            return None;
+        }
         match r.parent() {
             Some(p) => members_mut(self.element_mut(p)?),
             None => {
@@ -1009,7 +1054,7 @@ impl DocState {
             });
             return;
         }
-        if self.selection.is_empty() {
+        if self.selection.iter().all(ElementRef::is_mask) {
             return;
         }
         // Last first, so earlier references stay valid.

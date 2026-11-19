@@ -628,6 +628,13 @@ fn hash_image(img: &RgbaImage, h: &mut DefaultHasher) {
     (img.stamp(), img.width(), img.height()).hash(h);
 }
 
+/// A fingerprint of what the element draws (the same one the render cache keys on).
+pub fn element_key(el: &Element, ctx: &RenderCtx) -> u64 {
+    let mut h = DefaultHasher::new();
+    hash_element(el, ctx, &mut h);
+    h.finish()
+}
+
 fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {
     el.visible.hash(h);
     for e in &el.effects {
@@ -666,6 +673,7 @@ fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {
             mask,
             mode,
             cache,
+            ..
         } => {
             for c in content {
                 hash_element(c, ctx, h);

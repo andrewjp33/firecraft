@@ -130,6 +130,10 @@ impl DocState {
 
     /// Edit > Cut: copy, then delete what was copied.
     pub fn cut(&mut self) -> Option<Clipboard> {
+        // A mask can be copied, but stays (Modify > Mask > Delete Mask removes it).
+        if self.pixels.is_none() && self.selection.iter().any(ElementRef::is_mask) {
+            return None;
+        }
         let clip = self.copy()?;
         self.delete_as("Cut");
         Some(clip)
@@ -297,7 +301,8 @@ impl DocState {
     /// copies just above the topmost selected object of each layer, selected.
     pub fn duplicate(&mut self, offset: bool) {
         let refs = self.stacking_selection();
-        if refs.is_empty() || self.pixels.is_some() {
+        // A mask has no copies of its own (an object has one mask).
+        if refs.is_empty() || self.pixels.is_some() || refs.iter().any(ElementRef::is_mask) {
             return;
         }
         let label = if offset { "Duplicate" } else { "Clone" };
@@ -352,7 +357,9 @@ impl DocState {
     /// MX) copy each selected object to just above itself and move the copies, the originals
     /// staying where they are. One undo step ("Move" or "Duplicate") when it is committed.
     pub fn begin_drag(&mut self, duplicate: bool) {
-        if duplicate && self.pixels.is_none() {
+        // A selected mask moves, Alt or not: an object has one mask.
+        let mask = self.selection.iter().any(ElementRef::is_mask);
+        if duplicate && self.pixels.is_none() && !mask {
             self.begin_live_edit("Duplicate");
             self.copy_each_above();
         } else {
@@ -956,6 +963,56 @@ mod tests {
         d.subselect();
         assert_eq!(d.selection.len(), 4);
         assert!(!d.can_ungroup());
+    }
+
+    /// e0, then e2 masked by e1 (a bitmap mask), selected none.
+    fn masked() -> DocState {
+        let mut d = doc(&[1, 2, 3]);
+        let mut cell = d.doc.layers[0].elements_mut(0).expect("cell").clone();
+        let content = cell.remove(2);
+        let mask = cell.remove(1);
+        cell.push(Element::new(ElementKind::Masked {
+            content: vec![content],
+            mask: Box::new(mask),
+            mode: firecraft_doc::MaskMode::Grayscale,
+            cache: None,
+            cache_key: 0,
+        }));
+        *d.doc.layers[0].elements_mut(0).expect("cell") = cell;
+        d
+    }
+
+    #[test]
+    fn a_mask_can_be_selected_and_moved_alone() {
+        let mut d = masked();
+        let obj = ElementRef::new(0, 1);
+        let m = obj.mask().expect("mask ref");
+        assert!(m.is_mask() && m.in_mask() && !obj.is_mask());
+        assert_eq!(m.parent(), Some(obj));
+        assert_eq!(d.element(m).map(|e| e.label()), Some("e1".into()));
+        // A member of the content isn't the mask.
+        let c = obj.child(0).expect("content");
+        assert_eq!(d.element(c).map(|e| e.label()), Some("e2".into()));
+        assert!(!c.is_mask());
+        // Moving the mask leaves the content where it was.
+        d.selection = vec![m];
+        d.move_selection(0.0, 7.0, "Move");
+        assert_eq!(d.element(m).and_then(|e| e.bounds()).map(|b| b.1), Some(12.0));
+        assert_eq!(d.element(c).and_then(|e| e.bounds()).map(|b| b.1), Some(5.0));
+        // Delete, Cut, Duplicate and Alt-drag don't take the mask out of its object.
+        d.delete();
+        d.duplicate(true);
+        assert!(d.cut().is_none());
+        d.begin_drag(true);
+        d.move_selection_live(1.0, 0.0);
+        d.commit_live_edit();
+        assert_eq!(d.selection, [m]);
+        assert_eq!(names(&d), ["e0", "e2 (masked)"]);
+        assert_eq!(d.element(m).and_then(|e| e.bounds()).map(|b| b.0), Some(11.0));
+        // Undo puts the mask back.
+        d.undo();
+        d.undo();
+        assert_eq!(d.element(m).and_then(|e| e.bounds()).map(|b| (b.0, b.1)), Some((10.0, 5.0)));
     }
 
     #[test]

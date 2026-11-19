@@ -221,6 +221,9 @@ fn name_edit(ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<Rename>) 
 /// tree marks such rows the same way).
 const HOLDS_SELECTION: Color32 = Color32::from_rgb(0xF5, 0xEB, 0xB5);
 
+/// The frame of a selected mask's thumbnail (Fireworks CS).
+const MASK_EDIT_GREEN: Color32 = Color32::from_rgb(0x66, 0xFF, 0x00);
+
 /// Width of an object row's open/close arrow, and the indent per level inside groups and masks.
 const ARROW_W: f32 = 12.0;
 const LEVEL_INDENT: f32 = 12.0;
@@ -285,11 +288,18 @@ fn mask_kind(mask: &Element, mode: MaskMode) -> &'static str {
 
 /// A mask's thumbnail, in the style of Fireworks CS's: black where the mask hides the content,
 /// light where it shows it.
-fn mask_thumbnail(ui: &mut egui::Ui, mask: &Element, mode: MaskMode) -> egui::Response {
+///
+/// `editing`: the mask is selected; Fireworks CS frames it green then (2 px #66FF00, growing
+/// outward; measured by FirePixel, its RE spec 73).
+fn mask_thumbnail(ui: &mut egui::Ui, mask: &Element, mode: MaskMode, editing: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(26.0, 20.0), Sense::hover());
     let p = ui.painter();
     p.rect_filled(r, 0.0, Color32::BLACK);
-    p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_gray(170)), StrokeKind::Inside);
+    if editing {
+        p.rect_stroke(r, 0.0, Stroke::new(2.0, MASK_EDIT_GREEN), StrokeKind::Outside);
+    } else {
+        p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_gray(170)), StrokeKind::Inside);
+    }
     let inner = r.shrink(4.0);
     match (&mask.kind, mode) {
         (ElementKind::Bitmap(_), _) => {
@@ -375,7 +385,11 @@ fn object_rows(
     out: &mut RowActions,
     rows: &mut Vec<(Rect, Row)>,
 ) {
-    let selected = d.selection.contains(&r);
+    // A selected mask keeps its object's row highlighted (Fireworks CS); the mask thumbnail
+    // shows it is the mask.
+    let mask_ref = matches!(el.kind, ElementKind::Masked { .. }).then(|| r.mask()).flatten();
+    let mask_selected = mask_ref.is_some_and(|m| d.selection.contains(&m));
+    let selected = d.selection.contains(&r) || mask_selected;
     let holds = !selected && d.selection.iter().any(|s| is_inside(*s, r));
     let edited = d.pixels.as_ref().and_then(|p| p.target) == Some(r);
     let editing = st
@@ -387,6 +401,7 @@ fn object_rows(
     let background = ui.painter().add(egui::Shape::Noop);
     let mut buttons = Rect::NOTHING;
     let mut arrow = Rect::NOTHING;
+    let mut mask_thumb = Rect::NOTHING;
     let row = ui.horizontal(|ui| {
         buttons = eye_and_lock(ui, r, el, edited, out);
         ui.add_space(depth as f32 * LEVEL_INDENT);
@@ -415,7 +430,9 @@ fn object_rows(
                 }
                 let (link, _) = ui.allocate_exact_size(vec2(8.0, 20.0), Sense::hover());
                 icons::paint_glyph(ui.painter(), link.shrink2(vec2(0.0, 3.0)), Glyph::Link, Color32::from_gray(60));
-                mask_thumbnail(ui, mask, *mode).on_hover_text(mask_kind(mask, *mode));
+                mask_thumb = mask_thumbnail(ui, mask, *mode, mask_selected)
+                    .on_hover_text(format!("{}: click to select the mask", mask_kind(mask, *mode)))
+                    .rect;
             }
             kind => thumbnail(ui, kind),
         }
@@ -454,7 +471,9 @@ fn object_rows(
         // Locked objects can't be selected (Fireworks CS).
         let selectable = !el.locked && !locked_above;
         if click.clicked() && selectable {
-            out.select = Some(r);
+            // The mask thumbnail selects the mask, the rest of the row the object.
+            let on_mask = click.interact_pointer_pos().is_some_and(|p| mask_thumb.contains(p));
+            out.select = if on_mask { mask_ref.or(Some(r)) } else { Some(r) };
         }
         if click.double_clicked() {
             st.renaming = Some((r.layer, Some(r), el.name.clone().unwrap_or_default()));
@@ -470,7 +489,9 @@ fn object_rows(
     let locked = locked_above || el.locked;
     match &el.kind {
         ElementKind::Masked { content, mask, mode, .. } => {
-            mask_row(ui, mask, *mode, depth + 1);
+            if let Some(m) = mask_ref {
+                mask_row(ui, st, d, m, mask, *mode, depth + 1, locked, out, rows);
+            }
             for (i, c) in content.iter().enumerate().rev() {
                 if let Some(cr) = r.child(i) {
                     object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
@@ -488,28 +509,94 @@ fn object_rows(
     }
 }
 
-/// The row of a masked object's mask, above its content.
-fn mask_row(ui: &mut egui::Ui, mask: &Element, mode: MaskMode, depth: usize) {
-    ui.horizontal(|ui| {
+/// The row of a masked object's mask (`r`), above its content: a click selects the mask, as the
+/// mask thumbnail does. A mask that is a group or itself masked opens like other rows, and the
+/// objects in it can be selected.
+#[allow(clippy::too_many_arguments)]
+fn mask_row(
+    ui: &mut egui::Ui,
+    st: &mut LayersUi,
+    d: &DocState,
+    r: ElementRef,
+    mask: &Element,
+    mode: MaskMode,
+    depth: usize,
+    locked: bool,
+    out: &mut RowActions,
+    rows: &mut Vec<(Rect, Row)>,
+) {
+    let selected = d.selection.contains(&r);
+    let holds = !selected && d.selection.iter().any(|s| is_inside(*s, r));
+    let open = expandable(mask) && st.open.contains(&r);
+    let background = ui.painter().add(egui::Shape::Noop);
+    let mut buttons = Rect::NOTHING;
+    let mut arrow = Rect::NOTHING;
+    let row = ui.horizontal(|ui| {
         // Empty eye and lock columns: the mask shows and hides with its object.
-        ui.add_space(14.0 + ui.spacing().item_spacing.x);
-        ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-        ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+        buttons = ui
+            .horizontal(|ui| {
+                ui.add_space(14.0 + ui.spacing().item_spacing.x);
+                ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+            })
+            .response
+            .rect;
         ui.add_space(depth as f32 * LEVEL_INDENT);
-        ui.allocate_exact_size(vec2(ARROW_W, 20.0), Sense::hover());
-        mask_thumbnail(ui, mask, mode);
-        let mode_text = match mode {
-            MaskMode::Grayscale => "shows the content by its grayscale",
-            MaskMode::Alpha => "shows the content by its alpha channel",
-            MaskMode::PathOutline => "shows the content inside its path outline",
-        };
-        ui.add(egui::Label::new(RichText::new(mask_kind(mask, mode)).italics()).selectable(false))
-            .on_hover_text(format!(
-                "The mask ({}): it {mode_text}. Selecting and editing masks isn't built yet.",
-                mask.label()
-            ));
+        let (a, resp) = ui.allocate_exact_size(vec2(ARROW_W, 20.0), Sense::click());
+        arrow = a;
+        if expandable(mask) {
+            let g = if open { Glyph::TriangleDown } else { Glyph::TriangleRight };
+            let c = if resp.hovered() { theme::SELECT_BLUE } else { Color32::from_gray(90) };
+            icons::paint_glyph(ui.painter(), a.shrink2(vec2(0.0, 4.0)), g, c);
+            let name = format!("{} mask objects", if open { "Close" } else { "Open" });
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
+            if resp.on_hover_text("Show or hide the objects the mask is made of").clicked() {
+                out.toggle_open = Some(r);
+            }
+        }
+        mask_thumbnail(ui, mask, mode, selected);
+        let text = RichText::new(mask_kind(mask, mode)).italics();
+        let text = if selected { text.color(Color32::WHITE) } else { text };
+        ui.add(egui::Label::new(text).selectable(false));
         ui.add_space(ui.available_width());
     });
+    let rect = row.response.rect;
+    let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
+    if selected || holds {
+        let fill = if selected { theme::SELECT_BLUE } else { HOLDS_SELECTION };
+        ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
+    }
+    let mode_text = match mode {
+        MaskMode::Grayscale => "shows the content by its grayscale",
+        MaskMode::Alpha => "shows the content by its alpha channel",
+        MaskMode::PathOutline => "shows the content inside its path outline",
+    };
+    let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
+    let click = ui
+        .interact(hit, ui.scope_id().with(("mask_row", r)), Sense::click())
+        .on_hover_text(format!(
+            "The mask ({}): it {mode_text}. Click to select it.",
+            mask.label()
+        ));
+    if click.clicked() && !locked {
+        out.select = Some(r);
+    }
+    if !open {
+        return;
+    }
+    let list = match &mask.kind {
+        ElementKind::Group(children) => children,
+        ElementKind::Masked { content, .. } => content,
+        _ => return,
+    };
+    if let (ElementKind::Masked { mask: inner, mode: inner_mode, .. }, Some(m)) = (&mask.kind, r.mask()) {
+        mask_row(ui, st, d, m, inner, *inner_mode, depth + 1, locked, out, rows);
+    }
+    for (i, c) in list.iter().enumerate().rev() {
+        if let Some(cr) = r.child(i) {
+            object_rows(ui, st, d, cr, c, depth + 1, locked, out, rows);
+        }
+    }
 }
 
 fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
@@ -848,6 +935,7 @@ mod tests {
             mask: Box::new(plain()),
             mode: MaskMode::Grayscale,
             cache: None,
+            cache_key: 0,
         })
     }
 

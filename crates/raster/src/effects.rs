@@ -588,9 +588,16 @@ impl Effect {
         }
     }
 
-    /// Extra room an effect needs around the object, in pixels.
+    /// Extra room an effect needs around the object, in pixels: its [`reach`](Self::reach)
+    /// and 2 px to spare.
     pub fn margin(&self) -> u32 {
-        let m = match self {
+        self.reach().clamp(0.0, 500.0).ceil() as u32 + 2
+    }
+
+    /// How far the effect draws beyond the object, in pixels (Fireworks' mask caches cover a
+    /// glowing mask grown by exactly its width + offset + softness).
+    pub fn reach(&self) -> f32 {
+        match self {
             // Fireworks' blurred output reaches ceil(2.5 sigma) beyond the object.
             Effect::GaussianBlur { radius } => gaussian_sigma(*radius).map_or(0.0, |s| (s * 2.5).ceil()),
             Effect::MotionBlur { distance, .. } => *distance,
@@ -608,8 +615,7 @@ impl Effect {
             Effect::MotionTrail(m) => m.margin(),
             Effect::Edges(_) | Effect::Marble(_) => 0.0,
             _ => 0.0,
-        };
-        m.clamp(0.0, 500.0).ceil() as u32 + 2
+        }
     }
 }
 

@@ -692,6 +692,9 @@ pub enum ElementKind {
         mask: Box<Element>,
         mode: MaskMode,
         cache: Option<Box<Element>>,
+        /// [`element_key`](crate::element_key) of the mask `cache` was made from: when the
+        /// mask has changed since, saving draws a new cache.
+        cache_key: u64,
     },
     /// An instance of a symbol from the document's library, placed by `matrix` (symbol space ->
     /// canvas). `bounds` is the placed symbol's bounding box, computed when the file is read.
@@ -1749,6 +1752,48 @@ impl Element {
             out.draw_blend_with(&img, x, y, self.opacity_byte(), self.blend, ctx.math);
         }
     }
+}
+
+/// Fireworks' cached render of a vector mask, the `IMGv` it saves before the content of a
+/// "mask to image" group, in the form bitmap masks are saved in: colour channels inverted, alpha
+/// kept, fully transparent pixels all 0. It covers the mask's bounds grown by its effects (no
+/// stroke or antialiasing margin; 769_edit2: a path and a bitmap with a 5 px glow give their
+/// union, the bitmap grown by 5). Measured on caches saved by Fireworks MX (cone3) and CS6.
+pub fn mask_cache(mask: &Element, ctx: &RenderCtx) -> Option<Element> {
+    let (bx, by, bw, bh) = effect_bounds(mask, ctx)?;
+    // Whole pixels, outward, ignoring float noise (9.9999999 is 10).
+    const EPS: f64 = 1e-6;
+    let (x, y) = ((bx + EPS).floor() as i64, (by + EPS).floor() as i64);
+    let (w, h) = ((bx + bw - EPS).ceil() as i64 - x, (by + bh - EPS).ceil() as i64 - y);
+    if w <= 0 || h <= 0 || w * h > 40_000_000 {
+        return None;
+    }
+    let mut image = RgbaImage::new(w as u32, h as u32, Rgba::TRANSPARENT);
+    mask.render_onto(&mut image, x, y, ctx);
+    for p in image.pixels_mut() {
+        *p = if p.a == 0 {
+            Rgba::TRANSPARENT
+        } else {
+            Rgba::new(255 - p.r, 255 - p.g, 255 - p.b, p.a)
+        };
+    }
+    Some(Element::new(ElementKind::Bitmap(Bitmap { x, y, image })))
+}
+
+/// An object's bounds grown by its effects, a group's the union of its members' (each grown by
+/// its own effects), then grown by the group's.
+fn effect_bounds(e: &Element, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
+    let (x, y, w, h) = match &e.kind {
+        ElementKind::Group(children) => union_rects(&mut children.iter().filter_map(|c| effect_bounds(c, ctx)))?,
+        _ => e.deep_bounds(ctx)?,
+    };
+    let m = e
+        .effects
+        .iter()
+        .filter_map(|f| f.active())
+        .map(|f| f.reach().clamp(0.0, 500.0) as f64)
+        .fold(0.0, f64::max);
+    Some((x - m, y - m, w + 2.0 * m, h + 2.0 * m))
 }
 
 /// Per-pixel mask strength (in the alpha channel) of `mask` over the output area.

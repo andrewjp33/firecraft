@@ -344,21 +344,30 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
                             mask: Box::new(mask),
                             mode,
                             cache: None,
+                            cache_key: 0,
                         };
                     }
                 }
                 return plain_group(n, ctx, depth);
             };
-            // The cache is an IMGv on top whose bounds match the mask's.
+            // The cache is an IMGv on top covering the mask: its bounds, grown by as far as the
+            // mask's strokes and effects reach (769_edit2: a glowing mask, cache 5 px wider).
             let mut cache = None;
             if let (Some(first), Some(mb)) = (kids.first(), mask.bounds()) {
                 if first.is("IMG") {
                     if let Some(b) = read_bitmap(first, ctx) {
-                        let close = |a: f64, b: f64| (a - b).abs() <= 1.5;
-                        if close(b.x as f64, mb.0)
-                            && close(b.y as f64, mb.1)
-                            && close(b.image.width() as f64, mb.2)
-                            && close(b.image.height() as f64, mb.3)
+                        let reach = mask.visual_bounds(&firecraft_doc::RenderCtx::EMPTY).unwrap_or(mb);
+                        let (l, t) = (b.x as f64, b.y as f64);
+                        let (r, bt) = (l + b.image.width() as f64, t + b.image.height() as f64);
+                        let tol = 1.5;
+                        if l <= mb.0 + tol
+                            && t <= mb.1 + tol
+                            && r >= mb.0 + mb.2 - tol
+                            && bt >= mb.1 + mb.3 - tol
+                            && l >= reach.0 - tol
+                            && t >= reach.1 - tol
+                            && r <= reach.0 + reach.2 + tol
+                            && bt <= reach.1 + reach.3 + tol
                         {
                             let mut e = Element::new(ElementKind::Bitmap(b));
                             e.raw = Some((*first).clone());
@@ -378,11 +387,13 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
             } else {
                 MaskMode::Alpha
             };
+            let cache_key = firecraft_doc::element_key(&mask, &firecraft_doc::RenderCtx::EMPTY);
             ElementKind::Masked {
                 content,
                 mask: Box::new(mask),
                 mode,
                 cache,
+                cache_key,
             }
         }
         2 if kids.len() >= 2 => {
@@ -399,6 +410,7 @@ fn read_group(n: &Node, ctx: &Ctx, depth: usize) -> ElementKind {
                 mask: Box::new(mask),
                 mode: MaskMode::PathOutline,
                 cache: None,
+                cache_key: 0,
             }
         }
         _ => plain_group(n, ctx, depth),

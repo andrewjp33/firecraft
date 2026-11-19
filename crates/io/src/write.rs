@@ -18,7 +18,7 @@ pub(crate) fn to_argb(c: Rgba) -> i64 {
     (((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | c.b as u32) as i32 as i64
 }
 
-struct Writer {
+struct Writer<'a> {
     tiles: Vec<Tile>,
     next_id: u32,
     origin: (f64, f64),
@@ -30,9 +30,11 @@ struct Writer {
     texture_tiles: Vec<(std::sync::Arc<Vec<u8>>, u32, Vec<u32>)>,
     /// The document's colour math (text effects are drawn into the text's stored image).
     math: ColorMath,
+    /// The document's symbols (mask caches are drawn with them).
+    symbols: &'a [firecraft_doc::Symbol],
 }
 
-impl Writer {
+impl Writer<'_> {
     fn tile_id(&mut self) -> u32 {
         self.next_id = self.next_id.wrapping_add(0x10);
         self.next_id
@@ -69,6 +71,7 @@ pub fn fireworks_tree(doc: &Document) -> (Node, Vec<Tile>) {
         symbol_frames: doc.symbols.iter().map(|s| (s.id, s.frames)).collect(),
         texture_tiles: Vec::new(),
         math: doc.color_math,
+        symbols: &doc.symbols,
     };
 
     put(&mut root, Node::int("FRC", doc.frames.len().max(1) as i64));
@@ -444,6 +447,22 @@ fn write_layer(layer: &Layer, frames: usize, w: &mut Writer) -> Node {
     n
 }
 
+/// A vector mask's cached render: kept while the mask is as it was read, drawn anew once it
+/// changed (or for a mask that never had one); Fireworks MX and CS6 save one with every vector
+/// mask.
+fn mask_cache_node(mask: &Element, cache: Option<&Element>, cache_key: u64, w: &mut Writer, depth: usize) -> Option<Node> {
+    let unchanged = cache.is_some() && firecraft_doc::element_key(mask, &firecraft_doc::RenderCtx::EMPTY) == cache_key;
+    if unchanged {
+        return cache.map(|c| write_element(c, w, depth + 1));
+    }
+    let ctx = firecraft_doc::RenderCtx {
+        symbols: w.symbols,
+        math: w.math,
+        ..firecraft_doc::RenderCtx::EMPTY
+    };
+    firecraft_doc::mask_cache(mask, &ctx).map(|c| write_element(&c, w, depth + 1))
+}
+
 fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
     let mut n = match &el.kind {
         ElementKind::Bitmap(b) => write_bitmap(b, el.raw.as_ref().filter(|r| r.is("IMG")), w),
@@ -486,6 +505,7 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
             mask,
             mode,
             cache,
+            cache_key,
         } if depth < 64 => {
             let mut g = el
                 .raw
@@ -510,8 +530,8 @@ fn write_element(el: &Element, w: &mut Writer, depth: usize) -> Node {
                     }
                 }
                 elm.push(write_element(&stored, w, depth + 1));
-            } else if let Some(c) = cache {
-                elm.push(write_element(c, w, depth + 1));
+            } else if let Some(c) = mask_cache_node(mask, cache.as_deref(), *cache_key, w, depth) {
+                elm.push(c);
             }
             elm.extend(content.iter().rev().map(|c| write_element(c, w, depth + 1)));
             put(&mut g, Node::vector("ELM", elm));
@@ -1668,6 +1688,50 @@ mod tests {
         // A second save of the re-opened document is stable.
         let again = crate::save_fireworks_png(&back).unwrap();
         assert_eq!(crate::open(&again, None).unwrap().render(0), doc.render(0));
+    }
+
+    /// The sample's path masking a bitmap ("mask to image", grayscale), saved and opened again.
+    fn masked_sample() -> Document {
+        let mut doc = sample();
+        let cell = &mut doc.layers[0].cells[0];
+        let mask = cell.pop().expect("path");
+        let content = Element::new(ElementKind::Bitmap(firecraft_doc::Bitmap {
+            x: 0,
+            y: 0,
+            image: RgbaImage::new(80, 60, Rgba::new(200, 0, 0, 255)),
+        }));
+        cell.push(Element::new(ElementKind::Masked {
+            content: vec![content],
+            mask: Box::new(mask),
+            mode: MaskMode::Grayscale,
+            cache: None,
+            cache_key: 0,
+        }));
+        crate::open(&crate::save_fireworks_png(&doc).unwrap(), None).unwrap()
+    }
+
+    fn cache_bounds(doc: &Document) -> Option<(f64, f64, f64, f64)> {
+        match &doc.layers[0].elements(0).last()?.kind {
+            ElementKind::Masked { cache, .. } => cache.as_ref()?.bounds(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_vector_mask_saves_a_cache_that_follows_it() {
+        // A vector mask gets the cached render Fireworks saves with it: the mask's bounds.
+        let doc = masked_sample();
+        assert_eq!(cache_bounds(&doc), Some((10.0, 10.0, 50.0, 40.0)));
+        let again = crate::open(&crate::save_fireworks_png(&doc).unwrap(), None).unwrap();
+        assert_eq!(cache_bounds(&again), Some((10.0, 10.0, 50.0, 40.0)));
+        // Moving only the mask: the next save draws the cache where the mask is.
+        let mut moved = doc.clone();
+        if let ElementKind::Masked { mask, .. } = &mut moved.layers[0].cells[0][1].kind {
+            mask.translate(20.0, 5.0);
+        }
+        let back = crate::open(&crate::save_fireworks_png(&moved).unwrap(), None).unwrap();
+        assert_eq!(cache_bounds(&back), Some((30.0, 15.0, 50.0, 40.0)));
+        assert_eq!(back.render(0), moved.render(0));
     }
 
     #[test]

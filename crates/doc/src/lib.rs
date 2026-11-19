@@ -19,11 +19,11 @@ mod cache;
 pub mod effects;
 pub mod export;
 pub use export::{ExportFormat, ExportSettings, PaletteKind, Transparency};
-pub use cache::{Dirty, RenderCache, kept_hit, perspective_hit};
+pub use cache::{Dirty, RenderCache, element_key, kept_hit, perspective_hit};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{
     Animation, BezierPoint, Bitmap, Contour, Element, ElementKind, Fill, MaskMode, Path, PolyLine, PolyPoint, RectShape,
-    StoredPolyline, Stroke, Text, TextPath, TextRun, Texture, remap_tiles, tile_refs,
+    StoredPolyline, Stroke, Text, TextPath, TextRun, Texture, mask_cache, remap_tiles, tile_refs,
 };
 use firecraft_fwpng::Node;
 use firecraft_raster::{ColorMath, Rgba, RgbaImage};

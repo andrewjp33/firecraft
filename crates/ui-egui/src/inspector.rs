@@ -421,8 +421,12 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let animation = d.selected_animation().map(|(_, a)| a);
     // An animation symbol shows its whole motion (Fireworks MX).
     let bounds = d.animation_bounds().or_else(|| first.as_ref().and_then(|e| e.bounds()));
+    let mask = count == 1 && d.selection.first().is_some_and(|r| r.is_mask());
     let (title, tool) = match first.as_ref().map(|e| &e.kind) {
         _ if count > 1 => (format!("{count} objects"), Some(Tool::Pointer)),
+        // A mask selected from the Layers panel (Fireworks CS's names).
+        Some(ElementKind::Bitmap(_)) if mask => ("Bitmap mask".into(), Some(Tool::Marquee)),
+        Some(_) if mask => ("Vector mask".into(), Some(Tool::Pointer)),
         Some(ElementKind::Bitmap(_)) => ("Bitmap".into(), Some(Tool::Marquee)),
         Some(ElementKind::Path(p)) if p.rect.is_some() => ("Rectangle".into(), Some(Tool::Rectangle)),
         Some(ElementKind::Path(p)) if p.contours.iter().all(|c| c.closed) => ("Path".into(), Some(Tool::Pen)),
