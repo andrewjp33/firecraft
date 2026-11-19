@@ -259,10 +259,15 @@ FireCraft 56% alike). Measured with scripts (`~/Documents/work/probes/mask_greys
   mode (grey 64/133/192 show 16/69/145; a black bitmap on white under grey 133 gives 186 =
   255 x (1 - 0.52^2); a 50% alpha-channel mask shows 25%). CS6 is linear there too (122, 127):
   Adobe fixed it.
-* Not every such case: MX's own fresh render of bolWNWide.png (bitmaps under bitmap masks)
-  matches linear (80.9%) better than squared (73.4%). What triggers it isn't known.
+* **The trigger: the masked object has no effects of its own.** bolWNWide.png (saved by MX:
+  `Software: Macromedia Fireworks MX`, no CS `VRSi`/`VRMi`/`iTXt`) has bitmaps under bitmap masks
+  whose masked objects carry Curves and Brightness/Contrast; those render linearly in MX, and its
+  one without effects is squared. Doubling only when the masked object has no active effects
+  matches MX everywhere tried: bolWNWide 80.9% -> 89.3%, circles_hi_mask2 56.2% -> 95.1%, the
+  probes 100% (tested 2026-11-19, then reverted).
 
-**FireCraft keeps the linear (CS6) behaviour, by the user's choice** ("It was not expected when
+**FireCraft keeps the linear (CS6) behaviour, by the user's choice** (an MX-compatible option could
+apply the doubling under the rule above) ("It was not expected when
 the mask was applied and the background got darker"). circles_hi_mask2.png stays at 56% against
 MX's render, a known difference. Probe tools: `crates/io/examples/mask_probe_pixels.rs` (mask,
 content and both renders at points), `mask_variant.rs`, `hide_object.rs`.
