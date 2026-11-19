@@ -31,7 +31,9 @@ A masked object is a group (`GRPv`) with a type:
     `transform_by`, used for the user's moves; canvas-wide moves still move everything).
   * **Disabled**: the content shows whole, unmasked.
   * **Show fill and stroke**: no visible change on a grayscale mask (measured); on a path
-    outline (or alpha channel) mask the mask's own look is drawn under the content.
+    outline (or alpha channel) mask the mask's **fill is drawn under** the content and its
+    **stroke over** it (the user's `ref_fw_images/pasteInside.png`: content clipped to the path,
+    the path's wide green stroke covering the content's edge; 96.4% -> 100%).
   FireCraft renders that file as MX does (100%).
 * **Delete Mask** (`dom.removeElementMask`, `mask_probe_mx_removed.png`): "apply" turns the
   masked object into an Image of what showed, at the mask's bounds (80x60 at 30,30); "discard"
@@ -154,11 +156,18 @@ Measured 2026-11-18 in Fireworks MX through Edit > Paste Inside (Ctrl+Shift+V); 
 
 ## Selecting inside masks on the canvas
 
-A plain click (Pointer or Subselection) on something already selected keeps the selection: an
-object chosen inside a mask or group in the Layers panel stays selected when clicked on the
-canvas, instead of giving way to the masked object or group around it, so it can be dragged or
-double-clicked (a selected symbol opens in the Symbol Editor). A Subselection click on a selected
-group's member still selects the member, as in Fireworks MX.
+A plain click (Pointer or Subselection) on a selected object keeps the selection when that object
+is part of the top-level object the click hit and the click lands on it (its own hit test): an
+object chosen inside a mask or group in the Layers panel, a mask's objects included (cone3's
+four gradient rectangles inside the inner mask), stays selected when clicked on the canvas,
+instead of giving way to the masked object or the content in front of it, so it can be dragged,
+its gradient edited or double-clicked (a selected symbol opens in the Symbol Editor). A
+Subselection click on a selected group's member still selects the member, as in Fireworks MX.
+
+**Linked masks follow their content**: a selected object inside a masked object's content takes
+that object's mask along when it moves or transforms, while the mask is linked
+(`DocState::mask_followers`); only unlinking lets the content move alone. A selected mask still
+moves alone (that is editing the mask).
 
 **Group, Ungroup and Convert to Symbol inside a mask or group** (FireCraft): objects that share
 one list (a mask's content, or a group's members) group or become a symbol where they are, in the

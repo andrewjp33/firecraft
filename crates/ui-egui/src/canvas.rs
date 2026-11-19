@@ -1338,12 +1338,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
         // A selected symbol under the pointer opens, even inside a mask or group (chosen in
         // the Layers panel); otherwise the top-level one.
-        let selected = d.hit_test(x, y).and_then(|hit| {
-            d.selection
-                .iter()
-                .copied()
-                .find(|s| (*s == hit || s.is_within(hit)) && d.click_keeps_selection(x, y, *s))
-        });
+        let selected = d.hit_test(x, y).and_then(|hit| d.selected_under(x, y, hit));
         if let Some(id) = selected.or_else(|| d.hit_test(x, y)).and_then(|r| d.instance_symbol(r)) {
             ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
         }

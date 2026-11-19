@@ -89,8 +89,9 @@ fn sync<'a>(edit: &'a mut Option<TransformEdit>, d: &DocState) -> Option<&'a mut
         // A single symbol instance: the box is its own outline (rotated, skewed or distorted as
         // the instance is; the same whichever transform tool), and edits rebuild its matrix from
         // its symbol's content rectangle, so perspective is kept and nothing accumulates.
+        // (Not when a linked mask moves with it: then everything transforms on the canvas.)
         let single = match d.selection.as_slice() {
-            [r] => d.instance_quad(*r).and_then(|(q, content)| {
+            [r] if d.mask_followers().is_empty() => d.instance_quad(*r).and_then(|(q, content)| {
                 let mut e = d.element(*r)?.clone();
                 if let firecraft_doc::ElementKind::Instance { matrix, bounds, .. } = &mut e.kind {
                     *matrix = Affine::IDENTITY;

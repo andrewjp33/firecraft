@@ -1545,14 +1545,22 @@ impl Element {
                 for (p, &m) in layer.pixels_mut().iter_mut().zip(coverage.pixels()) {
                     p.a = (p.a as u32 * m.a as u32 / 255) as u8;
                 }
-                // "Show fill and stroke": the mask's own look under the content (path outline
-                // and alpha channel masks; a grayscale mask never shows, measured in MX).
+                // "Show fill and stroke": the mask's fill under the content and its stroke over
+                // it (path outline and alpha channel masks; a grayscale mask never shows).
+                // Measured in Fireworks MX (pasteInside.png): content clipped to the path, the
+                // path's wide stroke covering the content's edge.
                 if flags.show_attrs && *mode != MaskMode::Grayscale {
                     let mut under = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                    let mut shown = (**mask).clone();
-                    shown.visible = true;
-                    shown.render_onto(&mut under, ox, oy, ctx);
+                    let mut fill = (**mask).clone();
+                    fill.visible = true;
+                    strip_paint(&mut fill, false);
+                    fill.render_onto(&mut under, ox, oy, ctx);
                     under.draw_blend_with(&layer, 0, 0, 255, BlendMode::Normal, ctx.math);
+                    let mut stroke = (**mask).clone();
+                    stroke.visible = true;
+                    if strip_paint(&mut stroke, true) {
+                        stroke.render_onto(&mut under, ox, oy, ctx);
+                    }
                     return Some((under, 0, 0));
                 }
                 Some((layer, 0, 0))
@@ -1898,6 +1906,36 @@ fn mask_coverage(
         }
     }
     m
+}
+
+/// Keep only the fills (`keep_stroke` false) or only the strokes (true) of a mask's paths, a
+/// group's members too; with only the strokes, effects go too (they belong with the fill).
+/// Returns whether any stroke is left.
+fn strip_paint(e: &mut Element, keep_stroke: bool) -> bool {
+    if keep_stroke {
+        e.effects.clear();
+    }
+    match &mut e.kind {
+        ElementKind::Group(children) => children
+            .iter_mut()
+            .fold(false, |any, c| strip_paint(c, keep_stroke) || any),
+        ElementKind::Path(p) => {
+            if keep_stroke {
+                p.fill = None;
+                p.stroke.is_some()
+            } else {
+                p.stroke = None;
+                false
+            }
+        }
+        // A bitmap or text mask shows whole underneath.
+        _ => {
+            if keep_stroke {
+                e.visible = false;
+            }
+            false
+        }
+    }
 }
 
 /// A path-outline mask's shape: its paths filled opaque white, without strokes, at full

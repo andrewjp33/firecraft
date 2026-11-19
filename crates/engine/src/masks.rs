@@ -464,6 +464,43 @@ mod tests {
     }
 
     #[test]
+    fn linked_masks_follow_their_content() {
+        let mut d = doc();
+        let o = ElementRef::new(0, 0);
+        let (a, m) = (o.child(0).expect("a"), o.mask().expect("mask"));
+        let x = |d: &DocState, r: ElementRef| d.element(r).and_then(Element::bounds).map(|b| b.0);
+        // Linked: moving one content object takes the mask along.
+        d.selection = vec![a];
+        assert_eq!(d.mask_followers(), [m]);
+        d.move_selection(4.0, 0.0, "Move");
+        assert_eq!((x(&d, a), x(&d, m)), (Some(4.0), Some(9.0)));
+        // Unlinked: the content moves alone.
+        d.set_mask_linked(o, false);
+        d.selection = vec![a];
+        assert!(d.mask_followers().is_empty());
+        d.move_selection(4.0, 0.0, "Move");
+        assert_eq!((x(&d, a), x(&d, m)), (Some(8.0), Some(9.0)));
+        // The mask selected moves alone (it is what is edited).
+        d.set_mask_linked(o, true);
+        d.selection = vec![m];
+        assert!(d.mask_followers().is_empty());
+    }
+
+    #[test]
+    fn a_click_on_the_selection_inside_a_mask_keeps_it() {
+        let mut d = doc();
+        let o = ElementRef::new(0, 0);
+        // The mask chosen in the Layers panel; a click on it (the hit being its object, or a
+        // content object) keeps it.
+        let m = o.mask().expect("mask");
+        d.selection = vec![m];
+        assert!(d.click_keeps_selection(7.5, 5.5, o));
+        assert!(d.click_keeps_selection(7.5, 5.5, o.child(0).expect("a")));
+        // Elsewhere, it doesn't.
+        assert!(!d.click_keeps_selection(25.5, 5.5, o));
+    }
+
+    #[test]
     fn delete_mask_three_ways() {
         let o = ElementRef::new(0, 0);
         // Apply: one bitmap of what showed, the mask's bounds.
