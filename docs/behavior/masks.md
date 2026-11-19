@@ -112,7 +112,30 @@ the same.
 their list (reorder), out of it onto any other row (they leave the group or mask), or into an
 open group's or mask's list. A group left empty goes; a mask left with no content becomes an
 ordinary object, as if broken apart. An object can't be dropped inside itself. The rows whose
-objects hold the selection are tinted #9977FF (the user's choice). In the engine a mask is the reference's child slot `MASK_SLOT`
+objects hold the selection are tinted #9977FF with white text (the user's choice); an unlinked
+mask's chain is drawn very faint.
+
+## Paste as Mask
+
+Measured 2026-11-18 in Fireworks MX through Edit > Paste as Mask (menu clicks; the script call
+`dom.clipPasteAsMask` refused every argument tried). Files: `~/Documents/work/probes/`
+`paste_as_mask_group_mx.png`, `paste_as_mask_add.png`.
+
+* Enabled for exactly one selected object; with two objects (or none) it is greyed out.
+* The clipboard's objects keep their own places and become the mask. One vector: path outline
+  ("mask to path"); a bitmap: grayscale ("mask to image"); several objects: a group mask, path
+  outline. Flags: linked, enabled, fill and stroke hidden.
+* Afterwards the mask is selected (MX's title shows "(Mask)"); the history step is "Paste".
+* On an object that already has a mask MX asks: "A mask already exists. Do you want to replace
+  the mask or add to the existing mask?" (Replace, Add, Cancel). Replace: the pasted objects
+  become the mask and set its mode. Add: the mask becomes a group of the old mask with the
+  pasted objects on top, the mode unchanged, and the pasted objects are selected inside it.
+* A path-outline mask that is a group takes the outline of every path in it (FireCraft
+  whitens each member path; MX's file renders identically).
+
+FireCraft takes what Edit > Paste would (Fireworks objects or a picture on the system clipboard,
+copied picture files, or its own clipboard); a picture from another application lands centred,
+as with Paste. Paste Inside is not built yet. In the engine a mask is the reference's child slot `MASK_SLOT`
 (`ElementRef::mask`, `is_mask`).
 
 **Thumbnails** (Fireworks CS, as FirePixel measured it, its RE spec 73; `crates/ui-egui/src/thumbs.rs`):

@@ -349,7 +349,12 @@ fn object_rows(
                 // click links or unlinks.
                 let (link, link_resp) = ui.allocate_exact_size(vec2(10.0, 23.0), Sense::hover());
                 link_rect = link;
-                let c = if flags.linked { Color32::from_gray(60) } else { Color32::from_gray(200) };
+                // Unlinked: a faint chain, barely there.
+                let c = if flags.linked {
+                    Color32::from_gray(60)
+                } else {
+                    Color32::from_rgba_unmultiplied(128, 128, 128, 45)
+                };
                 icons::paint_glyph(ui.painter(), link.shrink2(vec2(1.0, 4.0)), Glyph::Link, c);
                 link_resp.on_hover_text(if flags.linked {
                     "Linked: the mask moves with the objects. Click to unlink"
@@ -377,7 +382,8 @@ fn object_rows(
             return;
         }
         let label = row_label(el);
-        let text = if selected {
+        // White on the blue of a selected row and the purple of one holding the selection.
+        let text = if selected || holds {
             RichText::new(label).color(Color32::WHITE)
         } else {
             RichText::new(label)
@@ -526,7 +532,7 @@ fn mask_row(
         let subject = Subject { elements: std::slice::from_ref(mask), mask: Some(mode) };
         thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
         let text = RichText::new(mask_kind(mask, mode)).italics();
-        let text = if selected { text.color(Color32::WHITE) } else { text };
+        let text = if selected || holds { text.color(Color32::WHITE) } else { text };
         ui.add(egui::Label::new(text).selectable(false));
         ui.add_space(ui.available_width());
     });

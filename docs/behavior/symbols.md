@@ -56,6 +56,10 @@ With the bitmap flattened, Fireworks CS renders the instances the same way (pari
 rest is resampling); with the original unflattened bitmap it leaves the text unscaled and
 moves it, which FireCraft doesn't reproduce.
 
+Opening a symbol: double-clicking an instance with the Pointer (or Select Behind), or with the
+Subselection tool (as in Fireworks MX), which reaches an instance inside groups and masks: the
+instance under the pointer, however deep, opens in the Symbol Editor.
+
 ## Where FireCraft differs from Fireworks MX
 
 * The Symbol Editor (a document window, as in MX) updates the document and its instances live,

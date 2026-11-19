@@ -131,6 +131,8 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 delete_selection(app);
             }
             ui.separator();
+            paste_mask_items(app, ui, can_paste);
+            ui.separator();
             if item(ui, "Duplicate", "Ctrl+Alt+D", has_objects) {
                 with_doc(app, |d| d.duplicate(true));
             }
@@ -565,7 +567,7 @@ fn edit_items(app: &mut FireCraftApp, ui: &mut egui::Ui, can_paste: bool, object
         paste(app);
     }
     ui.separator();
-    todo(ui, "Paste as Mask", "");
+    paste_mask_items(app, ui, can_paste);
     ui.separator();
     if item(ui, "Duplicate", "Ctrl+Alt+D", objects) {
         with_doc(app, |d| d.duplicate(true));
@@ -1283,5 +1285,82 @@ fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
     if item(ui, "Delete Mask...", "", owner.is_some()) {
         app.dialogs.delete_mask = owner;
+    }
+}
+
+/// Edit > Paste as Mask (and Paste Inside, not built yet). Fireworks MX enables Paste as Mask
+/// for exactly one selected object.
+fn paste_mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui, can_paste: bool) {
+    let target = app.session.active_doc().and_then(|d| d.paste_as_mask_target());
+    if item(ui, "Paste as Mask", "", can_paste && target.is_some()) {
+        paste_as_mask(app);
+    }
+    todo(ui, "Paste Inside", "Ctrl+Shift+V");
+}
+
+/// What a paste would bring: the system clipboard's Fireworks objects or picture, copied
+/// picture files, or FireCraft's own clipboard (in that order, as Edit > Paste).
+fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipboard> {
+    use firecraft_engine::Clipboard;
+    if firecraft_sysclip::available()
+        && !firecraft_sysclip::owns()
+        && let Some(data) = firecraft_sysclip::get_image()
+    {
+        return match firecraft_io::read_clipboard(&data) {
+            Ok(firecraft_io::Pasted::Objects(elements, symbols, tiles)) => Some(Clipboard {
+                elements,
+                symbols,
+                tiles,
+            }),
+            Ok(firecraft_io::Pasted::Image(image)) => {
+                let d = app.session.active_doc()?;
+                let (x, y) = firecraft_io::pasted_image_origin((d.doc.width, d.doc.height), (image.width(), image.height()));
+                let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap { x, y, image }));
+                Some(Clipboard {
+                    elements: vec![el],
+                    ..Clipboard::default()
+                })
+            }
+            Err(e) => {
+                app.status = Some((format!("Can't paste the clipboard's image: {e}"), true));
+                None
+            }
+        };
+    }
+    if firecraft_sysclip::available() {
+        let files = copied_pictures();
+        if !files.is_empty() {
+            let canvas = app.session.active_doc().map(|d| (d.doc.width, d.doc.height))?;
+            let mut clip = Clipboard::default();
+            for path in &files {
+                let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                if let Ok((elements, symbols, tiles)) = std::fs::read(path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| firecraft_io::file_as_paste(&b, &name, canvas).map_err(|e| e.to_string()))
+                {
+                    clip.elements.extend(elements);
+                    clip.symbols.extend(symbols);
+                    clip.tiles.extend(tiles);
+                }
+            }
+            return (!clip.elements.is_empty()).then_some(clip);
+        }
+    }
+    app.clipboard.as_ref().map(|(c, _)| c.clone())
+}
+
+/// Edit > Paste as Mask: an object that already has a mask asks whether to replace it or add
+/// to it (Fireworks MX's question).
+fn paste_as_mask(app: &mut FireCraftApp) {
+    let Some(clip) = clipboard_contents(app) else { return };
+    let masked = app.session.active_doc().is_some_and(|d| {
+        d.paste_as_mask_target()
+            .and_then(|r| d.mask_owner(r))
+            .is_some()
+    });
+    if masked {
+        app.dialogs.paste_mask = Some(clip);
+    } else {
+        with_doc(app, |d| d.paste_as_mask(&clip, firecraft_engine::MaskPaste::Replace));
     }
 }

@@ -146,6 +146,25 @@ impl DocState {
             return;
         }
         let layer = self.writable_layer();
+        let clip = self.prepared(clip);
+        self.edit("Paste", |s| {
+            s.adopt(&clip);
+            let f = s.frame();
+            if let Some(cell) = s.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) {
+                let start = cell.len();
+                cell.extend(clip.elements.iter().cloned());
+                s.selection = (start..cell.len())
+                    .map(|index| ElementRef::new(layer, index))
+                    .collect();
+            }
+            s.doc.current_layer = layer;
+            s.pixels = None;
+        });
+    }
+
+    /// The clipboard made ready for this document: symbols and tiles renumbered where their
+    /// ids clash with this document's.
+    pub(crate) fn prepared(&self, clip: &Clipboard) -> Clipboard {
         let mut clip = clip.clone();
         // Symbols from elsewhere (another document, Fireworks) may use ids this document gives
         // to other symbols: renumber those. The same id and name is taken as the same symbol.
@@ -272,29 +291,22 @@ impl DocState {
                     .for_each(|e| firecraft_doc::remap_tiles(e, &tile_map));
             }
         }
-        self.edit("Paste", |s| {
-            if !clip.tiles.is_empty() {
-                let tiles = std::sync::Arc::make_mut(&mut s.doc.raw_tiles);
-                for t in &clip.tiles {
-                    tiles.entry(t.id).or_insert_with(|| t.clone());
-                }
+        clip
+    }
+
+    /// Add a prepared clipboard's tiles and symbols to the document (inside an edit).
+    pub(crate) fn adopt(&mut self, clip: &Clipboard) {
+        if !clip.tiles.is_empty() {
+            let tiles = std::sync::Arc::make_mut(&mut self.doc.raw_tiles);
+            for t in &clip.tiles {
+                tiles.entry(t.id).or_insert_with(|| t.clone());
             }
-            for sym in &clip.symbols {
-                if !s.doc.symbols.iter().any(|x| x.id == sym.id) {
-                    std::sync::Arc::make_mut(&mut s.doc.symbols).push(sym.clone());
-                }
+        }
+        for sym in &clip.symbols {
+            if !self.doc.symbols.iter().any(|x| x.id == sym.id) {
+                std::sync::Arc::make_mut(&mut self.doc.symbols).push(sym.clone());
             }
-            let f = s.frame();
-            if let Some(cell) = s.doc.layers.get_mut(layer).and_then(|l| l.elements_mut(f)) {
-                let start = cell.len();
-                cell.extend(clip.elements.iter().cloned());
-                s.selection = (start..cell.len())
-                    .map(|index| ElementRef::new(layer, index))
-                    .collect();
-            }
-            s.doc.current_layer = layer;
-            s.pixels = None;
-        });
+        }
     }
 
     /// Edit > Duplicate (`offset` = true: 10 px right and down) and Edit > Clone (in place):

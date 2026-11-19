@@ -1878,27 +1878,10 @@ fn mask_coverage(
     let mut m = RgbaImage::new(w, h, Rgba::TRANSPARENT);
     match mode {
         MaskMode::PathOutline => {
-            // The outline alone: render the shape as an opaque fill.
+            // The outline alone: render the shape as an opaque fill (every path of a group
+            // mask, as Paste as Mask makes from several objects).
             let mut shape = mask.clone();
-            shape.opacity = 100.0;
-            shape.blend = BlendMode::Normal;
-            shape.visible = true;
-            if let ElementKind::Path(p) = &mut shape.kind {
-                p.fill = Some(Fill {
-                    color: Rgba::WHITE,
-                    category: "fc_Solid".into(),
-                    anti_alias: true,
-                    feather: 0,
-                    pattern: None,
-                    dither: None,
-                    dither_transparent: false,
-                    gradient: None,
-                    texture: None,
-                    texture_amount: 0,
-                    texture_transparent: false,
-                });
-                p.stroke = None;
-            }
+            outline_only(&mut shape);
             shape.render_onto(&mut m, ox, oy, ctx);
         }
         MaskMode::Grayscale | MaskMode::Alpha => {
@@ -1915,6 +1898,34 @@ fn mask_coverage(
         }
     }
     m
+}
+
+/// A path-outline mask's shape: its paths filled opaque white, without strokes, at full
+/// opacity (a group's members too).
+fn outline_only(shape: &mut Element) {
+    shape.opacity = 100.0;
+    shape.blend = BlendMode::Normal;
+    shape.visible = true;
+    match &mut shape.kind {
+        ElementKind::Group(children) => children.iter_mut().for_each(outline_only),
+        ElementKind::Path(p) => {
+            p.fill = Some(Fill {
+                    color: Rgba::WHITE,
+                    category: "fc_Solid".into(),
+                    anti_alias: true,
+                    feather: 0,
+                    pattern: None,
+                    dither: None,
+                    dither_transparent: false,
+                    gradient: None,
+                    texture: None,
+                    texture_amount: 0,
+                    texture_transparent: false,
+                });
+            p.stroke = None;
+        }
+        _ => {}
+    }
 }
 
 /// Tile ids (`TIDi`) the element's original Fireworks data refers to (textures, cached text

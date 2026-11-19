@@ -14,7 +14,7 @@ pub use filters::filter_image;
 mod animation;
 mod history;
 mod masks;
-pub use masks::MaskRemoval;
+pub use masks::{MaskPaste, MaskRemoval};
 mod objects;
 mod paint;
 pub mod paths;

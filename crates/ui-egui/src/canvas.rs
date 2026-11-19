@@ -1073,6 +1073,17 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     {
         return;
     }
+    // The Subselection tool's double-click opens a symbol inside groups and masks too
+    // (Fireworks MX): the instance it reaches is the one under the pointer, however deep.
+    if resp.double_clicked()
+        && tool == Tool::Subselect
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let (x, y) = to_doc(pos);
+        if let Some(id) = d.hit_deep(x, y).and_then(|r| d.instance_symbol(r)) {
+            ctx.data_mut(|m| m.insert_temp(egui::Id::unique("edit_symbol"), (index, id)));
+        }
+    }
     // The Pen and Subselection tools too.
     if matches!(tool, Tool::Pen | Tool::Subselect) {
         crate::path_tool::canvas(

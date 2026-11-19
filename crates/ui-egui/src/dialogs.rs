@@ -50,6 +50,8 @@ pub struct Dialogs {
     pub add_frames: Option<AddFrames>,
     /// Delete Mask: the masked object whose mask goes (Apply, Discard or Break Apart).
     pub delete_mask: Option<firecraft_engine::ElementRef>,
+    /// Paste as Mask onto an object with a mask: what to paste, while asking Replace or Add.
+    pub paste_mask: Option<firecraft_engine::Clipboard>,
 }
 
 /// The Animate dialog (Fireworks MX's, values as it shows them).
@@ -103,6 +105,7 @@ impl Dialogs {
             || self.animate.is_some()
             || self.add_frames.is_some()
             || self.delete_mask.is_some()
+            || self.paste_mask.is_some()
     }
 }
 
@@ -425,6 +428,7 @@ impl Default for Dialogs {
             animate: None,
             add_frames: None,
             delete_mask: None,
+            paste_mask: None,
         }
     }
 }
@@ -488,6 +492,37 @@ fn delete_mask(app: &mut FireCraftApp, ctx: &egui::Context) {
         }
     } else if cancel {
         app.dialogs.delete_mask = None;
+    }
+}
+
+/// Paste as Mask onto an object that has a mask: Fireworks MX's question and its Replace, Add
+/// and Cancel.
+fn paste_mask(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some(clip) = app.dialogs.paste_mask.as_ref() else { return };
+    let mut how = None;
+    let mut cancel = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    dialog("Paste as Mask").show(ctx, |ui| {
+        ui.label("A mask already exists. Do you want to replace the mask or add to the existing mask?");
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            use firecraft_engine::MaskPaste as P;
+            if ui.button("Replace").on_hover_text("The pasted objects become the mask").clicked() {
+                how = Some(P::Replace);
+            }
+            if ui.button("Add").on_hover_text("Group the pasted objects with the mask").clicked() {
+                how = Some(P::Add);
+            }
+            cancel |= ui.button("Cancel").clicked();
+        });
+    });
+    if let Some(how) = how {
+        let clip = clip.clone();
+        app.dialogs.paste_mask = None;
+        if let Some(d) = app.session.active_doc_mut() {
+            d.paste_as_mask(&clip, how);
+        }
+    } else if cancel {
+        app.dialogs.paste_mask = None;
     }
 }
 
@@ -754,6 +789,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     numeric_transform(app, ctx);
     delete_mask(app, ctx);
+    paste_mask(app, ctx);
     convert_symbol(app, ctx);
     animate(app, ctx);
     add_frames(app, ctx);

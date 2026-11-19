@@ -21,7 +21,101 @@ pub enum MaskRemoval {
     BreakApart,
 }
 
+/// Paste as Mask onto an object that already has a mask: Fireworks MX asks "A mask already
+/// exists. Do you want to replace the mask or add to the existing mask?".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaskPaste {
+    /// The pasted objects become the mask (its mode follows them).
+    Replace,
+    /// The mask becomes a group of the old mask and the pasted objects on top (mode kept).
+    Add,
+}
+
 impl DocState {
+    /// The object Edit > Paste as Mask applies to: exactly one selected object (not a mask),
+    /// as in Fireworks MX, which disables the item otherwise.
+    pub fn paste_as_mask_target(&self) -> Option<ElementRef> {
+        match self.selection.as_slice() {
+            [r] if !r.is_mask() && self.pixels.is_none() && self.element(*r).is_some() => Some(*r),
+            _ => None,
+        }
+    }
+
+    /// Edit > Paste as Mask (measured in Fireworks MX): the clipboard's objects, at their own
+    /// places, become the selected object's mask: a vector (or several objects, grouped) by its
+    /// path outline, a bitmap by its grayscale. `existing` says what to do when the object
+    /// already has a mask. The mask ends up selected (with Add, the pasted objects inside it);
+    /// one undo step, "Paste".
+    pub fn paste_as_mask(&mut self, clip: &crate::Clipboard, existing: MaskPaste) {
+        let Some(target) = self.paste_as_mask_target() else { return };
+        if clip.elements.is_empty() {
+            return;
+        }
+        let clip = self.prepared(clip);
+        let bitmap = clip.elements.iter().any(|e| matches!(e.kind, ElementKind::Bitmap(_)));
+        let new_mode = if bitmap { MaskMode::Grayscale } else { MaskMode::PathOutline };
+        let pasted: Vec<Element> = clip
+            .elements
+            .iter()
+            .cloned()
+            .map(|mut e| {
+                e.visible = true;
+                e
+            })
+            .collect();
+        let n = pasted.len();
+        let single = |mut v: Vec<Element>| match v.len() {
+            1 => v.remove(0),
+            _ => Element::new(ElementKind::Group(v)),
+        };
+        self.edit("Paste", |s| {
+            s.adopt(&clip);
+            let Some(el) = s.element_mut(target) else { return };
+            let selection = match &mut el.kind {
+                ElementKind::Masked {
+                    mask,
+                    mode,
+                    cache,
+                    cache_key,
+                    ..
+                } => match existing {
+                    MaskPaste::Replace => {
+                        **mask = single(pasted);
+                        *mode = new_mode;
+                        *cache = None;
+                        *cache_key = 0;
+                        target.mask().into_iter().collect()
+                    }
+                    MaskPaste::Add => {
+                        let old = std::mem::replace(&mut **mask, Element::new(ElementKind::Group(Vec::new())));
+                        let mut members = vec![old];
+                        members.extend(pasted);
+                        **mask = Element::new(ElementKind::Group(members));
+                        *cache = None;
+                        *cache_key = 0;
+                        let m = target.mask();
+                        (1..=n).filter_map(|i| m.and_then(|m| m.child(i))).collect()
+                    }
+                },
+                _ => {
+                    let content = std::mem::replace(el, Element::new(ElementKind::Group(Vec::new())));
+                    *el = Element::new(ElementKind::Masked {
+                        content: vec![content],
+                        mask: Box::new(single(pasted)),
+                        mode: new_mode,
+                        cache: None,
+                        cache_key: 0,
+                        flags: MaskFlags::default(),
+                    });
+                    target.mask().into_iter().collect()
+                }
+            };
+            s.selection = selection;
+            s.doc.current_layer = target.layer;
+            s.pixels = None;
+        });
+    }
+
     /// The masked object `r` refers to: the object itself, or the owner of a selected mask.
     pub fn mask_owner(&self, r: ElementRef) -> Option<ElementRef> {
         let owner = if r.is_mask() { r.parent()? } else { r };
@@ -244,6 +338,44 @@ mod tests {
         d.undo();
         d.undo();
         assert_eq!(d.mask_settings(o).map(|s| (s.0, s.1.enabled)), Some((MaskMode::Grayscale, true)));
+    }
+
+    #[test]
+    fn paste_as_mask_as_fireworks_mx_does() {
+        let clip = |els: Vec<Element>| crate::Clipboard {
+            elements: els,
+            symbols: Vec::new(),
+            tiles: Vec::new(),
+        };
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(0, 30, Rgba::new(255, 0, 0, 255), "r"), "Add");
+        let r = ElementRef::new(0, 0);
+        // Nothing selected, or a mask: nothing happens.
+        d.selection.clear();
+        d.paste_as_mask(&clip(vec![bitmap(5, 10, Rgba::WHITE, "m")]), MaskPaste::Replace);
+        assert_eq!(top(&d), ["r"]);
+        // A bitmap masks by its grayscale; the mask is selected.
+        d.selection = vec![r];
+        d.paste_as_mask(&clip(vec![bitmap(5, 10, Rgba::WHITE, "m")]), MaskPaste::Replace);
+        assert_eq!(d.mask_settings(r).map(|s| s.0), Some(MaskMode::Grayscale));
+        assert_eq!(d.selection, [r.mask().expect("mask")]);
+        assert_eq!(d.history.labels().last(), Some("Paste"));
+        // Add: the old mask and the pasted object, grouped; the pasted one selected.
+        d.selection = vec![r];
+        d.paste_as_mask(&clip(vec![bitmap(20, 5, Rgba::WHITE, "n")]), MaskPaste::Add);
+        let m = r.mask().expect("mask");
+        let names: Vec<String> = match d.element(m).map(|e| &e.kind) {
+            Some(ElementKind::Group(c)) => c.iter().map(Element::label).collect(),
+            _ => vec![],
+        };
+        assert_eq!(names, ["m", "n"]);
+        assert_eq!(d.selection, [m.child(1).expect("member")]);
+        // Replace with several objects: a group mask.
+        d.selection = vec![r];
+        let two = vec![bitmap(0, 5, Rgba::WHITE, "a"), bitmap(30, 5, Rgba::WHITE, "b")];
+        d.paste_as_mask(&clip(two), MaskPaste::Replace);
+        assert_eq!(d.element(m).map(Element::label), Some("Group".into()));
+        assert_eq!(top(&d), ["r (masked)"]);
     }
 
     #[test]
