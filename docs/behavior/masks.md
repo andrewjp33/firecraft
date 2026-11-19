@@ -264,7 +264,11 @@ FireCraft 56% alike). Measured with scripts (`~/Documents/work/probes/mask_greys
   whose masked objects carry Curves and Brightness/Contrast; those render linearly in MX, and its
   one without effects is squared. Doubling only when the masked object has no active effects
   matches MX everywhere tried: bolWNWide 80.9% -> 89.3%, circles_hi_mask2 56.2% -> 95.1%, the
-  probes 100% (tested 2026-11-19, then reverted).
+  probes 100% (tested 2026-11-19, then reverted). The user confirmed it in MX: a Brightness/
+  Contrast effect set to 0/0 on the bitmap being masked (in MX that is the masked object's
+  effect) makes MX render like FireCraft and CS6; the same effect on the masking bitmap doesn't.
+  That do-nothing effect is a workaround for files meant to look the same in MX. Unmeasured:
+  whether a switched-off effect counts.
 
 **FireCraft keeps the linear (CS6) behaviour, by the user's choice** (an MX-compatible option could
 apply the doubling under the rule above) ("It was not expected when
