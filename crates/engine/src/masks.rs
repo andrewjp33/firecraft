@@ -141,6 +141,46 @@ impl DocState {
             return;
         }
         let Some(target) = self.paste_as_mask_target() else { return };
+        let fill = if reveal { Rgba::WHITE } else { Rgba::TRANSPARENT };
+        self.add_bitmap_mask(target, |_, _| fill);
+    }
+
+    /// The object Reveal Selection / Hide Selection masks: the bitmap the pixel selection is on,
+    /// else the one selected object; not one already masked.
+    fn selection_mask_target(&self) -> Option<ElementRef> {
+        let sel = self.pixels.as_ref()?;
+        let t = sel.target.or(match self.selection.as_slice() {
+            [r] if !r.is_mask() => Some(*r),
+            _ => None,
+        })?;
+        self.element(t)
+            .filter(|e| !matches!(e.kind, ElementKind::Masked { .. }))
+            .map(|_| t)
+    }
+
+    /// Whether Modify > Mask > Reveal Selection / Hide Selection apply: a pixel selection and
+    /// an object to mask.
+    pub fn can_add_mask_from_selection(&self) -> bool {
+        self.selection_mask_target().is_some()
+    }
+
+    /// Modify > Mask > Reveal Selection (`reveal`) / Hide Selection (measured in Fireworks MX):
+    /// like Reveal All, a bitmap mask over the canvas, white where the pixel selection is (its
+    /// soft edge too) and transparent elsewhere, or the reverse; the mask is selected, the
+    /// marquee gone. History "Add Mask".
+    pub fn add_mask_from_selection(&mut self, reveal: bool) {
+        let Some(target) = self.selection_mask_target() else { return };
+        let Some(sel) = self.pixels.clone() else { return };
+        self.add_bitmap_mask(target, |x, y| {
+            let v = sel.mask.get(x - sel.x, y - sel.y);
+            let a = if reveal { v } else { 255 - v };
+            Rgba::new(255, 255, 255, a)
+        });
+    }
+
+    /// Give `target` a grayscale bitmap mask over the canvas, grown to the object where it
+    /// reaches past, its pixels from `pixel(canvas x, canvas y)`; select the mask.
+    fn add_bitmap_mask(&mut self, target: ElementRef, pixel: impl Fn(i64, i64) -> Rgba) {
         let (w, h) = (self.doc.width as f64, self.doc.height as f64);
         let (bx, by, bw, bh) = self.element(target).and_then(Element::bounds).unwrap_or((0.0, 0.0, w, h));
         const EPS: f64 = 1e-6;
@@ -149,8 +189,12 @@ impl DocState {
         if x1 <= x0 || y1 <= y0 || (x1 - x0) * (y1 - y0) > 100_000_000 {
             return;
         }
-        let fill = if reveal { Rgba::WHITE } else { Rgba::TRANSPARENT };
-        let image = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32, fill);
+        let mut image = RgbaImage::new((x1 - x0) as u32, (y1 - y0) as u32, Rgba::TRANSPARENT);
+        for y in 0..(y1 - y0) {
+            for x in 0..(x1 - x0) {
+                image.set(x, y, pixel(x0 + x, y0 + y));
+            }
+        }
         let mask = Element::new(ElementKind::Bitmap(firecraft_doc::Bitmap { x: x0, y: y0, image }));
         self.edit("Add Mask", |s| {
             let Some(el) = s.element_mut(target) else { return };
@@ -691,6 +735,30 @@ mod tests {
         assert_eq!(d.element(ElementRef::new(0, 0).mask().expect("m")).map(Element::label), Some("m".into()));
         assert_eq!(d.selection, [ElementRef::new(0, 0)]);
         assert_eq!(d.history.labels().last(), Some("Group"));
+    }
+
+    #[test]
+    fn reveal_and_hide_selection() {
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(0, 40, Rgba::new(255, 0, 0, 255), "a"), "Add");
+        let r = ElementRef::new(0, 0);
+        let mut m = firecraft_raster::Mask::new(10, 10);
+        m.data_mut().iter_mut().for_each(|v| *v = 255);
+        let sel = crate::PixelSelection { target: Some(r), x: 5, y: 0, mask: m };
+        let px = |d: &DocState, x| match d.element(r.mask().expect("m")).map(|e| &e.kind) {
+            Some(ElementKind::Bitmap(b)) => b.image.get(x, 5).map(|p| p.a),
+            _ => None,
+        };
+        for (reveal, inside, outside) in [(true, 255, 0), (false, 0, 255)] {
+            d.selection = vec![r];
+            d.pixels = Some(sel.clone());
+            assert!(d.can_add_mask_from_selection());
+            d.add_mask_from_selection(reveal);
+            assert_eq!((px(&d, 8), px(&d, 30)), (Some(inside), Some(outside)));
+            assert!(d.pixels.is_none());
+            assert_eq!(d.history.labels().last(), Some("Add Mask"));
+            d.undo();
+        }
     }
 
     #[test]

@@ -1284,8 +1284,13 @@ fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         with_doc(app, |d| d.group_as_mask());
     }
     ui.separator();
-    todo(ui, "Reveal Selection", "");
-    todo(ui, "Hide Selection", "");
+    let can_sel = app.session.active_doc().is_some_and(|d| d.can_add_mask_from_selection());
+    if item(ui, "Reveal Selection", "", can_sel) {
+        with_doc(app, |d| d.add_mask_from_selection(true));
+    }
+    if item(ui, "Hide Selection", "", can_sel) {
+        with_doc(app, |d| d.add_mask_from_selection(false));
+    }
     ui.separator();
     let enabled = settings.is_none_or(|s| s.1.enabled);
     if item(ui, if enabled { "Disable Mask" } else { "Enable Mask" }, "", owner.is_some())

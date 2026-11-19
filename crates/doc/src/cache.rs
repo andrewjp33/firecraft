@@ -578,6 +578,34 @@ pub(crate) fn kept_contents(
     Some(((*kept.image).clone(), kept.x, kept.y))
 }
 
+/// Masked objects' content drawn whole (its effects included): see [`kept_pixels`].
+static MASKED_CONTENT: std::sync::Mutex<Memory> = std::sync::Mutex::new(Memory::new(8));
+
+/// An object's own pixels over its whole region, effects included, made once while it stays the
+/// same. A masked object's content uses them, so moving or editing only the mask (dragging it,
+/// painting on it) doesn't draw the content again: circles_hi_mask2_fc.png's blurred 500x500
+/// content took 690 ms a frame while its mask was dragged.
+pub(crate) fn kept_pixels(
+    el: &Element,
+    ctx: &RenderCtx,
+    make: impl FnOnce() -> Option<(RgbaImage, i64, i64)>,
+) -> Option<Kept> {
+    let key = fingerprint(el, ctx) ^ 0x6d61_736b_6564_u64;
+    if let Some(k) = MASKED_CONTENT.lock().ok().and_then(|mut m| m.get(key)) {
+        return Some(k);
+    }
+    let (image, x, y) = make()?;
+    let kept = Kept {
+        image: Arc::new(image),
+        x,
+        y,
+    };
+    if let Ok(mut m) = MASKED_CONTENT.lock() {
+        m.put(key, kept.clone());
+    }
+    Some(kept)
+}
+
 fn fingerprint(el: &Element, ctx: &RenderCtx) -> u64 {
     let mut h = DefaultHasher::new();
     // Not the frame: what a symbol shows in it is hashed with its contents, so an object that

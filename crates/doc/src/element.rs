@@ -1535,9 +1535,7 @@ impl Element {
                 ..
             } => {
                 let mut layer = RgbaImage::new(w, h, Rgba::TRANSPARENT);
-                content
-                    .iter()
-                    .for_each(|c| c.render_onto(&mut layer, ox, oy, ctx));
+                content.iter().for_each(|c| c.render_kept(&mut layer, ox, oy, ctx));
                 if !flags.enabled {
                     return Some((layer, 0, 0));
                 }
@@ -1798,6 +1796,37 @@ impl Element {
                 .map(Element::max_stroke)
                 .fold(mask.max_stroke(), f64::max),
             _ => 0.0,
+        }
+    }
+
+    /// [`render_onto`](Self::render_onto), with the object's own pixels kept between calls
+    /// while it stays the same (a masked object's content, whose mask may be what changes).
+    /// They are kept for the object moved to a whole-pixel origin: the canvas draws a masked
+    /// object at its own place, so dragging the mask moves the content within it, and a shift by
+    /// whole pixels only shifts the same pixels.
+    fn render_kept(&self, out: &mut RgbaImage, ox: i64, oy: i64, ctx: &RenderCtx) {
+        if !self.visible || self.opacity <= 0.0 {
+            return;
+        }
+        let shift = self
+            .bounds()
+            .filter(|b| b.0.is_finite() && b.1.is_finite() && b.0.abs() < 1e7 && b.1.abs() < 1e7)
+            .map(|b| (-b.0.floor() as i64, -b.1.floor() as i64));
+        let (Some((dx, dy)), false) = (shift, self.is_pass_through()) else {
+            self.render_onto(out, ox, oy, ctx);
+            return;
+        };
+        let mut at_origin = self.clone();
+        at_origin.translate(dx as f64, dy as f64);
+        let Some((rx, ry, rw, rh)) = at_origin.full_region(ctx) else {
+            self.render_onto(out, ox, oy, ctx);
+            return;
+        };
+        let kept = crate::cache::kept_pixels(&at_origin, ctx, || {
+            at_origin.pixels(rx, ry, rw, rh, ctx).map(|(img, x, y)| (img, rx + x, ry + y))
+        });
+        if let Some(k) = kept {
+            out.draw_blend_with(&k.image, k.x - dx - ox, k.y - dy - oy, self.opacity_byte(), self.blend, ctx.math);
         }
     }
 

@@ -1,4 +1,5 @@
-//! Time a live pointer drag of one object as the canvas does it: `drag_timing <file.png> [layer]`
+//! Time a live pointer drag of one object as the canvas does it:
+//! `drag_timing <file.png> [layer] [index] [mask]` (`mask`: drag that object's mask)
 //! (begin_live_edit, then per mouse step move_selection_live + render_cached, then commit).
 use std::time::Instant;
 
@@ -8,6 +9,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let path = args.next().ok_or("usage: drag_timing <file.png> [layer]")?;
     let layer: usize = args.next().map_or(Ok(0), |s| s.parse())?;
+    let index: usize = args.next().map_or(Ok(0), |s| s.parse())?;
+    let mask = args.next().is_some_and(|a| a == "mask");
     let t = Instant::now();
     let doc = firecraft_io::open(&std::fs::read(&path)?, None)?;
     println!("open {:?}", t.elapsed());
@@ -21,11 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let hit = d.hit_test(300.0, 300.0);
         println!("hit_test {i}: {:?} {hit:?}", t.elapsed());
     }
-    d.selection = vec![ElementRef {
-        layer,
-        index: 0,
-        sub: Default::default(),
-    }];
+    let r = ElementRef::new(layer, index);
+    d.selection = vec![if mask { r.mask().ok_or("no mask")? } else { r }];
     let t = Instant::now();
     d.begin_live_edit("Move");
     println!("begin_live_edit {:?}", t.elapsed());

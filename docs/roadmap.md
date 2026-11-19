@@ -121,7 +121,7 @@ Other items keep their numbers.
     settings, Delete Mask (Apply, Discard, Break Apart) and dragging rows into, within and out of
     groups and masks, Edit > Paste as Mask and Paste Inside, Group/Ungroup/Convert to Symbol
     inside masks, Reveal All / Hide All (and the Layers panel's Add Mask), Group as Mask, painting
-    on bitmap masks (live). Left: Reveal Selection / Hide Selection
+    on bitmap masks (live), Reveal Selection / Hide Selection
 17. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
     setting but the bevel profile (`BEvl`, `Bevel: n/x y f/...`) and Darken Deep Areas (`Drkn`).
     Add a curve editor like Eye Candy's (draggable points, add/remove, its preset profiles) with a

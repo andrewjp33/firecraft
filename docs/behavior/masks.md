@@ -233,5 +233,11 @@ Measured 2026-11-18 in Fireworks MX through Modify > Mask (files
 * **Painting on a bitmap mask**: with the mask selected (its thumbnail, row, or right after
   Reveal/Hide All) the Brush, Pencil, Eraser and other bitmap tools paint into it, and the
   canvas shows the masking change live during the stroke (a grayscale mask: lighter shows more;
-  the Eraser makes it transparent, hiding). Not done: Reveal Selection / Hide Selection (from a
-  marquee).
+  the Eraser makes it transparent, hiding). The content's own pixels are kept while only the
+  mask changes (dragging or painting it): circles_hi_mask2_fc.png's blurred content made each
+  drag frame of its mask take 670 ms, now 3 ms.
+* **Reveal Selection / Hide Selection** (a pixel selection, on a bitmap or with one object
+  selected; measured on a bitmap, `mask_cmd_reveal_selection.png`): like Reveal All, a bitmap
+  mask over the canvas, white where the marquee is (its soft edge as alpha) and transparent
+  elsewhere, or the reverse for Hide Selection; the mask is selected, history "Add Mask". With a
+  marquee drawn, the Layers panel's Add Mask does Reveal Selection.

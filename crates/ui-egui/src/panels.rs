@@ -998,13 +998,20 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             {
                 d.insert_empty_bitmap();
             }
-            // Fireworks MX's Add Mask: Reveal All on the selected object.
-            let can = d.can_add_mask();
-            if icons::glyph_button(ui, Glyph::AddMask, 16.0, can)
-                .on_hover_text("Add Mask (Reveal All): a white bitmap mask to paint on")
-                .clicked()
-            {
-                d.add_mask(true);
+            // Fireworks MX's Add Mask: Reveal Selection with a marquee, else Reveal All.
+            let from_sel = d.can_add_mask_from_selection();
+            let can = from_sel || d.can_add_mask();
+            let tip = if from_sel {
+                "Add Mask (Reveal Selection): a bitmap mask showing the marquee's area"
+            } else {
+                "Add Mask (Reveal All): a white bitmap mask to paint on"
+            };
+            if icons::glyph_button(ui, Glyph::AddMask, 16.0, can).on_hover_text(tip).clicked() {
+                if from_sel {
+                    d.add_mask_from_selection(true);
+                } else {
+                    d.add_mask(true);
+                }
             }
             if icons::glyph_button(ui, Glyph::Plus, 16.0, true)
                 .on_hover_text("New Layer")
