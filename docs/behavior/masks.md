@@ -275,3 +275,22 @@ apply the doubling under the rule above) ("It was not expected when
 the mask was applied and the background got darker"). circles_hi_mask2.png stays at 56% against
 MX's render, a known difference. Probe tools: `crates/io/examples/mask_probe_pixels.rs` (mask,
 content and both renders at points), `mask_variant.rs`, `hide_object.rs`.
+
+## Invert Mask (FireCraft)
+
+FirePixel's mask *Invert* is a stored flag (a FirePixel-only `fpIb` tag in `GRPv`) that Fireworks
+MX and CS6 ignore, so its files show the mask un-inverted there. FireCraft's **Invert** (a button
+in the Property inspector's mask settings, Modify > Mask > Invert Mask, and the mask rows'
+right-click menu) is a one-off action on the mask itself, one undo step ("Invert Mask"); press it
+again to invert back. Nothing extra is saved:
+
+* A path-outline mask that is one path stays a vector: the canvas rectangle with the path cut
+  out (paths fill even-odd, in Fireworks too), cropped to the canvas. Inverting again removes
+  that rectangle, giving the path back unchanged.
+* Any other mask (grayscale vector masks, groups, text, bitmap masks) becomes a grayscale bitmap
+  mask of the inverted strength over the canvas, grown to the content and the mask where they
+  reach past (outside a mask nothing shows, so the inverse must cover it).
+
+Fireworks MX renders FireCraft's inverted file identically (`~/Documents/work/probes/`
+`mask_probe_inverted_fw.png`, all four kinds of mask, 100%; `crates/engine/examples/`
+`invert_mask_file.rs`).

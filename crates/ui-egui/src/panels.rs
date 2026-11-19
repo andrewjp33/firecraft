@@ -218,6 +218,8 @@ struct RowActions {
     mask_enabled: Option<(ElementRef, bool)>,
     /// Ask how to delete a masked object's mask.
     delete_mask: Option<ElementRef>,
+    /// Invert a masked object's mask.
+    invert_mask: Option<ElementRef>,
     toggle_vis: Option<ElementRef>,
     toggle_lock: Option<ElementRef>,
     toggle_open: Option<ElementRef>,
@@ -493,6 +495,10 @@ fn mask_menu(ui: &mut egui::Ui, d: &DocState, owner: ElementRef, out: &mut RowAc
     }
     if ui.button(if flags.linked { "Unlink Mask" } else { "Link Mask" }).clicked() {
         out.toggle_link = Some(owner);
+        ui.close();
+    }
+    if ui.button("Invert Mask").clicked() {
+        out.invert_mask = Some(owner);
         ui.close();
     }
     if ui.button("Delete Mask...").clicked() {
@@ -803,6 +809,9 @@ fn row_actions(d: &mut DocState, st: &mut LayersUi, actions: &mut RowActions) {
     }
     if let Some((o, on)) = actions.mask_enabled {
         d.set_mask_enabled(o, on);
+    }
+    if let Some(o) = actions.invert_mask {
+        d.invert_mask(o);
     }
 }
 

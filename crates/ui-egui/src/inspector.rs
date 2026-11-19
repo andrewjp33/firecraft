@@ -446,6 +446,17 @@ fn mask_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, owner: firecraft_engin
                 d.set_mask_show_attrs(owner, show);
             }
         }
+        // A one-off action, not a setting: the file keeps no "inverted" flag, so it looks the
+        // same in Fireworks.
+        let tip = if bitmap {
+            "Invert the mask: what it shows is hidden and the rest shows. Press again to invert back"
+        } else {
+            "Invert the mask: what it shows is hidden and the rest shows. A vector mask becomes a \
+             bitmap mask (pixels can't invert a path). Press again to invert back"
+        };
+        if ui.button("Invert").on_hover_text(tip).clicked() {
+            d.invert_mask(owner);
+        }
     });
 }
 

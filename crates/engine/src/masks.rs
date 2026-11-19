@@ -206,6 +206,100 @@ impl DocState {
         });
     }
 
+    /// Invert Mask (FireCraft; FirePixel keeps an "invert" flag of its own in the file, which
+    /// Fireworks ignores): the mask is replaced by its inverse, so what it showed is hidden and
+    /// the rest shows, in the mask itself, so the file looks the same in Fireworks. A path
+    /// outline mask that is one path stays a vector: the canvas with the path cut out. Any other
+    /// mask becomes a bitmap mask inverted over the canvas (grown to the content and the mask
+    /// where they reach past, as outside a mask nothing shows), grayscale. Inverting again gives
+    /// the original back (the path itself, or the same strengths). One undo step, "Invert Mask".
+    pub fn invert_mask(&mut self, owner: ElementRef) {
+        let Some(Element {
+            kind: ElementKind::Masked { content, mask, mode, .. },
+            ..
+        }) = self.element(owner)
+        else {
+            return;
+        };
+        let (w, h) = (self.doc.width as f64, self.doc.height as f64);
+        // A path outline mask stays a vector: the canvas with the path's shape cut out (paths
+        // fill even-odd, in Fireworks too), cropped to the canvas. Inverting that again takes
+        // the canvas rectangle out, giving the path back.
+        if let (ElementKind::Path(p), MaskMode::PathOutline) = (&mask.kind, *mode) {
+            let mut path = p.clone();
+            let canvas = firecraft_doc::Contour {
+                closed: true,
+                points: vec![
+                    firecraft_doc::BezierPoint::corner(0.0, 0.0),
+                    firecraft_doc::BezierPoint::corner(w, 0.0),
+                    firecraft_doc::BezierPoint::corner(w, h),
+                    firecraft_doc::BezierPoint::corner(0.0, h),
+                ],
+            };
+            if path.contours.first() == Some(&canvas) && path.contours.len() > 1 {
+                path.contours.remove(0);
+            } else {
+                path.contours.insert(0, canvas);
+            }
+            // No longer the rectangle (or the stored outline) it was drawn as.
+            path.rect = None;
+            path.pcl = None;
+            self.edit("Invert Mask", |s| {
+                if let Some(Element {
+                    kind: ElementKind::Masked { mask, cache, cache_key, .. },
+                    ..
+                }) = s.element_mut(owner)
+                {
+                    mask.kind = ElementKind::Path(path);
+                    *cache = None;
+                    *cache_key = 0;
+                }
+            });
+            return;
+        }
+        let mut area: (f64, f64, f64, f64) = (0.0, 0.0, w, h);
+        for b in content.iter().filter_map(Element::bounds).chain(mask.bounds()) {
+            let (x0, y0) = (area.0.min(b.0), area.1.min(b.1));
+            let (x1, y1) = ((area.0 + area.2).max(b.0 + b.2), (area.1 + area.3).max(b.1 + b.3));
+            area = (x0, y0, x1 - x0, y1 - y0);
+        }
+        const EPS: f64 = 1e-6;
+        let (x0, y0) = ((area.0 + EPS).floor() as i64, (area.1 + EPS).floor() as i64);
+        let (x1, y1) = ((area.0 + area.2 - EPS).ceil() as i64, (area.1 + area.3 - EPS).ceil() as i64);
+        if x1 <= x0 || y1 <= y0 || (x1 - x0) * (y1 - y0) > 100_000_000 {
+            return;
+        }
+        let ctx = RenderCtx {
+            symbols: &self.doc.symbols,
+            frame: self.frame(),
+            math: self.doc.color_math,
+            mx_perspective: self.doc.mx_perspective,
+            ..RenderCtx::EMPTY
+        };
+        let (bw, bh) = ((x1 - x0) as u32, (y1 - y0) as u32);
+        let strength = firecraft_doc::mask_strength(mask, *mode, x0, y0, bw, bh, &ctx);
+        let mut image = RgbaImage::new(bw, bh, Rgba::WHITE);
+        for (p, s) in image.pixels_mut().iter_mut().zip(strength.pixels()) {
+            let v = 255 - s.a;
+            *p = Rgba::new(v, v, v, 255);
+        }
+        let mut inverted = Element::new(ElementKind::Bitmap(firecraft_doc::Bitmap { x: x0, y: y0, image }));
+        inverted.name = mask.name.clone();
+        self.edit("Invert Mask", |s| {
+            if let Some(Element {
+                kind: ElementKind::Masked { mask, mode, cache, cache_key, flags, .. },
+                ..
+            }) = s.element_mut(owner)
+            {
+                **mask = inverted;
+                *mode = MaskMode::Grayscale;
+                *cache = None;
+                *cache_key = 0;
+                flags.show_attrs = false;
+            }
+        });
+    }
+
     /// Whether Modify > Mask > Group as Mask applies: two or more selected objects in one list.
     pub fn can_group_as_mask(&self) -> bool {
         let refs = self.stacking_selection();
@@ -759,6 +853,65 @@ mod tests {
             assert_eq!(d.history.labels().last(), Some("Add Mask"));
             d.undo();
         }
+    }
+
+    #[test]
+    fn invert_mask_and_back() {
+        let mut d = doc();
+        let o = ElementRef::new(0, 0);
+        let m = o.mask().expect("mask");
+        let strength = |d: &DocState, x| match d.element(m).map(|e| &e.kind) {
+            Some(ElementKind::Bitmap(b)) => b.image.get(x - b.x, 5 - b.y).map(|p| p.r),
+            _ => None,
+        };
+        // The white mask over 5..15: inside hidden now, outside (where nothing showed) shown.
+        d.invert_mask(o);
+        assert_eq!((strength(&d, 8), strength(&d, 25)), (Some(0), Some(255)));
+        assert_eq!(d.history.labels().last(), Some("Invert Mask"));
+        // Again: back to what it showed.
+        d.invert_mask(o);
+        assert_eq!((strength(&d, 8), strength(&d, 25)), (Some(255), Some(0)));
+    }
+
+    #[test]
+    fn a_path_outline_mask_inverts_as_a_path() {
+        let mut d = DocState::new(Document::new(40, 10, 72.0, None));
+        d.add_element(bitmap(0, 40, Rgba::new(255, 0, 0, 255), "a"), "Add");
+        let o = ElementRef::new(0, 0);
+        d.selection = vec![o];
+        let square = firecraft_doc::Path {
+            contours: vec![firecraft_doc::Contour {
+                closed: true,
+                points: [(5.0, 2.0), (15.0, 2.0), (15.0, 8.0), (5.0, 8.0)]
+                    .iter()
+                    .map(|&(x, y)| firecraft_doc::BezierPoint::corner(x, y))
+                    .collect(),
+            }],
+            fill: None,
+            stroke: None,
+            rect: None,
+            pcl: None,
+            texture_origin: None,
+        };
+        let clip = crate::Clipboard {
+            elements: vec![Element::new(ElementKind::Path(square))],
+            ..Default::default()
+        };
+        d.paste_as_mask(&clip, MaskPaste::Replace);
+        let shown = |d: &DocState, x: i64, y: i64| d.doc.render(0).get(x, y).map(|p| p.a > 0);
+        assert_eq!((shown(&d, 10, 5), shown(&d, 25, 5)), (Some(true), Some(false)));
+        d.invert_mask(o);
+        // Still a path: the canvas with the square cut out.
+        let contours = |d: &DocState| match d.element(o.mask().expect("m")).map(|e| &e.kind) {
+            Some(ElementKind::Path(p)) => p.contours.len(),
+            _ => 0,
+        };
+        assert_eq!(contours(&d), 2);
+        assert_eq!((shown(&d, 10, 5), shown(&d, 25, 5)), (Some(false), Some(true)));
+        // Back: the square alone again.
+        d.invert_mask(o);
+        assert_eq!(contours(&d), 1);
+        assert_eq!((shown(&d, 10, 5), shown(&d, 25, 5)), (Some(true), Some(false)));
     }
 
     #[test]

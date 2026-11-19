@@ -1304,6 +1304,11 @@ fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     {
         with_doc(app, |d| d.set_mask_linked(o, !linked));
     }
+    if item(ui, "Invert Mask", "", owner.is_some())
+        && let Some(o) = owner
+    {
+        with_doc(app, |d| d.invert_mask(o));
+    }
     if item(ui, "Delete Mask...", "", owner.is_some()) {
         app.dialogs.delete_mask = owner;
     }

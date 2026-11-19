@@ -1902,6 +1902,12 @@ fn effect_bounds(e: &Element, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
     Some((x - m, y - m, w + 2.0 * m, h + 2.0 * m))
 }
 
+/// How much `mask` reveals at each pixel of the area at canvas (`ox`, `oy`), `w` x `h`, in the
+/// alpha channel (0 hides, 255 shows), as masking uses it.
+pub fn mask_strength(mask: &Element, mode: MaskMode, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> RgbaImage {
+    mask_coverage(mask, mode, ox, oy, w, h, ctx)
+}
+
 /// Per-pixel mask strength (in the alpha channel) of `mask` over the output area.
 fn mask_coverage(
     mask: &Element,
