@@ -175,8 +175,8 @@ linked (`DocState::motion_refs`); unlinked, the object moves alone. A selected m
 mask) shows its content, its own chain and its mask side by side, so its link can be toggled
 there (unlinked, cone3's gradient rectangles drag one at a time).
 
-Rows holding the selection inside them: purple #9977FF with white text for masks and masked
-objects, mint #77FFCC with dark text for groups (the user's choices).
+Rows holding the selection inside them: purple #9977FF for masks and masked objects, mint
+#77FFCC for groups, both with white text (the user's choices).
 
 **A masked object is its content** (as in Fireworks MX, where the masked object is the object
 with a mask attached; MX's script API calls a masked rectangle a `RectanglePrimitive` with a
@@ -186,9 +186,11 @@ that object ("Rectangle") and its fill, stroke and text controls edit it
 the only object in a masked object's content, without effects of its own, shows and edits the
 masked object's effects whichever of the two is selected (`effect_ref`; Fireworks keeps them on
 the mask group). A masked object holding several objects is a group with a mask (MX's
-`[object Group]`), "Group: N objects"; mask rows are named the same way ("Group: 2 objects" for
-cone3's two circles, "Group: 4 objects" for its inner mask), in italics, the mask's kind on
-hover.
+`[object Group]`), "Group: N objects". A masked object's mask row is named for its kind
+("Vector mask", "Bitmap mask"). A mask that is itself masked (cone3) opens the way breaking it
+apart in Fireworks MX shows it: its own mask ("Group: 2 objects", the two circles, in mask
+style) and its content as one group row ("Group: 4 objects", the four gradient rectangles) side
+by side; that row selects all of its objects and opens to list them.
 
 **Group, Ungroup and Convert to Symbol inside a mask or group** (FireCraft): objects that share
 one list (a mask's content, or a group's members) group or become a symbol where they are, in the

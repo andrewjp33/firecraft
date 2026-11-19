@@ -82,6 +82,8 @@ struct LayersUi {
     renaming: Option<Rename>,
     /// Masked objects and groups shown open, listing the objects inside them.
     open: std::collections::HashSet<ElementRef>,
+    /// Masks of masks whose content group row is open (keyed by the mask).
+    open_content: std::collections::HashSet<ElementRef>,
     /// The rows' thumbnails.
     thumbs: thumbs::Cache,
     /// A row being dragged.
@@ -180,16 +182,16 @@ fn name_edit(ui: &mut egui::Ui, st: &mut LayersUi, rename: &mut Option<Rename>) 
 /// tree marks such rows the same way).
 const HOLDS_SELECTION: Color32 = Color32::from_rgb(0x99, 0x77, 0xFF);
 
-/// The same for a group (mint, told apart from a mask's purple; the user's choice). Dark text
-/// reads on it.
+/// The same for a group (mint, told apart from a mask's purple; the user's choice), also with
+/// white text.
 const GROUP_HOLDS_SELECTION: Color32 = Color32::from_rgb(0x77, 0xFF, 0xCC);
 
 /// A row's band and text colours: blue and white when selected; while it holds the
-/// selection, purple and white for a mask or masked object, mint and dark for a group.
+/// selection, purple for a mask or masked object, mint for a group, both with white text.
 fn row_colors(selected: bool, holds: bool, group: bool) -> Option<(Color32, Color32)> {
     match (selected, holds, group) {
         (true, ..) => Some((theme::SELECT_BLUE, Color32::WHITE)),
-        (false, true, true) => Some((GROUP_HOLDS_SELECTION, Color32::from_gray(20))),
+        (false, true, true) => Some((GROUP_HOLDS_SELECTION, Color32::WHITE)),
         (false, true, false) => Some((HOLDS_SELECTION, Color32::WHITE)),
         _ => None,
     }
@@ -208,6 +210,10 @@ struct RowActions {
     select: Option<ElementRef>,
     /// A masked object whose link to its mask toggles (the chain).
     toggle_link: Option<ElementRef>,
+    /// A content group row to open or close (keyed by its mask).
+    toggle_content: Option<ElementRef>,
+    /// Several objects to select at once (a content group row).
+    select_many: Option<Vec<ElementRef>>,
     /// Disable or enable a masked object's mask.
     mask_enabled: Option<(ElementRef, bool)>,
     /// Ask how to delete a masked object's mask.
@@ -451,7 +457,7 @@ fn object_rows(
     match &el.kind {
         ElementKind::Masked { content, mask, mode, .. } => {
             if let Some(m) = mask_ref {
-                mask_row(ui, st, d, page, m, mask, *mode, depth + 1, locked, out, rows);
+                mask_row(ui, st, d, page, m, mask, *mode, depth + 1, locked, false, out, rows);
             }
             for (i, c) in content.iter().enumerate().rev() {
                 if let Some(cr) = r.child(i) {
@@ -509,6 +515,7 @@ fn mask_row(
     mode: MaskMode,
     depth: usize,
     locked: bool,
+    named: bool,
     out: &mut RowActions,
     rows: &mut Vec<(Rect, Row)>,
 ) {
@@ -586,9 +593,10 @@ fn mask_row(
                 thumb = thumbs::show(ui, &mut st.thumbs, page, (r, Which::Mask), &subject, selected).rect;
             }
         }
-        // Named for what the mask is ("Group: 2 objects", a mask over several objects counting
-        // as a group, as in Fireworks); italic, and its kind on hover.
-        let text = RichText::new(row_label(mask)).italics();
+        // A masked object's mask is named for its kind ("Vector mask"); the mask of a mask
+        // (cone3's two circles) for what it is ("Group: 2 objects").
+        let label = if named { row_label(mask) } else { mask_kind(mask, mode).to_owned() };
+        let text = RichText::new(label).italics();
         let group = matches!(mask.kind, ElementKind::Group(_));
         let text = match row_colors(selected, holds, group) {
             Some((_, c)) => text.color(c),
@@ -635,16 +643,107 @@ fn mask_row(
     if !open {
         return;
     }
-    let list = match &mask.kind {
-        ElementKind::Group(children) => children,
-        ElementKind::Masked { content, .. } => content,
-        _ => return,
-    };
-    if let (ElementKind::Masked { mask: inner, mode: inner_mode, .. }, Some(m)) = (&mask.kind, r.mask()) {
-        mask_row(ui, st, d, page, m, inner, *inner_mode, depth + 1, locked, out, rows);
+    match &mask.kind {
+        ElementKind::Group(children) => {
+            for (i, c) in children.iter().enumerate().rev() {
+                if let Some(cr) = r.child(i) {
+                    object_rows(ui, st, d, page, cr, c, depth + 1, locked, out, rows);
+                }
+            }
+        }
+        // A mask that is itself masked (cone3): as broken apart in Fireworks, its own mask and
+        // its content side by side, the content as one group row ("Group: 4 objects").
+        ElementKind::Masked {
+            content,
+            mask: inner,
+            mode: inner_mode,
+            ..
+        } => {
+            if let Some(m) = r.mask() {
+                mask_row(ui, st, d, page, m, inner, *inner_mode, depth + 1, locked, true, out, rows);
+            }
+            match content.as_slice() {
+                [one] => {
+                    if let Some(cr) = r.child(0) {
+                        object_rows(ui, st, d, page, cr, one, depth + 1, locked, out, rows);
+                    }
+                }
+                _ => content_row(ui, st, d, page, r, content, depth + 1, locked, out, rows),
+            }
+        }
+        _ => {}
     }
-    for (i, c) in list.iter().enumerate().rev() {
-        if let Some(cr) = r.child(i) {
+}
+
+/// The content of a mask that has a mask of its own, as one group row: a click selects all of
+/// its objects (Shift adds or removes them), the arrow lists them.
+#[allow(clippy::too_many_arguments)]
+fn content_row(
+    ui: &mut egui::Ui,
+    st: &mut LayersUi,
+    d: &DocState,
+    page: &thumbs::Page,
+    owner: ElementRef,
+    content: &[Element],
+    depth: usize,
+    locked: bool,
+    out: &mut RowActions,
+    rows: &mut Vec<(Rect, Row)>,
+) {
+    let refs: Vec<ElementRef> = (0..content.len()).filter_map(|i| owner.child(i)).collect();
+    let selected = !refs.is_empty() && refs.iter().all(|c| d.selection.contains(c));
+    let holds = !selected && d.selection.iter().any(|s| refs.iter().any(|c| *s == *c || s.is_within(*c)));
+    let open = st.open_content.contains(&owner);
+    let background = ui.painter().add(egui::Shape::Noop);
+    let mut buttons = Rect::NOTHING;
+    let mut arrow = Rect::NOTHING;
+    let row = ui.horizontal(|ui| {
+        buttons = ui
+            .horizontal(|ui| {
+                ui.add_space(14.0 + ui.spacing().item_spacing.x);
+                ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+            })
+            .response
+            .rect;
+        ui.add_space(depth as f32 * LEVEL_INDENT);
+        let (a, resp) = ui.allocate_exact_size(vec2(ARROW_W, 20.0), Sense::click());
+        arrow = a;
+        let g = if open { Glyph::TriangleDown } else { Glyph::TriangleRight };
+        let c = if resp.hovered() { theme::SELECT_BLUE } else { Color32::from_gray(90) };
+        icons::paint_glyph(ui.painter(), a.shrink2(vec2(0.0, 4.0)), g, c);
+        let label = format!("Group: {} objects", content.len());
+        let name = format!("{} {label}", if open { "Close" } else { "Open" });
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
+        if resp.on_hover_text("Show or hide the objects in this group").clicked() {
+            out.toggle_content = Some(owner);
+        }
+        let subject = Subject { elements: content, mask: None };
+        thumbs::show(ui, &mut st.thumbs, page, (owner, Which::Object), &subject, false);
+        let text = match row_colors(selected, holds, true) {
+            Some((_, c)) => RichText::new(label).color(c),
+            None => RichText::new(label),
+        };
+        ui.add(egui::Label::new(text).selectable(false));
+        ui.add_space(ui.available_width());
+    });
+    let rect = row.response.rect;
+    if let Some((fill, _)) = row_colors(selected, holds, true) {
+        let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
+        ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
+    }
+    let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
+    let click = ui
+        .interact(hit, ui.scope_id().with(("content_row", owner)), Sense::click())
+        .on_hover_text("The objects this mask is made of, grouped by their own mask: click to select them all");
+    if click.clicked() && !locked {
+        out.select_many = Some(refs);
+    }
+    if !open {
+        return;
+    }
+    for (i, c) in content.iter().enumerate().rev() {
+        if let Some(cr) = owner.child(i) {
             object_rows(ui, st, d, page, cr, c, depth + 1, locked, out, rows);
         }
     }
@@ -664,6 +763,18 @@ fn row_actions(d: &mut DocState, st: &mut LayersUi, actions: &mut RowActions) {
         && !st.open.remove(&r)
     {
         st.open.insert(r);
+    }
+    if let Some(r) = actions.toggle_content
+        && !st.open_content.remove(&r)
+    {
+        st.open_content.insert(r);
+    }
+    if let Some(refs) = actions.select_many.take()
+        && let Some(first) = refs.first()
+    {
+        d.doc.current_layer = first.layer;
+        d.selection = refs;
+        d.pixels = None;
     }
     if let Some(o) = actions.toggle_link
         && let Some((_, f, _)) = d.mask_settings(o)
@@ -685,6 +796,8 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let frame = d.doc.current_frame;
     // Rows left open by objects that are gone (or moved) close.
     st.open.retain(|r| d.element(*r).is_some_and(expandable));
+    st.open_content
+        .retain(|r| matches!(d.element(*r).map(|e| &e.kind), Some(ElementKind::Masked { content, .. }) if content.len() > 1));
     let mut set_current: Option<usize> = None;
     let mut toggle_vis: Option<usize> = None;
     let mut toggle_lock: Option<usize> = None;
