@@ -180,7 +180,7 @@ mask) shows its content, its own chain and its mask side by side, so its link ca
 there (unlinked, cone3's gradient rectangles drag one at a time).
 
 Rows holding the selection inside them: purple #9977FF for masks and masked objects, mint
-#77FFCC for groups, both with white text (the user's choices).
+#66EEBB for groups, both with white text (the user's choices).
 
 **A masked object is its content** (as in Fireworks MX, where the masked object is the object
 with a mask attached; MX's script API calls a masked rectangle a `RectanglePrimitive` with a

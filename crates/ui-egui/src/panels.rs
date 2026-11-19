@@ -184,7 +184,7 @@ const HOLDS_SELECTION: Color32 = Color32::from_rgb(0x99, 0x77, 0xFF);
 
 /// The same for a group (mint, told apart from a mask's purple; the user's choice), also with
 /// white text.
-const GROUP_HOLDS_SELECTION: Color32 = Color32::from_rgb(0x77, 0xFF, 0xCC);
+const GROUP_HOLDS_SELECTION: Color32 = Color32::from_rgb(0x66, 0xEE, 0xBB);
 
 /// A row's band and text colours: blue and white when selected; while it holds the
 /// selection, purple for a mask or masked object, mint for a group, both with white text.
