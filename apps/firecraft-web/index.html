@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>FireCraft</title>
-  <!-- Stand-ins for newer browser features, and the message when FireCraft can't start. -->
+  <!-- Picks the WebAssembly build; stand-ins for newer browser features; and the message when
+       FireCraft can't start. -->
   <script data-trunk src="support.js"></script>
-  <!-- Plain "MVP" WebAssembly for older browsers (see WEB_ENV in the Makefile). post_build.py
-       makes the page and its JavaScript readable by them too. -->
-  <link data-trunk rel="rust" data-bin="firecraft-web" data-cargo-profile-release="wasm-release" data-wasm-opt="z" data-wasm-opt-params="--mvp-features" data-keep-debug />
+  <!-- The modern build. legacy.html is the one for older browsers; post_build.py puts it in
+       legacy/ and makes the page load whichever this browser can run. -->
+  <link data-trunk rel="rust" data-bin="firecraft-web" data-cargo-profile-release="wasm-release" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue" data-keep-debug />
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #808080; }
     /* top/right/bottom/left rather than inset, which Safari only has from 14.1. */

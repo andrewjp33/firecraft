@@ -287,9 +287,10 @@ cargo test                                             # all crates
 ```
 
 Web build (needs [trunk](https://trunkrs.dev), the `wasm32-unknown-unknown` target, the Rust
-source and Node.js). It runs in browsers back to Safari 13, so the standard library is rebuilt
-as plain WebAssembly and the JavaScript is rewritten for older browsers; the Makefile sets that
-up, so build through it rather than with `trunk` directly:
+source and Node.js). There are two builds, and the page loads whichever the browser can run:
+the modern one, and a slower one for browsers back to Safari 13 (the standard library rebuilt
+as plain WebAssembly, the JavaScript rewritten for older browsers). The Makefile sets that up,
+so build through it rather than with `trunk` directly:
 
 ```sh
 rustup target add wasm32-unknown-unknown

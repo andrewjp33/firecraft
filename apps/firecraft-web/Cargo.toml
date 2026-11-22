@@ -12,12 +12,15 @@ workspace = true
 
 [dependencies]
 firecraft-ui-egui = { workspace = true }
+# For the benchmark (src/bench.rs).
+firecraft-raster = { workspace = true }
+firecraft-io = { workspace = true }
 eframe = { workspace = true, features = ["glow", "default_fonts", "persistence"] }
 egui = { workspace = true }
 log = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Element", "Location", "UrlSearchParams", "console"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "Element", "Location", "UrlSearchParams", "console", "Performance"] }
 js-sys = "0.3"
 wasm-bindgen = "0.2"

@@ -1274,6 +1274,8 @@ version = "0.3.0"
 dependencies = [
  "eframe",
  "egui",
+ "firecraft-io",
+ "firecraft-raster",
  "firecraft-ui-egui",
  "js-sys",
  "log",

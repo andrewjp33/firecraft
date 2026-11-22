@@ -96,25 +96,36 @@ windows-msvc-release:
 	@cp target/$(MSVC_TARGET)/release/firecraft.exe $(DIST)/windows-msvc-release/firecraft.exe
 	@echo "Built: $(DIST)/windows-msvc-release/firecraft.exe"
 
-# Keep the builder's home folder out of the paths embedded in the browser build.
-# The rest makes the WebAssembly plain "MVP" (no bulk memory, sign extension, reference types,
-# multi-value or non-trapping float conversion), which older browsers such as Safari 13 need.
-# Rust's prebuilt standard library uses those features, so it's rebuilt from source
-# (-Zbuild-std; `rustup component add rust-src`). RUSTC_BOOTSTRAP lets stable Rust do that.
-# apps/firecraft-web/post_build.py rejects a build made without these settings.
-WEB_ENV := RUSTFLAGS="--remap-path-prefix=$(HOME)=~ -Ctarget-cpu=mvp" \
-	RUSTC_BOOTSTRAP=1 CARGO_UNSTABLE_BUILD_STD=std,panic_abort
+# The browser build is two builds; the page loads whichever the browser can run (support.js
+# decides; see apps/firecraft-web/post_build.py):
+# - modern (index.html -> dist/web): WebAssembly with the features Rust uses by default.
+# - legacy (legacy.html -> target/web-legacy, then copied to dist/web/legacy): plain "MVP"
+#   WebAssembly for older browsers such as Safari 13, which lack bulk memory, sign extension,
+#   reference types, multi-value or non-trapping float conversion. Rust's prebuilt standard
+#   library uses those, so it's rebuilt from source (-Zbuild-std; `rustup component add
+#   rust-src`); RUSTC_BOOTSTRAP lets stable Rust do that. Its own target folder keeps the two
+#   sets of flags from rebuilding over each other.
+# Both keep the builder's home folder out of the paths embedded in the build.
+WEB_REMAP := --remap-path-prefix=$(HOME)=~
+WEB_ENV := RUSTFLAGS="$(WEB_REMAP)"
+WEB_LEGACY_ENV := RUSTFLAGS="$(WEB_REMAP) -Ctarget-cpu=mvp" RUSTC_BOOTSTRAP=1 \
+	CARGO_UNSTABLE_BUILD_STD=std,panic_abort CARGO_TARGET_DIR=$(CURDIR)/target/wasm-legacy
+WEB_LEGACY_BUILD = cd apps/firecraft-web && $(WEB_LEGACY_ENV) trunk build legacy.html $(1) --dist ../../target/web-legacy
 
 web:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
+	$(call WEB_LEGACY_BUILD,--release)
 	cd apps/firecraft-web && $(WEB_ENV) trunk build --release
 
 web-debug:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
+	$(call WEB_LEGACY_BUILD,)
 	cd apps/firecraft-web && $(WEB_ENV) trunk build
 
+# The legacy build is made once at the start; trunk serve rebuilds only the modern one on changes.
 web-serve:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
+	$(call WEB_LEGACY_BUILD,--release)
 	cd apps/firecraft-web && $(WEB_ENV) trunk serve --release
 
 test:

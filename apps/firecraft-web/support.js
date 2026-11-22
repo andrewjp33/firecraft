@@ -1,6 +1,7 @@
 // Runs before FireCraft itself, as a plain script, so that even a browser too old for the app
-// reads it. Two jobs:
+// reads it. Three jobs:
 //
+// 0. Choosing between the modern WebAssembly build and the one for older browsers.
 // 1. Stand-ins for the few browser features newer than Safari 13 (and a couple newer than
 //    Safari 12.1) that eframe or FireCraft call. Each is only installed when it's missing.
 // 2. A message when FireCraft can't start or stops with an error, instead of "Loading
@@ -212,6 +213,40 @@
   }
 
   // ---------------------------------------------------------------------------------------
+  // Which WebAssembly build to load (the loader post_build.py writes reads this):
+  //   "modern": built with the WebAssembly features Rust uses by default; faster.
+  //   "legacy": plain "MVP" WebAssembly (in legacy/), for browsers without them.
+  // Each probe is a tiny module that uses just that feature; the modern build is only for a
+  // browser that accepts all of them. post_build.py checks the modern build uses nothing more,
+  // so keep the two lists the same. `?wasm=modern` or `?wasm=legacy` in the address picks one
+  // (for testing and timing).
+
+  var WASM_FEATURES = {
+    "sign-ext": [0, 97, 115, 109, 1, 0, 0, 0, 1, 6, 1, 96, 1, 127, 1, 127, 3, 2, 1, 0, 10, 7, 1, 5, 0, 32, 0, 192, 11],
+    "nontrapping-float-to-int": [0, 97, 115, 109, 1, 0, 0, 0, 1, 6, 1, 96, 1, 125, 1, 127, 3, 2, 1, 0, 10, 8, 1, 6, 0, 32,
+      0, 252, 0, 11],
+    "bulk-memory": [0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 5, 3, 1, 0, 1, 10, 14, 1, 12, 0, 65, 0, 65,
+      0, 65, 0, 252, 10, 0, 0, 11],
+    "multivalue": [0, 97, 115, 109, 1, 0, 0, 0, 1, 6, 1, 96, 0, 2, 127, 127, 3, 2, 1, 0, 10, 8, 1, 6, 0, 65, 0, 65, 0, 11],
+    "reference-types": [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 1, 111, 0, 3, 2, 1, 0, 10, 4, 1, 2, 0, 11],
+    "mutable-globals": [0, 97, 115, 109, 1, 0, 0, 0, 2, 8, 1, 1, 97, 1, 98, 3, 127, 1],
+  };
+
+  var wasmBuild = "modern";
+  var lacking = [];
+  try {
+    for (var feature in WASM_FEATURES) {
+      if (!WebAssembly.validate(new Uint8Array(WASM_FEATURES[feature]))) lacking.push(feature);
+    }
+  } catch (e) {
+    lacking.push("WebAssembly");
+  }
+  if (lacking.length) wasmBuild = "legacy";
+  var forced = /[?&]wasm=(modern|legacy)(&|$)/.exec(location.search);
+  if (forced) wasmBuild = forced[1];
+  w.firecraftWasmBuild = wasmBuild;
+
+  // ---------------------------------------------------------------------------------------
   // What the browser is missing outright (checked now, reported if anything goes wrong).
 
   var missing = [];
@@ -281,7 +316,8 @@
       "and include the details below."));
     var pre = element("pre", "margin:0 0 12px;padding:8px;max-height:16em;overflow:auto;background:#fff;" +
       "border:1px solid #808080;font:12px/1.4 Menlo,Consolas,monospace;white-space:pre-wrap;word-wrap:break-word",
-      details + "\n\nBrowser: " + navigator.userAgent);
+      details + "\n\nBrowser: " + navigator.userAgent + "\nBuild: " + wasmBuild +
+      (lacking.length ? " (no " + lacking.join(", ") + ")" : ""));
     panel.appendChild(pre);
     var reload = element("button", "font:inherit;padding:3px 14px", "Reload");
     reload.onclick = function () {

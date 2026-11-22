@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FireCraft (older browsers)</title>
+  <!-- The build for browsers without the modern WebAssembly features: plain "MVP" WebAssembly
+       (WEB_LEGACY_ENV in the Makefile). Only its .wasm and JavaScript are used; post_build.py
+       copies them into the main build's legacy/ folder. -->
+  <link data-trunk rel="rust" data-bin="firecraft-web" data-cargo-profile-release="wasm-release" data-wasm-opt="z" data-wasm-opt-params="--mvp-features" data-keep-debug />
+</head>
+<body></body>
+</html>

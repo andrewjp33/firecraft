@@ -5,6 +5,9 @@
 //! dialog for Open and a name prompt plus download for Save. Files can also be dragged onto the page.
 
 #[cfg(target_arch = "wasm32")]
+mod bench;
+
+#[cfg(target_arch = "wasm32")]
 mod web {
     use std::cell::{Cell, RefCell};
     use std::collections::{HashMap, HashSet};

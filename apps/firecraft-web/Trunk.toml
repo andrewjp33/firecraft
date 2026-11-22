@@ -1,13 +1,13 @@
-# Build with `make web` (or `make web-debug`); serve locally with `make web-serve`. These set
-# the flags (WEB_ENV in the Makefile) for the plain WebAssembly older browsers need; plain
-# `trunk build` without them fails in post_build.py.
+# Build with `make web` (or `make web-debug`); serve locally with `make web-serve`. They make
+# two builds, modern and one for older browsers (legacy.html), with different flags (see the
+# Makefile and post_build.py); plain `trunk build` without the legacy build fails in post_build.py.
 [build]
 target = "index.html"
 dist = "../../dist/web"
 public_url = "./"
 filehash = true
 
-# Make the build load in older browsers (Safari 13; see post_build.py).
+# Checks both builds, and puts the legacy one beside the modern one (see post_build.py).
 [[hooks]]
 stage = "post_build"
 command = "python3"
