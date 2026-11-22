@@ -286,11 +286,15 @@ cargo run --release -p firecraft -- [file.png ...]     # desktop
 cargo test                                             # all crates
 ```
 
-Web build (needs [trunk](https://trunkrs.dev) and the `wasm32-unknown-unknown` target):
+Web build (needs [trunk](https://trunkrs.dev), the `wasm32-unknown-unknown` target, the Rust
+source and Node.js). It runs in browsers back to Safari 13, so the standard library is rebuilt
+as plain WebAssembly and the JavaScript is rewritten for older browsers; the Makefile sets that
+up, so build through it rather than with `trunk` directly:
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cd apps/firecraft-web && trunk serve        # http://127.0.0.1:8766
+rustup component add rust-src
+make web-serve                              # http://127.0.0.1:8766
 ```
 
 Windows: `cargo build -p firecraft` on Windows (MSVC toolchain), or cross-compile from Linux:

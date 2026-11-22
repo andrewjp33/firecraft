@@ -1,9 +1,17 @@
-# Build with: trunk build --release   (from apps/firecraft-web); serve locally with: trunk serve
+# Build with `make web` (or `make web-debug`); serve locally with `make web-serve`. These set
+# the flags (WEB_ENV in the Makefile) for the plain WebAssembly older browsers need; plain
+# `trunk build` without them fails in post_build.py.
 [build]
 target = "index.html"
 dist = "../../dist/web"
 public_url = "./"
 filehash = true
+
+# Make the build load in older browsers (Safari 13; see post_build.py).
+[[hooks]]
+stage = "post_build"
+command = "python3"
+command_arguments = ["post_build.py"]
 
 [serve]
 addresses = ["127.0.0.1"]

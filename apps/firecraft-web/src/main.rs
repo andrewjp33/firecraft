@@ -672,6 +672,23 @@ export async function writeTo(handle, bytes) {
         }
     }
 
+    #[wasm_bindgen]
+    extern "C" {
+        /// support.js: replace the page with "FireCraft couldn't start" (or "stopped") and the
+        /// reason. Errs only if support.js didn't load.
+        #[wasm_bindgen(js_namespace = window, js_name = firecraftFailed, catch)]
+        fn firecraft_failed(reason: &JsValue) -> Result<(), JsValue>;
+    }
+
+    /// After eframe's panic hook (which logs the panic and stops the app), show the message.
+    fn report_panics() {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            previous(info);
+            let _ = firecraft_failed(&JsValue::from_str(&info.to_string()));
+        }));
+    }
+
     pub fn start() {
         spawn_local(async {
             let Some(document) = web_sys::window().and_then(|w| w.document()) else {
@@ -683,7 +700,9 @@ export async function writeTo(handle, bytes) {
             else {
                 return;
             };
-            let result = eframe::WebRunner::new()
+            let runner = eframe::WebRunner::new();
+            report_panics();
+            let result = runner
                 .start(
                     canvas,
                     eframe::WebOptions::default(),
@@ -709,11 +728,13 @@ export async function writeTo(handle, bytes) {
                     }),
                 )
                 .await;
+            if let Err(e) = &result {
+                web_sys::console::error_1(e);
+                // While "Loading FireCraft…" is still there, so it reads as a failed start.
+                let _ = firecraft_failed(e);
+            }
             if let Some(loading) = document.get_element_by_id("firecraft_loading") {
                 loading.remove();
-            }
-            if let Err(e) = result {
-                web_sys::console::error_1(&e);
             }
         });
     }

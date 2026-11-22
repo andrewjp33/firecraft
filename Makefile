@@ -2,7 +2,8 @@
 # Windows debug apps into dist/.
 #
 # Requirements: Rust (rustup) for everything; `sudo apt install mingw-w64` for Windows builds;
-# `cargo install trunk` + `rustup target add wasm32-unknown-unknown` for the web build.
+# `cargo install trunk` + `rustup target add wasm32-unknown-unknown` + `rustup component add
+# rust-src` + Node.js (npx) for the web build.
 # Optional: `cargo install sccache` (or the distro package) caches compiled crates outside
 # target/, so even `make distclean` doesn't mean recompiling every dependency; it's used
 # automatically when installed.
@@ -96,7 +97,13 @@ windows-msvc-release:
 	@echo "Built: $(DIST)/windows-msvc-release/firecraft.exe"
 
 # Keep the builder's home folder out of the paths embedded in the browser build.
-WEB_ENV := RUSTFLAGS="--remap-path-prefix=$(HOME)=~"
+# The rest makes the WebAssembly plain "MVP" (no bulk memory, sign extension, reference types,
+# multi-value or non-trapping float conversion), which older browsers such as Safari 13 need.
+# Rust's prebuilt standard library uses those features, so it's rebuilt from source
+# (-Zbuild-std; `rustup component add rust-src`). RUSTC_BOOTSTRAP lets stable Rust do that.
+# apps/firecraft-web/post_build.py rejects a build made without these settings.
+WEB_ENV := RUSTFLAGS="--remap-path-prefix=$(HOME)=~ -Ctarget-cpu=mvp" \
+	RUSTC_BOOTSTRAP=1 CARGO_UNSTABLE_BUILD_STD=std,panic_abort
 
 web:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
