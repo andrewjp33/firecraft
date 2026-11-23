@@ -50,6 +50,14 @@ file (19 November 2026): 41 match 100%, 9 more are above 99%, 34 are between 90%
 below 90%. The average is 96.0%. Every file survives the lossless round trip and a FireCraft save
 that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
+### New in 0.3.1
+
+- **macOS app**: one download for Apple silicon and Intel Macs (macOS 11 or later on Apple silicon,
+  10.13 or later on Intel), with the system clipboard (text, pictures, files copied in the Finder).
+  See [Try it](#try-it) for opening it the first time.
+- **The web version runs in older browsers**, back to Safari 13: the page picks a build the browser
+  can run, and says so when it can't run at all.
+
 ### New in 0.3.0
 
 Highlights (the full list is in the release notes):
