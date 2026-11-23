@@ -53,6 +53,9 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   palettes and settings (stored in `EXPv` as Fireworks MX does), plus WebP and JPEG XL with Quality and
   Alpha Quality; Auto Crop/Auto Difference; exact alpha with the Exact palette; lossless PNG optimizer (OptiPNG-style
   levels) ([behavior/export.md](behavior/export.md))
+- Tool options and each effect's last settings kept between sessions, as Fireworks MX keeps them;
+  Defaults button in effect popups ([behavior/effects.md](behavior/effects.md#last-settings-and-defaults);
+  settings of tools not yet built: Next, item 12)
 - Opening flat images as Fireworks MX does: PNG, JPEG, GIF (animated GIFs as frames), BMP, TIFF,
   Targa, plus WebP, JPEG XL and animated PNG ([behavior/opening-files.md](behavior/opening-files.md))
 
@@ -99,8 +102,42 @@ Other items keep their numbers.
 10. Styles and URL panels; an opt-in **Fireworks CS6** save mode (reference: FirePixel's fp-fwpng)
 11. Filters menu, the rest: Levels/Curves eyedroppers; check the menu's Sharpen strengths and
     filters on paths/text against Fireworks MX; Unsharp Mask's exact blur; Invert's soft-edge weight
-12. **Remember last-used values across restarts**: Fireworks keeps the last used colours, stroke settings
-    and even effect slider values as preferences, and shows them next time, after an app restart too
+12. **Remember last-used values across restarts, the rest**: done for the tool options that exist
+    and for every effect's settings (`crates/ui-egui/src/tool_settings.rs`, see
+    [behavior/effects.md](behavior/effects.md#last-settings-and-defaults)). When one of these is built,
+    add its settings to `serialize_tools`/`parse_tools` (Fireworks MX's preference keys, as reference
+    for what it keeps; values from the oracle prefix's `Fireworks MX Preferences.txt`):
+    - **Blur and Sharpen tools** (item 4): size, edge, shape, intensity, blend mode, pressure options
+      (`BlurTool*`, `SharpenTool*`: `Diameter`, `SoftEdge`, `IsCircle`, `StampSpacing`, `Intensity`,
+      `BlendMode`, `PressureAffectsSize`, `PressureAffectsIntensity`)
+    - **Dodge and Burn tools** (item 4): size, edge, shape, exposure, range, pressure options
+      (`DodgeTool*`, `BurnTool*`: `Diameter`, `SoftEdge`, `IsCircle`, `StampSpacing`, `Exposure`,
+      `Range`, `PressureAffectsSize`, `PressureAffectsExposure`)
+    - **Smudge tool** (item 4): size, edge, shape, pressure, blend mode, Use Entire Document, Smudge
+      Color and its colour, pressure options (`SmudgeTool*`: `Diameter`, `SoftEdge`, `IsCircle`,
+      `StampSpacing`, `Pressure`, `BlendMode`, `UseEntireDocument`, `FingerPaint`, `FingerPaintColor`,
+      `PressureAffectsSize`, `PressureAffectsPressure`)
+    - **Rubber Stamp** (item 4): source aligned/fixed, sample layer, size, edge, spacing (`StampToolMode`,
+      `StampToolSource`, `StampToolSize`, `StampToolEdge`, `StampToolStampSpacing`)
+    - **Eraser's spacing and pressure options**, once the Eraser has them (`EraserToolStampSpacing`,
+      `EraserToolPressureAffectsSize`, `EraserToolPressureAffectsOpacity`)
+    - **Paint Bucket and Gradient tool's own settings**, once they're separate as in Fireworks MX
+      (`FillTool*`/`GradientTool*`: `FillsSelection`, `Opacity`, `BlendMode`, `PreserveAlpha`,
+      `Tolerance`); today both share the tool options' paint settings
+    - **Polygon/Star tool** (item 1): sides, polygon or star, automatic angle, spikiness
+      (`PolygonToolSides`, `PolygonToolIsStar`, `PolygonToolIsAuto`, `PolygonToolSpikiness`)
+    - **Freeform tool** (item 1): Push/Pull size and pressure, Reshape Area size, strength and
+      pressure, preview (`FreeFormPushNPull*`, `FreeFormGrav*`)
+    - **Lasso and Polygon Lasso** (item 3): edge and feather, kept apart from the Marquee's
+      (`LassoToolAntiAliased`, `LassoToolFeatherAmount`)
+    - **Marquee's Style** (Normal / Fixed Ratio / Fixed Size and their numbers), once built
+      (`MarqueeToolMode`, `MarqueeToolModeRatioX/Y`, `MarqueeToolModeWidthX/Y`)
+    - **Crop tool's constraint**, once it has one (`CropTool_Constraint`, `CropTool_Horiz`,
+      `CropTool_Vert`)
+    - **Modify > Alter Path and Select menu amounts** (item 1 and later): Simplify, Expand Stroke,
+      Inset Path, Expand/Contract/Border/Smooth Marquee (`SimplifyAmount`, `Expand*`, `Inset*`,
+      `ExpandSelectionAmount`, `ContractSelectionAmount`, `BorderSelectionAmount`,
+      `SmoothSelectionAmount`)
 13. JavaScript API compatibility for `.jsf` commands (Commands menu)
 14. **Opening and importing other applications' files**, in this order:
     1. **Photoshop (PSD)**, highest priority: layers as bitmap objects with names, visibility,
