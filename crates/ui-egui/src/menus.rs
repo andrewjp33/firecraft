@@ -43,7 +43,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let has_objects = app.session.active_doc().is_some_and(|d| !d.selection.is_empty());
     let several = app.session.active_doc().is_some_and(|d| d.selection.len() >= 2);
     let can_ungroup = app.session.active_doc().is_some_and(|d| d.can_ungroup());
-    let can_paste = has_doc && (app.clipboard.is_some() || firecraft_sysclip::available());
+    let can_paste = has_doc && can_paste(app);
     let has_sel = app
         .session
         .active_doc()
@@ -125,7 +125,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 copy(app, ui.ctx(), false);
             }
             if item(ui, "Paste", "Ctrl+V", can_paste) {
-                paste(app);
+                menu_paste(app, PasteKind::Paste);
             }
             if item(ui, "Clear", "Backspace", has_sel) {
                 delete_selection(app);
@@ -430,7 +430,7 @@ pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let has_pixels = d.pixels.is_some();
     let has_objects = !d.selection.is_empty();
     let can_ungroup = d.can_ungroup();
-    let can_paste = app.clipboard.is_some() || firecraft_sysclip::available();
+    let can_paste = can_paste(app);
     if has_pixels {
         ui.menu_button("Edit", |ui| edit_items(app, ui, can_paste, false));
         ui.menu_button("Magnification", |ui| magnification_items(app, ui));
@@ -506,7 +506,7 @@ pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.menu_button("Symbol", |ui| symbol_items(app, ui, true));
     } else {
         if item(ui, "Paste", "Ctrl+V", can_paste) {
-            paste(app);
+            menu_paste(app, PasteKind::Paste);
         }
         todo(ui, "Show All", "Ctrl+Shift+L");
         ui.separator();
@@ -564,7 +564,7 @@ fn edit_items(app: &mut FireCraftApp, ui: &mut egui::Ui, can_paste: bool, object
         copy(app, ui.ctx(), false);
     }
     if item(ui, "Paste", "Ctrl+V", can_paste) {
-        paste(app);
+        menu_paste(app, PasteKind::Paste);
     }
     ui.separator();
     paste_mask_items(app, ui, can_paste);
@@ -1228,8 +1228,10 @@ fn clipboard_events(app: &mut FireCraftApp, ctx: &egui::Context) {
                 if app.clipboard.as_ref().is_some_and(|(_, note)| *note == text) {
                     paste(app);
                 } else {
+                    // Text pastes into a text block being edited (text_tool.rs takes the
+                    // event first); pasting it as a new text object isn't built.
                     app.status = Some((
-                        "Pasting text isn't supported yet (FireCraft has no text tool yet).".into(),
+                        "To paste text, click in a text block with the Text tool, then paste.".into(),
                         false,
                     ));
                 }
@@ -1276,9 +1278,9 @@ fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     if item(ui, "Hide All", "", can_add) {
         with_doc(app, |d| d.add_mask(false));
     }
-    let can_paste = app.clipboard.is_some() || firecraft_sysclip::available();
+    let can_paste = can_paste(app);
     if item(ui, "Paste as Mask", "", can_paste && app.session.active_doc().is_some_and(|d| d.paste_as_mask_target().is_some())) {
-        paste_as_mask(app);
+        menu_paste(app, PasteKind::Mask);
     }
     if item(ui, "Group as Mask", "", can_group) {
         with_doc(app, |d| d.group_as_mask());
@@ -1314,15 +1316,15 @@ fn mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Edit > Paste as Mask (and Paste Inside, not built yet). Fireworks MX enables Paste as Mask
+/// Edit > Paste as Mask and Paste Inside. Fireworks MX enables Paste as Mask
 /// for exactly one selected object.
 fn paste_mask_items(app: &mut FireCraftApp, ui: &mut egui::Ui, can_paste: bool) {
     let target = app.session.active_doc().and_then(|d| d.paste_as_mask_target());
     if item(ui, "Paste as Mask", "", can_paste && target.is_some()) {
-        paste_as_mask(app);
+        menu_paste(app, PasteKind::Mask);
     }
     if item(ui, "Paste Inside", "Ctrl+Shift+V", can_paste && target.is_some()) {
-        paste_inside(app);
+        menu_paste(app, PasteKind::Inside);
     }
 }
 
@@ -1333,7 +1335,13 @@ fn paste_inside(app: &mut FireCraftApp) {
         return;
     }
     if let Some(clip) = clipboard_contents(app) {
-        with_doc(app, |d| d.paste_inside(&clip));
+        paste_inside_clip(app, &clip);
+    }
+}
+
+fn paste_inside_clip(app: &mut FireCraftApp, clip: &firecraft_engine::Clipboard) {
+    if app.session.active_doc().and_then(|d| d.paste_as_mask_target()).is_some() {
+        with_doc(app, |d| d.paste_inside(clip));
     }
 }
 
@@ -1346,20 +1354,7 @@ fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipbo
         && let Some(data) = firecraft_sysclip::get_image()
     {
         return match firecraft_io::read_clipboard(&data) {
-            Ok(firecraft_io::Pasted::Objects(elements, symbols, tiles)) => Some(Clipboard {
-                elements,
-                symbols,
-                tiles,
-            }),
-            Ok(firecraft_io::Pasted::Image(image)) => {
-                let d = app.session.active_doc()?;
-                let (x, y) = firecraft_io::pasted_image_origin((d.doc.width, d.doc.height), (image.width(), image.height()));
-                let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap { x, y, image }));
-                Some(Clipboard {
-                    elements: vec![el],
-                    ..Clipboard::default()
-                })
-            }
+            Ok(pasted) => pasted_clip(app, pasted),
             Err(e) => {
                 app.status = Some((format!("Can't paste the clipboard's image: {e}"), true));
                 None
@@ -1388,10 +1383,116 @@ fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipbo
     app.clipboard.as_ref().map(|(c, _)| c.clone())
 }
 
+/// What a paste brings in, as objects: a picture is a bitmap centred on the canvas.
+fn pasted_clip(app: &FireCraftApp, pasted: firecraft_io::Pasted) -> Option<firecraft_engine::Clipboard> {
+    use firecraft_engine::Clipboard;
+    match pasted {
+        firecraft_io::Pasted::Objects(elements, symbols, tiles) => Some(Clipboard {
+            elements,
+            symbols,
+            tiles,
+        }),
+        firecraft_io::Pasted::Image(image) => {
+            let d = app.session.active_doc()?;
+            let (x, y) = firecraft_io::pasted_image_origin((d.doc.width, d.doc.height), (image.width(), image.height()));
+            let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap { x, y, image }));
+            Some(Clipboard {
+                elements: vec![el],
+                ..Clipboard::default()
+            })
+        }
+    }
+}
+
+/// Which paste a menu asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PasteKind {
+    Paste,
+    Inside,
+    Mask,
+}
+
+/// Whether there's anything to paste: FireCraft's own copy, or a system clipboard to look in.
+fn can_paste(app: &FireCraftApp) -> bool {
+    app.clipboard.is_some() || firecraft_sysclip::available() || app.platform.can_read_clipboard()
+}
+
+/// A paste chosen from a menu. In the browser the system clipboard is read first and the
+/// paste happens when the answer comes (`host_pastes`); Ctrl+V brings its picture in the
+/// browser's paste event instead, without asking.
+fn menu_paste(app: &mut FireCraftApp, kind: PasteKind) {
+    if !firecraft_sysclip::available() && app.platform.can_read_clipboard() {
+        app.pending_paste = Some(kind);
+        app.platform.read_clipboard();
+        return;
+    }
+    own_or_system_paste(app, kind);
+}
+
+fn own_or_system_paste(app: &mut FireCraftApp, kind: PasteKind) {
+    match kind {
+        PasteKind::Paste => paste(app),
+        PasteKind::Inside => paste_inside(app),
+        PasteKind::Mask => paste_as_mask(app),
+    }
+}
+
+/// Pictures the host read from the system clipboard (the browser): Ctrl+V's, and the answers
+/// to a menu's [`menu_paste`]. With no picture there, the menu pastes FireCraft's own copy.
+pub(crate) fn host_pastes(app: &mut FireCraftApp) {
+    for pasted in app.platform.take_pasted() {
+        match pasted {
+            crate::HostPaste::Picture(bytes) => paste_picture(app, PasteKind::Paste, &bytes),
+            crate::HostPaste::Read(read) => {
+                let Some(kind) = app.pending_paste.take() else {
+                    continue;
+                };
+                match read {
+                    Ok(Some(bytes)) => paste_picture(app, kind, &bytes),
+                    _ if app.clipboard.is_some() => own_or_system_paste(app, kind),
+                    Ok(None) => app.status = Some(("The clipboard has no picture to paste.".into(), false)),
+                    Err(e) => {
+                        app.status = Some((
+                            format!("The browser didn't let FireCraft read the clipboard ({e}). Ctrl+V pastes without asking."),
+                            true,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// An image file's bytes from the system clipboard, pasted as `kind` says.
+fn paste_picture(app: &mut FireCraftApp, kind: PasteKind, bytes: &[u8]) {
+    if app.session.active_doc().is_none() {
+        return;
+    }
+    let pasted = firecraft_io::read_clipboard(bytes)
+        .or_else(|_| firecraft_io::textures::decode_image(bytes).map(firecraft_io::Pasted::Image));
+    match pasted {
+        Err(e) => app.status = Some((format!("Can't paste the clipboard's picture: {e}"), true)),
+        Ok(firecraft_io::Pasted::Image(image)) if kind == PasteKind::Paste => paste_image(app, image),
+        Ok(pasted) => {
+            let Some(clip) = pasted_clip(app, pasted) else { return };
+            match kind {
+                PasteKind::Paste => with_doc(app, |d| d.paste(&clip)),
+                PasteKind::Inside => paste_inside_clip(app, &clip),
+                PasteKind::Mask => paste_as_mask_clip(app, clip),
+            }
+        }
+    }
+}
+
 /// Edit > Paste as Mask: an object that already has a mask asks whether to replace it or add
 /// to it (Fireworks MX's question).
 fn paste_as_mask(app: &mut FireCraftApp) {
-    let Some(clip) = clipboard_contents(app) else { return };
+    if let Some(clip) = clipboard_contents(app) {
+        paste_as_mask_clip(app, clip);
+    }
+}
+
+fn paste_as_mask_clip(app: &mut FireCraftApp, clip: firecraft_engine::Clipboard) {
     let masked = app.session.active_doc().is_some_and(|d| {
         d.paste_as_mask_target()
             .and_then(|r| d.mask_owner(r))

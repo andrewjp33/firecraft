@@ -13,7 +13,7 @@ mod web {
     use std::collections::{HashMap, HashSet};
     use std::rc::Rc;
 
-    use firecraft_ui_egui::{FireCraftApp, FolderKind, Platform, SaveStatus};
+    use firecraft_ui_egui::{FireCraftApp, FolderKind, HostPaste, Platform, SaveStatus};
     use js_sys::{Promise, Reflect, Uint8Array};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::{JsFuture, spawn_local};
@@ -179,6 +179,44 @@ export async function storedFiles(kind) {
   }
 }
 
+// A blob's bytes (FileReader: Blob.arrayBuffer needs Safari 14).
+const readBytes = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(new Uint8Array(reader.result));
+  reader.onerror = () => reject(reader.error);
+  reader.readAsArrayBuffer(blob);
+});
+
+// Pictures pasted with Ctrl+V. eframe passes on only a paste's text, so a picture is taken here
+// first (capture phase) when FireCraft wants one (accepts(): a document is open and no text is
+// being typed), and eframe doesn't see that paste.
+export function listenForPictures(accepts, onPicture) {
+  document.addEventListener("paste", (event) => {
+    const data = event.clipboardData;
+    if (!data || !accepts()) return;
+    let file = Array.from(data.files || []).find((f) => f.type.startsWith("image/"));
+    if (!file && data.items) {
+      const item = Array.from(data.items).find((i) => i.kind === "file" && i.type.startsWith("image/"));
+      file = item ? item.getAsFile() : null;
+    }
+    if (!file) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    readBytes(file).then(onPicture, (e) => console.warn("Could not read the pasted picture", e));
+  }, true);
+}
+
+// Edit > Paste: the Clipboard API (the browser may ask the visitor first).
+export const clipboardReadable = () => !!(navigator.clipboard && navigator.clipboard.read);
+// The clipboard's first picture as bytes, or null when it holds none.
+export async function readClipboardPicture() {
+  for (const item of await navigator.clipboard.read()) {
+    const type = item.types.find((t) => t.startsWith("image/"));
+    if (type) return readBytes(await item.getType(type));
+  }
+  return null;
+}
+
 export function canPickSave() {
   return !!window.showSaveFilePicker;
 }
@@ -231,6 +269,12 @@ export async function writeTo(handle, bytes) {
         fn read_local_font(name: &str) -> Promise;
         #[wasm_bindgen(js_name = writeTo)]
         fn write_to(handle: &JsValue, bytes: &Uint8Array) -> Promise;
+        #[wasm_bindgen(js_name = listenForPictures)]
+        fn listen_for_pictures(accepts: &Closure<dyn Fn() -> bool>, on_picture: &Closure<dyn Fn(Uint8Array)>);
+        #[wasm_bindgen(js_name = clipboardReadable)]
+        fn clipboard_readable() -> bool;
+        #[wasm_bindgen(js_name = readClipboardPicture)]
+        fn read_clipboard_picture() -> Promise;
     }
 
     /// (document path or name, bytes), or why the file could not be read.
@@ -261,6 +305,9 @@ export async function writeTo(handle, bytes) {
         local_names: RefCell<HashSet<String>>,
         local_requested: RefCell<HashSet<String>>,
         fonts_status: RefCell<Option<Result<usize, String>>>,
+        /// Whether a pasted picture should come in now (`Platform::set_accepts_pictures`).
+        accepts_pictures: Cell<bool>,
+        pasted: RefCell<Vec<HostPaste>>,
     }
 
     impl Shared {
@@ -317,6 +364,11 @@ export async function writeTo(handle, bytes) {
             self.ctx.request_repaint();
         }
 
+        fn finish_paste(&self, pasted: HostPaste) {
+            self.pasted.borrow_mut().push(pasted);
+            self.ctx.request_repaint();
+        }
+
         fn finish_save(&self, status: SaveStatus) {
             *self.saved.borrow_mut() = Some(status);
             self.ctx.request_repaint();
@@ -344,8 +396,22 @@ export async function writeTo(handle, bytes) {
                     local_names: RefCell::default(),
                     local_requested: RefCell::default(),
                     fonts_status: RefCell::default(),
+                    accepts_pictures: Cell::new(false),
+                    pasted: RefCell::default(),
                 }),
             };
+            // Ctrl+V with a picture on the clipboard. The listener lasts as long as the page.
+            {
+                let shared = browser.shared.clone();
+                let accepts = Closure::<dyn Fn() -> bool>::new(move || shared.accepts_pictures.get());
+                let shared = browser.shared.clone();
+                let on_picture = Closure::<dyn Fn(Uint8Array)>::new(move |bytes: Uint8Array| {
+                    shared.finish_paste(HostPaste::Picture(bytes.to_vec()));
+                });
+                listen_for_pictures(&accepts, &on_picture);
+                accepts.forget();
+                on_picture.forget();
+            }
             // Permission given on an earlier visit: no need to ask again.
             {
                 let shared = browser.shared.clone();
@@ -405,6 +471,31 @@ export async function writeTo(handle, bytes) {
 
         fn take_opened(&mut self) -> Vec<OpenedFile> {
             std::mem::take(&mut *self.shared.opened.borrow_mut())
+        }
+
+        fn set_accepts_pictures(&mut self, accepts: bool) {
+            self.shared.accepts_pictures.set(accepts);
+        }
+
+        fn can_read_clipboard(&self) -> bool {
+            clipboard_readable()
+        }
+
+        fn read_clipboard(&mut self) {
+            let reading = read_clipboard_picture();
+            let shared = self.shared.clone();
+            spawn_local(async move {
+                let read = match JsFuture::from(reading).await {
+                    Ok(bytes) if bytes.is_null() => Ok(None),
+                    Ok(bytes) => Ok(Some(Uint8Array::new(&bytes).to_vec())),
+                    Err(e) => Err(error_text(&e)),
+                };
+                shared.finish_paste(HostPaste::Read(read));
+            });
+        }
+
+        fn take_pasted(&mut self) -> Vec<HostPaste> {
+            std::mem::take(&mut *self.shared.pasted.borrow_mut())
         }
 
         fn take_saved(&mut self) -> Option<SaveStatus> {

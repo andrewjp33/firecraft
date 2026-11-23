@@ -100,7 +100,23 @@ Under Wine, MX only took the `PNG` format: offered `image/bmp` alone, Wine never
 * The native app turns egui's clipboard shortcuts off and handles Ctrl+X/C/V itself; text
   fields get them back through `raw_input_hook` (`FireCraftApp::text_clipboard_keys`).
 * Browser build: no system clipboard for objects; Copy puts a short note on the clipboard and
-  pasting it back pastes FireCraft's own copy.
+  pasting it back pastes FireCraft's own copy. Pictures from other applications paste as on
+  the desktop (a bitmap centred on the canvas; PNG, JPEG, BMP, TIFF, GIF, WebP decoded):
+  * Ctrl+V: eframe passes on only a paste event's text, so `apps/firecraft-web` listens for
+    `paste` on the document in the capture phase and takes the first `image/*` file
+    (`clipboardData.files`, else `items`). It takes it only while a document is open and no
+    text is being typed (`Platform::set_accepts_pictures`, from `egui_wants_keyboard_input`);
+    then eframe doesn't see the event, and a text block or text field being typed in gets the
+    paste's text instead. No permission prompt.
+  * Edit > Paste, the context menus' Paste, Paste as Mask and Paste Inside: read the clipboard
+    with the Clipboard API (`navigator.clipboard.read`; Chrome asks for permission once,
+    Safari and Firefox show their own Paste button each time). With no picture there, the
+    paste uses FireCraft's own copy; the menu items are enabled whenever the API exists.
+    Browsers without it (Firefox before 127) paste only FireCraft's own copy from the menus.
+  * Tested 2026-11-22 in headless Chromium (CDP: a synthetic `ClipboardEvent` with a PNG file,
+    and `navigator.clipboard.write` then Edit > Paste).
+* Pasting text outside a text block isn't built (Fireworks MX makes a text object of it); the
+  status bar says to paste into a text block with the Text tool.
 
 D-Bus plays no part: the Linux clipboard is the X11 selection (or Wayland's data-device
 protocol), which Wine bridges to the Windows clipboard.

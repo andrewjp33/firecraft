@@ -160,6 +160,31 @@ pub trait Platform {
     /// Fetch an installed font's data, by family or PostScript name, if it's on offer. It arrives
     /// in [`Platform::folder_files`] as [`FolderKind::InstalledFonts`].
     fn load_installed_font(&mut self, _name: &str) {}
+    /// Whether pictures pasted now should come in: a document is open and no text is being
+    /// typed (where a paste is text). Told every frame; the browser uses it to decide whether a
+    /// paste event's picture is FireCraft's to take.
+    fn set_accepts_pictures(&mut self, _accepts: bool) {}
+    /// Whether [`Platform::read_clipboard`] can look at the system clipboard (the browser's
+    /// Clipboard API; the desktop reads it directly).
+    fn can_read_clipboard(&self) -> bool {
+        false
+    }
+    /// Start reading a picture from the system clipboard (Edit > Paste in the browser). The
+    /// answer arrives through [`Platform::take_pasted`] as [`HostPaste::Read`].
+    fn read_clipboard(&mut self) {}
+    /// Pictures the host got from the system clipboard since the last call.
+    fn take_pasted(&mut self) -> Vec<HostPaste> {
+        Vec::new()
+    }
+}
+
+/// A picture (image file bytes: PNG, JPEG, GIF...) the host read from the system clipboard.
+pub enum HostPaste {
+    /// Pasted with the keyboard (the browser's paste event): Edit > Paste it.
+    Picture(Vec<u8>),
+    /// The answer to [`Platform::read_clipboard`]: a picture, none on the clipboard, or why
+    /// the clipboard could not be read.
+    Read(Result<Option<Vec<u8>>, String>),
 }
 
 /// User preferences (Edit > Preferences).
@@ -499,6 +524,8 @@ pub struct FireCraftApp {
     status: Option<(String, bool)>,
     /// The save still in progress in the host, if any.
     pending_save: Option<SaveTarget>,
+    /// The paste waiting for the host to read the system clipboard (the browser), if any.
+    pending_paste: Option<menus::PasteKind>,
     /// The texture menu whose Other... was last used; a file arriving later goes to it.
     awaiting_texture: Option<stroke_panel::TextureSlot>,
     pi_open: bool,
@@ -559,6 +586,7 @@ impl FireCraftApp {
             dialogs: dialogs::Dialogs::default(),
             status: None,
             pending_save: None,
+            pending_paste: None,
             awaiting_texture: None,
             pi_open: true,
             styled: false,
@@ -1040,6 +1068,10 @@ impl FireCraftApp {
                 Err(e) => self.error(e),
             }
         }
+        // Pictures the browser read from the clipboard; none come while typing text.
+        let accepts = self.session.active_doc().is_some() && !ctx.egui_wants_keyboard_input();
+        self.platform.set_accepts_pictures(accepts);
+        menus::host_pastes(self);
         if let Some((kind, folder)) = self.platform.take_folder() {
             match (folder, kind) {
                 (Ok(dir), FolderKind::Textures) => self.prefs.textures_dir = dir,
