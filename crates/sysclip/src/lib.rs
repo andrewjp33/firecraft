@@ -7,11 +7,14 @@
 //! XWayland, where Wine runs). On Windows it's the registered format "PNG". Other
 //! applications see an ordinary PNG image.
 //!
+//! On macOS it's the general pasteboard's `public.png` (there is no Fireworks MX to exchange
+//! objects with there, but other applications see the PNG picture).
+//!
 //! Where no system clipboard is reachable (the browser, Wayland without XWayland) these do
 //! nothing and FireCraft keeps copied objects to itself.
 //!
 //! Pictures other programs copy (screenshots, browser images) are read too: as a DIB on
-//! Windows, `image/png`/`image/bmp`/`image/jpeg` on X11.
+//! Windows, `image/png`/`image/bmp`/`image/jpeg` on X11, PNG/TIFF/JPEG on macOS.
 
 #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
 mod x11;
@@ -23,7 +26,16 @@ mod win;
 #[cfg(windows)]
 use win as platform;
 
-#[cfg(not(any(windows, all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))))]
+#[cfg(target_os = "macos")]
+mod mac;
+#[cfg(target_os = "macos")]
+use mac as platform;
+
+#[cfg(not(any(
+    windows,
+    target_os = "macos",
+    all(unix, not(target_os = "macos"), not(target_arch = "wasm32"))
+)))]
 mod platform {
     pub fn available() -> bool {
         false
@@ -56,14 +68,14 @@ pub fn set_png(data: Vec<u8>) -> bool {
 }
 
 /// The picture on the system clipboard, if any: a PNG (Fireworks objects from Fireworks or
-/// FireCraft, or a plain picture), else a DIB (Windows `CF_DIB`/`CF_DIBV5`), a BMP file or a
-/// JPEG, as the clipboard holds it (`firecraft_io::read_clipboard` reads them all).
+/// FireCraft, or a plain picture), else a DIB (Windows `CF_DIB`/`CF_DIBV5`), a BMP file, a
+/// TIFF (macOS) or a JPEG, as the clipboard holds it (`firecraft_io::read_clipboard` reads them all).
 pub fn get_image() -> Option<Vec<u8>> {
     platform::get_image()
 }
 
 /// The files copied in a file manager (Explorer's `CF_HDROP`, X11 `text/uri-list` from
-/// Nautilus, Dolphin, Wine...), if that's what the clipboard holds.
+/// Nautilus, Dolphin, Wine..., the Finder's file URLs), if that's what the clipboard holds.
 pub fn copied_files() -> Vec<std::path::PathBuf> {
     platform::copied_files()
 }

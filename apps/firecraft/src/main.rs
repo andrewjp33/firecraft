@@ -1,4 +1,5 @@
-// A GUI app on Windows (no console window). Log messages go to %TEMP%\firecraft.log there.
+// A GUI app on Windows (no console window). Log messages go to %TEMP%\firecraft.log there, and
+// to ~/Library/Logs/FireCraft.log on macOS when started from the Finder (no terminal).
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 //! FireCraft desktop app (Windows, Linux, macOS).
@@ -300,17 +301,28 @@ fn env_logger_init() {
         }
         fn flush(&self) {}
     }
-    // A Windows GUI app has no console: log to a file instead.
-    let file = if cfg!(windows) {
-        std::fs::File::create(std::env::temp_dir().join("firecraft.log"))
-            .ok()
-            .map(std::sync::Mutex::new)
-    } else {
-        None
-    };
+    let file = log_file()
+        .and_then(|p| std::fs::File::create(p).ok())
+        .map(std::sync::Mutex::new);
     let all = std::env::var("FIRECRAFT_LOG").is_ok_and(|v| v == "all");
     let logger = Box::leak(Box::new(L { all, file }));
     let _ = log::set_logger(logger).map(|()| log::set_max_level(log::LevelFilter::Warn));
+}
+
+/// Where log messages go when nobody would see them on stderr: a Windows GUI app has no
+/// console, and a Mac app started from the Finder or the Dock has no terminal (Console.app shows
+/// ~/Library/Logs). None: stderr.
+fn log_file() -> Option<std::path::PathBuf> {
+    use std::io::IsTerminal as _;
+    if cfg!(windows) {
+        return Some(std::env::temp_dir().join("firecraft.log"));
+    }
+    if cfg!(target_os = "macos") && !std::io::stderr().is_terminal() {
+        let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library").join("Logs");
+        std::fs::create_dir_all(&dir).ok()?;
+        return Some(dir.join("FireCraft.log"));
+    }
+    None
 }
 
 #[cfg(test)]

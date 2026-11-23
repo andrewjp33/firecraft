@@ -1238,6 +1238,8 @@ name = "firecraft-sysclip"
 version = "0.3.0"
 dependencies = [
  "clipboard-win",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "x11rb",
 ]
 

@@ -153,6 +153,10 @@ impl FontDb {
                 ]
                 .map(PathBuf::from),
             );
+            // Vom Benutzer installierte Schriften (Schriftsammlung, Doppelklick auf eine Datei)
+            if let Some(home) = std::env::var_os("HOME").filter(|v| !v.is_empty()) {
+                dirs.push(PathBuf::from(home).join("Library").join("Fonts"));
+            }
         } else if cfg!(unix) {
             // Linux/BSD: System-, lokale und Benutzerschriften; die Ordner sind dort verschachtelt
             // (z. B. truetype/dejavu), daher mit allen Unterordnern

@@ -1,4 +1,4 @@
-# Builds FireCraft for Linux, Windows and the web, then
+# Builds FireCraft for Linux, Windows, macOS and the web, then
 # - on a version tag (git tag v0.1.0 && git push origin v0.1.0): attaches the downloads to a
 #   draft GitHub release (review and publish it on the Releases page), and
 # - publishes the web version to GitHub Pages (https://andrewjp33.github.io/firecraft/).
@@ -8,6 +8,10 @@
 # One-time setup: Settings > Pages > Source: GitHub Actions; and Settings > Environments >
 # github-pages > Deployment branches and tags: add a tag rule `v*` (by default only main may
 # deploy, which refuses a deploy started by a tag).
+#
+# macOS: the app is signed ad hoc, which runs but makes Gatekeeper ask once before the first open.
+# To sign with a Developer ID and have Apple notarize it (no warning), add the secrets listed in
+# scripts/macos-ci-signing.sh.
 
 name: Release
 
@@ -52,6 +56,12 @@ jobs:
               cargo build --release -p firecraft --target x86_64-pc-windows-msvc &&
               mkdir -p dist/windows-release &&
               cp target/x86_64-pc-windows-msvc/release/firecraft.exe dist/windows-release/
+          # One universal app for Apple silicon and Intel Macs, both built on an Apple silicon
+          # runner (Apple's toolchain cross-compiles to Intel) and joined with lipo.
+          - kind: macos
+            os: macos-latest
+            target: aarch64-apple-darwin,x86_64-apple-darwin
+            build: make macos-release
           - kind: web
             os: ubuntu-22.04
             target: wasm32-unknown-unknown
@@ -80,10 +90,40 @@ jobs:
         with:
           key: ${{ matrix.kind }}
 
+      - name: Signing certificate (macOS)
+        if: matrix.kind == 'macos'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+        run: scripts/macos-ci-signing.sh
+
       - name: Build
+        env:
+          FIRECRAFT_VERSION: ${{ steps.version.outputs.version }}
         run: ${{ matrix.build }}
 
+      # Starts each architecture of the app (Intel under Rosetta) and checks it keeps running.
+      # Reported, but doesn't stop the release: the runners' virtual GPUs aren't real Macs'.
+      - name: Smoke test (macOS)
+        if: matrix.kind == 'macos'
+        continue-on-error: true
+        run: scripts/macos-smoke-test.sh dist/macos-release/FireCraft.app smoke-test
+
+      - name: Keep the smoke test's screenshots
+        if: matrix.kind == 'macos' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          # Not named firecraft-*: the release attaches only those.
+          name: macos-smoke-test
+          path: smoke-test
+          if-no-files-found: ignore
+
       - name: Package
+        env:
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
         run: scripts/package-release.sh ${{ matrix.kind }} ${{ steps.version.outputs.version }} packages
 
       - uses: actions/upload-artifact@v7

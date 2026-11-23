@@ -3,8 +3,8 @@
 FireCraft is an open-source web and screen graphics editor in the spirit of **Macromedia Fireworks MX**:
 bitmap and vector editing in one document, a context-sensitive Property inspector, layers, frames and
 the Fireworks PNG file format. It is written in pure Rust with egui, the same stack as the
-[Craft apps](https://getartcraft.com/apps) (PhotoCraft, VectorCraft, ...), and runs natively on Windows
-and Linux (macOS should work too) and in the browser via WebAssembly.
+[Craft apps](https://getartcraft.com/apps) (PhotoCraft, VectorCraft, ...), and runs natively on Windows,
+macOS and Linux and in the browser via WebAssembly.
 
 
 <p align="center">
@@ -23,6 +23,17 @@ and Linux (macOS should work too) and in the browser via WebAssembly.
   [Releases](https://github.com/andrewjp33/firecraft/releases/latest), extract it and run
   `firecraft.exe` or `./firecraft`. On Windows, SmartScreen may say it "protected your PC" from an
   Unknown publisher. If this happens, click *More info → Run anyway*.
+- **macOS** (one app for Apple silicon and Intel Macs, macOS 11 or later on Apple silicon,
+  10.13 or later on Intel): download the `.dmg` from
+  [Releases](https://github.com/andrewjp33/firecraft/releases/latest), open it and drag FireCraft
+  onto Applications. The app isn't notarized by Apple yet, so the first time you open it macOS
+  says it can't check it for malicious software:
+  - macOS 15 Sequoia and later: click *Done*, then open *System Settings → Privacy & Security*,
+    scroll down to "FireCraft was blocked..." and click *Open Anyway*.
+  - macOS 14 and earlier: Control-click (or right-click) FireCraft in Applications, choose *Open*,
+    then *Open* again.
+
+  After that it opens normally.
 
 Or [build it from source](#build-and-run).
 
@@ -74,7 +85,7 @@ Highlights (the full list is in the release notes):
 
 Things no version of Fireworks has:
 
-- **Runs anywhere**: natively on Windows and Linux, and **in the browser** with nothing to install.
+- **Runs anywhere**: natively on Windows, macOS and Linux, and **in the browser** with nothing to install.
 - **Better drawing, by choice**: *Precise* color math (Fireworks MX's formulas computed at full
   precision, rounded once instead of at every step) and *pixel-correct* perspective symbols
   (strokes keep their width, nothing smears), the defaults for new documents. Fireworks
@@ -260,6 +271,7 @@ make build        # Linux debug build only
 make run FILE=x.png
 make windows      # Windows .exe only (needs: sudo apt install mingw-w64)
 make windows-msvc # Windows .exe with the MSVC toolchain, as the downloads (cargo-xwin, see below)
+make macos        # macOS app (on a Mac; see below). make check-macos checks it compiles, from Linux
 make test         # all tests
 make parity       # compare renders with Fireworks for ../ref_fw_images; results in ../parity_runs
 make web-debug    # web build (unoptimized, with debug info) -> dist/web
@@ -274,7 +286,7 @@ system C compiler, `make windows` the mingw one and `make windows-msvc` clang-cl
 build leaves them out.
 
 Finished binaries are copied to `dist/` (release builds: `dist/linux-release/`,
-`dist/windows-release/`; web: `dist/web/`). Cargo's `target/` holds the compiled dependencies,
+`dist/windows-release/`, `dist/macos-release/`; web: `dist/web/`). Cargo's `target/` holds the compiled dependencies,
 which rarely change: `make clean` keeps them, so a rebuild takes seconds rather than minutes.
 With [sccache](https://github.com/mozilla/sccache) installed, the Makefile uses it
 automatically and compiled dependencies survive even `make distclean`.
@@ -316,6 +328,23 @@ make windows-msvc                               # -> dist/windows-msvc/firecraft
 
 Both Windows builds embed version information and an application manifest
 (`apps/firecraft/build.rs`, `apps/firecraft/windows/firecraft.manifest`).
+
+macOS: on a Mac with the Xcode command line tools (`xcode-select --install`):
+
+```sh
+make macos                 # -> dist/macos/FireCraft.app, debug, this Mac's architecture
+make macos-release         # -> dist/macos-release/FireCraft.app, universal (Apple silicon + Intel)
+make macos-release ARCH=arm64      # or x86_64: one architecture only
+scripts/package-release.sh macos 0.3.0   # -> dist/packages/firecraft-0.3.0-macos-universal.dmg
+```
+
+The app is signed ad hoc (Apple silicon Macs run only signed code). With a Developer ID
+certificate, `MACOS_SIGN_IDENTITY="Developer ID Application: ..." make macos-release` signs with
+it, and `scripts/package-release.sh` then notarizes the disk image if given an App Store Connect API
+key (see the scripts; the release workflow does the same from repository secrets, see
+`scripts/macos-ci-signing.sh`). Linking needs Apple's SDK, so there is no cross-build from Linux,
+but `make check-macos` (part of `make check`) checks on Linux that the code compiles for macOS.
+When started from the Finder, log messages go to `~/Library/Logs/FireCraft.log`.
 
 Startup: a small software-drawn splash shows (at least 2 s) while the GPU renderer starts
 (`FIRECRAFT_NO_SPLASH=1` disables it). Renderer: wgpu on Vulkan/DX12/Metal; if the only such

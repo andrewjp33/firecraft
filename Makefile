@@ -2,6 +2,7 @@
 # Windows debug apps into dist/.
 #
 # Requirements: Rust (rustup) for everything; `sudo apt install mingw-w64` for Windows builds;
+# a Mac with the Xcode command line tools for the macOS app (`make check-macos` runs anywhere);
 # `cargo install trunk` + `rustup target add wasm32-unknown-unknown` + `rustup component add
 # rust-src` + Node.js (npx) for the web build.
 # Optional: `cargo install sccache` (or the distro package) caches compiled crates outside
@@ -30,7 +31,7 @@ PARITY_OUT ?= target/parity
 PARITY_KEEP ?= 10
 DIST := dist
 
-.PHONY: all help build release run windows windows-release windows-msvc windows-msvc-release web web-serve test lint check parity clean distclean size
+.PHONY: all help build release run windows windows-release windows-msvc windows-msvc-release macos macos-release check-macos web web-serve test lint check parity clean distclean size
 
 all: build windows
 
@@ -43,13 +44,16 @@ help:
 	@echo "  make windows-release  Windows optimized      -> $(DIST)/windows-release/firecraft.exe"
 	@echo "  make windows-msvc     Windows debug, MSVC    -> $(DIST)/windows-msvc/firecraft.exe (cargo-xwin)"
 	@echo "  make windows-msvc-release  as the downloads  -> $(DIST)/windows-msvc-release/firecraft.exe"
+	@echo "  make macos            macOS debug app (on a Mac) -> $(DIST)/macos/FireCraft.app"
+	@echo "  make macos-release    macOS universal app, Apple silicon + Intel (on a Mac) -> $(DIST)/macos-release/"
+	@echo "  make check-macos      Check the macOS app compiles (works on Linux; no Mac needed)"
 	@echo "  make web              Browser build (trunk)  -> $(DIST)/web/"
 	@echo "  make web-debug        Browser debug build (dev profile, function names; larger)"
 	@echo "  make web-serve        Serve the browser build at http://127.0.0.1:8766"
 	@echo "  make run [FILE=x.png] Build and run (debug), optionally opening a file"
 	@echo "  make test             Run all tests"
 	@echo "  make lint             Clippy (lint) check"
-	@echo "  make check            Tests + lint + Windows/web compile checks"
+	@echo "  make check            Tests + lint + Windows/macOS/web compile checks"
 	@echo "  make parity           Compare renders with Fireworks for files in REF_DIR ($(REF_DIR))"
 	@echo "  make clean            Remove FireCraft's own build outputs, keep compiled dependencies"
 	@echo "  make distclean        Remove everything (target/ and $(DIST)/): next build is a full one"
@@ -96,6 +100,19 @@ windows-msvc-release:
 	@cp target/$(MSVC_TARGET)/release/firecraft.exe $(DIST)/windows-msvc-release/firecraft.exe
 	@echo "Built: $(DIST)/windows-msvc-release/firecraft.exe"
 
+# macOS: FireCraft.app, signed (ad hoc, or with MACOS_SIGN_IDENTITY's Developer ID). Needs a
+# Mac with the Xcode command line tools. The release build is universal (Apple silicon and
+# Intel in one app); ARCH=arm64|x86_64|universal picks one (debug default: this Mac's own).
+macos:
+	scripts/build-macos.sh $(if $(ARCH),--arch $(ARCH))
+
+macos-release:
+	scripts/build-macos.sh --release $(if $(ARCH),--arch $(ARCH))
+
+# From Linux too: type-checks both Mac targets (linking needs Apple's SDK, i.e. a Mac).
+check-macos:
+	scripts/check-macos.sh
+
 # The browser build is two builds; the page loads whichever the browser can run (support.js
 # decides; see apps/firecraft-web/post_build.py):
 # - modern (index.html -> dist/web): WebAssembly with the features Rust uses by default.
@@ -134,7 +151,7 @@ test:
 lint:
 	$(CARGO) clippy --workspace
 
-check: test lint
+check: test lint check-macos
 	$(CARGO) check -p firecraft --target $(WIN_TARGET)
 	$(CARGO) check -p firecraft-web --target $(WASM_TARGET)
 
@@ -153,7 +170,7 @@ parity:
 # compiled, so the next build takes about a minute instead of a full rebuild.
 clean:
 	$(CARGO) clean $(addprefix -p ,$(OWN_PACKAGES))
-	@for t in $(WIN_TARGET) $(WASM_TARGET); do \
+	@for t in $(WIN_TARGET) $(WASM_TARGET) aarch64-apple-darwin x86_64-apple-darwin; do \
 		if [ -d target/$$t ]; then $(CARGO) clean --target $$t $(addprefix -p ,$(OWN_PACKAGES)); fi; \
 	done
 	@echo "Kept compiled dependencies; 'make distclean' removes everything."

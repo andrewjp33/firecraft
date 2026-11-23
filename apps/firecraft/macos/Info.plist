@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- FireCraft.app's Info.plist. scripts/build-macos.sh fills in @VERSION@ and
+     @BUNDLE_VERSION@ (numbers only, e.g. 0.3.0) and @MIN_MACOS@. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>firecraft</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.andrewjp33.firecraft</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>FireCraft</string>
+	<key>CFBundleDisplayName</key>
+	<string>FireCraft</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@BUNDLE_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@BUNDLE_VERSION@</string>
+	<key>CFBundleGetInfoString</key>
+	<string>FireCraft @VERSION@</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) 2026 the FireCraft authors. MIT or Apache-2.0.</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.graphics-design</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MIN_MACOS@</string>
+	<!-- Draw at the display's full (Retina) resolution. -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- Let Macs with two GPUs stay on the integrated one, as other apps do. -->
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+</dict>
+</plist>

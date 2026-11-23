@@ -103,7 +103,7 @@ pub enum Pasted {
 }
 
 /// The system clipboard's data: a Fireworks PNG (objects), or a picture as a PNG, a DIB
-/// (`CF_DIB`/`CF_DIBV5`), a BMP file or a JPEG.
+/// (`CF_DIB`/`CF_DIBV5`), a BMP file, a JPEG or a TIFF.
 pub fn read_clipboard(bytes: &[u8]) -> Result<Pasted> {
     if bytes.starts_with(b"\x89PNG") {
         if firecraft_fwpng::FwPng::read(bytes).is_ok_and(|fw| fw.is_fireworks()) {
@@ -115,7 +115,8 @@ pub fn read_clipboard(bytes: &[u8]) -> Result<Pasted> {
     if bytes.starts_with(b"BM") {
         return crate::dib::decode_bmp(bytes).map(Pasted::Image);
     }
-    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+    // JPEG, or TIFF (how many Mac applications copy pictures).
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) || bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
         return crate::textures::decode_image(bytes).map(Pasted::Image);
     }
     crate::dib::decode_dib(bytes).map(Pasted::Image)
@@ -266,6 +267,20 @@ mod tests {
         assert_eq!(els.len(), 1);
         assert_eq!(els[0].bounds(), Some((100.0, 70.0, 101.0, 61.0)));
         assert!(file_as_paste(b"not a picture", "x.png", (300, 200)).is_err());
+    }
+
+    #[test]
+    fn a_tiff_picture_pastes_as_an_image() {
+        // How many Mac applications copy pictures (public.tiff).
+        let rgba =
+            image::RgbaImage::from_fn(3, 2, |x, y| image::Rgba([x as u8 * 80, y as u8 * 90, 7, 255]));
+        let mut tiff = std::io::Cursor::new(Vec::new());
+        assert!(rgba.write_to(&mut tiff, image::ImageFormat::Tiff).is_ok());
+        let Ok(Pasted::Image(img)) = read_clipboard(tiff.get_ref()) else {
+            panic!("a TIFF should paste as a picture");
+        };
+        assert_eq!((img.width(), img.height()), (3, 2));
+        assert_eq!(img.get(2, 1), Some(Rgba::new(160, 90, 7, 255)));
     }
 }
 

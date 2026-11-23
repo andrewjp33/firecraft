@@ -99,14 +99,43 @@ pub fn run() {
         std::thread::sleep(TIMEOUT);
         std::process::exit(0);
     });
-    let Ok(event_loop) = EventLoop::new() else { return };
+    let Ok(event_loop) = event_loop() else { return };
     let mut app = Splash {
         window: None,
         surface: None,
         pixels: render(),
+        scale: 1,
         announced: false,
     };
     let _ = event_loop.run_app(&mut app);
+}
+
+/// On macOS the splash is an "accessory" process: the app's own process already has the Dock
+/// icon and menu bar, and a second icon would bounce in the Dock while it starts.
+#[cfg(target_os = "macos")]
+fn event_loop() -> Result<EventLoop<()>, winit::error::EventLoopError> {
+    use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS as _};
+    EventLoop::builder()
+        .with_activation_policy(ActivationPolicy::Accessory)
+        .build()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn event_loop() -> Result<EventLoop<()>, winit::error::EventLoopError> {
+    EventLoop::new()
+}
+
+/// Screen pixels per splash pixel. Macs draw everything at the display's backing scale (2 on
+/// Retina displays), so the splash is enlarged to look the same size as on a standard display;
+/// elsewhere it stays 1:1 as before.
+fn pixel_scale(monitor: Option<&winit::monitor::MonitorHandle>) -> u32 {
+    if !cfg!(target_os = "macos") {
+        return 1;
+    }
+    monitor
+        .map_or(1.0, winit::monitor::MonitorHandle::scale_factor)
+        .round()
+        .clamp(1.0, 4.0) as u32
 }
 
 type Surface = softbuffer::Surface<Rc<Window>, Rc<Window>>;
@@ -115,6 +144,8 @@ struct Splash {
     window: Option<Rc<Window>>,
     surface: Option<Surface>,
     pixels: Vec<u32>,
+    /// Screen pixels per splash pixel ([`pixel_scale`]).
+    scale: u32,
     /// Sent the "painted" byte to the app.
     announced: bool,
 }
@@ -124,17 +155,20 @@ impl ApplicationHandler for Splash {
         if self.window.is_some() {
             return;
         }
+        let monitor = el.primary_monitor();
+        self.scale = pixel_scale(monitor.as_ref());
+        let (w, h) = (W * self.scale, H * self.scale);
         let mut attrs = Window::default_attributes()
             .with_title("FireCraft is starting")
             .with_decorations(false)
             .with_resizable(false)
             .with_window_level(WindowLevel::AlwaysOnTop)
-            .with_inner_size(PhysicalSize::new(W, H));
-        if let Some(m) = el.primary_monitor() {
+            .with_inner_size(PhysicalSize::new(w, h));
+        if let Some(m) = monitor {
             let (s, p) = (m.size(), m.position());
             attrs = attrs.with_position(PhysicalPosition::new(
-                p.x + (s.width as i32 - W as i32) / 2,
-                p.y + (s.height as i32 - H as i32) / 2,
+                p.x + (s.width as i32 - w as i32) / 2,
+                p.y + (s.height as i32 - h as i32) / 2,
             ));
         }
         let Ok(window) = el.create_window(attrs) else {
@@ -169,8 +203,11 @@ impl ApplicationHandler for Splash {
                 let Ok(mut buffer) = surface.buffer_mut() else {
                     return;
                 };
+                let k = self.scale.max(1) as usize;
                 for (y, row) in buffer.chunks_mut(size.width as usize).enumerate() {
+                    let y = y / k;
                     for (x, px) in row.iter_mut().enumerate() {
+                        let x = x / k;
                         let src = if (x as u32) < W && (y as u32) < H {
                             self.pixels.get(y * W as usize + x)
                         } else {
