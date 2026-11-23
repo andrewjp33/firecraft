@@ -1323,9 +1323,9 @@ pub fn filter_dialog(app: &mut FireCraftApp, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
-                changed |= defaults_button(ui, def, &mut fd.entry, &mut app.effects_ui.tables);
                 ok |= ui.button("OK").clicked();
                 cancel |= ui.button("Cancel").clicked();
+                changed |= defaults_button(ui, def, &mut fd.entry, &mut app.effects_ui.tables);
             });
         });
     cancel |= !open;
@@ -1393,9 +1393,9 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
-                changed |= defaults_button(ui, def, &mut e, &mut app.effects_ui.tables);
                 ok |= ui.button("OK").clicked();
                 cancel |= ui.button("Cancel").clicked();
+                changed |= defaults_button(ui, def, &mut e, &mut app.effects_ui.tables);
             });
         });
     cancel |= !open;
