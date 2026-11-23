@@ -43,6 +43,9 @@ mod platform {
     pub fn set_png(_data: Vec<u8>) -> bool {
         false
     }
+    pub fn set_png_and_dib(_png: Vec<u8>, _dib: Vec<u8>) -> bool {
+        false
+    }
     pub fn get_image() -> Option<Vec<u8>> {
         None
     }
@@ -65,6 +68,14 @@ pub fn available() -> bool {
 /// Put a (Fireworks) PNG on the system clipboard. False if that wasn't possible.
 pub fn set_png(data: Vec<u8>) -> bool {
     platform::set_png(data)
+}
+
+/// Put copied objects on the system clipboard: the (Fireworks) PNG, and on Windows also `dib`,
+/// their picture as a `CF_DIB` (`firecraft_io::encode_dib`), as Fireworks MX does. Chrome on
+/// Windows sees a clipboard picture only when a bitmap format is there; programs that don't read
+/// "PNG" (Paint, older ones) paste the DIB. Elsewhere the DIB is left out.
+pub fn set_png_and_dib(png: Vec<u8>, dib: Vec<u8>) -> bool {
+    platform::set_png_and_dib(png, dib)
 }
 
 /// The picture on the system clipboard, if any: a PNG (Fireworks objects from Fireworks or

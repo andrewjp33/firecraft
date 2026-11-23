@@ -1,4 +1,5 @@
-//! Exercise the system clipboard: sysclip_probe get OUT | files | set FILE SECONDS
+//! Exercise the system clipboard: sysclip_probe get OUT | files | set FILE SECONDS [DIB]
+//! (with DIB, a `CF_DIB` file's bytes go beside the PNG as FireCraft's Copy puts them)
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
@@ -15,16 +16,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("set") => {
             let data = std::fs::read(a.get(2).ok_or("FILE")?)?;
             let secs: u64 = a.get(3).map_or(Ok(20), |s| s.parse())?;
-            println!(
-                "set {} bytes: {} (owns: {})",
-                data.len(),
-                firecraft_sysclip::set_png(data),
-                firecraft_sysclip::owns()
-            );
+            let len = data.len();
+            let set = match a.get(4) {
+                Some(dib) => firecraft_sysclip::set_png_and_dib(data, std::fs::read(dib)?),
+                None => firecraft_sysclip::set_png(data),
+            };
+            println!("set {len} bytes: {set} (owns: {})", firecraft_sysclip::owns());
             std::thread::sleep(std::time::Duration::from_secs(secs));
             println!("still owner: {}", firecraft_sysclip::owns());
         }
-        _ => return Err("usage: sysclip_probe get OUT | files | set FILE SECONDS".into()),
+        _ => return Err("usage: sysclip_probe get OUT | files | set FILE SECONDS [DIB]".into()),
     }
     Ok(())
 }

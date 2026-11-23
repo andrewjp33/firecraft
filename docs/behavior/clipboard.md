@@ -23,7 +23,14 @@ first; decoding it is on the roadmap (lowest priority).
 
 * Copy/Cut: FireCraft keeps the objects itself and also puts a Fireworks PNG of them on the
   system clipboard as `PNG` (Windows) / `image/png` (X11) — `firecraft_io::clipboard_png`,
-  `firecraft-sysclip`. Other applications paste it as a picture.
+  `firecraft-sysclip`. Other applications paste it as a picture. On Windows a `CF_DIB` of the
+  objects' picture (over white, `firecraft_io::encode_dib`) follows "PNG", as Fireworks MX
+  puts one: Chrome on Windows offered a page no picture with "PNG" alone (Ctrl+V did nothing,
+  `navigator.clipboard.read` listed no image; the user, 2026-11-22), while objects copied
+  in Fireworks MX (with its DIBs) pasted into the web version as objects. Fireworks MX still
+  pastes the "PNG" as objects with the DIB beside it (measured under Wine 2026-11-22:
+  `sysclip_probe.exe set FILE SECS DIB`, then `dom.clipPaste()` gave the file's Rectangle
+  and Text, not the DIB's green square).
 * Paste: if the system clipboard holds a picture that FireCraft didn't put there, it is read
   with `firecraft_io::read_clipboard`: a Fireworks PNG becomes its objects at their original
   place (symbols come along, renumbered if their ids clash); any other picture becomes a bitmap

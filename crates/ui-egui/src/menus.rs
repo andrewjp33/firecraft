@@ -1063,9 +1063,13 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
                 (a.1 + a.3).max(b.1 + b.3) - y0,
             )
         });
+    // The PNG's flat image is the objects' picture: also offered as a DIB (Windows).
     let shared = bounds
         .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b, res).ok())
-        .is_some_and(firecraft_sysclip::set_png);
+        .is_some_and(|png| match firecraft_io::decode_png(&png) {
+            Ok(picture) => firecraft_sysclip::set_png_and_dib(png, firecraft_io::encode_dib(&picture)),
+            Err(_) => firecraft_sysclip::set_png(png),
+        });
     let note = clipboard_note(clip.elements.len());
     // Without a system clipboard for objects (the browser), a note comes back as a paste.
     if !shared && !app.clipboard_keys {

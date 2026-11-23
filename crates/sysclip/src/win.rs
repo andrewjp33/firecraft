@@ -1,4 +1,5 @@
-//! Windows: the registered clipboard format "PNG" (written and read); pictures are also read
+//! Windows: the registered clipboard format "PNG" (written and read) plus a `CF_DIB` beside it
+//! on copy; pictures are also read
 //! from `CF_DIB`, `CF_DIBV5` and "JFIF".
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -20,11 +21,21 @@ pub fn available() -> bool {
 }
 
 pub fn set_png(data: Vec<u8>) -> bool {
+    set(&data, None)
+}
+
+/// "PNG" first, then `CF_DIB` (Windows makes `CF_DIBV5` and `CF_BITMAP` from it), the order
+/// Fireworks MX puts them in.
+pub fn set_png_and_dib(png: Vec<u8>, dib: Vec<u8>) -> bool {
+    set(&png, Some(&dib))
+}
+
+fn set(png: &[u8], dib: Option<&[u8]>) -> bool {
     let Some(fmt) = format() else { return false };
     let Ok(_open) = Clipboard::new_attempts(10) else {
         return false;
     };
-    let ok = raw::set(fmt, &data).is_ok();
+    let ok = raw::set(fmt, png).is_ok() && dib.is_none_or(|d| raw::set_without_clear(CF_DIB, d).is_ok());
     if ok {
         OURS.store(raw::seq_num().map_or(0, |n| n.get()), Ordering::Relaxed);
     }

@@ -37,6 +37,29 @@ fn u32_at(b: &[u8], at: usize) -> Result<u32> {
         .ok_or_else(|| bad("truncated header"))
 }
 
+/// A picture as a `CF_DIB` for other Windows programs: 24 bits, bottom-up, the picture
+/// composited over white (programs reading a DIB mostly ignore alpha). Fireworks MX also puts
+/// a DIB beside its "PNG" format; Chrome on Windows offers a page a clipboard picture only when
+/// a bitmap format is there, then reads the "PNG" bytes.
+pub fn encode_dib(image: &RgbaImage) -> Vec<u8> {
+    let (w, h) = (image.width() as usize, image.height() as usize);
+    let stride = (w * 3).div_ceil(4) * 4;
+    let mut out = Vec::with_capacity(40 + stride * h);
+    let header: [u32; 10] = [40, w as u32, h as u32, 1 | (24 << 16), BI_RGB, (stride * h) as u32, 2835, 2835, 0, 0];
+    for v in header {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    let over_white = |c: u8, a: u8| ((u32::from(c) * u32::from(a) + 255 * (255 - u32::from(a)) + 127) / 255) as u8;
+    for row in image.pixels().chunks(w.max(1)).rev() {
+        let start = out.len();
+        for p in row {
+            out.extend_from_slice(&[over_white(p.b, p.a), over_white(p.g, p.a), over_white(p.r, p.a)]);
+        }
+        out.resize(start + stride, 0);
+    }
+    out
+}
+
 /// A BMP file (`BM` + file header + DIB).
 pub fn decode_bmp(bytes: &[u8]) -> Result<RgbaImage> {
     if !bytes.starts_with(b"BM") {
@@ -310,5 +333,23 @@ mod tests {
         assert!(decode_dib(&info(40, 100_000, 100_000, 32, BI_RGB)).is_err());
         assert!(decode_dib(&info(40, 2, 2, 32, 1)).is_err());
         assert!(decode_dib(&info(40, 0, 2, 32, BI_RGB)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod encode_tests {
+    use super::*;
+    use firecraft_raster::Rgba;
+
+    #[test]
+    fn encoded_dib_decodes_to_the_picture_over_white() {
+        let mut img = RgbaImage::new(3, 2, Rgba::new(255, 0, 0, 255));
+        img.set(1, 0, Rgba::new(0, 0, 255, 0));
+        img.set(2, 1, Rgba::new(0, 0, 0, 128));
+        let back = decode_dib(&encode_dib(&img)).expect("decodes");
+        assert_eq!((back.width(), back.height()), (3, 2));
+        assert_eq!(back.get(0, 0), Some(Rgba::new(255, 0, 0, 255)));
+        assert_eq!(back.get(1, 0), Some(Rgba::new(255, 255, 255, 255)));
+        assert_eq!(back.get(2, 1), Some(Rgba::new(127, 127, 127, 255)));
     }
 }

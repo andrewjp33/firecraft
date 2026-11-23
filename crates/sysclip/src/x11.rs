@@ -408,3 +408,8 @@ mod tests {
         );
     }
 }
+
+/// X11: `image/png` only (browsers and Fireworks under Wine read it; Wine makes a DIB from it).
+pub fn set_png_and_dib(png: Vec<u8>, _dib: Vec<u8>) -> bool {
+    set_png(png)
+}
