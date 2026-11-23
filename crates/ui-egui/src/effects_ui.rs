@@ -24,9 +24,42 @@ pub struct EffectsUi {
     pub tables: crate::tables_ui::TableEditor,
     /// The Filters menu's settings popup, while open.
     pub filter: Option<FilterDialog>,
-    /// The last filter applied from the Filters menu (Repeat Filter; its popup starts from
-    /// these settings next time).
+    /// The last filter applied from the Filters menu (Repeat Filter).
     pub last_filter: Option<EffectEntry>,
+    /// Each effect's last settings: new effects and filter popups start from them (kept
+    /// between sessions, `tool_settings`).
+    pub memory: crate::tool_settings::EffectMemory,
+}
+
+impl EffectsUi {
+    /// A new effect with the settings last used for it (else Fireworks' defaults).
+    fn new_entry(&self, d: &EffectDef) -> EffectEntry {
+        let mut e = create(d);
+        self.memory.apply(d.name, &mut e);
+        e
+    }
+}
+
+/// The popups' Defaults button: every setting back to Fireworks' default (the effect stays on
+/// or off as it was). True when pressed.
+fn defaults_button(
+    ui: &mut egui::Ui,
+    d: &EffectDef,
+    e: &mut EffectEntry,
+    tables: &mut crate::tables_ui::TableEditor,
+) -> bool {
+    if !ui
+        .button("Defaults")
+        .on_hover_text("Set every setting back to its default")
+        .clicked()
+    {
+        return false;
+    }
+    let mut fresh = create(d);
+    fresh.set_visible(e.visible());
+    *e = fresh;
+    tables.forget_points();
+    true
 }
 
 /// A filter from the Filters menu being set up: previewed on the document (a live edit begun
@@ -941,7 +974,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     for d in DEFS.iter().filter(|d| d.category == cat) {
                         if ui.button(d.name).clicked() {
                             let mut l = list.clone();
-                            l.push(create(d));
+                            l.push(state.new_entry(d));
                             if has_editor(d) {
                                 open_editor = Some(l.len() - 1);
                                 adding = true;
@@ -1164,10 +1197,7 @@ fn start_filter(app: &mut FireCraftApp, d: &'static EffectDef) {
         return;
     };
     // The last settings of the same filter, as Fireworks remembers them.
-    let mut entry = match &app.effects_ui.last_filter {
-        Some(e) if e.name() == d.name && e.moa_id() == d.moa => e.clone(),
-        _ => create(d),
-    };
+    let mut entry = app.effects_ui.new_entry(d);
     // The menu's Sharpen and Sharpen More are strengths 4 and 8 (FirePixel's reading of
     // Fireworks; not yet checked against Fireworks MX). As Live Effects both are 1 (measured).
     match d.name {
@@ -1293,6 +1323,7 @@ pub fn filter_dialog(app: &mut FireCraftApp, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
+                changed |= defaults_button(ui, def, &mut fd.entry, &mut app.effects_ui.tables);
                 ok |= ui.button("OK").clicked();
                 cancel |= ui.button("Cancel").clicked();
             });
@@ -1305,6 +1336,7 @@ pub fn filter_dialog(app: &mut FireCraftApp, ctx: &egui::Context) {
         d.cancel_live_edit();
     } else if ok {
         d.commit_live_edit();
+        app.effects_ui.memory.remember(def.name, &fd.entry);
         app.effects_ui.last_filter = Some(fd.entry);
     } else {
         app.effects_ui.filter = Some(fd);
@@ -1361,6 +1393,7 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
             }
             ui.separator();
             ui.horizontal(|ui| {
+                changed |= defaults_button(ui, def, &mut e, &mut app.effects_ui.tables);
                 ok |= ui.button("OK").clicked();
                 cancel |= ui.button("Cancel").clicked();
             });
@@ -1368,7 +1401,7 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
     cancel |= !open;
     if changed && let Some(mut list) = d.selected_effects() {
         if let Some(slot) = list.get_mut(ed.index) {
-            *slot = e;
+            *slot = e.clone();
         }
         d.set_effects_live(list);
     }
@@ -1385,6 +1418,8 @@ pub fn editor(app: &mut FireCraftApp, ctx: &egui::Context) {
         }
         d.commit_live_edit();
         app.effects_ui.editing = None;
+        // What was confirmed is where this effect starts next time (Cancel forgets it).
+        app.effects_ui.memory.remember(def.name, &e);
     }
 }
 

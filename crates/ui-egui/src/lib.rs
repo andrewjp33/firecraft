@@ -44,6 +44,7 @@ mod text_menu;
 mod text_tool;
 mod theme;
 mod thumbs;
+pub mod tool_settings;
 mod tools_panel;
 mod transform_tool;
 
@@ -574,6 +575,8 @@ pub struct FireCraftApp {
     /// The UI scale given at launch (`--ui-scale`), overriding the preference for this session
     /// until a new UI Scale is chosen in Preferences.
     ui_scale_override: Option<u32>,
+    /// Textures and the pattern of the stored tool settings, still to be looked up.
+    pending_tool_assets: tool_settings::Pending,
 }
 
 impl FireCraftApp {
@@ -619,6 +622,57 @@ impl FireCraftApp {
             textures: Default::default(),
             textures_for: None,
             ui_scale_override: None,
+            pending_tool_assets: Default::default(),
+        }
+    }
+
+    /// Everything kept between sessions, as (storage key, text): the preferences, the tools'
+    /// last settings and the effects' last settings (Fireworks MX keeps all three).
+    pub fn stored_settings(&self) -> Vec<(&'static str, String)> {
+        let tools = tool_settings::serialize_tools(&self.session.options);
+        vec![
+            (Prefs::STORAGE_KEY, self.prefs.serialize()),
+            (tool_settings::TOOLS_KEY, tools),
+            (tool_settings::EFFECTS_KEY, self.effects_ui.memory.serialize()),
+        ]
+    }
+
+    /// Take up what [`FireCraftApp::stored_settings`] gave in an earlier session; `get` reads a
+    /// storage key.
+    pub fn restore_settings(&mut self, get: impl Fn(&str) -> Option<String>) {
+        if let Some(text) = get(Prefs::STORAGE_KEY) {
+            self.set_prefs(Prefs::parse(&text));
+        }
+        if let Some(text) = get(tool_settings::TOOLS_KEY) {
+            self.pending_tool_assets = tool_settings::parse_tools(&text, &mut self.session.options);
+        }
+        if let Some(text) = get(tool_settings::EFFECTS_KEY) {
+            self.effects_ui.memory = tool_settings::EffectMemory::parse(&text);
+        }
+    }
+
+    /// The stored tool settings' textures and pattern, once their libraries can be read.
+    fn restore_tool_assets(&mut self) {
+        let pending = std::mem::take(&mut self.pending_tool_assets);
+        if let Some(name) = pending.pattern {
+            let label = firecraft_io::textures::pattern_label(&name).to_owned();
+            if let Some((stem, image)) = self.pattern_library().get(&label) {
+                self.session.options.fill_pattern =
+                    Some(firecraft_engine::new_pattern(&stem, image, (0.0, 0.0, 1.0, 1.0)));
+            }
+        }
+        if pending.stroke_texture.is_none() && pending.fill_texture.is_none() {
+            return;
+        }
+        let lib = self.texture_library();
+        let stroke = pending.stroke_texture.and_then(|n| lib.get(&n));
+        let fill = pending.fill_texture.and_then(|n| lib.get(&n));
+        let o = &mut self.session.options;
+        if stroke.is_some() {
+            o.stroke_texture = stroke;
+        }
+        if fill.is_some() {
+            o.fill_texture = fill;
         }
     }
 
@@ -979,6 +1033,9 @@ impl FireCraftApp {
         // Tool options the preferences remember.
         self.prefs.aa_style = self.session.options.aa_style;
         self.texture_library();
+        if self.pending_tool_assets != tool_settings::Pending::default() {
+            self.restore_tool_assets();
+        }
         prof.lap("texture_library");
         self.adopt_selected_attributes();
         prof.lap("adopt_selected_attributes");

@@ -105,10 +105,9 @@ struct App {
 
 impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        storage.set_string(
-            firecraft_ui_egui::Prefs::STORAGE_KEY,
-            self.inner.prefs.serialize(),
-        );
+        for (key, text) in self.inner.stored_settings() {
+            storage.set_string(key, text);
+        }
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -165,11 +164,8 @@ fn run(renderer: eframe::Renderer, launch: Launch, splash: SplashHandle) -> efra
         Box::new(move |cc| {
             let mut app = FireCraftApp::new(Box::new(Desktop));
             app.set_clipboard_keys(true);
-            if let Some(text) = cc
-                .storage
-                .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))
-            {
-                app.set_prefs(firecraft_ui_egui::Prefs::parse(&text));
+            if let Some(storage) = cc.storage {
+                app.restore_settings(|key| storage.get_string(key));
             }
             if let Some(v) = launch.ui_scale {
                 app.set_ui_scale_override(v);

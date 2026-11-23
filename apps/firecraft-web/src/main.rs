@@ -754,7 +754,9 @@ export async function writeTo(handle, bytes) {
 
     impl eframe::App for App {
         fn save(&mut self, storage: &mut dyn eframe::Storage) {
-            storage.set_string(firecraft_ui_egui::Prefs::STORAGE_KEY, self.0.prefs.serialize());
+            for (key, text) in self.0.stored_settings() {
+                storage.set_string(key, text);
+            }
         }
 
         fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -802,11 +804,8 @@ export async function writeTo(handle, bytes) {
                     eframe::WebOptions::default(),
                     Box::new(|cc| {
                         let mut app = FireCraftApp::new(Box::new(Browser::new(cc.egui_ctx.clone())));
-                        if let Some(text) = cc
-                            .storage
-                            .and_then(|s| s.get_string(firecraft_ui_egui::Prefs::STORAGE_KEY))
-                        {
-                            app.set_prefs(firecraft_ui_egui::Prefs::parse(&text));
+                        if let Some(storage) = cc.storage {
+                            app.restore_settings(|key| storage.get_string(key));
                         }
                         // `?ui_scale=100` in the address: the desktop's `--ui-scale`, a way back
                         // from a UI Scale too large or small to use.

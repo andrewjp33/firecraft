@@ -74,3 +74,16 @@ first turned into bitmaps of how they look (Live Effects drawn in), after Firewo
 filters will convert the selection to a bitmap. Continue?". Filters that grow the image (Gaussian Blur)
 grow the bitmap. Popups preview on the canvas; Repeat Filter (Ctrl+Alt+Shift+X) reapplies the last one
 with its settings, which its popup also starts from next time.
+
+## Last settings and Defaults
+
+Fireworks MX keeps its tools' last settings between sessions (`Fireworks MX Preferences.txt`:
+`BrushCurrentColor`, `FillCurrentColor`, `WandToolTolerance`, `EraserToolDiameter`, `Text_Font`...).
+FireCraft keeps everything new objects and the painting tools take from the tool options (colors,
+stroke category, size, edge and texture, fill category and gradient, Gradient tool, text formatting,
+Eraser, Paint Bucket, Magic Wand and Marquee settings) under the storage key `firecraft.tools`, and
+each effect's last confirmed settings under `firecraft.effects` (`crates/ui-egui/src/tool_settings.rs`).
+A newly added Live Effect, or a Filters menu popup, starts from the settings last confirmed with OK for
+that effect (Cancel forgets them); Live Effects and the Filters menu share them. Every effect popup has
+a **Defaults** button (a FireCraft addition) that puts all its settings back to Fireworks' defaults.
+Textures and patterns are stored by name and looked up once their folders are read.

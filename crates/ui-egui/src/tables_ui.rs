@@ -38,6 +38,12 @@ const HIT: f32 = 4.0;
 const GRAPH: f32 = 256.0;
 
 impl TableEditor {
+    /// The settings were replaced (Defaults): no curve point is selected or dragged any more.
+    pub fn forget_points(&mut self) {
+        self.selected = None;
+        self.drag = None;
+    }
+
     /// Fresh state for a popup over an object whose pixels reaching the effect are `input`.
     pub fn new(input: Option<&firecraft_raster::RgbaImage>) -> Self {
         TableEditor {
