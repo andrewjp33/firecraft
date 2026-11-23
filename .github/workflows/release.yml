@@ -79,6 +79,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          # The web build for older browsers rebuilds the standard library from source.
+          components: ${{ matrix.kind == 'web' && 'rust-src' || '' }}
 
       - name: Install trunk
         if: matrix.kind == 'web'
@@ -97,7 +99,7 @@ jobs:
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-        run: scripts/macos-ci-signing.sh
+        run: bash scripts/macos-ci-signing.sh
 
       - name: Build
         env:
@@ -109,7 +111,7 @@ jobs:
       - name: Smoke test (macOS)
         if: matrix.kind == 'macos'
         continue-on-error: true
-        run: scripts/macos-smoke-test.sh dist/macos-release/FireCraft.app smoke-test
+        run: bash scripts/macos-smoke-test.sh dist/macos-release/FireCraft.app smoke-test
 
       - name: Keep the smoke test's screenshots
         if: matrix.kind == 'macos' && always()
@@ -124,7 +126,7 @@ jobs:
         env:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
-        run: scripts/package-release.sh ${{ matrix.kind }} ${{ steps.version.outputs.version }} packages
+        run: bash scripts/package-release.sh ${{ matrix.kind }} ${{ steps.version.outputs.version }} packages
 
       - uses: actions/upload-artifact@v7
         with:

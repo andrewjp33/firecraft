@@ -56,8 +56,16 @@ case $kind in
     macos)
         dmg=$out/$name.dmg
         if [ -e "$dmg" ]; then rm "$dmg"; fi
-        hdiutil create -quiet -volname "FireCraft $version" -srcfolder "$stage/$name" -fs HFS+ \
-            -format UDZO -imagekey zlib-level=9 "$dmg"
+        # hdiutil now and then fails with "Resource busy" (notably on CI machines): try again.
+        for attempt in 1 2 3 4 5; do
+            if hdiutil create -quiet -volname "FireCraft $version" -srcfolder "$stage/$name" -fs HFS+ \
+                -format UDZO -imagekey zlib-level=9 "$dmg"; then
+                break
+            fi
+            [ $attempt = 5 ] && { echo "hdiutil create failed" >&2; exit 1; }
+            if [ -e "$dmg" ]; then rm "$dmg"; fi
+            sleep $((attempt * 5))
+        done
         if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
             codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dmg"
         fi

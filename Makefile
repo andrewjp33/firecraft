@@ -104,14 +104,14 @@ windows-msvc-release:
 # Mac with the Xcode command line tools. The release build is universal (Apple silicon and
 # Intel in one app); ARCH=arm64|x86_64|universal picks one (debug default: this Mac's own).
 macos:
-	scripts/build-macos.sh $(if $(ARCH),--arch $(ARCH))
+	bash scripts/build-macos.sh $(if $(ARCH),--arch $(ARCH))
 
 macos-release:
-	scripts/build-macos.sh --release $(if $(ARCH),--arch $(ARCH))
+	bash scripts/build-macos.sh --release $(if $(ARCH),--arch $(ARCH))
 
 # From Linux too: type-checks both Mac targets (linking needs Apple's SDK, i.e. a Mac).
 check-macos:
-	scripts/check-macos.sh
+	bash scripts/check-macos.sh
 
 # The browser build is two builds; the page loads whichever the browser can run (support.js
 # decides; see apps/firecraft-web/post_build.py):
