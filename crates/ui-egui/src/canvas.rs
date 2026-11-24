@@ -41,6 +41,7 @@ pub fn workspace(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 
 fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut close: Option<usize> = None;
+    let mut restore = false;
     // Modern: the tabs sit right on the document below. egui adds the gap when it places the
     // tab row, so it goes before; the document view gets the usual spacing back.
     let spacing = ui.spacing().item_spacing.y;
@@ -63,7 +64,9 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 .corner_radius(egui::CornerRadius { nw: r, ne: r, sw: 0, se: 0 })
                 .inner_margin(egui::Margin::symmetric(if p.modern { 10 } else { 6 }, 2))
                 .show(ui, |ui| {
-                    if ui.add(egui::Label::new(title).sense(Sense::click())).clicked() {
+                    // A button, not selectable text.
+                    let name = egui::Label::new(title).selectable(false).sense(Sense::click());
+                    if ui.add(name).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                         app.session.active = i;
                     }
                     if ui
@@ -75,18 +78,61 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     }
                 });
         }
+        // Tabs are how maximised documents show (as in Fireworks): Restore goes back to
+        // document windows.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(4.0);
+            restore = restore_button(ui).clicked();
+        });
     });
+    if restore {
+        app.prefs.tabs = false;
+    }
     if let Some(i) = close {
         app.session.close(i);
         return;
     }
     let i = app.session.active;
     let p = theme::pal();
-    egui::Frame::new().fill(if p.modern { p.title_active } else { p.panel }).show(ui, |ui| {
+    let body = if p.modern {
+        // A rounded card like a maximised window's, square only where the first tab joins it.
+        let r = p.r_card;
+        egui::Frame::new()
+            .fill(p.title_active)
+            .corner_radius(egui::CornerRadius { nw: 0, ne: r, sw: r, se: r })
+            .shadow(ui.visuals().window_shadow)
+    } else {
+        egui::Frame::new().fill(p.panel)
+    };
+    body.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = spacing;
         ui.set_min_size(ui.available_size());
         document_view(app, ui, i);
     });
+}
+
+/// The tab strip's Restore button (back to document windows), drawn like a title bar's.
+fn restore_button(ui: &mut egui::Ui) -> egui::Response {
+    let tip = "Restore (show documents in windows)";
+    let (r, b) = ui.allocate_exact_size(vec2(16.0, 14.0), Sense::click());
+    let b = b.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand);
+    b.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tip));
+    let pal = theme::pal();
+    if b.hovered() {
+        let fill = if pal.dark || pal.modern { pal.button_hover } else { Color32::from_gray(190) };
+        ui.painter().rect_filled(r, 2.0, fill);
+    }
+    let c = r.center();
+    let s = Stroke::new(1.3, pal.title_text);
+    ui.painter().rect_stroke(
+        Rect::from_center_size(c + vec2(-1.0, 1.0), vec2(7.0, 6.0)),
+        0.0,
+        s,
+        StrokeKind::Middle,
+    );
+    ui.painter().line_segment([c + vec2(-1.0, -4.0), c + vec2(5.0, -4.0)], s);
+    ui.painter().line_segment([c + vec2(5.0, -4.0), c + vec2(5.0, 1.0)], s);
+    b
 }
 
 /// A document window's state (Fireworks MX's MDI windows).
@@ -479,6 +525,14 @@ fn windows(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 app.session.active = i;
                 view.auto_fit = false;
                 view.win_rect = Some(keep_reachable(normal.translate(delta), area));
+            }
+            // Maximising shows the documents in tabs, which look like a maximised window with
+            // a tab strip for its title (as in Fireworks); the window itself stays as it was,
+            // for when Restore goes back to windows.
+            TitleAction::Set(WinState::Maximized) => {
+                view.win = WinState::Normal;
+                app.session.active = i;
+                app.prefs.tabs = true;
             }
             TitleAction::Set(s) => {
                 view.win = s;

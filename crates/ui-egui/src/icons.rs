@@ -38,12 +38,27 @@ pub fn pointer_points(r: Rect) -> Vec<Pos2> {
 /// The Pointer's arrow is black and the Subselect's white, outlined in the other
 /// colour, whatever the tile behind them (their colours tell the two tools apart, as in
 /// Fireworks). False for other tools.
+/// Select Behind is black like the Pointer. Modern softens the outline.
 pub fn paint_pointer_bw(p: &Painter, r: Rect, tool: Tool) -> bool {
+    let soft = crate::theme::pal().modern;
+    let black = Color32::from_gray(0x14);
     let (fill, edge) = match tool {
-        Tool::Pointer => (Color32::from_gray(0x14), Color32::WHITE),
-        Tool::Subselect => (Color32::WHITE, Color32::from_gray(0x14)),
+        Tool::Pointer | Tool::SelectBehind => (
+            black,
+            if soft { Color32::from_white_alpha(0x70) } else { Color32::WHITE },
+        ),
+        Tool::Subselect => (
+            Color32::WHITE,
+            if soft { Color32::from_black_alpha(0xA0) } else { black },
+        ),
         _ => return false,
     };
+    if tool == Tool::SelectBehind {
+        // The object behind, as in its usual icon.
+        let s = r.shrink(2.0);
+        let at = |fx: f32, fy: f32| pos2(s.left() + fx * s.width(), s.top() + fy * s.height());
+        p.rect_filled(Rect::from_min_max(at(0.5, 0.05), at(0.95, 0.5)), 0.0, Color32::from_gray(150));
+    }
     p.add(Shape::convex_polygon(pointer_points(r), fill, Stroke::new(1.0, edge)));
     true
 }

@@ -101,6 +101,8 @@ pub struct Palette {
     pub popup_selected_text: Color32,
     /// Modern: a menu bar title under the pointer or open (on the backdrop, so darker).
     pub menu_bar_hover: Color32,
+    /// The filled part of a slider's track (Modern: grey; orange is kept for modes).
+    pub slider_fill: Color32,
     pub text: Color32,
     pub text_weak: Color32,
     /// Tool icons on panels.
@@ -180,6 +182,7 @@ const CLASSIC: Palette = Palette {
     popup_selected: rgb(0x33, 0x99, 0xFF),
     popup_selected_text: Color32::WHITE,
     menu_bar_hover: g(0xFA),
+    slider_fill: rgb(0x33, 0x99, 0xFF),
     text: g(30),
     text_weak: g(110),
     ink: g(20),
@@ -239,6 +242,7 @@ const DARK: Palette = Palette {
     popup_selected: rgb(0x2D, 0x7F, 0xE0),
     popup_selected_text: Color32::WHITE,
     menu_bar_hover: g(0x56),
+    slider_fill: rgb(0x2D, 0x7F, 0xE0),
     text: g(0xDC),
     text_weak: g(0x9A),
     ink: g(0xE2),
@@ -301,6 +305,7 @@ const MODERN: Palette = Palette {
     popup_selected: g(0x5A),
     popup_selected_text: Color32::WHITE,
     menu_bar_hover: g(0xC4),
+    slider_fill: g(0x4A),
     text: g(0x1E),
     text_weak: g(0x80),
     ink: g(0x22),
@@ -364,6 +369,7 @@ const MODERN_DARK: Palette = Palette {
     popup_selected: g(0x6E),
     popup_selected_text: Color32::WHITE,
     menu_bar_hover: g(0x4C),
+    slider_fill: g(0x9C),
     text: g(0xE8),
     text_weak: g(0x90),
     ink: g(0xE8),
@@ -816,6 +822,19 @@ pub fn bar_menu<R>(
 /// Menu settings carrying [`menu_popup_style`] to a menu and its submenus.
 pub fn menu_config() -> egui::containers::menu::MenuConfig {
     egui::containers::menu::MenuConfig::new().style(menu_popup_style())
+}
+
+/// A slider; in Modern its track fills in grey rather than the selection's orange.
+pub fn slider(ui: &mut egui::Ui, slider: impl egui::Widget) -> egui::Response {
+    let p = pal();
+    if !p.modern {
+        return ui.add(slider);
+    }
+    ui.scope(|ui| {
+        ui.visuals_mut().selection.bg_fill = p.slider_fill;
+        ui.add(slider)
+    })
+    .inner
 }
 
 /// A dropdown list styled for the theme.

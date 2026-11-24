@@ -1008,8 +1008,7 @@ fn ui_scale_row(
         ui.label("UI Scale:");
         let v = edit.get_or_insert(in_use as f64);
         ui.spacing_mut().slider_width = 180.0;
-        let slider = ui
-            .add(egui::Slider::new(v, lo..=hi).step_by(1.0).show_value(false))
+        let slider = crate::theme::slider(ui, egui::Slider::new(v, lo..=hi).step_by(1.0).show_value(false))
             .on_hover_text("How large the whole interface is drawn. 100%: as the system's display scaling draws it.");
         let boxed = ui.add(
             DragValue::new(v)

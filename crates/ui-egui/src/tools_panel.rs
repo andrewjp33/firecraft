@@ -256,7 +256,10 @@ fn flyout(
                         let fill = if resp.hovered() { theme::select() } else { p.button_active };
                         ui.painter().rect_filled(row, p.r_widget, fill);
                     }
-                    icons::paint(ui.painter(), icon, t, t.implemented());
+                    // Classic Dark's light ink would turn the black Pointer white.
+                    if !(p.dark && icons::paint_pointer_bw(ui.painter(), icon, t)) {
+                        icons::paint(ui.painter(), icon, t, t.implemented());
+                    }
                     if resp.hovered() { p.select_text } else { p.text }
                 };
                 ui.painter().text(

@@ -800,7 +800,8 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
             log,
         } => {
             let mut v: f64 = raw.trim().parse().unwrap_or(min.max(0.0).min(max));
-            let r = ui.add(
+            let r = theme::slider(
+                ui,
                 fx_slider(&mut v, min, max, log)
                     .max_decimals(decimals)
                     .min_decimals(0),
@@ -884,8 +885,7 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
         }
         Kind::PluginPixels { min, max } => {
             let mut v = plugin.pixels(f.key, min as f32) as f64;
-            if ui
-                .add(fx_slider(&mut v, min, max, true).max_decimals(2).suffix(" px"))
+            if theme::slider(ui, fx_slider(&mut v, min, max, true).max_decimals(2).suffix(" px"))
                 .changed()
             {
                 out = Some(format!("{} 0", hex(&format!("{v:.2} pixels"))));

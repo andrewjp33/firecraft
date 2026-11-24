@@ -247,21 +247,20 @@ fn shape_page(
         .show(ui, |ui| {
             ui.label("Size:");
             let mut d = b.diameter as f64;
-            if ui
-                .add(
-                    egui::Slider::new(&mut d, 1.0..=100.0)
-                        .max_decimals(0)
-                        .clamping(egui::SliderClamping::Never),
-                )
-                .changed()
+            if crate::theme::slider(
+                ui,
+                egui::Slider::new(&mut d, 1.0..=100.0)
+                    .max_decimals(0)
+                    .clamping(egui::SliderClamping::Never),
+            )
+            .changed()
             {
                 b.diameter = (d.round() as i32).clamp(1, 1000);
             }
             ui.end_row();
             ui.label("Edge:");
             let mut e = pct(b.softness);
-            if ui
-                .add(egui::Slider::new(&mut e, 0.0..=100.0).max_decimals(0))
+            if crate::theme::slider(ui, egui::Slider::new(&mut e, 0.0..=100.0).max_decimals(0))
                 .changed()
             {
                 b.softness = permille(e);
@@ -269,8 +268,7 @@ fn shape_page(
             ui.end_row();
             ui.label("Aspect:");
             let mut a = pct(b.aspect).max(1.0);
-            if ui
-                .add(egui::Slider::new(&mut a, 1.0..=100.0).max_decimals(0))
+            if crate::theme::slider(ui, egui::Slider::new(&mut a, 1.0..=100.0).max_decimals(0))
                 .changed()
             {
                 b.aspect = permille(a);

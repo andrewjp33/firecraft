@@ -114,7 +114,7 @@ fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Tolerance:");
-            ui.add(Slider::new(&mut o.tolerance, 0..=255));
+            crate::theme::slider(ui, Slider::new(&mut o.tolerance, 0..=255));
             edge_combo(ui, "wand_edge", &mut o.wand_edge);
         });
         ui.horizontal(|ui| {
@@ -226,7 +226,7 @@ fn paint_bucket(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 _ => {}
             }
             ui.label("Tolerance:");
-            ui.add(Slider::new(&mut o.paint.bucket_tolerance, 0..=255));
+            crate::theme::slider(ui, Slider::new(&mut o.paint.bucket_tolerance, 0..=255));
         });
         ui.horizontal(|ui| {
             edge_combo(ui, "bucket_edge", &mut o.paint.bucket_edge);
