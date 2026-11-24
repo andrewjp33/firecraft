@@ -56,11 +56,7 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             let p = theme::pal();
             let r = p.r_widget.saturating_mul(if p.modern { 2 } else { 0 });
             egui::Frame::new()
-                .fill(if active {
-                    if p.modern { p.title_active } else { p.panel }
-                } else {
-                    p.tab_inactive
-                })
+                .fill(if active { p.tab_active } else { p.tab_inactive })
                 .corner_radius(egui::CornerRadius { nw: r, ne: r, sw: 0, se: 0 })
                 .inner_margin(egui::Margin::symmetric(if p.modern { 10 } else { 6 }, 2))
                 .show(ui, |ui| {
