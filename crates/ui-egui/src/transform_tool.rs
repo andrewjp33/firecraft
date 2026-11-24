@@ -605,6 +605,42 @@ pub fn canvas(
     p.circle_stroke(c, 3.5, Stroke::new(1.0, theme::HANDLE_BLUE));
 }
 
+/// While a handle or the inside of the box is dragged: the box's bounds (x, y, w, h), what the
+/// Property inspector's W, H, X and Y show, as in Fireworks MX (exact even when slow objects are
+/// previewed as a warped picture of themselves).
+pub fn dragged_bounds(edit: &Option<TransformEdit>, d: &DocState) -> Option<(f64, f64, f64, f64)> {
+    let e = edit.as_ref().filter(|e| e.doc == d.id && e.refs == d.selection)?;
+    if e.drag.is_none_or(|g| g.handle == Handle::Pivot) {
+        return None;
+    }
+    let xs = e.quad.map(|c| c.0);
+    let ys = e.quad.map(|c| c.1);
+    let (x0, x1) = (xs.iter().copied().fold(f64::MAX, f64::min), xs.iter().copied().fold(f64::MIN, f64::max));
+    let (y0, y1) = (ys.iter().copied().fold(f64::MAX, f64::min), ys.iter().copied().fold(f64::MIN, f64::max));
+    Some((x0, y0, x1 - x0, y1 - y0))
+}
+
+/// The Scale, Skew and Distort tools' keys, for their Tools panel tooltip (with objects selected
+/// their Property inspector shows the objects, as in Fireworks MX, so there's no room there).
+pub fn keys(tool: Tool) -> Option<&'static str> {
+    Some(match tool {
+        Tool::Scale => {
+            "Handles resize by whole pixels: Shift keeps proportions, Alt scales from the center, \
+             Ctrl gives sub-pixel sizes.\nInside the box: move (Ctrl: sub-pixel). Outside: rotate \
+             (Shift: 15 degree steps). Pivot: drag to move (Ctrl: no snapping)."
+        }
+        Tool::Skew => {
+            "Side handle: slant. Corner handle: taper (perspective).\nInside the box: move \
+             (Ctrl: sub-pixel). Outside: rotate (Shift: 15 degree steps)."
+        }
+        Tool::Distort => {
+            "Drag any corner or side handle freely.\nInside the box: move (Ctrl: sub-pixel). \
+             Outside: rotate (Shift: 15 degree steps)."
+        }
+        _ => return None,
+    })
+}
+
 pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     ui.vertical(|ui| {
         ui.set_width(150.0);

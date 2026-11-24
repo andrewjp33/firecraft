@@ -341,6 +341,23 @@ impl LiveDraw {
     }
 }
 
+/// How much of each pixel of a `w` x `h` layer (whose pixel (0, 0) is canvas point -`off`) the
+/// path's fill covers, row by row, as Fireworks MX rasterizes fills: the same polygons as its
+/// stroke (the file's flattened `PCLv` when it still matches, else Fireworks' own flattening)
+/// through FirePixel's bit-exact rasterizer (`firecraft_stroke::coverage`): 4 x 4 samples, 16 per
+/// sample with one less in the pixel's top sample row (a full pixel 255), even-odd per contour
+/// XORed, non-zero winding when `EOFb` is 0, the AGM variant with `AGMb`; `anti_alias` off: one
+/// sample at each pixel centre. Measured again in Fireworks MX on 2026-11-24 (edges at every
+/// 1/20 pixel; docs/behavior/paths.md "Fill anti-aliasing").
+pub fn fill_coverage(path: &Path, raw: Option<&Node>, off: (f64, f64), (w, h): (u32, u32), anti_alias: bool) -> Vec<u8> {
+    let cs = contours(path, off);
+    let polys: Vec<&[Vec2]> = cs.iter().map(|c| c.points.as_slice()).collect();
+    let rect = IRect::new(0, 0, w as i32, h as i32);
+    let even_odd = raw.and_then(|r| r.bool_of("EOF")).unwrap_or(true);
+    let agm = raw.and_then(|r| r.bool_of("AGM")).unwrap_or(false);
+    firecraft_stroke::coverage::fill_coverage(&polys, rect, even_odd, agm, anti_alias).data
+}
+
 /// Draw `path`'s stroke onto `layer` (whose pixel (0, 0) is canvas point -`off`), as Fireworks
 /// does. `raw` is the path's original Fireworks node, if any.
 pub fn draw(layer: &mut RgbaImage, path: &Path, stroke: &Stroke, raw: Option<&Node>, off: (f64, f64)) {

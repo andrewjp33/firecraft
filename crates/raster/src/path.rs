@@ -170,7 +170,21 @@ pub fn fill_polygons_feathered(
         .map(|p| p.iter().map(|q| (q.0 + r as f64, q.1 + r as f64)).collect())
         .collect();
     fill_polygons(&mut big, &moved, Rgba::WHITE, true);
-    let cover: Vec<u32> = big.pixels().iter().map(|p| p.a as u32).collect();
+    let cover: Vec<u8> = big.pixels().iter().map(|p| p.a).collect();
+    fill_feathered_from(img, &cover, r, shade);
+}
+
+/// The feathered fill of [`fill_polygons_feathered`] from a ready anti-aliased coverage `cover`:
+/// `(w + 2r) x (h + 2r)` values, row by row, for the image grown by `r` on every side (pixel
+/// (r, r) of it is the image's (0, 0)).
+pub fn fill_feathered_from(img: &mut RgbaImage, cover: &[u8], r: usize, shade: &dyn Fn(f64, f64) -> Rgba) {
+    let r = r.min(1024);
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let (mw, mh) = (w + 2 * r, h + 2 * r);
+    if cover.len() != mw * mh {
+        return;
+    }
+    let cover: Vec<u32> = cover.iter().map(|&v| v as u32).collect();
     let den = ((r + 1) * (r + 1)) as u64;
     let mut sums = Vec::new();
     let mut across = vec![0u32; w * mh];

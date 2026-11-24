@@ -156,6 +156,12 @@ move instead (FireCraft's addition, the user's request, 2026-11-24; Ctrl is also
 "no snapping" key). A turned or slanted box can't sit on the grid and follows the pointer; Skew
 and Distort handles and rotation aren't snapped.
 
+With objects selected, the three tools show the objects' Property inspector, as Fireworks MX does;
+W, H, X and Y follow the box while a handle or the box is dragged
+(`transform_tool::dragged_bounds`, exact even when slow objects are previewed as a warped picture).
+The tools' keys moved to their Tools panel tooltips. With nothing selected the inspector shows the
+tool's instructions.
+
 ## Rectangle and Ellipse tools: whole pixels
 
 A drawn rectangle or ellipse has its corners on the pixel grid lines nearest the press and release

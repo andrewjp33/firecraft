@@ -4,7 +4,7 @@ use firecraft_fwpng::Node;
 use firecraft_raster::effects::Effect;
 use firecraft_raster::gradient::Gradient;
 use firecraft_raster::nine::{AxisMap, resample};
-use firecraft_raster::path::{Pt, fill_polygons_feathered, fill_polygons_with, flatten_cubic};
+use firecraft_raster::path::{Pt, fill_feathered_from, flatten_cubic};
 use firecraft_raster::pattern::{PatternFill, web_dither_at};
 use firecraft_raster::transform::{Affine, Resample, sample, transform_image_with};
 use firecraft_raster::{BlendMode, Rgba, RgbaImage};
@@ -1361,7 +1361,6 @@ impl Element {
                     stroke_layer = Some(st);
                 }
                 if let Some(f) = &p.fill {
-                    let polys: Vec<Vec<Pt>> = p.contours.iter().map(|c| c.flatten(fx, fy)).collect();
                     // Shade in canvas coordinates (the layer's pixel + its canvas offset).
                     // Fireworks samples gradients at the pixel's integer coordinate (its
                     // top-left corner), not its centre (measured on Folds/Pinch/Waves).
@@ -1381,10 +1380,29 @@ impl Element {
                             _ => f.color,
                         }
                     };
+                    // Coverage as Fireworks MX rasterizes it (stroke_fw::fill_coverage).
+                    let (lw, lh) = (layer.width(), layer.height());
                     if f.feather > 0 {
-                        fill_polygons_feathered(&mut layer, &polys, f.feather as usize, &shade);
+                        let r = (f.feather as usize).min(1024);
+                        let cover = crate::stroke_fw::fill_coverage(
+                            p,
+                            self.raw.as_ref(),
+                            (fx + r as f64, fy + r as f64),
+                            (lw + 2 * r as u32, lh + 2 * r as u32),
+                            true,
+                        );
+                        fill_feathered_from(&mut layer, &cover, r, &shade);
                     } else {
-                        fill_polygons_with(&mut layer, &polys, f.anti_alias, &shade);
+                        let cover = crate::stroke_fw::fill_coverage(p, self.raw.as_ref(), (fx, fy), (lw, lh), f.anti_alias);
+                        for (i, &c) in cover.iter().enumerate() {
+                            if c == 0 {
+                                continue;
+                            }
+                            let (x, y) = ((i % lw as usize) as i64, (i / lw as usize) as i64);
+                            if let Some(d) = layer.get(x, y) {
+                                layer.set(x, y, d.over(shade(x as f64 + 0.5, y as f64 + 0.5), c));
+                            }
+                        }
                     }
                     let origin = if ctx.canvas_textures {
                         (0.0, 0.0)

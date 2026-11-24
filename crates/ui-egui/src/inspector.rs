@@ -96,6 +96,9 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 document(app, ui);
                 crate::crop_tool::inspector(app, ui);
             }
+            // With objects selected, their Property inspector (W, H, X and Y follow the box as it's
+            // dragged), as Fireworks MX shows it with the transform tools.
+            Tool::Scale | Tool::Skew | Tool::Distort if has_selection => object(app, ui),
             t @ (Tool::Scale | Tool::Skew | Tool::Distort) => crate::transform_tool::inspector(app, ui, t),
             Tool::Marquee | Tool::OvalMarquee | Tool::Lasso => marquee(app, ui, tool),
             Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Pen if !has_selection => {
@@ -492,7 +495,9 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let animation = d.selected_animation().map(|(_, a)| a);
     // An animation symbol shows its whole motion (Fireworks MX).
     // Several objects: the box around them all (Fireworks MX).
-    let bounds = d.animation_bounds().or_else(|| {
+    // A transform tool's box being dragged: its bounds, live.
+    let dragging = crate::transform_tool::dragged_bounds(&app.transform, d);
+    let bounds = dragging.or_else(|| d.animation_bounds()).or_else(|| {
         if count > 1 {
             d.selection_bounds()
         } else {

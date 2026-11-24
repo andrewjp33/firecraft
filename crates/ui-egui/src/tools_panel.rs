@@ -162,6 +162,11 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
     if !shown.implemented() {
         tip += " (not yet implemented)";
     }
+    // The transform tools' keys (their Property inspector shows the objects' settings instead).
+    if let Some(keys) = crate::transform_tool::keys(shown) {
+        tip += "\n";
+        tip += keys;
+    }
     if let (false, Some(n)) = (alts.is_empty(), next) {
         tip += &format!("\nPress and hold for more tools (right-click: {})", n.label());
     }
