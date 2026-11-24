@@ -103,12 +103,10 @@ kernels are standard ones, not yet measured against MX's ([canvas-size.md](canva
 
 ## Property inspector W, H, X and Y
 
-With objects selected the Property inspector shows their box: W, H, X and Y, rounded to whole
-pixels (several objects: the box around them all, as in Fireworks MX; an animation symbol: its
+With objects selected the Property inspector shows their box: W, H, X and Y, as the whole
+pixels it covers (see below; several objects: the box around them all, as in Fireworks MX; an animation symbol: its
 whole motion, see [symbols.md](symbols.md)). W and H scale the objects keeping the box's left
-side or top; X and Y move them. All four work in whole pixels from the shown, rounded values:
-an object 40.4 wide shows W 40, and typing 45 makes it 45.4 wide, so a sub-pixel edge keeps its
-look. Fireworks MX records all four as **"Transform"**, for paths and
+side or top; X and Y move them. Fireworks MX records all four as **"Transform"**, for paths and
 bitmaps alike (the user checked, 2026-11-24). X and Y move by whole pixels from the shown,
 rounded position, so an object at a sub-pixel place (from an earlier Ctrl transform) keeps its
 soft edges as a Pointer drag does instead of snapping onto the grid. An animation's W and H stay
@@ -116,6 +114,36 @@ greyed: they cover the motion, which scaling the instance doesn't map onto. Type
 Enter or on leaving the field; dragging a field changes the objects as it goes, each step scaling
 the objects as they were when the drag began (bitmaps are resampled once), one undo step on
 mouse up.
+
+### Sub-pixel steps from the Property inspector (keep this)
+
+A FireCraft feature the user relies on (chosen 2026-11-24; `firecraft_engine::covered_pixels` and
+`from_shown` in crates/ui-egui/src/inspector.rs, each with a unit test):
+
+* **The fields show the pixels covered.** X and Y are the pixel holding the box's left and top
+  edges; W and H count every pixel column and row the box touches, partly covered (soft) ones
+  included. The selection box on the canvas outlines the same pixels, so the numbers, the box and
+  the drawn pixels agree. W and H are the object's own outline: a path's stroke can reach further.
+* **A typed value applies as a change from the shown one** (`real + (typed - shown)`). Whole
+  numbers move or resize by whole pixels and keep a sub-pixel edge's look; a fraction adds a
+  sub-pixel step.
+
+| Real box | Shows | Type | New real | Shows | Right edge |
+|---|---|---|---|---|---|
+| x 10, w 50 | X 10, W 50 | W 50.1 | w 50.1 | W 51 | faint (see below) |
+| x 10, w 50.1 | W 51 | W 51.9 | w 51 | W 51 | solid again |
+| x 10, w 50 | W 50 | W 50.5 | w 50.5 | W 51 | half-covered |
+| x 10, w 50.5 | W 51 | W 51.5 | w 51 | W 51 | solid again |
+| x 10, w 40.4 | W 41 | W 45 | w 44.4 | W 45 | same look as before |
+| x 10.5, w 20 | X 10, W 21 | X 11 | x 11.5 | X 11, W 21 | same look, moved 1 |
+
+Typed values apply on Enter; dragging a field changes by whole pixels.
+
+**Fill edges come in quarter pixels.** Path fills are anti-aliased with 4 x 4 samples per pixel
+(`firecraft_raster::path::fill_polygons`, unchanged since FireCraft's first version and not
+measured against Fireworks MX), so a right edge at 50.1 draws no partial pixel yet (50.25 draws
+25%, 50.5 50%, 50.9 a full one) even though W shows 51. Whether Fireworks MX draws exact
+coverage there is still to be measured.
 
 ## Scale, Skew and Distort tools: whole pixels
 

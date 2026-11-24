@@ -460,6 +460,19 @@ fn mask_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, owner: firecraft_engin
     });
 }
 
+/// What W, H, X and Y show for an object's real (possibly sub-pixel) box: the whole pixels it
+/// covers, partly covered ones included ([`firecraft_engine::covered_pixels`]), the same box the
+/// canvas outlines when it's selected. A typed value applies as a change from the shown one
+/// (`real + (typed - shown)`). Keep this (the user relies on it; docs/behavior/objects.md
+/// "Sub-pixel steps from the Property inspector"):
+/// * whole numbers move or resize by whole pixels, so a sub-pixel edge keeps its look (40.4
+///   wide shows 41; typing 45 makes it 44.4);
+/// * a fraction adds a sub-pixel step: 50 wide, typing 50.1 makes it 50.1 (a faint right edge;
+///   shows 51), then typing 51.9 adds the rest: exactly 51, a solid edge. X and Y the same.
+fn from_shown(real: f64, shown: f64, typed: f64) -> f64 {
+    real + (typed - shown)
+}
+
 /// The largest W or H the Property inspector takes.
 const MAX_SIZE: f64 = 30_000.0;
 
@@ -514,8 +527,9 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     identity(ui, &title, tool, |ui| {
         if let Some((x, y, w, h)) = bounds {
             let (x, y) = (x - origin.0, y - origin.1);
-            let (mut nx, mut ny) = (x.round(), y.round());
-            let (mut nw, mut nh) = (w.round().max(1.0), h.round().max(1.0));
+            let (sx, sy, sw, sh) = firecraft_engine::covered_pixels((x, y, w, h));
+            let (mut nx, mut ny) = (sx, sy);
+            let (mut nw, mut nh) = (sw.max(1.0), sh.max(1.0));
             // Typed values apply on Enter (or leaving the field), not at every keystroke: typing
             // 120 would otherwise scale to 1, 12 and 120, resampling a bitmap three times.
             egui::Grid::new("pi_geom").spacing(vec2(4.0, 2.0)).show(ui, |ui| {
@@ -526,7 +540,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 sized.push((false, nw, resp));
                 ui.label("X:");
                 let resp = ui.add(DragValue::new(&mut nx).update_while_editing(false));
-                moved.push((nx - x.round(), 0.0, resp));
+                moved.push((from_shown(x, sx, nx) - x, 0.0, resp));
                 ui.end_row();
                 ui.label("H:");
                 let resp = ui
@@ -535,15 +549,15 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 sized.push((true, nh, resp));
                 ui.label("Y:");
                 let resp = ui.add(DragValue::new(&mut ny).update_while_editing(false));
-                moved.push((0.0, ny - y.round(), resp));
+                moved.push((0.0, from_shown(y, sy, ny) - y, resp));
                 ui.end_row();
             });
         }
     });
     if let Some(d) = app.session.active_doc_mut() {
-        // X and Y move by whole pixels from the shown (rounded) position, so a sub-pixel place
-        // from an earlier transform keeps its look, as a Pointer drag does. Fireworks MX names
-        // the step "Transform", as for W and H.
+        // X and Y change by the typed amount from the shown position (see
+        // `from_shown`): a sub-pixel place keeps its look. Fireworks MX names the step
+        // "Transform", as for W and H.
         for (dx, dy, resp) in &moved {
             value_drag(d, resp, "Transform", |d, live| {
                 if live {
@@ -571,10 +585,14 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 };
                 if let Some(start) = start {
                     let (originals, from) = &*start;
-                    // By whole pixels from the shown (rounded) size, as X and Y move: an object
-                    // with a sub-pixel edge keeps its look (40.4 wide shows 40; 45 makes it 45.4).
-                    let by = |was: f64| was + (*value - was.round());
-                    let size = if *height { (from.2, by(from.3)) } else { (by(from.2), from.3) };
+                    // The typed amount from the shown size (pixels covered), as X and Y
+                    // (`from_shown`).
+                    let (_, _, sw, sh) = firecraft_engine::covered_pixels(*from);
+                    let size = if *height {
+                        (from.2, from_shown(from.3, sh.max(1.0), *value))
+                    } else {
+                        (from_shown(from.2, sw.max(1.0), *value), from.3)
+                    };
                     d.resize_from(originals, *from, size, live);
                 }
             });
@@ -938,4 +956,40 @@ fn view_tool(ui: &mut egui::Ui, tool: Tool) {
             ui.label("Drag to scroll the view    Mouse wheel: scroll");
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::from_shown;
+    use firecraft_engine::covered_pixels;
+
+    /// Type `typed` into W for a box at `x`, `w` wide: the new real width and what W then shows.
+    fn type_w(x: f64, w: f64, typed: f64) -> (f64, f64) {
+        let shown = covered_pixels((x, 0.0, w, 1.0)).2;
+        let nw = from_shown(w, shown, typed);
+        (nw, covered_pixels((x, 0.0, nw, 1.0)).2)
+    }
+
+    #[test]
+    fn typed_values_step_from_the_shown_value() {
+        // A fraction adds a sub-pixel step, shown as the pixels covered: 50 -> 50.1 (shows 51),
+        // then 51.9 fills the rest: exactly 51.
+        let (w, shows) = type_w(10.0, 50.0, 50.1);
+        assert!((w - 50.1).abs() < 1e-9 && shows == 51.0);
+        let (w, shows) = type_w(10.0, w, 51.9);
+        assert!((w - 51.0).abs() < 1e-9 && shows == 51.0);
+        // Half steps the same way.
+        let (w, shows) = type_w(10.0, 50.0, 50.5);
+        assert_eq!((w, shows), (50.5, 51.0));
+        assert_eq!(type_w(10.0, w, 51.5), (51.0, 51.0));
+        // Whole numbers keep a sub-pixel edge's look: 40.4 shows 41; 45 makes it 44.4.
+        let (w, shows) = type_w(10.0, 40.4, 45.0);
+        assert!((w - 44.4).abs() < 1e-9 && shows == 45.0);
+        // At x 10.5 a 20-wide box covers 21 pixels; typing 21 changes nothing.
+        assert_eq!(type_w(10.5, 20.0, 21.0), (20.0, 21.0));
+        // X: 10.5 shows 10 (the pixel its edge is in); typing 11 moves it 1, to 11.5.
+        let sx = covered_pixels((10.5, 0.0, 20.0, 1.0)).0;
+        assert_eq!((sx, from_shown(10.5, sx, 11.0)), (10.0, 11.5));
+        assert_eq!(from_shown(10.0, 10.0, 10.5), 10.5);
+    }
 }

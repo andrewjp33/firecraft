@@ -31,6 +31,18 @@ pub use history::{DEFAULT_UNDO_STEPS, History, MAX_UNDO_STEPS, Selected};
 pub use objects::{Align, Arrange, Clipboard, DUPLICATE_OFFSET, Turn};
 pub use paint::PaintTool;
 pub use paths::PointRef;
+
+/// The whole pixels a box (x, y, w, h, canvas coordinates) covers: from the pixel holding its
+/// left/top edge to the one holding its right/bottom edge, partly covered ones included. What the
+/// Property inspector's W, H, X and Y show and the selection box outlines: 50.1 wide from x 10
+/// covers 51 pixels; 20 wide from x 10.5 covers 21 (pixels 10 to 30). A hair of float noise
+/// (bounds of 9.999999999999996) doesn't count as covering another pixel.
+pub fn covered_pixels((x, y, w, h): (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+    const EPS: f64 = 1e-6;
+    let (l, t) = ((x + EPS).floor(), (y + EPS).floor());
+    let (r, b) = ((x + w - EPS).ceil().max(l), (y + h - EPS).ceil().max(t));
+    (l, t, r - l, b - t)
+}
 pub use symbols::SymbolLink;
 pub use tools::{PaintOptions, Tool, ToolOptions};
 
@@ -2667,6 +2679,15 @@ mod tests {
         d.move_selection(3.0, 2.0, "Transform");
         let after = d.doc.render(0);
         assert_eq!(after.get(10 + 3 + 61, 25 + 2).map(|p| p.a), before.get(25 * 120 + 10 + 61).copied());
+    }
+
+    #[test]
+    fn covered_pixels_counts_partly_covered_ones() {
+        assert_eq!(covered_pixels((10.0, 10.0, 50.0, 30.0)), (10.0, 10.0, 50.0, 30.0));
+        assert_eq!(covered_pixels((10.0, 10.0, 50.1, 30.0)).2, 51.0);
+        assert_eq!(covered_pixels((10.5, 10.0, 20.0, 30.0)), (10.0, 10.0, 21.0, 30.0));
+        assert_eq!(covered_pixels((10.0, 9.999999999999996, 40.000000000000014, 30.000000000000018)), (10.0, 10.0, 40.0, 30.0));
+        assert_eq!(covered_pixels((-3.5, 0.0, 1.0, 0.2)), (-4.0, 0.0, 2.0, 1.0));
     }
 
     #[test]

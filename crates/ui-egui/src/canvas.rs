@@ -1599,7 +1599,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 }
                 continue;
             }
-            if let Some((x, y, w, h)) = d.element(*r).and_then(|e| e.bounds()) {
+            // The whole pixels the object covers, soft edges included (what the Property
+            // inspector's W, H, X and Y show).
+            if let Some((x, y, w, h)) = d.element(*r).and_then(|e| e.bounds()).map(firecraft_engine::covered_pixels) {
                 let br = Rect::from_min_max(to_screen(x, y), to_screen(x + w, y + h)).translate(drag_offset);
                 p.rect_stroke(br, 0.0, Stroke::new(1.0, theme::HANDLE_BLUE), StrokeKind::Outside);
                 for c in [br.left_top(), br.right_top(), br.left_bottom(), br.right_bottom()] {
