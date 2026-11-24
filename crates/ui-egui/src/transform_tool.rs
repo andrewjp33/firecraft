@@ -6,7 +6,7 @@
 //! - Skew: edges slide along themselves, corners pinch symmetrically (perspective);
 //! - Distort: corners and edges move freely.
 //!
-//! Moves and Scale handles land on whole pixels (Fireworks MX); hold Ctrl for sub-pixel ones.
+//! Moves and Scale handles go by whole pixels (Fireworks MX); hold Ctrl for sub-pixel ones.
 //!
 //! Each release applies one transform (box -> quadrilateral, perspective where needed) to the
 //! objects as they were when the edit began, so repeated adjustments resample bitmaps once.
@@ -236,10 +236,10 @@ fn dragged(tool: Tool, drag: &Drag, p: Pt, shift: bool, alt: bool) -> [Pt; 4] {
 }
 
 /// Land a drag on whole pixels, as Fireworks MX does: a move goes by whole pixels, and a Scale
-/// handle puts the sides it moves on pixel grid lines, so an upright rectangle stays crisp
-/// instead of gaining soft edges from a sub-pixel size. Sides that didn't move keep their
-/// place (a sub-pixel position from an earlier Ctrl transform stays). A turned or slanted box
-/// can't sit on the grid and is left as dragged.
+/// handle moves the sides it drags by whole pixels, so an upright rectangle on the grid stays
+/// crisp instead of gaining soft edges from a sub-pixel size, and one at a sub-pixel place
+/// (an earlier Ctrl transform) keeps the same look: its width or height changes by whole
+/// pixels. A turned or slanted box can't keep to the grid and is left as dragged.
 fn snap_to_pixels(tool: Tool, handle: Handle, start: &[Pt; 4], q: [Pt; 4]) -> [Pt; 4] {
     const EPS: f64 = 1e-9;
     match handle {
@@ -256,7 +256,7 @@ fn snap_to_pixels(tool: Tool, handle: Handle, start: &[Pt; 4], q: [Pt; 4]) -> [P
             if !upright {
                 return q;
             }
-            let snap = |v: f64, was: f64| if (v - was).abs() < EPS { v } else { v.round() };
+            let snap = |v: f64, was: f64| was + (v - was).round();
             let mut out = q;
             for (c, s) in out.iter_mut().zip(start) {
                 *c = (snap(c.0, s.0), snap(c.1, s.1));
@@ -651,14 +651,16 @@ mod tests {
     fn drags_land_on_whole_pixels_without_ctrl() {
         // A box at a sub-pixel place (an earlier Ctrl transform): 10.3, 5 to 50.3, 25.
         let q = corners((10.3, 5.0, 40.0, 20.0));
-        // The right edge dragged to 70.6 lands on 71; the left side stays at 10.3.
+        // The right edge (50.3) dragged to 70.6 moves 20 pixels to 70.3: the width changes by
+        // whole pixels and the look of both edges stays; the left side stays at 10.3.
+        let near = |a: [Pt; 4], b: [Pt; 4]| a.iter().zip(&b).all(|(p, q)| (p.0 - q.0).abs() < 1e-9 && (p.1 - q.1).abs() < 1e-9);
         let s = dragged(Tool::Scale, &drag(Handle::Edge(1), q, (50.3, 15.0)), (70.6, 15.0), false, false);
         let snapped = snap_to_pixels(Tool::Scale, Handle::Edge(1), &q, s);
-        assert_eq!(snapped, [(10.3, 5.0), (71.0, 5.0), (71.0, 25.0), (10.3, 25.0)]);
-        // A corner moves both its sides onto the grid.
+        assert!(near(snapped, [(10.3, 5.0), (70.3, 5.0), (70.3, 25.0), (10.3, 25.0)]), "{snapped:?}");
+        // A corner moves both its sides by whole pixels.
         let s = dragged(Tool::Scale, &drag(Handle::Corner(2), q, (50.3, 25.0)), (60.2, 33.7), false, false);
         let snapped = snap_to_pixels(Tool::Scale, Handle::Corner(2), &q, s);
-        assert_eq!(snapped, [(10.3, 5.0), (60.0, 5.0), (60.0, 34.0), (10.3, 34.0)]);
+        assert!(near(snapped, [(10.3, 5.0), (60.3, 5.0), (60.3, 34.0), (10.3, 34.0)]), "{snapped:?}");
         // A move goes by whole pixels, keeping the sub-pixel offset.
         let m = dragged(Tool::Scale, &drag(Handle::Move, q, (20.0, 10.0)), (22.6, 9.2), false, false);
         let snapped = snap_to_pixels(Tool::Scale, Handle::Move, &q, m);

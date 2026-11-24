@@ -571,7 +571,10 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 };
                 if let Some(start) = start {
                     let (originals, from) = &*start;
-                    let size = if *height { (from.2, *value) } else { (*value, from.3) };
+                    // By whole pixels from the shown (rounded) size, as X and Y move: an object
+                    // with a sub-pixel edge keeps its look (40.4 wide shows 40; 45 makes it 45.4).
+                    let by = |was: f64| was + (*value - was.round());
+                    let size = if *height { (from.2, by(from.3)) } else { (by(from.2), from.3) };
                     d.resize_from(originals, *from, size, live);
                 }
             });

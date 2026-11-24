@@ -1347,8 +1347,15 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 Tool::Marquee | Tool::OvalMarquee => {
                     d.marquee((ax, ay, bx, by), tool == Tool::OvalMarquee, &options, combine)
                 }
+                // Corners on the nearest pixel grid lines, so the shape's edges are crisp; Ctrl
+                // draws it where the pointer is, sub-pixel (as Ctrl with the Scale tool).
                 Tool::Rectangle | Tool::Ellipse => {
-                    d.add_shape((ax, ay, bx, by), tool == Tool::Ellipse, &options)
+                    let rect = if mods.ctrl || mods.command {
+                        (ax, ay, bx, by)
+                    } else {
+                        (ax.round(), ay.round(), bx.round(), by.round())
+                    };
+                    d.add_shape(rect, tool == Tool::Ellipse, &options)
                 }
                 Tool::Line => d.add_line((ax, ay), (bx, by), &options),
                 Tool::Gradient => {
@@ -1604,7 +1611,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         if let (true, false, Some(a), Some(b)) = (dragging, view.marquee_drag, view.drag_start, drag_now) {
             let r = Rect::from_two_pos(a, b);
             // The marquee's box sits on the canvas's pixel grid, as the Crop tool's: what it shows
-            // is what will be selected.
+            // is what will be selected (and the Rectangle and Ellipse tools' shape).
             let grid = || {
                 let ((ax, ay), (bx, by)) = (to_doc(a), to_doc(b));
                 let (l, t, r, b) = firecraft_engine::DocState::marquee_box((ax, ay, bx, by));
@@ -1630,7 +1637,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                         Stroke::new(1.0, theme::HANDLE_BLUE),
                     ));
                 }
+                // The shape as it will be drawn: on the pixel grid unless Ctrl is held.
                 Tool::Ellipse => {
+                    let r = if mods.ctrl || mods.command { r } else { grid() };
                     p.add(egui::epaint::EllipseShape::stroke(
                         r.center(),
                         r.size() / 2.0,
@@ -1638,6 +1647,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     ));
                 }
                 Tool::Rectangle => {
+                    let r = if mods.ctrl || mods.command { r } else { grid() };
                     p.rect_stroke(r, 0.0, Stroke::new(1.0, theme::HANDLE_BLUE), StrokeKind::Middle);
                 }
                 Tool::Line | Tool::Gradient => {

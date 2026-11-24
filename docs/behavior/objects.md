@@ -106,7 +106,9 @@ kernels are standard ones, not yet measured against MX's ([canvas-size.md](canva
 With objects selected the Property inspector shows their box: W, H, X and Y, rounded to whole
 pixels (several objects: the box around them all, as in Fireworks MX; an animation symbol: its
 whole motion, see [symbols.md](symbols.md)). W and H scale the objects keeping the box's left
-side or top; X and Y move them. Fireworks MX records all four as **"Transform"**, for paths and
+side or top; X and Y move them. All four work in whole pixels from the shown, rounded values:
+an object 40.4 wide shows W 40, and typing 45 makes it 45.4 wide, so a sub-pixel edge keeps its
+look. Fireworks MX records all four as **"Transform"**, for paths and
 bitmaps alike (the user checked, 2026-11-24). X and Y move by whole pixels from the shown,
 rounded position, so an object at a sub-pixel place (from an earlier Ctrl transform) keeps its
 soft edges as a Pointer drag does instead of snapping onto the grid. An animation's W and H stay
@@ -117,13 +119,22 @@ mouse up.
 
 ## Scale, Skew and Distort tools: whole pixels
 
-As in Fireworks MX, a Scale tool resize lands on whole pixels: the box sides a handle moves go to
-the nearest pixel grid line, so an upright rectangle path stays crisp instead of gaining soft
-edges from a sub-pixel size. Sides the handle doesn't move keep their place. Dragging inside the
+As in Fireworks MX, a Scale tool resize goes by whole pixels: the box sides a handle drags move
+a whole number of pixels, so an upright rectangle path on the pixel grid stays crisp instead of
+gaining soft edges from a sub-pixel size, and one at a sub-pixel place keeps the same look (its
+width or height changes by whole pixels; the user's expectation, 2026-11-24). Dragging inside the
 box (any of the three tools) moves by whole pixels. **Holding Ctrl** gives the sub-pixel resize or
 move instead (FireCraft's addition, the user's request, 2026-11-24; Ctrl is also the pivot's
 "no snapping" key). A turned or slanted box can't sit on the grid and follows the pointer; Skew
 and Distort handles and rotation aren't snapped.
+
+## Rectangle and Ellipse tools: whole pixels
+
+A drawn rectangle or ellipse has its corners on the pixel grid lines nearest the press and release
+points, and the drag outline shows it there; holding **Ctrl** draws it exactly where the pointer
+is, sub-pixel (as with the Scale tool). Note that the default stroke, Fireworks' Pencil "1-Pixel
+Anti-Aliased", centred on a grid line covers half of the pixels each side of it; "1-Pixel Hard"
+draws it crisp.
 
 ## Colour pop-up
 
