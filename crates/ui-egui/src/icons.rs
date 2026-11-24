@@ -20,7 +20,6 @@ pub fn paint(p: &Painter, r: Rect, tool: Tool, enabled: bool) {
     paint_ink(p, r, tool, if enabled { pal.ink } else { pal.ink_disabled });
 }
 
-/// Paint `tool`'s icon into `r` with `c` for its lines (its coloured parts keep their colours).
 /// The arrow of the Pointer tools' icons, in the button rectangle `r`.
 pub fn pointer_points(r: Rect) -> Vec<Pos2> {
     let r = r.shrink(2.0);
@@ -36,6 +35,20 @@ pub fn pointer_points(r: Rect) -> Vec<Pos2> {
     ]
 }
 
+/// The Pointer's arrow is black and the Subselect's white, outlined in the other
+/// colour, whatever the tile behind them (their colours tell the two tools apart, as in
+/// Fireworks). False for other tools.
+pub fn paint_pointer_bw(p: &Painter, r: Rect, tool: Tool) -> bool {
+    let (fill, edge) = match tool {
+        Tool::Pointer => (Color32::from_gray(0x14), Color32::WHITE),
+        Tool::Subselect => (Color32::WHITE, Color32::from_gray(0x14)),
+        _ => return false,
+    };
+    p.add(Shape::convex_polygon(pointer_points(r), fill, Stroke::new(1.0, edge)));
+    true
+}
+
+/// Paint `tool`'s icon into `r` with `c` for its lines (its coloured parts keep their colours).
 pub fn paint_ink(p: &Painter, r: Rect, tool: Tool, c: Color32) {
     let s = Stroke::new(1.2, c);
     let pts = pointer_points(r);

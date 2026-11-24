@@ -481,6 +481,30 @@ impl Prof {
     }
 }
 
+/// Modern: the line egui shows while the dock's edge is hovered or dragged, drawn again over
+/// the document area. egui paints it just outside the dock, where the document area (drawn
+/// later, edge to edge in Modern) covered all but its ends.
+fn dock_resize_line(ui: &egui::Ui, dock: egui::Rect) {
+    if !theme::pal().modern {
+        return;
+    }
+    // egui's id for a panel's resize handle: the panel's id, salted with "__resize".
+    let id = ui.scope_id().with("dock").with("__resize");
+    let Some(r) = ui.ctx().read_response(id) else {
+        return;
+    };
+    let w = &ui.style().visuals.widgets;
+    let stroke = if r.dragged() {
+        w.active.fg_stroke
+    } else if r.hovered() {
+        w.hovered.fg_stroke
+    } else {
+        return;
+    };
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, id));
+    painter.vline(dock.left() - 0.5 * stroke.width, dock.y_range(), stroke);
+}
+
 /// Per-document view state kept by the UI.
 #[derive(Clone, Default)]
 struct View {
@@ -1186,15 +1210,17 @@ impl FireCraftApp {
                 });
         }
         prof.lap("tools");
+        let mut dock_rect = None;
         if self.prefs.show_dock {
             // A minimum width keeps a width saved from an earlier session (or a drag) from
             // squeezing the panels' text and controls.
-            egui::Panel::right("dock")
+            let dock = egui::Panel::right("dock")
                 .default_size(250.0)
                 .show_separator_line(!theme::pal().modern)
                 .size_range(230.0..=520.0)
                 .frame(theme::dock_frame())
                 .show(ui, |ui| panels::dock(self, ui));
+            dock_rect = Some(dock.response.rect);
         }
         prof.lap("dock");
         if self.prefs.show_properties {
@@ -1217,6 +1243,9 @@ impl FireCraftApp {
         egui::CentralPanel::default()
             .frame(theme::workspace_frame())
             .show(ui, |ui| canvas::workspace(self, ui));
+        if let Some(rect) = dock_rect {
+            dock_resize_line(ui, rect);
+        }
         prof.lap("canvas");
         dialogs::show(self, &ctx);
         prof.lap("dialogs");

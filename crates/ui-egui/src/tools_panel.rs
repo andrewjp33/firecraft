@@ -142,12 +142,9 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
             StrokeKind::Inside,
         );
     }
-    icons::paint_ink(ui.painter(), r, shown, ink);
-    if p.modern && active && shown == Tool::Pointer {
-        // A soft light edge around the solid arrow, as in design_edit2.png.
-        let edge = theme::lerp_color(ink, p.tool_active_fill_end, 0.6);
-        ui.painter()
-            .add(egui::Shape::closed_line(icons::pointer_points(r), Stroke::new(1.0, edge)));
+    // Classic's dark ink on light buttons already shows them black and white.
+    if !((p.modern || p.dark) && icons::paint_pointer_bw(ui.painter(), r, shown)) {
+        icons::paint_ink(ui.painter(), r, shown, ink);
     }
     if !alts.is_empty() {
         // Flyout marker.
@@ -241,13 +238,17 @@ fn flyout(
                     // under the pointer.
                     if current {
                         ui.painter().rect_filled(row, p.r_widget, p.popup_selected);
-                        icons::paint_ink(ui.painter(), icon, t, p.popup_selected_text);
+                        if !icons::paint_pointer_bw(ui.painter(), icon, t) {
+                            icons::paint_ink(ui.painter(), icon, t, p.popup_selected_text);
+                        }
                         p.popup_selected_text
                     } else {
                         if resp.hovered() {
                             ui.painter().rect_filled(row, p.r_widget, p.popup_hover);
                         }
-                        icons::paint(ui.painter(), icon, t, t.implemented());
+                        if !icons::paint_pointer_bw(ui.painter(), icon, t) {
+                            icons::paint(ui.painter(), icon, t, t.implemented());
+                        }
                         p.text
                     }
                 } else {
