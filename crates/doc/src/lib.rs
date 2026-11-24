@@ -726,6 +726,45 @@ mod tests {
         assert_eq!((alpha(60, 35), alpha(60, 65)), (255, 255));
     }
 
+    /// A mask's effects reveal content too: the masked object's area holds the mask's glow,
+    /// not just the mask bitmap (circles_hi_mask3.png: the glow was cut off at its edge).
+    #[test]
+    fn mask_glow_reveals_beyond_mask_bitmap() {
+        use element::{MaskFlags, MaskMode};
+        let bitmap = |x, y, size, color| {
+            Element::new(ElementKind::Bitmap(Bitmap {
+                x,
+                y,
+                image: RgbaImage::new(size, size, color),
+            }))
+        };
+        let mut mask = bitmap(40, 40, 20, Rgba::WHITE);
+        mask.effects.push(effects::EffectEntry::from_pairs(&[
+            ("EffectMoaID", "{7fe61102-6ce2-11d1-8c76000502701850}"),
+            ("BevelType", "4"),
+            ("GlowWidth", "8"),
+            ("MaskSoftness", "0"),
+            ("GlowStartDistance", "0"),
+            ("ShadowColor", "#ffffff"),
+            ("EffectIsVisible", "true"),
+        ]));
+        assert!(mask.effects[0].active().is_some());
+        let masked = Element::new(ElementKind::Masked {
+            content: vec![bitmap(0, 0, 100, Rgba::BLACK)],
+            mask: Box::new(mask),
+            mode: MaskMode::Alpha,
+            cache: None,
+            cache_key: 0,
+            flags: MaskFlags::default(),
+        });
+        let mut out = RgbaImage::new(100, 100, Rgba::TRANSPARENT);
+        masked.render_onto(&mut out, 0, 0, &RenderCtx::EMPTY);
+        // The mask covers 40..60; its 8 px glow reaches 32..68.
+        let alpha = |x, y| out.get(x, y).map_or(0, |p| p.a);
+        assert_eq!(alpha(50, 50), 255);
+        assert!(alpha(50, 36) > 0 && alpha(36, 50) > 0 && alpha(64, 50) > 0, "glow cut off");
+    }
+
     use super::*;
 
     #[test]

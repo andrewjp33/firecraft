@@ -1684,9 +1684,18 @@ impl Element {
         // A symbol instance or group with effects is drawn whole before the effects run, so the
         // area must hold its members' strokes and effects too (foo3: a 72 px stroke inside a
         // symbol with Brightness/Contrast was cut 30 px short; max_stroke is 0 for instances).
+        // A masked object shows what its mask reveals, and the mask's effects reveal too
+        // (circles_hi_mask3: a bitmap mask's glow was cut off at the bitmap's edge).
+        let reach = || match &self.kind {
+            ElementKind::Masked { content, flags, .. } if !flags.enabled => {
+                union_rects(&mut content.iter().filter_map(|c| c.visual_bounds(ctx)))
+            }
+            ElementKind::Masked { mask, .. } => mask.visual_bounds(ctx),
+            _ => self.contents_visual_bounds(ctx),
+        };
         let (bx, by, bw, bh, stroke) = match &self.kind {
-            ElementKind::Instance { .. } | ElementKind::Group(_) => {
-                let (x, y, w, h) = crate::cache::kept_reach(self, ctx, || self.contents_visual_bounds(ctx))
+            ElementKind::Instance { .. } | ElementKind::Group(_) | ElementKind::Masked { .. } => {
+                let (x, y, w, h) = crate::cache::kept_reach(self, ctx, reach)
                     .filter(|b| b.0.is_finite() && b.1.is_finite() && b.2.is_finite() && b.3.is_finite())
                     .map_or((bx, by, bw, bh), |c| union_rects(&mut [c, (bx, by, bw, bh)].into_iter()).unwrap_or(c));
                 (x, y, w, h, 0)
