@@ -616,6 +616,21 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind, accent: Option<Color32>) {
     });
 }
 
+/// The interface's font: Ubuntu Regular (Ubuntu Font Licence, `fonts/UFL.txt`) in place of
+/// egui's Ubuntu Light, whose hairline strokes were hard to read at FireCraft's small sizes,
+/// on coloured buttons in particular. Light stays as the fallback after it.
+pub fn install_fonts(ctx: &egui::Context) {
+    let mut defs = egui::FontDefinitions::default();
+    defs.font_data.insert(
+        "Ubuntu-Regular".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../fonts/Ubuntu-Regular.ttf"))),
+    );
+    if let Some(list) = defs.families.get_mut(&egui::FontFamily::Proportional) {
+        list.insert(0, "Ubuntu-Regular".to_owned());
+    }
+    ctx.set_fonts(defs);
+}
+
 /// Modern: paints the window's gradient backdrop (behind the panels and cards).
 pub fn paint_backdrop(ctx: &egui::Context) {
     let p = pal();

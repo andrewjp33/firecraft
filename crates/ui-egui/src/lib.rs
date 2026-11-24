@@ -1164,6 +1164,9 @@ impl FireCraftApp {
             self.prefs.theme.resolve(self.prefs.theme_follow_system, theme::system_dark(&ctx)),
             self.prefs.accent.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)),
         );
+        if self.styled.is_none() {
+            theme::install_fonts(&ctx);
+        }
         if self.styled != Some(style) {
             theme::apply(&ctx, style.0, style.1);
             self.styled = Some(style);

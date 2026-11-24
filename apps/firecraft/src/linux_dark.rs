@@ -3,11 +3,13 @@
 //! dependencies: the XDG desktop portal (GNOME 42+, KDE Plasma 5.24+, and others), GNOME's
 //! color-scheme setting, and lastly the desktop's GTK theme name (MATE, Cinnamon, Xfce...,
 //! which have no dark-mode switch of their own: "Yaru-dark", "BlackMATE"). Checked again every
-//! 15 seconds, so schedules and manual switches are followed. A check runs two or three short
-//! commands (about 10 ms of CPU together).
+//! 15 seconds while the window can be seen, so schedules and manual switches are followed, and
+//! at once when it's shown again after being minimised or covered. A check runs two or three
+//! short commands (about 10 ms of CPU together).
 
 use std::process::{Command, Stdio};
-use std::sync::{Mutex, Once};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Condvar, Mutex, Once};
 use std::time::Duration;
 
 use eframe::egui;
@@ -16,6 +18,40 @@ use firecraft_ui_egui::theme;
 /// The context to repaint when the setting changes (the newest, if the app was started again
 /// with another renderer).
 static CTX: Mutex<Option<egui::Context>> = Mutex::new(None);
+
+/// Is the window shown (not minimised or covered)? Checks pause while it isn't.
+static VISIBLE: AtomicBool = AtomicBool::new(true);
+
+/// Wakes the watcher early: set when the window is shown again.
+static WAKE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
+/// The window was shown or hidden (called every frame); shown again: check now.
+pub fn set_visible(visible: bool) {
+    if VISIBLE.swap(visible, Ordering::Relaxed) != visible && visible {
+        *WAKE.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        WAKE.1.notify_one();
+    }
+}
+
+/// Until the next check: 15 seconds, or until the window is shown again; while it's hidden,
+/// until it's shown.
+fn wait() {
+    let mut woken = WAKE.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let start = std::time::Instant::now();
+    loop {
+        if *woken {
+            *woken = false;
+            return;
+        }
+        let visible = VISIBLE.load(Ordering::Relaxed);
+        let left = Duration::from_secs(15).saturating_sub(start.elapsed());
+        if visible && left.is_zero() {
+            return;
+        }
+        let timeout = if visible { left } else { Duration::from_secs(3600) };
+        woken = WAKE.1.wait_timeout(woken, timeout).unwrap_or_else(std::sync::PoisonError::into_inner).0;
+    }
+}
 
 /// Start watching the setting. Waits a moment for the first reading, so the first frame
 /// usually has it, but never holds up startup for long (a portal that must be started first
@@ -33,7 +69,7 @@ pub fn start(ctx: &egui::Context) {
                 let _ = first_tx.send(());
                 repaint();
                 loop {
-                    std::thread::sleep(Duration::from_secs(15));
+                    wait();
                     let now = read();
                     if now != last {
                         last = now;

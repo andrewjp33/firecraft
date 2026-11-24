@@ -118,6 +118,12 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.inner.logic(ctx);
+        // The system's dark mode only needs watching while the window can be seen.
+        #[cfg(target_os = "linux")]
+        linux_dark::set_visible(ctx.input(|i| {
+            let v = i.viewport();
+            v.minimized != Some(true) && v.occluded != Some(true)
+        }));
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

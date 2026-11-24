@@ -52,6 +52,13 @@ Adapted:
 - `docs/fireworks-png.md`: the names of CS-era 9-slice nodes (`NGSv` with `NGLb`, `NGKi`, four
   `NGCf` guides, `NGMv`, `NGVv`) follow FirePixel's reader (`crates/fp-fwpng/src/read.rs`).
 
+## Ubuntu font
+
+- `crates/ui-egui/fonts/Ubuntu-Regular.ttf`: the interface's font, Ubuntu Regular 0.83
+  (https://github.com/google/fonts/tree/main/ufl/ubuntu), unchanged.
+- Licence: Ubuntu Font Licence 1.0 (`crates/ui-egui/fonts/UFL.txt`)
+- Copyright: 2010-2011 Canonical Ltd.
+
 ## Third-party libraries
 
 FireCraft's dependencies keep their own licences (see `Cargo.lock`). Binary releases must carry
