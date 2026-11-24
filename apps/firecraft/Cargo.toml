@@ -11,7 +11,7 @@ workspace = true
 
 [dependencies]
 firecraft-ui-egui = { workspace = true }
-eframe = { workspace = true, features = ["wgpu", "glow", "wayland", "x11", "default_fonts", "accesskit", "persistence"] }
+eframe = { workspace = true, features = ["wgpu", "glow", "wayland", "x11", "accesskit", "persistence"] }
 egui = { workspace = true }
 rfd = { workspace = true }
 pollster = "0.4"
@@ -20,7 +20,6 @@ log = { workspace = true }
 winit = "0.30"
 softbuffer = "0.4"
 ab_glyph = "0.2"
-epaint_default_fonts = "0.37"
 
 # Windows version information and manifest, embedded in firecraft.exe (build.rs).
 [build-dependencies]

@@ -616,17 +616,19 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind, accent: Option<Color32>) {
     });
 }
 
-/// The interface's font: Ubuntu Regular (Ubuntu Font Licence, `fonts/UFL.txt`) in place of
-/// egui's Ubuntu Light, whose hairline strokes were hard to read at FireCraft's small sizes,
-/// on coloured buttons in particular. Light stays as the fallback after it.
+/// The interface's font, Ubuntu Regular (Ubuntu Font Licence, `fonts/UFL.txt`). It replaces
+/// egui's bundled fonts (its `default_fonts` feature is off): Ubuntu Light, whose hairline
+/// strokes were hard to read at FireCraft's small sizes, Hack for monospaced text, which
+/// FireCraft doesn't show, and egui's logo icons, which it doesn't use. Regular covers the same
+/// characters as Light, so nothing falls back.
+pub const UI_FONT: &[u8] = include_bytes!("../fonts/Ubuntu-Regular.ttf");
+
+/// Give egui its fonts. The host calls this before the first frame: egui has none of its own.
 pub fn install_fonts(ctx: &egui::Context) {
-    let mut defs = egui::FontDefinitions::default();
-    defs.font_data.insert(
-        "Ubuntu-Regular".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../fonts/Ubuntu-Regular.ttf"))),
-    );
-    if let Some(list) = defs.families.get_mut(&egui::FontFamily::Proportional) {
-        list.insert(0, "Ubuntu-Regular".to_owned());
+    let mut defs = egui::FontDefinitions::empty();
+    defs.font_data.insert("Ubuntu-Regular".to_owned(), std::sync::Arc::new(egui::FontData::from_static(UI_FONT)));
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        defs.families.insert(family, vec!["Ubuntu-Regular".to_owned()]);
     }
     ctx.set_fonts(defs);
 }

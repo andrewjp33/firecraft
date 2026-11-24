@@ -318,7 +318,8 @@ fn render() -> Vec<u32> {
             }
         }
     }
-    if let Ok(font) = FontRef::try_from_slice(epaint_default_fonts::UBUNTU_LIGHT) {
+    // The interface's font (Ubuntu Regular), so egui's Ubuntu Light needn't be bundled too.
+    if let Ok(font) = FontRef::try_from_slice(firecraft_ui_egui::theme::UI_FONT) {
         text(&mut buf, &font, "FireCraft", 52.0, 28.0, 150.0, [1.0, 1.0, 1.0]);
         text(
             &mut buf,

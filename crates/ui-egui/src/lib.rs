@@ -773,12 +773,11 @@ impl FireCraftApp {
                 db.add_font(font);
             }
         }
-        if db.is_empty() {
-            for data in egui::FontDefinitions::default().font_data.values() {
-                if let Ok(font) = Font::from_data((*data.font).as_ref().to_vec(), 0) {
-                    db.add_font(font);
-                }
-            }
+        // No fonts at all (the browser): the interface's own, so text can be typed.
+        if db.is_empty()
+            && let Ok(font) = Font::from_data(theme::UI_FONT.to_vec(), 0)
+        {
+            db.add_font(font);
         }
         FontDb::set_shared(db);
         self.fonts = Default::default();
@@ -1164,9 +1163,6 @@ impl FireCraftApp {
             self.prefs.theme.resolve(self.prefs.theme_follow_system, theme::system_dark(&ctx)),
             self.prefs.accent.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)),
         );
-        if self.styled.is_none() {
-            theme::install_fonts(&ctx);
-        }
         if self.styled != Some(style) {
             theme::apply(&ctx, style.0, style.1);
             self.styled = Some(style);

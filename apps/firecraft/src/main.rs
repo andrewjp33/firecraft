@@ -172,6 +172,7 @@ fn run(renderer: eframe::Renderer, launch: Launch, splash: SplashHandle) -> efra
         Box::new(move |cc| {
             #[cfg(target_os = "linux")]
             linux_dark::start(&cc.egui_ctx);
+            firecraft_ui_egui::theme::install_fonts(&cc.egui_ctx);
             let mut app = FireCraftApp::new(Box::new(Desktop));
             app.set_clipboard_keys(true);
             if let Some(storage) = cc.storage {

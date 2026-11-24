@@ -15,7 +15,7 @@ firecraft-ui-egui = { workspace = true }
 # For the benchmark (src/bench.rs).
 firecraft-raster = { workspace = true }
 firecraft-io = { workspace = true }
-eframe = { workspace = true, features = ["glow", "default_fonts", "persistence"] }
+eframe = { workspace = true, features = ["glow", "persistence"] }
 egui = { workspace = true }
 log = { workspace = true }
 

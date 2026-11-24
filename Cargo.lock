@@ -1051,7 +1051,6 @@ dependencies = [
  "bytemuck",
  "ecolor",
  "emath",
- "epaint_default_fonts",
  "font-types",
  "harfrust",
  "log",
@@ -1068,11 +1067,6 @@ dependencies = [
  "unicode-segmentation",
  "vello_cpu",
 ]
-
-[[package]]
-name = "epaint_default_fonts"
-version = "0.37.0"
-source = "git+https://github.com/storytold/egui.git?rev=6d518fc799681571963842f95b55a6b68431b15a#6d518fc799681571963842f95b55a6b68431b15a"
 
 [[package]]
 name = "equivalent"
@@ -1166,7 +1160,6 @@ dependencies = [
  "eframe",
  "egui",
  "embed-resource",
- "epaint_default_fonts",
  "firecraft-ui-egui",
  "log",
  "pollster 0.4.0",

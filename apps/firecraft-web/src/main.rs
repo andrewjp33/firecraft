@@ -803,6 +803,7 @@ export async function writeTo(handle, bytes) {
                     canvas,
                     eframe::WebOptions::default(),
                     Box::new(|cc| {
+                        firecraft_ui_egui::theme::install_fonts(&cc.egui_ctx);
                         let mut app = FireCraftApp::new(Box::new(Browser::new(cc.egui_ctx.clone())));
                         if let Some(storage) = cc.storage {
                             app.restore_settings(|key| storage.get_string(key));
