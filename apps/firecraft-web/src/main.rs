@@ -23,6 +23,11 @@ mod web {
     #[wasm_bindgen(inline_js = r#"
 const TYPES = [{ description: "Fireworks PNG", accept: { "image/png": [".png"] } }];
 const IMAGE_TYPES = [{ description: "Images", accept: { "image/png": [".png"], "image/gif": [".gif"] } }];
+// The Optimize panel's Load Palette.
+const PALETTE_TYPES = [{
+  description: "Palettes",
+  accept: { "application/octet-stream": [".act"], "image/gif": [".gif"], "image/png": [".png"] },
+}];
 // Everything File > Open reads (firecraft_io::formats::OPEN_EXTENSIONS).
 const OPEN_TYPES = [{
   description: "Images",
@@ -70,9 +75,10 @@ async function write(handle, bytes) {
   }
 }
 
-// { name, bytes, handle? }, or null when cancelled.
+// { name, bytes, handle? }, or null when cancelled. `images`: true for an image, "palette" for a
+// palette file, false for a document.
 export async function pickAndRead(images) {
-  const types = images ? IMAGE_TYPES : OPEN_TYPES;
+  const types = images === "palette" ? PALETTE_TYPES : images ? IMAGE_TYPES : OPEN_TYPES;
   let handle, file;
   if (window.showOpenFilePicker) {
     const picked = await orCancelled(window.showOpenFilePicker({ types }));
@@ -227,6 +233,7 @@ const EXPORT_TYPES = {
   jpg: { description: "JPEG image", accept: { "image/jpeg": [".jpg", ".jpeg"] } },
   webp: { description: "WebP image", accept: { "image/webp": [".webp"] } },
   jxl: { description: "JPEG XL image", accept: { "image/jxl": [".jxl"] } },
+  act: { description: "Color table", accept: { "application/octet-stream": [".act"] } },
 };
 function typesFor(name) {
   const ext = (name.split(".").pop() || "").toLowerCase();
@@ -240,6 +247,60 @@ export async function pickAndWrite(suggestedName, bytes) {
   return handle;
 }
 
+// File > Open Recent: the recent files' handles, kept in IndexedDB (which can store file handles)
+// so they can be opened again on a later visit.
+function recentDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("firecraft-recent", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("handles");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+const finished = (tx) => new Promise((resolve, reject) => {
+  tx.oncomplete = resolve;
+  tx.onerror = () => reject(tx.error);
+  tx.onabort = () => reject(tx.error);
+});
+
+// Keep `entries` ([{ path, handle }]) and forget the handles of paths no longer in `paths`.
+export async function keepRecent(paths, entries) {
+  try {
+    const db = await recentDb();
+    const tx = db.transaction("handles", "readwrite");
+    const store = tx.objectStore("handles");
+    for (const { path, handle } of entries) store.put(handle, path);
+    const keys = store.getAllKeys();
+    keys.onsuccess = () => {
+      for (const k of keys.result) if (!paths.includes(k)) store.delete(k);
+    };
+    await finished(tx);
+    db.close();
+  } catch (e) {
+    console.warn("Could not keep the recent files", e);
+  }
+}
+
+// A recent file read again: { bytes, handle }. `handle`: the one held this visit, or null to
+// look it up. The browser may ask the visitor for permission to read it.
+export async function reopenFile(path, handle) {
+  if (!handle) {
+    const db = await recentDb();
+    const tx = db.transaction("handles");
+    const req = tx.objectStore("handles").get(path);
+    await finished(tx);
+    db.close();
+    handle = req.result;
+    if (!handle) throw new Error("the browser no longer has this file");
+  }
+  if ((await handle.queryPermission({ mode: "read" })) !== "granted" &&
+      (await handle.requestPermission({ mode: "read" })) !== "granted") {
+    throw new Error("permission to read it was refused");
+  }
+  const file = await handle.getFile();
+  return { bytes: new Uint8Array(await file.arrayBuffer()), handle };
+}
+
 // The handle, or null when the user refused write access. (A file from Open is read-only until
 // its first save; the browser asks then.)
 export async function writeTo(handle, bytes) {
@@ -251,6 +312,8 @@ export async function writeTo(handle, bytes) {
     extern "C" {
         #[wasm_bindgen(js_name = pickAndRead)]
         fn pick_and_read(images: bool) -> Promise;
+        #[wasm_bindgen(js_name = pickAndRead)]
+        fn pick_palette_and_read(kind: &str) -> Promise;
         #[wasm_bindgen(js_name = canPickSave)]
         fn can_pick_save() -> bool;
         #[wasm_bindgen(js_name = pickAndWrite)]
@@ -275,6 +338,10 @@ export async function writeTo(handle, bytes) {
         fn clipboard_readable() -> bool;
         #[wasm_bindgen(js_name = readClipboardPicture)]
         fn read_clipboard_picture() -> Promise;
+        #[wasm_bindgen(js_name = keepRecent)]
+        fn keep_recent(paths: &js_sys::Array, entries: &js_sys::Array) -> Promise;
+        #[wasm_bindgen(js_name = reopenFile)]
+        fn reopen_file(path: &str, handle: &JsValue) -> Promise;
     }
 
     /// (document path or name, bytes), or why the file could not be read.
@@ -287,7 +354,9 @@ export async function writeTo(handle, bytes) {
     type PickedFolder = (FolderKind, Result<String, String>);
 
     /// Prefix of the document path of a file we hold a handle for. Browsers don't reveal real
-    /// paths; this one is unique (two files can share a name) and still ends in the file name.
+    /// paths; this one is unique (two files can share a name; the number starts from the time
+    /// of the visit, so paths kept for File > Open Recent stay unique across visits) and still
+    /// ends in the file name.
     const HANDLE_PATH: &str = "browser-file:/";
 
     /// State the asynchronous browser callbacks share with the app.
@@ -295,6 +364,7 @@ export async function writeTo(handle, bytes) {
         ctx: egui::Context,
         opened: RefCell<Vec<OpenedFile>>,
         image: RefCell<Option<OpenedFile>>,
+        palette: RefCell<Option<OpenedFile>>,
         saved: RefCell<Option<SaveStatus>>,
         handles: RefCell<HashMap<String, JsValue>>,
         next_handle: Cell<u64>,
@@ -386,9 +456,10 @@ export async function writeTo(handle, bytes) {
                     ctx,
                     opened: RefCell::default(),
                     image: RefCell::default(),
+                    palette: RefCell::default(),
                     saved: RefCell::default(),
                     handles: RefCell::default(),
-                    next_handle: Cell::new(0),
+                    next_handle: Cell::new(js_sys::Date::now() as u64),
                     folders: RefCell::default(),
                     folder_revision: Cell::new(0),
                     picked_folder: RefCell::default(),
@@ -466,6 +537,50 @@ export async function writeTo(handle, bytes) {
                     read.map(|bytes| (name.clone(), bytes))
                         .map_err(|e| format!("Could not read {name}: {e}")),
                 );
+            });
+        }
+
+        fn can_reopen(&self, path: &str) -> bool {
+            path.starts_with(HANDLE_PATH)
+        }
+
+        fn reopen(&mut self, path: &str) -> Option<Result<Vec<u8>, String>> {
+            let held = self.shared.handles.borrow().get(path).cloned();
+            let reading = reopen_file(path, &held.unwrap_or(JsValue::NULL));
+            let shared = self.shared.clone();
+            let path = path.to_owned();
+            spawn_local(async move {
+                match JsFuture::from(reading).await {
+                    Ok(file) => {
+                        shared.handles.borrow_mut().insert(path.clone(), field(&file, "handle"));
+                        let bytes = Uint8Array::new(&field(&file, "bytes")).to_vec();
+                        shared.finish_open(Ok((path, bytes)));
+                    }
+                    Err(e) => {
+                        let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+                        shared.finish_open(Err(format!("Could not open {name}: {}", error_text(&e))));
+                    }
+                }
+            });
+            None
+        }
+
+        fn recent_changed(&mut self, paths: &[String]) {
+            let list = js_sys::Array::new();
+            let entries = js_sys::Array::new();
+            let handles = self.shared.handles.borrow();
+            for p in paths {
+                list.push(&JsValue::from_str(p));
+                if let Some(h) = handles.get(p) {
+                    let entry = js_sys::Object::new();
+                    let _ = Reflect::set(&entry, &"path".into(), &JsValue::from_str(p));
+                    let _ = Reflect::set(&entry, &"handle".into(), h);
+                    entries.push(&entry);
+                }
+            }
+            let keeping = keep_recent(&list, &entries);
+            spawn_local(async move {
+                let _ = JsFuture::from(keeping).await;
             });
         }
 
@@ -614,6 +729,25 @@ export async function writeTo(handle, bytes) {
 
         fn take_image(&mut self) -> Option<OpenedFile> {
             self.shared.image.borrow_mut().take()
+        }
+
+        fn open_palette(&mut self) -> Option<(String, Vec<u8>)> {
+            let picking = pick_palette_and_read("palette");
+            let shared = self.shared.clone();
+            spawn_local(async move {
+                let read = match picked_file(picking).await {
+                    Ok(None) => return,
+                    Ok(Some(file)) => Ok((file.name, file.bytes)),
+                    Err(e) => Err(e),
+                };
+                *shared.palette.borrow_mut() = Some(read);
+                shared.ctx.request_repaint();
+            });
+            None
+        }
+
+        fn take_palette(&mut self) -> Option<OpenedFile> {
+            self.shared.palette.borrow_mut().take()
         }
 
         fn save_file(&mut self, suggested: &str, bytes: &[u8]) -> SaveStatus {

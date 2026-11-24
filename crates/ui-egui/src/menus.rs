@@ -60,7 +60,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if item(ui, "Open...", "Ctrl+O", true) {
                 open(app);
             }
-            todo(ui, "Open Recent", "");
+            open_recent_menu(app, ui);
             todo(ui, "Reconstitute Table...", "");
             todo(ui, "Scan", "");
             if item(ui, "Close", CLOSE_KEY, has_doc) {
@@ -669,6 +669,41 @@ fn toggle_panels(app: &mut FireCraftApp) {
     app.prefs.show_tools = !shown;
     app.prefs.show_properties = !shown;
     app.prefs.show_dock = !shown;
+}
+
+/// File > Open Recent: Fireworks MX's numbered list of the last files opened or saved (names
+/// shortened as MFC shortens them; the full path in the tooltip), and FireCraft's Clear Recent
+/// Files. Greyed when the list is empty.
+fn open_recent_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    let paths = app.recent.paths().to_vec();
+    let mut chosen = None;
+    let mut clear = false;
+    ui.add_enabled_ui(!paths.is_empty(), |ui| {
+        ui.menu_button("Open Recent", |ui| {
+            for (i, path) in paths.iter().enumerate() {
+                let full = app.platform.display_path(path);
+                let shown = crate::recent::abbreviate(&full, crate::recent::MAX_SHOWN);
+                let r = ui.button(format!("{} {shown}", i + 1));
+                let r = if shown == full { r } else { r.on_hover_text(&full) };
+                if r.clicked() {
+                    chosen = Some(path.clone());
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if item(ui, "Clear Recent Files", "", true) {
+                clear = true;
+            }
+        });
+    })
+    .response
+    .on_disabled_hover_text("No files opened or saved yet");
+    if let Some(path) = chosen {
+        app.open_recent(&path);
+    }
+    if clear {
+        app.clear_recent();
+    }
 }
 
 pub fn open(app: &mut FireCraftApp) {

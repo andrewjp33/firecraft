@@ -9,8 +9,16 @@
 //! JPEG quality, `JPSi` smoothing, `JPPb` progressive, `FLPi` animation repeats (0 forever),
 //! `FNLv` the frames, `AACb`/`AADb` the animation's Auto Crop and Auto Difference. FireCraft's
 //! own options use `FC..` fields, which Fireworks ignores (`FCOi`: the PNG optimization level).
+//!
+//! The color table is `PALv` (`PLNi` entries): each entry an `FCLi` color (0xAARRGGBB) followed
+//! by the flags that are set, `CLLb` locked, `CLTb` transparent, `CLMb` edited with `BCLi` the
+//! color it exports as (tags from Fireworks MX's writer, Fireworks.exe 0x79cd39). `FCLi` stays
+//! the color pixels are matched to: Fireworks MX's script API shows `BCLi` as `newColorValue`,
+//! and exports pixels of the `FCLi` color in the `BCLi` one (probes/custom_palette_mx2). Fireworks
+//! MX keeps the table it last built for every palette; FireCraft reads it as the palette of a
+//! custom one (`PLTi` 0) and otherwise takes only its locked colors.
 
-use firecraft_doc::{ExportFormat, ExportSettings, Frame, PaletteKind, Transparency};
+use firecraft_doc::{ExportFormat, ExportSettings, Frame, PaletteEntry, PaletteKind, Transparency};
 use firecraft_fwpng::Node;
 use firecraft_raster::Rgba;
 
@@ -45,10 +53,16 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         Some(5) => PaletteKind::Windows,
         Some(6) => PaletteKind::Exact,
         Some(7) => PaletteKind::Web216,
-        // Custom palettes (0) aren't modelled yet: they export as Adaptive.
+        Some(0) if exp.child("PAL").is_some_and(|p| p.children_tagged("FCL").next().is_some()) => {
+            PaletteKind::Custom
+        }
         Some(1) | None if snap => PaletteKind::WebAdaptive,
         _ => PaletteKind::Adaptive,
     };
+    let mut table = read_table(exp);
+    if palette != PaletteKind::Custom {
+        table.retain(|e| e.locked);
+    }
     let transparency = match int("PTN") {
         Some(1) => Transparency::Index,
         Some(2) | Some(3) => Transparency::Alpha,
@@ -79,8 +93,66 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         quality: byte("FCQ", d.quality).min(100),
         alpha_quality: byte("FCA", d.alpha_quality).min(100),
         lossless: exp.bool_of("FCL").unwrap_or(false),
+        table,
         raw: Some(exp.clone()),
     }
+}
+
+fn argb(c: Rgba) -> i64 {
+    i64::from((u32::from(c.a) << 24) | (u32::from(c.r) << 16) | (u32::from(c.g) << 8) | u32::from(c.b))
+}
+
+fn from_argb(v: u32) -> Rgba {
+    Rgba::new((v >> 16) as u8, (v >> 8) as u8, v as u8, (v >> 24) as u8)
+}
+
+/// The entries of `PALv`: each `FCLi` starts one, the flags after it belong to it.
+fn read_table(exp: &Node) -> Vec<PaletteEntry> {
+    let mut table: Vec<PaletteEntry> = Vec::new();
+    let Some(pal) = exp.child("PAL") else { return table };
+    let mut edited = false;
+    for c in &pal.children {
+        if c.is("FCL") {
+            table.push(PaletteEntry::new(from_argb(c.as_u32().unwrap_or(0xff00_0000))));
+            edited = false;
+            continue;
+        }
+        let Some(e) = table.last_mut() else { continue };
+        if c.is("CLL") {
+            e.locked = c.as_bool().unwrap_or(false);
+        } else if c.is("CLT") {
+            e.transparent = c.as_bool().unwrap_or(false);
+        } else if c.is("CLM") {
+            edited = c.as_bool().unwrap_or(false);
+        } else if c.is("BCL")
+            && edited
+            && let Some(new) = c.as_u32().map(from_argb)
+        {
+            // The entry's color was the one matched; the new one is what it exports as.
+            e.original = Some(e.color);
+            e.color = new;
+        }
+    }
+    table
+}
+
+/// `PALv` for these entries, as Fireworks MX writes it.
+fn table_node(table: &[PaletteEntry]) -> Node {
+    let mut children = Vec::new();
+    for e in table {
+        children.push(Node::int("FCL", argb(e.source())));
+        if e.locked {
+            children.push(Node::bool("CLL", true));
+        }
+        if e.transparent {
+            children.push(Node::bool("CLT", true));
+        }
+        if e.original.is_some() {
+            children.push(Node::bool("CLM", true));
+            children.push(Node::int("BCL", argb(e.color)));
+        }
+    }
+    Node::vector("PAL", children)
 }
 
 /// Whether `s` is what `raw` already says (then the record is kept exactly as Fireworks wrote
@@ -114,12 +186,9 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
         PaletteKind::Windows => 5,
         PaletteKind::Exact => 6,
         PaletteKind::Web216 => 7,
+        PaletteKind::Custom => 0,
     };
-    let colors = if s.palette == PaletteKind::BlackWhite {
-        2
-    } else {
-        s.colors.clamp(2, 256)
-    };
+    let colors = s.color_limit() as u16;
     let ptn = match s.transparency {
         Transparency::None => 0,
         Transparency::Index => 1,
@@ -129,6 +198,10 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     set(&mut n, Node::int("FMT", fmt));
     set(&mut n, Node::int("CLR", clr));
     set(&mut n, Node::int("PLT", plt));
+    // The color table: a custom palette's entries, otherwise the locked colors (Fireworks MX
+    // rebuilds the rest).
+    set(&mut n, table_node(&s.table));
+    set(&mut n, Node::int("PLN", s.table.len() as i64));
     set(&mut n, Node::int("PLR", i64::from(colors)));
     set(&mut n, Node::int("PTN", ptn));
     set(&mut n, Node::bool("APS", s.palette == PaletteKind::WebAdaptive));
@@ -312,6 +385,48 @@ mod tests {
             let fnl = node.child("FNL").expect("frames");
             assert_eq!(fnl.children.len(), 2);
         }
+    }
+
+    #[test]
+    fn the_color_table_survives_the_record() {
+        use firecraft_doc::PaletteEntry;
+        let red = Rgba::new(255, 0, 0, 255);
+        let table = vec![
+            PaletteEntry {
+                original: Some(Rgba::new(250, 3, 4, 255)),
+                locked: true,
+                ..PaletteEntry::new(red)
+            },
+            PaletteEntry {
+                transparent: true,
+                ..PaletteEntry::new(Rgba::new(0, 0, 255, 255))
+            },
+            PaletteEntry::new(Rgba::new(1, 2, 3, 255)),
+        ];
+        let s = ExportSettings {
+            palette: PaletteKind::Custom,
+            table: table.clone(),
+            ..ExportSettings::default()
+        };
+        let n = write(&s, &[Frame::default()]);
+        assert_eq!((n.int_of("PLT"), n.int_of("PLN"), n.int_of("PLR")), (Some(0), Some(3), Some(3)));
+        let pal = n.child("PAL").expect("table");
+        let tags: Vec<&str> = pal.children.iter().map(Node::tag_str).collect();
+        assert_eq!(tags, ["FCL", "CLL", "CLM", "BCL", "FCL", "CLT", "FCL"]);
+        // FCLi: the color matched (the original), BCLi: the color exported (Fireworks MX).
+        assert_eq!(pal.children[0].as_u32(), Some(0xfffa_0304));
+        assert_eq!(pal.children[3].as_u32(), Some(0xffff_0000));
+        let back = read(&n);
+        assert_eq!(back.palette, PaletteKind::Custom);
+        assert_eq!(back.table, table);
+        // Another palette keeps only the locked colors.
+        let s = ExportSettings {
+            palette: PaletteKind::Adaptive,
+            ..s
+        };
+        let back = read(&write(&s, &[Frame::default()]));
+        assert_eq!(back.palette, PaletteKind::Adaptive);
+        assert_eq!(back.table, table[..1]);
     }
 
     #[test]

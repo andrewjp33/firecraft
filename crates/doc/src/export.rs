@@ -95,9 +95,13 @@ pub enum PaletteKind {
     Grayscale,
     BlackWhite,
     Uniform,
+    /// The color table itself ([`ExportSettings::table`]): edited in the Optimize panel, or
+    /// loaded from a palette file (Fireworks MX's Custom).
+    Custom,
 }
 
 impl PaletteKind {
+    /// The palettes made by rule (Custom is the color table itself).
     pub const ALL: [PaletteKind; 9] = [
         Self::Adaptive,
         Self::WebAdaptive,
@@ -121,7 +125,39 @@ impl PaletteKind {
             Self::Grayscale => "Grayscale",
             Self::BlackWhite => "Black & White",
             Self::Uniform => "Uniform",
+            Self::Custom => "Custom",
         }
+    }
+}
+
+/// One color of the Optimize panel's color table: Fireworks MX's `PALv > FCLi`, with its flags
+/// `CLLb` (locked), `CLTb` (transparent) and `CLMb` + `BCLi` (edited, and the color it was).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PaletteEntry {
+    /// The color exported.
+    pub color: Rgba,
+    /// The color this entry had before it was edited: the pixels nearest to it export as
+    /// [`color`](Self::color). The document itself doesn't change.
+    pub original: Option<Rgba>,
+    /// Kept when the palette is rebuilt, reduced or switched to another palette.
+    pub locked: bool,
+    /// Exported transparent.
+    pub transparent: bool,
+}
+
+impl PaletteEntry {
+    pub fn new(color: Rgba) -> Self {
+        Self {
+            color,
+            original: None,
+            locked: false,
+            transparent: false,
+        }
+    }
+
+    /// The color pixels are matched against: the original color of an edited entry.
+    pub fn source(&self) -> Rgba {
+        self.original.unwrap_or(self.color)
     }
 }
 
@@ -201,6 +237,11 @@ pub struct ExportSettings {
     pub alpha_quality: u8,
     /// WebP / JPEG XL: lossless.
     pub lossless: bool,
+    /// The color table's own entries: with [`PaletteKind::Custom`] the palette itself, with the
+    /// other palettes only the locked colors, which every palette keeps (Fireworks MX: "If you
+    /// switch to another palette after colors have been locked, locked colors are added to the
+    /// new palette").
+    pub table: Vec<PaletteEntry>,
     /// The record read from the file (`EXPv`), kept for the fields FireCraft doesn't model.
     pub raw: Option<Node>,
 }
@@ -232,6 +273,7 @@ impl Default for ExportSettings {
             quality: 80,
             alpha_quality: 100,
             lossless: false,
+            table: Vec::new(),
             raw: None,
         }
     }
@@ -253,6 +295,21 @@ pub const PRESETS: [&str; 10] = [
 ];
 
 impl ExportSettings {
+    /// The most colors an indexed export may have: the Colors setting, 2 for Black & White, and
+    /// the table's size for a custom palette.
+    pub fn color_limit(&self) -> usize {
+        match self.palette {
+            PaletteKind::BlackWhite => 2,
+            PaletteKind::Custom => self.table.len().clamp(1, 256),
+            _ => usize::from(self.colors.clamp(2, 256)),
+        }
+    }
+
+    /// The locked colors of the table, which every palette keeps.
+    pub fn locked(&self) -> impl Iterator<Item = &PaletteEntry> {
+        self.table.iter().filter(|e| e.locked)
+    }
+
     /// Whether frames get their own color tables: [`frame_palettes`](Self::frame_palettes) on,
     /// an animated GIF, and a palette that is made for the pixels (fixed palettes such as Web 216
     /// would be the same in every frame).
@@ -340,6 +397,7 @@ impl ExportSettings {
             ExportFormat::Gif | ExportFormat::AnimatedGif | ExportFormat::Png8 => {
                 self.palette == other.palette
                     && self.colors == other.colors
+                    && self.table == other.table
                     && self.dither == other.dither
                     && self.transparency == other.transparency
                     && self.interlaced == other.interlaced

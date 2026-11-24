@@ -223,8 +223,43 @@ opened JPEG's quality back on Fireworks MX's scale (a libjpeg-92 file: 88; Firew
 Fireworks MX writes JPEGs without chroma subsampling (1×1), FireCraft too by default. Smoothing
 is approximated with a blur of 0.5 px per level.
 
+## The color table
+
+The Optimize panel's color table, for GIF, animated GIF and PNG 8 (`crates/ui-egui/src/optimize/table.rs`),
+follows Fireworks MX's help ("Viewing colors in a palette" and the pages after it) and its palette menu
+strings (Fireworks Resources.dll):
+
+* It shows the palette of the last export: kept up to date in Preview, otherwise a **Rebuild** button
+  takes the place of the color count once the document has changed.
+* Swatch marks: edited (a square at the bottom left), locked (bottom right), transparent (checkered),
+  web safe (a diamond). Click selects, Ctrl+click adds, Shift+click a range; double-click edits; the
+  tooltip gives the color, its marks and how many pixels use it.
+* Buttons: Select Transparent Color, Add Color to Transparency, Remove Color from Transparency (then click
+  a swatch or a pixel of the Preview), Edit Color, Snap to Web Safe, Lock Color, Add Color, Delete Color.
+  Sort by None, Luminance or Popularity. The right-click menu adds Unlock All Colors, Remove Edit,
+  Remove All Edits, Load Palette (`.act`, a GIF's or a PNG 8's colors), Save Palette (`.act`) and Rebuild
+  Color Table. The palette menu's Custom... loads a palette, as in Fireworks MX.
+* Any edit makes the palette **Custom**: the table itself (Fireworks MX's help: "Custom is a palette that
+  has been modified or loaded"; whether its own UI switches the menu on an edit is unchecked). Locking
+  doesn't: locked colors join whatever palette is chosen, as the help says.
+* Transparent colors switch No Transparency to Index Transparency; with a custom palette they replace the
+  matte color as the transparent one. A GIF has one transparent entry, so the pixels of every transparent
+  color take it (in an animation that can make frames clear and redraw, which costs file size).
+
+Stored in `EXPv > PALv`: one `FCLi` per entry, then `CLLb` (locked), `CLTb` (transparent), `CLMb` +
+`BCLi` (edited) when set; `PLNi` counts them (tags from Fireworks MX's writer at Fireworks.exe 0x79cd39).
+`FCLi` is the color pixels are matched to and `BCLi` the color they export as: Fireworks MX's script API
+names it `newColorValue`, and two probes it exported (`probes/custom_palette_mx`, `..._mx2`, made by
+`crates/io/examples/custom_palette_probe.rs`) map red pixels to the `FCLi` red's `BCLi` green, and to the
+nearest `FCLi` (yellow) when no `FCLi` is red. Fireworks MX reads FireCraft's table back entry for entry
+(`paletteMode` custom, `paletteInfo` with the same flags). Fireworks MX also keeps its last adaptive table
+there for the other palettes; FireCraft reads only the locked entries of those and writes only them.
+Fireworks MX's exports drop unused palette entries (Remove Unused Colors, on by default); FireCraft's
+keep a custom palette's entries.
+
 ## Not yet
 
-2-Up/4-Up and Export Preview; GIF loss (lossy LZW); custom palettes and the Color Table panel;
+2-Up/4-Up and Export Preview; GIF loss (lossy LZW); the color table's press-and-hold highlight of a
+color's pixels, Replace Palette Entry and Remove Unused Colors;
 Selective JPEG quality; animated WebP export; WebP in the browser build; 16-bit (PNG 48/64) export,
 which needs a 16-bit pipeline (layers are 8 bits per channel).

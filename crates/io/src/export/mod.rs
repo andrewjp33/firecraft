@@ -2,6 +2,7 @@
 //! panel): GIF, animated GIF, JPEG, PNG 8/24/32, WebP and JPEG XL.
 
 pub(crate) mod expv;
+pub mod palette_file;
 
 use std::borrow::Cow;
 
@@ -19,6 +20,10 @@ pub struct Exported {
     pub preview: RgbaImage,
     /// Colors in the palette of an indexed export.
     pub palette: Vec<Entry>,
+    /// The palette's transparent entry (GIF; a PNG 8's entries may have alpha of their own).
+    pub transparent: Option<usize>,
+    /// How many pixels use each palette entry (in every frame of an animation).
+    pub usage: Vec<u32>,
     /// An animated GIF's every frame, so a preview of another frame needs no new export.
     pub animation: Option<std::sync::Arc<AnimatedPreview>>,
 }
@@ -198,6 +203,8 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
                 bytes,
                 preview: flat,
                 palette: Vec::new(),
+                transparent: None,
+                usage: Vec::new(),
             })
         }
         ExportFormat::Png32 => Ok(Exported {
@@ -205,6 +212,8 @@ pub fn export(doc: &Document, s: &ExportSettings) -> Result<Exported> {
             bytes: png_rgb(&img, (doc.resolution, doc.resolution_cm), true)?,
             preview: img,
             palette: Vec::new(),
+            transparent: None,
+            usage: Vec::new(),
         }),
         ExportFormat::Jpeg => jpeg(&img, s, m, (doc.resolution, doc.resolution_cm)),
         ExportFormat::WebP => webp(&img, s),
@@ -293,8 +302,12 @@ fn clear_mode(s: &ExportSettings, png8: bool) -> Clear {
         s.palette,
         PaletteKind::Adaptive | PaletteKind::WebAdaptive | PaletteKind::Exact
     );
+    // A custom palette with transparent entries: they are the transparent colors (see
+    // `apply_table`), not the matte's.
+    let own_clear = s.palette == PaletteKind::Custom && s.table.iter().any(|e| e.transparent);
     match s.transparency {
         Transparency::None => Clear::None,
+        Transparency::Index if own_clear => Clear::None,
         Transparency::Index => Clear::Key,
         // Alpha as it is while every color+alpha fits; otherwise rounded (see `index`).
         Transparency::Alpha if png8 && alpha_palette => Clear::Palette { exact: true },
@@ -326,11 +339,42 @@ fn prepare(img: &RgbaImage, matte: Matte, mode: Clear) -> Vec<Entry> {
         .collect()
 }
 
-/// The palette of an indexed export for these (prepared) pixels, at most `n` colors.
+fn entry(c: Rgba) -> Entry {
+    [c.r, c.g, c.b, c.a]
+}
+
+/// The palette of an indexed export for these (prepared) pixels, at most `n` colors: a custom
+/// palette's colors (as they were before any edit: pixels are matched against those), or the
+/// palette's own colors after the table's locked ones.
 fn palette_for(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> Vec<Entry> {
+    if s.palette == PaletteKind::Custom {
+        return s.table.iter().take(n).map(|e| entry(e.source())).collect();
+    }
+    let locked: Vec<Entry> = s.locked().map(|e| entry(e.source())).collect();
+    if locked.is_empty() {
+        return made_palette(pixels, s, n, alpha);
+    }
+    let mut palette: Vec<Entry> = Vec::with_capacity(n);
+    for c in locked {
+        if palette.len() < n && !palette.contains(&c) {
+            palette.push(c);
+        }
+    }
+    let rest = made_palette(pixels, s, n.saturating_sub(palette.len()).max(1), alpha);
+    for c in rest {
+        if palette.len() < n && !palette.contains(&c) {
+            palette.push(c);
+        }
+    }
+    palette
+}
+
+/// The palette `s.palette` makes for these pixels, at most `n` colors.
+fn made_palette(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> Vec<Entry> {
     let opaque: Vec<Entry> = pixels.iter().copied().filter(|p| alpha || p[3] != 0).collect();
     let hist = quantize::histogram(&opaque);
     match s.palette {
+        PaletteKind::Custom => s.table.iter().take(n).map(|e| entry(e.source())).collect(),
         PaletteKind::Adaptive | PaletteKind::Exact => quantize::adaptive(&hist, n, alpha),
         PaletteKind::WebAdaptive => {
             let mut p = quantize::adaptive(&hist, n, alpha);
@@ -393,6 +437,65 @@ fn index(
     reserve: bool,
     only: Option<&[bool]>,
 ) -> Indexed {
+    let mut ix = index_colors(images, s, matte, png8, reserve, only);
+    apply_table(&mut ix, s);
+    ix
+}
+
+/// A custom palette's edits: an edited entry exports its new color (the pixels matched its
+/// original), and the pixels of transparent entries all take one transparent entry (a GIF has
+/// just one; the other transparent entries stay in the palette, unused).
+fn apply_table(ix: &mut Indexed, s: &ExportSettings) {
+    if s.palette != PaletteKind::Custom {
+        return;
+    }
+    let mut clear: Vec<u8> = Vec::new();
+    for (i, c) in ix.palette.iter_mut().enumerate() {
+        if Some(i) == ix.transparent.map(usize::from) {
+            continue;
+        }
+        // Matched by color: with alpha (PNG 8) one entry may appear with several alphas.
+        let Some(e) = s.table.iter().find(|e| entry(e.source())[..3] == c[..3]) else {
+            continue;
+        };
+        if e.original.is_some() {
+            *c = [e.color.r, e.color.g, e.color.b, c[3]];
+        }
+        if e.transparent {
+            clear.push(i.min(255) as u8);
+        }
+    }
+    let Some(&first) = clear.first() else { return };
+    let t = ix.transparent.unwrap_or(first);
+    for frame in &mut ix.frames {
+        for v in frame.iter_mut() {
+            if clear.contains(v) {
+                *v = t;
+            }
+        }
+    }
+    ix.transparent = Some(t);
+}
+
+/// How many pixels use each of `n` palette entries.
+fn usage(frames: &[Vec<u8>], n: usize) -> Vec<u32> {
+    let mut counts = vec![0u32; n];
+    for &v in frames.iter().flatten() {
+        if let Some(c) = counts.get_mut(usize::from(v)) {
+            *c += 1;
+        }
+    }
+    counts
+}
+
+fn index_colors(
+    images: &[&RgbaImage],
+    s: &ExportSettings,
+    matte: Matte,
+    png8: bool,
+    reserve: bool,
+    only: Option<&[bool]>,
+) -> Indexed {
     let mut mode = clear_mode(s, png8);
     let alpha_palette = matches!(mode, Clear::Palette { .. });
     let grey = matches!(s.palette, PaletteKind::Grayscale | PaletteKind::BlackWhite);
@@ -404,11 +507,7 @@ fn index(
             .collect()
     };
     let mut prepared = prep(mode, matte);
-    let limit_colors = if s.palette == PaletteKind::BlackWhite {
-        2
-    } else {
-        usize::from(s.colors.clamp(2, 256))
-    };
+    let limit_colors = s.color_limit();
     // Alpha stays exact when every color+alpha combination fits the color count (each gets its
     // own entry: nothing is lost). Otherwise the palette is a median cut, and alpha rounded to
     // Fireworks MX's 16 levels spends fewer entries on alpha (on a soft-shadowed image: as good at
@@ -475,7 +574,7 @@ fn index(
     let extra = usize::from(has_cut || key || reserve);
     // The transparent entry takes a palette slot; Exact gets it on top of its colors (up to 256),
     // so its colors stay exact.
-    let room = if s.palette == PaletteKind::Exact {
+    let room = if matches!(s.palette, PaletteKind::Exact | PaletteKind::Custom) {
         limit.min(256 - extra)
     } else {
         limit.saturating_sub(extra)
@@ -733,6 +832,7 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
             }
         }
     }
+    let usage = usage(&ix.frames, ix.palette.len());
     let shown = ix.shown();
     let preview = render_indexed(
         ix.frames.get(show).or(ix.frames.first()).map_or(&[][..], |f| f),
@@ -753,6 +853,8 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
         animation,
         bytes: out,
         preview,
+        transparent: ix.transparent.map(usize::from),
+        usage,
         palette: ix.palette,
     })
 }
@@ -801,6 +903,8 @@ fn gif_frame_palettes(
     let mut drawn: Vec<Rgba> = vec![Rgba::TRANSPARENT; len];
     let mut pictures = Vec::with_capacity(frames.len());
     let mut palettes: Vec<Vec<Entry>> = Vec::with_capacity(frames.len());
+    // The shown frame's transparent entry and use of its palette (for the Optimize panel).
+    let mut shown_table: (Option<usize>, Vec<u32>) = (None, Vec::new());
     let mut out = Vec::new();
     {
         let mut enc = gif::Encoder::new(&mut out, gw, gh, &[]).map_err(err)?;
@@ -894,6 +998,9 @@ fn gif_frame_palettes(
                 }
             }
             pictures.push(RgbaImage::from_pixels(w, h, drawn.clone()).unwrap_or_else(|| RgbaImage::new(w, h, Rgba::TRANSPARENT)));
+            if j == show {
+                shown_table = (t.map(usize::from), usage(std::slice::from_ref(&buf), ix.palette.len()));
+            }
             palettes.push(ix.palette);
             if clear_after {
                 screen.iter_mut().for_each(|c| *c = None);
@@ -910,6 +1017,8 @@ fn gif_frame_palettes(
         bytes: out,
         preview,
         palette: palettes.into_iter().nth(show).unwrap_or_default(),
+        transparent: shown_table.0,
+        usage: shown_table.1,
         animation: Some(std::sync::Arc::new(AnimatedPreview {
             frames: PreviewFrames::Pictures(pictures),
             size: (w, h),
@@ -1035,6 +1144,8 @@ fn png8(img: &RgbaImage, s: &ExportSettings, matte: Matte, res: crate::Resolutio
         animation: None,
         bytes: out,
         preview,
+        transparent: ix.transparent.map(usize::from),
+        usage: usage(&ix.frames, ix.palette.len()),
         palette: ix.palette,
     })
 }
@@ -1077,6 +1188,8 @@ fn jpeg(img: &RgbaImage, s: &ExportSettings, matte: Matte, res: crate::Resolutio
         bytes: out,
         preview,
         palette: Vec::new(),
+        transparent: None,
+        usage: Vec::new(),
     })
 }
 
@@ -1107,6 +1220,8 @@ fn webp(img: &RgbaImage, s: &ExportSettings) -> Result<Exported> {
         bytes,
         preview,
         palette: Vec::new(),
+        transparent: None,
+        usage: Vec::new(),
     })
 }
 
@@ -1141,6 +1256,8 @@ fn jxl(img: &RgbaImage, s: &ExportSettings) -> Result<Exported> {
         bytes,
         preview,
         palette: Vec::new(),
+        transparent: None,
+        usage: Vec::new(),
     })
 }
 
@@ -1225,6 +1342,89 @@ mod tests {
         ExportSettings {
             format,
             ..ExportSettings::default()
+        }
+    }
+
+    /// Left half red, right half blue, opaque.
+    fn two_colors() -> Document {
+        let mut d = Document::new(8, 4, 72.0, None);
+        let mut img = RgbaImage::new(8, 4, Rgba::TRANSPARENT);
+        for y in 0..4 {
+            for x in 0..8 {
+                img.set(x, y, if x < 4 { Rgba::new(255, 0, 0, 255) } else { Rgba::new(0, 0, 255, 255) });
+            }
+        }
+        if let Some(c) = d.layers[0].elements_mut(0) {
+            c.push(firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
+                firecraft_doc::Bitmap { x: 0, y: 0, image: img },
+            )));
+        }
+        d
+    }
+
+    fn custom(table: Vec<firecraft_doc::PaletteEntry>) -> ExportSettings {
+        ExportSettings {
+            palette: PaletteKind::Custom,
+            table,
+            ..with(ExportFormat::Gif)
+        }
+    }
+
+    #[test]
+    fn a_custom_palette_exports_its_edits_and_transparent_colors() {
+        use firecraft_doc::PaletteEntry;
+        let d = two_colors();
+        let (red, blue, green) = (Rgba::new(255, 0, 0, 255), Rgba::new(0, 0, 255, 255), Rgba::new(0, 255, 0, 255));
+        // Red edited to green: the red pixels export green; the document keeps red.
+        let edited = PaletteEntry {
+            color: green,
+            original: Some(red),
+            ..PaletteEntry::new(green)
+        };
+        let e = export(&d, &custom(vec![edited, PaletteEntry::new(blue)])).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(e.preview.get(1, 1), Some(green));
+        assert_eq!(e.preview.get(6, 1), Some(blue));
+        assert_eq!(e.palette.len(), 2);
+        assert_eq!(e.usage, vec![16, 16]);
+        // Blue transparent: a GIF with blue's entry as its transparent index.
+        let clear = PaletteEntry {
+            transparent: true,
+            ..PaletteEntry::new(blue)
+        };
+        let e = export(&d, &custom(vec![PaletteEntry::new(red), clear])).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(e.preview.get(6, 1).map(|p| p.a), Some(0));
+        assert_eq!(e.preview.get(1, 1), Some(red));
+        assert_eq!(e.transparent, Some(1));
+        let back = crate::formats::open_flat(&e.bytes, Some("x.gif".into())).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(back.render(0).get(6, 1).map(|p| p.a), Some(0));
+        // Index Transparency doesn't add the matte's entry when the table has transparent colors.
+        let s = ExportSettings {
+            transparency: Transparency::Index,
+            ..custom(vec![PaletteEntry::new(red), clear])
+        };
+        let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(e.palette.len(), 2);
+        assert_eq!(e.preview.get(1, 1), Some(red));
+    }
+
+    #[test]
+    fn locked_colors_stay_in_every_palette() {
+        use firecraft_doc::PaletteEntry;
+        let d = two_colors();
+        let yellow = Rgba::new(255, 255, 0, 255);
+        for palette in [PaletteKind::Adaptive, PaletteKind::Web216, PaletteKind::Grayscale] {
+            let s = ExportSettings {
+                palette,
+                colors: 4,
+                table: vec![PaletteEntry {
+                    locked: true,
+                    ..PaletteEntry::new(yellow)
+                }],
+                ..with(ExportFormat::Gif)
+            };
+            let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+            assert!(e.palette.contains(&[255, 255, 0, 255]), "{palette:?}: {:?}", e.palette);
+            assert!(e.palette.len() <= 4, "{palette:?}");
         }
     }
 

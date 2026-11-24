@@ -1123,6 +1123,23 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
     }
 
+    // The Optimize panel's transparency eyedroppers take their color from the Preview (Fireworks
+    // MX); no tool acts meanwhile.
+    if view.preview && app.optimize_table.pick.is_some() {
+        if resp.hovered() {
+            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        if resp.clicked()
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            let (x, y) = to_doc(pos);
+            let picture = view.optimized.as_ref().and_then(|o| o.picture.as_ref());
+            if let Some(c) = picture.and_then(|img| img.get(x.floor() as i64, y.floor() as i64)) {
+                app.optimize_table.picked = Some((d.id, c));
+            }
+        }
+        return;
+    }
     // Tools with editing state of their own (one for the app) work in the active document
     // only; other windows just show their document (Fireworks shows handles in one window).
     let active = index == app.session.active;
@@ -1829,6 +1846,13 @@ pub(crate) struct Optimized {
     texture: Option<crate::tiles::TiledTexture>,
     /// File size in bytes and palette colours, or why it couldn't be exported.
     pub result: Result<(usize, usize), String>,
+    /// An indexed export's palette (the Optimize panel's color table), its transparent entry
+    /// and how many pixels use each entry.
+    pub palette: Vec<[u8; 4]>,
+    pub transparent: Option<usize>,
+    pub usage: Vec<u32>,
+    /// The shown frame as exported (the Optimize panel's transparency eyedroppers read it).
+    pub picture: Option<firecraft_raster::RgbaImage>,
     /// An animated GIF's every frame, and the frame the texture shows: another frame (playing,
     /// stepping) is shown from it without exporting again.
     animation: Option<std::sync::Arc<firecraft_io::export::AnimatedPreview>>,
@@ -1857,30 +1881,48 @@ pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::Do
         if o.frame != frame
             && let (Some(a), Some(tex)) = (o.animation.as_ref(), o.texture.as_mut())
         {
-            tex.set(ctx, &format!("optimized-{}", d.id), &a.frame(frame), egui::TextureOptions::NEAREST);
+            let picture = a.frame(frame);
+            tex.set(ctx, &format!("optimized-{}", d.id), &picture, egui::TextureOptions::NEAREST);
+            o.picture = Some(picture);
             o.frame = frame;
         }
         return;
     }
-    let (texture, result, animation) = match firecraft_io::export::export(&d.doc, &d.doc.export) {
+    let mut o = Optimized {
+        key,
+        texture: None,
+        result: Err(String::new()),
+        palette: Vec::new(),
+        transparent: None,
+        usage: Vec::new(),
+        picture: None,
+        animation: None,
+        frame,
+    };
+    match firecraft_io::export::export(&d.doc, &d.doc.export) {
         Ok(e) => {
-            let tex = crate::tiles::TiledTexture::new(
+            o.texture = Some(crate::tiles::TiledTexture::new(
                 ctx,
                 &format!("optimized-{}", d.id),
                 &e.preview,
                 egui::TextureOptions::NEAREST,
-            );
-            (Some(tex), Ok((e.bytes.len(), e.palette.len())), e.animation)
+            ));
+            o.result = Ok((e.bytes.len(), e.palette.len()));
+            o.palette = e.palette;
+            o.transparent = e.transparent;
+            o.usage = e.usage;
+            o.picture = Some(e.preview);
+            o.animation = e.animation;
         }
-        Err(e) => (None, Err(e.to_string()), None),
-    };
-    view.optimized = Some(Optimized {
-        key,
-        texture,
-        result,
-        animation,
-        frame,
-    });
+        Err(e) => o.result = Err(e.to_string()),
+    }
+    view.optimized = Some(o);
+}
+
+/// Whether the kept export still shows the document as it is (else the Optimize panel's color
+/// table offers Rebuild, as Fireworks MX's does).
+pub(crate) fn optimized_current(view: &crate::View, d: &firecraft_engine::DocState) -> bool {
+    view.optimized.as_ref().is_some_and(|o| o.key == optimize_key(d))
 }
 
 /// "4.6K" / "820 bytes": a file size as Fireworks shows it.

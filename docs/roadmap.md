@@ -52,7 +52,10 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
 - Optimize panel, Preview and File > Export: GIF, animated GIF, JPEG, PNG 8/24/32 with Fireworks MX's
   palettes and settings (stored in `EXPv` as Fireworks MX does), plus WebP and JPEG XL with Quality and
   Alpha Quality; Auto Crop/Auto Difference; exact alpha with the Exact palette; lossless PNG optimizer (OptiPNG-style
-  levels) ([behavior/export.md](behavior/export.md))
+  levels); the color table with edited, locked and transparent colors, custom palettes, Load/Save Palette
+  ([behavior/export.md](behavior/export.md))
+- File > Open Recent: Fireworks MX's 10 files with MFC's shortened names, reopened on the desktop and
+  (Chrome/Edge, with file handles kept in IndexedDB) in the browser ([behavior/opening-files.md](behavior/opening-files.md#open-recent))
 - Tool options and each effect's last settings kept between sessions, as Fireworks MX keeps them;
   Defaults button in effect popups ([behavior/effects.md](behavior/effects.md#last-settings-and-defaults);
   settings of tools not yet built: Next, item 12)
@@ -83,7 +86,9 @@ Other items keep their numbers.
      levels on half the pixels (jpeg-decoder: 3). Also measure where Fireworks MX puts a new pattern's
      handles on an odd-sized object (FireCraft: on the half pixel)
 7. **Optimize panel + Export, the rest**: 2-Up/4-Up and Export Preview; GIF Loss (lossy LZW); custom
-   palettes and the Color Table panel; Selective JPEG quality; Fireworks MX's own adaptive palette and
+   palettes and the Color Table panel (done: [behavior/export.md](behavior/export.md#the-color-table);
+   left: press-and-hold highlight of a color's pixels, Replace Palette Entry, Remove Unused Colors);
+   Selective JPEG quality; Fireworks MX's own adaptive palette and
    dither pattern; more dither types, including ones that stay stable from frame to frame in
    animations (with "Maximize colors per frame" each frame has its own table); animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and
    libdeflate need a C-to-wasm compiler); export in the background (the PNG optimizer's level 7 can

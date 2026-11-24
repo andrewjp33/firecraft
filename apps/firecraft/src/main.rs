@@ -59,6 +59,7 @@ impl Platform for Desktop {
             "jpg" | "jpeg" => "JPEG image",
             "webp" => "WebP image",
             "jxl" => "JPEG XL image",
+            "act" => "Color table",
             _ => "PNG image",
         };
         let Some(path) = rfd::FileDialog::new()
@@ -83,6 +84,15 @@ impl Platform for Desktop {
         Some((path.display().to_string(), bytes))
     }
 
+    fn open_palette(&mut self) -> Option<(String, Vec<u8>)> {
+        let path = rfd::FileDialog::new()
+            .add_filter("Palettes", &["act", "gif", "png"])
+            .add_filter("All files", &["*"])
+            .pick_file()?;
+        let bytes = std::fs::read(&path).ok()?;
+        Some((path.display().to_string(), bytes))
+    }
+
     fn pick_folder(&mut self, _kind: FolderKind) -> Option<String> {
         rfd::FileDialog::new()
             .pick_folder()
@@ -96,6 +106,13 @@ impl Platform for Desktop {
             Ok(()) => SaveStatus::Saved(path.to_owned()),
             Err(e) => SaveStatus::Failed(e.to_string()),
         }
+    }
+    fn can_reopen(&self, path: &str) -> bool {
+        std::path::Path::new(path).is_absolute()
+    }
+
+    fn reopen(&mut self, path: &str) -> Option<Result<Vec<u8>, String>> {
+        Some(std::fs::read(path).map_err(|e| e.to_string()))
     }
 }
 
@@ -182,6 +199,8 @@ fn run(renderer: eframe::Renderer, launch: Launch, splash: SplashHandle) -> efra
                 app.set_ui_scale_override(v);
             }
             for f in launch.files {
+                // A full path, so the file can go in File > Open Recent.
+                let f = std::path::absolute(&f).map_or(f, |p| p.display().to_string());
                 match std::fs::read(&f) {
                     Ok(bytes) => app.open_bytes(f, &bytes),
                     Err(e) => log::warn!("{f}: {e}"),

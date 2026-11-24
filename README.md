@@ -140,12 +140,15 @@ Things no version of Fireworks has:
   for pixel as Fireworks MX exports them), dither, transparency and matte, Auto Crop/Auto
   Difference for animations, kept in the document as Fireworks MX keeps them; plus **WebP** and
   **JPEG XL** with Quality and Alpha Quality, and a lossless **PNG optimizer**. The Preview tab
-  shows the export, its file size and, for animations, the current frame
-  ([docs/behavior/export.md](docs/behavior/export.md)).
+  shows the export, its file size and, for animations, the current frame. The **color table**
+  shows the palette and edits it as Fireworks MX's does (edit, lock, make transparent, snap to web
+  safe, add and delete colors; custom palettes; Load/Save Palette as `.act`), saved in the document
+  so Fireworks MX reads the same table ([docs/behavior/export.md](docs/behavior/export.md#the-color-table)).
 - **Opening images**: PNG, JPEG, GIF, BMP, TIFF, Targa, WebP and JPEG XL open as Fireworks MX
   opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;
   the file's resolution and palette kept for re-export). Saving never overwrites the original: it
-  asks for a `.png` name ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
+  asks for a `.png` name; **File > Open Recent** lists the last 10 files, as Fireworks MX does
+  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
 - **Masks**: vector and bitmap masks render as in Fireworks MX and can be made and edited with all
   of Fireworks MX's mask commands, from the Layers panel and the Property inspector
   ([docs/behavior/masks.md](docs/behavior/masks.md)).
@@ -243,7 +246,7 @@ From [docs/roadmap.md](docs/roadmap.md), roughly in order:
 - Combine/Alter Path, Knife, Polygon/Star.
 - Lasso and Polygon Lasso tools.
 - Blur, Sharpen, Dodge, Burn, Smudge and Rubber Stamp.
-- Export: 2-Up/4-Up previews, GIF loss, custom palettes, animated WebP; WebP and the PNG
+- Export: 2-Up/4-Up previews, GIF loss, animated WebP; WebP and the PNG
   optimizer in the browser version; 16-bit (PNG 64) export, which needs a 16-bit pipeline.
 - Editing frames (adding, removing, timing) in the Frames panel.
 - Slices, hotspots and HTML export.

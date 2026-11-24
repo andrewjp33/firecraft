@@ -36,6 +36,7 @@ mod nine;
 mod optimize;
 mod panels;
 mod path_tool;
+mod recent;
 mod stroke_dialog;
 mod stroke_panel;
 mod tables_ui;
@@ -84,6 +85,8 @@ enum SaveTarget {
     /// The document with this id.
     Doc(u64),
     Export,
+    /// The Optimize panel's Save Palette.
+    Palette,
 }
 
 /// Host services the shell needs (file dialogs differ between desktop and browser).
@@ -177,6 +180,28 @@ pub trait Platform {
     /// Pictures the host got from the system clipboard since the last call.
     fn take_pasted(&mut self) -> Vec<HostPaste> {
         Vec::new()
+    }
+    /// Whether the file at a document path can be opened again later without asking for it
+    /// (File > Open Recent): a full path on the desktop, a file the browser gave a handle for.
+    fn can_reopen(&self, _path: &str) -> bool {
+        false
+    }
+    /// Read a recent file again: its bytes, or why it can't be read. `None`: the answer arrives
+    /// later through [`Platform::take_opened`] (with this path).
+    fn reopen(&mut self, _path: &str) -> Option<Result<Vec<u8>, String>> {
+        Some(Err("this file can't be opened again from here".into()))
+    }
+    /// The recent-file list changed (the browser keeps those files' handles for later visits).
+    fn recent_changed(&mut self, _paths: &[String]) {}
+    /// Ask for a palette file (the Optimize panel's Load Palette: a color table `.act`, a GIF or
+    /// a PNG 8): (display name, bytes). `None` when cancelled, or when the file arrives later
+    /// through [`Platform::take_palette`].
+    fn open_palette(&mut self) -> Option<(String, Vec<u8>)> {
+        self.open_file()
+    }
+    /// The palette file asked for by [`Platform::open_palette`], once read, or why it could not be.
+    fn take_palette(&mut self) -> Option<Result<(String, Vec<u8>), String>> {
+        None
     }
 }
 
@@ -631,6 +656,10 @@ pub struct FireCraftApp {
     ui_scale_override: Option<u32>,
     /// Textures and the pattern of the stored tool settings, still to be looked up.
     pending_tool_assets: tool_settings::Pending,
+    /// File > Open Recent.
+    recent: recent::RecentFiles,
+    /// The Optimize panel's color table.
+    optimize_table: optimize::TableState,
 }
 
 impl FireCraftApp {
@@ -677,6 +706,8 @@ impl FireCraftApp {
             textures_for: None,
             ui_scale_override: None,
             pending_tool_assets: Default::default(),
+            recent: Default::default(),
+            optimize_table: Default::default(),
         }
     }
 
@@ -688,6 +719,7 @@ impl FireCraftApp {
             (Prefs::STORAGE_KEY, self.prefs.serialize()),
             (tool_settings::TOOLS_KEY, tools),
             (tool_settings::EFFECTS_KEY, self.effects_ui.memory.serialize()),
+            (recent::STORAGE_KEY, self.recent.serialize()),
         ]
     }
 
@@ -702,6 +734,10 @@ impl FireCraftApp {
         }
         if let Some(text) = get(tool_settings::EFFECTS_KEY) {
             self.effects_ui.memory = tool_settings::EffectMemory::parse(&text);
+        }
+        if let Some(text) = get(recent::STORAGE_KEY) {
+            self.recent = recent::RecentFiles::parse(&text);
+            self.platform.recent_changed(self.recent.paths());
         }
     }
 
@@ -894,12 +930,62 @@ impl FireCraftApp {
     /// Open a file given its bytes (command line, drag and drop).
     pub fn open_bytes(&mut self, name: String, bytes: &[u8]) {
         match self.session.open_bytes(bytes, name.clone()) {
-            Ok(()) => self.status = None,
-            Err(e) => self.error(format!(
-                "Could not open {}: {e}",
-                self.platform.display_path(&name)
-            )),
+            Ok(()) => {
+                self.status = None;
+                self.note_recent(&name);
+            }
+            Err(e) => {
+                self.error(format!(
+                    "Could not open {}: {e}",
+                    self.platform.display_path(&name)
+                ));
+                // Fireworks MX (MFC) drops a recent file that fails to open.
+                self.forget_recent(&name);
+            }
         }
+    }
+
+    /// A file was opened or saved: to the top of File > Open Recent (if it can be reopened).
+    fn note_recent(&mut self, path: &str) {
+        if self.platform.can_reopen(path) {
+            self.recent.add(path);
+            self.platform.recent_changed(self.recent.paths());
+        }
+    }
+
+    fn forget_recent(&mut self, path: &str) {
+        if self.recent.paths().iter().any(|p| p == path) {
+            self.recent.remove(path);
+            self.platform.recent_changed(self.recent.paths());
+        }
+    }
+
+    /// File > Open Recent > a file. One already open is brought forward instead of opened twice.
+    pub fn open_recent(&mut self, path: &str) {
+        if let Some(i) = self
+            .session
+            .docs
+            .iter()
+            .position(|d| d.doc.path.as_deref() == Some(path) && d.symbol_link.is_none())
+        {
+            self.session.active = i;
+            self.note_recent(path);
+            return;
+        }
+        match self.platform.reopen(path) {
+            Some(Ok(bytes)) => self.open_bytes(path.to_owned(), &bytes),
+            Some(Err(e)) => {
+                self.error(format!("Could not open {}: {e}", self.platform.display_path(path)));
+                self.forget_recent(path);
+            }
+            None => {}
+        }
+    }
+
+    /// File > Open Recent > Clear Recent Files.
+    pub fn clear_recent(&mut self) {
+        self.recent.clear();
+        self.platform.recent_changed(self.recent.paths());
     }
 
     /// Apply how a save went, or remember it if the host is still working on it.
@@ -909,7 +995,12 @@ impl FireCraftApp {
             (SaveStatus::Cancelled, _) => {}
             (SaveStatus::Failed(e), SaveTarget::Doc(_)) => self.error(format!("Save failed: {e}")),
             (SaveStatus::Failed(e), SaveTarget::Export) => self.error(format!("Export failed: {e}")),
+            (SaveStatus::Failed(e), SaveTarget::Palette) => self.error(format!("Could not save the palette: {e}")),
+            (SaveStatus::Saved(path), SaveTarget::Palette) => {
+                self.info(format!("Saved the palette as {}", self.platform.display_path(&path)));
+            }
             (SaveStatus::Saved(path), SaveTarget::Doc(id)) => {
+                self.note_recent(&path);
                 if let Some(d) = self.session.docs.iter_mut().find(|d| d.id == id) {
                     d.doc.path = Some(path);
                     d.dirty = false;

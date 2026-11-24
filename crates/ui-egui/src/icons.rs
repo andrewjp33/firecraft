@@ -311,6 +311,15 @@ pub enum Glyph {
     Play,
     Stop,
     Last,
+    /// Edit Color (the Optimize panel): a color wheel.
+    ColorWheel,
+    /// Snap to Web Safe: a cube.
+    WebCube,
+    /// Add Color: a page with a plus.
+    AddSwatch,
+    /// The transparency eyedroppers: a checkered swatch, an eyedropper, and "=", "+" or "-"
+    /// (Select Transparent Color, Add Color to Transparency, Remove Color from Transparency).
+    ClearPick(char),
 }
 
 pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
@@ -510,6 +519,55 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
                 c,
                 Stroke::NONE,
             ));
+        }
+        Glyph::ColorWheel => {
+            if c == crate::theme::pal().glyph_disabled {
+                p.circle_filled(r.center(), r.width() * 0.42, c);
+            } else {
+                crate::fpui::color_picker::paint_wheel(p, r.center(), r.width() * 0.42);
+            }
+        }
+        Glyph::WebCube => {
+            // An isometric cube: hexagon outline, and the three edges meeting at the front corner.
+            let hex = [at(0.5, 0.1), at(0.88, 0.3), at(0.88, 0.72), at(0.5, 0.92), at(0.12, 0.72), at(0.12, 0.3)];
+            p.add(Shape::closed_line(hex.to_vec(), s));
+            let mid = at(0.5, 0.5);
+            for q in [at(0.12, 0.3), at(0.88, 0.3), at(0.5, 0.92)] {
+                p.line_segment([mid, q], s);
+            }
+        }
+        Glyph::AddSwatch => {
+            p.rect_stroke(Rect::from_min_max(at(0.3, 0.12), at(0.85, 0.78)), 0.0, s, egui::StrokeKind::Inside);
+            let plus = Stroke::new(1.6, c);
+            p.line_segment([at(0.08, 0.72), at(0.48, 0.72)], plus);
+            p.line_segment([at(0.28, 0.52), at(0.28, 0.92)], plus);
+        }
+        Glyph::ClearPick(sign) => {
+            // A 2 x 2 checkered swatch.
+            let sw = Rect::from_min_max(at(0.05, 0.35), at(0.55, 0.85));
+            p.rect_filled(sw, 0.0, Color32::WHITE);
+            let h = sw.size() / 2.0;
+            p.rect_filled(Rect::from_min_size(sw.min, h), 0.0, Color32::from_gray(170));
+            p.rect_filled(Rect::from_min_size(sw.min + h, h), 0.0, Color32::from_gray(170));
+            p.rect_stroke(sw, 0.0, Stroke::new(1.0, c), egui::StrokeKind::Inside);
+            // The eyedropper, from the top right down to the swatch.
+            p.line_segment([at(0.42, 0.52), at(0.78, 0.16)], Stroke::new(1.6, c));
+            p.circle_filled(at(0.82, 0.12), r.width() * 0.09, c);
+            let sign_at = |fx: f32, fy: f32| at(fx, fy);
+            let st = Stroke::new(1.2, c);
+            match sign {
+                '+' => {
+                    p.line_segment([sign_at(0.64, 0.8), sign_at(0.96, 0.8)], st);
+                    p.line_segment([sign_at(0.8, 0.64), sign_at(0.8, 0.96)], st);
+                }
+                '-' => {
+                    p.line_segment([sign_at(0.64, 0.8), sign_at(0.96, 0.8)], st);
+                }
+                _ => {
+                    p.line_segment([sign_at(0.64, 0.72), sign_at(0.96, 0.72)], st);
+                    p.line_segment([sign_at(0.64, 0.88), sign_at(0.96, 0.88)], st);
+                }
+            }
         }
         Glyph::First | Glyph::Last => {
             let (bar, tip, base) = if g == Glyph::First {

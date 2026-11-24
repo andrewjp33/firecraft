@@ -1,5 +1,5 @@
 //! The Optimize panel: the active document's export format and its options (Fireworks MX's
-//! Optimize panel), with FireCraft's WebP and JPEG XL.
+//! Optimize panel), with FireCraft's WebP and JPEG XL, and for GIF and PNG 8 the color table.
 
 use egui::{DragValue, Slider, Ui};
 use firecraft_doc::export::PRESETS;
@@ -8,7 +8,12 @@ use firecraft_raster::Rgba;
 
 use crate::FireCraftApp;
 
+mod table;
+
+pub(crate) use table::TableState;
+
 pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
+    table::receive_palette(app);
     let Some(d) = app.session.active_doc_mut() else {
         ui.weak("No document");
         return;
@@ -16,10 +21,17 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
     let id = d.id;
     let before = d.doc.export.clone();
     let mut s = before.clone();
-    settings(ui, &mut s);
+    let load = settings(ui, &mut s);
+    // Another palette keeps only the table's locked colors (Fireworks MX).
+    if s.palette != PaletteKind::Custom && before.palette == PaletteKind::Custom {
+        s.table.retain(|e| e.locked);
+    }
     if s != before {
         d.doc.export = s.clone();
         d.dirty = true;
+    }
+    if load {
+        table::load_palette(app);
     }
     ui.add_space(4.0);
     // The file size, as the Preview tab shows the export.
@@ -44,9 +56,15 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
             ui.weak("Preview shows the export and its file size.");
         }
     }
+    if s.format.indexed() {
+        ui.add_space(4.0);
+        table::color_table(app, ui, id);
+    }
 }
 
-fn settings(ui: &mut Ui, s: &mut ExportSettings) {
+/// The settings above the color table; true when Custom... asks for a palette file.
+fn settings(ui: &mut Ui, s: &mut ExportSettings) -> bool {
+    let mut load = false;
     ui.horizontal(|ui| {
         ui.label("Settings:");
         let current = s.preset_name().unwrap_or("(custom)");
@@ -60,7 +78,9 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
                         && let Some(p) = ExportSettings::preset(name)
                     {
                         let raw = s.raw.take();
-                        *s = ExportSettings { raw, ..p };
+                        // Locked colors stay, whatever the palette.
+                        let table = s.table.iter().filter(|e| e.locked).copied().collect();
+                        *s = ExportSettings { raw, table, ..p };
                     }
                 }
             });
@@ -88,7 +108,7 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
         matte(ui, s);
     });
     match s.format {
-        ExportFormat::Gif | ExportFormat::AnimatedGif | ExportFormat::Png8 => indexed(ui, s),
+        ExportFormat::Gif | ExportFormat::AnimatedGif | ExportFormat::Png8 => load = indexed(ui, s),
         ExportFormat::Jpeg => jpeg(ui, s),
         ExportFormat::Png24 | ExportFormat::Png32 => {}
         ExportFormat::WebP | ExportFormat::JpegXl => modern(ui, s),
@@ -96,6 +116,7 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
     if s.format.png() && firecraft_io::export::png_optimizer_available() {
         png_optimizer(ui, s);
     }
+    load
 }
 
 fn matte(ui: &mut Ui, s: &mut ExportSettings) {
@@ -115,7 +136,9 @@ fn matte(ui: &mut Ui, s: &mut ExportSettings) {
     }
 }
 
-fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
+/// GIF and PNG 8 options; true when Custom... asks for a palette file.
+fn indexed(ui: &mut Ui, s: &mut ExportSettings) -> bool {
+    let mut load = false;
     ui.horizontal(|ui| {
         crate::theme::combo("opt_palette")
             .selected_text(s.palette.label())
@@ -124,15 +147,23 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                 for p in PaletteKind::ALL {
                     ui.selectable_value(&mut s.palette, p, p.label());
                 }
+                // Fireworks MX's Custom... loads a palette (an .act file or a GIF's colors).
+                if ui
+                    .selectable_label(s.palette == PaletteKind::Custom, "Custom...")
+                    .on_hover_text("Load a palette: a color table (.act), or the colors of a GIF or PNG 8")
+                    .clicked()
+                {
+                    load = true;
+                }
             });
     });
     ui.horizontal(|ui| {
         ui.label("Colors:");
-        let fixed = s.palette == PaletteKind::BlackWhite;
+        let fixed = matches!(s.palette, PaletteKind::BlackWhite | PaletteKind::Custom);
         ui.add_enabled_ui(!fixed, |ui| {
             if fixed {
-                let mut two = 2u16;
-                number_combo(ui, "opt_colors", &mut two, &COLOR_COUNTS, 2..=256);
+                let mut n = s.color_limit() as u16;
+                number_combo(ui, "opt_colors", &mut n, &COLOR_COUNTS, 2..=256);
             } else {
                 number_combo(ui, "opt_colors", &mut s.colors, &COLOR_COUNTS, 2..=256);
             }
@@ -198,7 +229,7 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
                  (Auto Difference leaves unchanged pixels alone).",
             )
             .on_disabled_hover_text(
-                "Not for Black & White (always the same two colors)",
+                "Not for Black & White (always the same two colors) or a custom palette (one color table)",
             );
         ui.horizontal(|ui| {
             ui.label("Loops:");
@@ -209,6 +240,7 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
             }
         });
     }
+    load
 }
 
 /// A number box whose value takes effect when the change is finished: at the end of a drag, or

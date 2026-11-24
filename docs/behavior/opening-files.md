@@ -86,3 +86,16 @@ visible pixel, semi-transparent edges included.
 
 JPEG XL is checked against the libjxl conformance references: `alpha_triangles` exact,
 `grayscale` within 1 level, `cafe` (ICC profile) within 2 levels of the reference converted to sRGB.
+
+## Open Recent
+
+File > Open Recent lists the last 10 files opened or saved, newest first (Fireworks MX's MFC recent-file
+list: `LoadStdProfileSettings(10)` in Fireworks.exe). Names are shortened as MFC's `AbbreviateName` does
+with Fireworks MX's 30 characters: the volume (drive and first folder, or `\\server\share`; `/home` on
+Linux), `\...` and as many of the last folders as fit, or just the file name (the full path is in the
+tooltip). A file that can't be opened is dropped from the list, as MFC does; one already open is brought
+forward. FireCraft adds Clear Recent Files. The list is kept with the preferences (`firecraft.recent`).
+
+In the browser only files picked with the file picker of Chrome and Edge (which gives a file handle) can be
+reopened: their handles are kept in IndexedDB (`firecraft-recent`), and the browser may ask again for
+permission to read the file. Other browsers' uploads and dropped files don't appear.
