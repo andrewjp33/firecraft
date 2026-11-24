@@ -1455,8 +1455,8 @@ impl DocState {
             .collect()
     }
 
-    /// Show `baked` objects (from [`bake`](Self::bake)) transformed by `m`, as bitmaps of their
-    /// look, during a live edit: a fast preview of Scale/Skew/Distort/rotate (the real
+    /// Show `baked` objects (from [`bake`](Self::bake)) transformed by `m`, as pictures of their
+    /// look drawn in their place (`Element::preview`), during a live edit: a fast preview of Scale/Skew/Distort/rotate (the real
     /// transform replaces it when the drag ends).
     pub fn preview_transform(
         &mut self,
@@ -1467,15 +1467,10 @@ impl DocState {
             let Some((img, x, y)) = firecraft_raster::transform::transform_image(img, *x, *y, m) else {
                 continue;
             };
-            let mut e = Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap {
-                x,
-                y,
-                image: img,
-            }));
-            e.name = orig.name.clone();
-            e.visible = orig.visible;
-            e.opacity = orig.opacity;
-            e.blend = orig.blend;
+            // Drawn in place of the object, which stays what it is (Layers panel, Property
+            // inspector); its opacity and blending still apply.
+            let mut e = orig.clone();
+            e.preview = Some(std::sync::Arc::new(firecraft_doc::Bitmap { x, y, image: img }));
             if let Some(slot) = self.element_mut(*r) {
                 *slot = e;
             }
@@ -2688,6 +2683,43 @@ mod tests {
         assert_eq!(covered_pixels((10.5, 10.0, 20.0, 30.0)), (10.0, 10.0, 21.0, 30.0));
         assert_eq!(covered_pixels((10.0, 9.999999999999996, 40.000000000000014, 30.000000000000018)), (10.0, 10.0, 40.0, 30.0));
         assert_eq!(covered_pixels((-3.5, 0.0, 1.0, 0.2)), (-4.0, 0.0, 2.0, 1.0));
+    }
+
+    #[test]
+    fn a_picture_preview_keeps_the_object_what_it_is() {
+        // A transform tool previews slow objects as a warped picture of their look; the object
+        // stays a rectangle meanwhile (Layers panel, Property inspector), and the real
+        // transform replaces the picture when the drag ends.
+        let mut d = DocState::new(Document::new(120, 80, 72.0, None));
+        let o = ToolOptions {
+            stroke: None,
+            fill: Some(Rgba::new(0, 0, 255, 255)),
+            ..ToolOptions::default()
+        };
+        d.add_shape((10.0, 10.0, 30.0, 30.0), false, &o);
+        let r = d.selection[0];
+        let originals = d.selected_elements();
+        let m = firecraft_raster::transform::Affine::translate(40.0, 0.0);
+        let is_rect = |d: &DocState| matches!(d.element(r).map(|e| &e.kind), Some(ElementKind::Path(p)) if p.rect.is_some());
+        d.begin_live_edit("Transform");
+        let baked = d.bake(&originals);
+        d.preview_transform(&baked, &m);
+        assert!(is_rect(&d), "still a rectangle while previewed");
+        assert!(d.element(r).is_some_and(|e| e.preview.is_some()));
+        let img = d.doc.render(0);
+        assert_eq!((img.get(15, 15).map(|p| p.a), img.get(55, 15).map(|p| p.b)), (Some(0), Some(255)), "the picture shows at the new place");
+        // The cached render (what the canvas shows) draws it in the same place, once.
+        let mut cache = firecraft_doc::RenderCache::default();
+        let _ = d.doc.render_cached(0, &mut cache);
+        let m2 = firecraft_raster::transform::Affine::translate(60.0, 20.0);
+        d.preview_transform(&baked, &m2);
+        let cached = d.doc.render_cached(0, &mut cache);
+        assert_eq!(cached, d.doc.render(0), "cached and plain renders agree");
+        assert_eq!((cached.get(55, 15).map(|p| p.a), cached.get(75, 35).map(|p| p.b)), (Some(0), Some(255)), "no trail");
+        d.cancel_live_edit();
+        d.transform_from(&originals, &m, "Move");
+        assert!(is_rect(&d) && d.element(r).is_some_and(|e| e.preview.is_none()));
+        assert_eq!(d.selection_bounds().map(|b| b.0.round()), Some(50.0));
     }
 
     #[test]

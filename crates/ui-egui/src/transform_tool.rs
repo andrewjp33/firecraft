@@ -493,10 +493,28 @@ pub fn canvas(
         });
         // Live preview: the objects as they look now, warped as the box changes.
         if live && handle != Handle::Pivot {
-            // Rendering the objects once tells how heavy they are.
-            let t = Instant::now();
-            let baked = d.bake(&edit.originals);
-            let quick = t.elapsed().as_secs_f64() * 1000.0 <= EXACT_PREVIEW_MS;
+            // Rendering the objects once tells how heavy they are. One timing can be thrown by a
+            // hiccup (first use, the system scheduler), which sent plain rectangles down the
+            // picture preview: a time not far over the limit is measured again and the faster
+            // one counts. Truly slow objects (several times over) aren't rendered twice.
+            let time = || {
+                let t = Instant::now();
+                let baked = d.bake(&edit.originals);
+                (baked, t.elapsed().as_secs_f64() * 1000.0)
+            };
+            let (mut baked, mut ms) = time();
+            if ms > EXACT_PREVIEW_MS && ms <= 4.0 * EXACT_PREVIEW_MS {
+                let (again, ms2) = time();
+                if ms2 < ms {
+                    (baked, ms) = (again, ms2);
+                }
+            }
+            let quick = ms <= EXACT_PREVIEW_MS;
+            // FIRECRAFT_PROFILE=1: which preview a transform drag uses, and why.
+            if std::env::var_os("FIRECRAFT_PROFILE").is_some() {
+                let kind = if quick { "exact" } else { "picture" };
+                eprintln!("transform preview: {kind} ({ms:.1} ms to render {} objects)", edit.originals.len());
+            }
             edit.preview = Some(if quick {
                 Preview::Exact
             } else {

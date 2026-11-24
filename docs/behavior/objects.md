@@ -159,7 +159,15 @@ and Distort handles and rotation aren't snapped.
 With objects selected, the three tools show the objects' Property inspector, as Fireworks MX does;
 W, H, X and Y follow the box while a handle or the box is dragged
 (`transform_tool::dragged_bounds`, exact even when slow objects are previewed as a warped picture).
-The tools' keys moved to their Tools panel tooltips. With nothing selected the inspector shows the
+The tools' keys moved to their Tools panel tooltips.
+
+While dragging, objects that render quickly are transformed for real at each step; slower ones
+(over 30 ms to draw, effects included: a large rectangle with a Blur in a debug build) are shown as
+a picture of their look, warped, and transformed for real on release. That picture is drawn in the
+object's place (`Element::preview`, never saved): the object stays what it is, so the Layers panel
+and Property inspector keep showing "Rectangle" (until 2026-11-24 the picture replaced the object
+as a bitmap during the drag). A time just over the limit is measured twice and the faster counts;
+`FIRECRAFT_PROFILE=1` logs which preview a drag uses and the time. With nothing selected the inspector shows the
 tool's instructions.
 
 ## Rectangle and Ellipse tools: whole pixels

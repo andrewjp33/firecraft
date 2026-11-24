@@ -695,6 +695,12 @@ pub fn element_key(el: &Element, ctx: &RenderCtx) -> u64 {
 
 fn hash_element(el: &Element, ctx: &RenderCtx, h: &mut DefaultHasher) {
     el.visible.hash(h);
+    // A transform preview is all that's drawn.
+    if let Some(b) = &el.preview {
+        (b.x, b.y).hash(h);
+        hash_image(&b.image, h);
+        return;
+    }
     for e in &el.effects {
         for (k, v) in &e.params {
             k.hash(h);

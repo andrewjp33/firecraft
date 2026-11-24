@@ -828,6 +828,11 @@ pub struct Element {
     pub kind: ElementKind,
     /// Original Fireworks node (effects, textures, gradients...), re-emitted on save.
     pub raw: Option<Node>,
+    /// A picture drawn in place of the object's own rendering (its effects included), at canvas
+    /// position (x, y): a transform tool's quick preview of a slow object during a drag. The
+    /// object stays what it is (a rectangle stays a rectangle in the Layers panel and Property
+    /// inspector); the real transform replaces it when the drag ends. Never saved.
+    pub preview: Option<std::sync::Arc<Bitmap>>,
 }
 
 impl Element {
@@ -877,6 +882,7 @@ impl Element {
             effects: Vec::new(),
             kind,
             raw: None,
+            preview: None,
         }
     }
 
@@ -972,6 +978,12 @@ impl Element {
     }
 
     pub fn translate(&mut self, dx: f64, dy: f64) {
+        // A transform preview moves with the object (the render cache moves objects to their
+        // whole-pixel anchor to key and draw them).
+        if let Some(b) = &mut self.preview {
+            let (x, y) = (b.x + dx.round() as i64, b.y + dy.round() as i64);
+            *b = std::sync::Arc::new(Bitmap { x, y, image: b.image.clone() });
+        }
         match &mut self.kind {
             ElementKind::Text(t) => {
                 t.shift(dx, dy);
@@ -1201,6 +1213,10 @@ impl Element {
     pub fn deep_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
         if ctx.depth >= MAX_SYMBOL_DEPTH {
             return None;
+        }
+        // What's drawn while a transform is previewed (the render cache anchors on this).
+        if let Some(b) = &self.preview {
+            return Some((b.x as f64, b.y as f64, b.image.width() as f64, b.image.height() as f64));
         }
         let union = union_rects;
         match &self.kind {
@@ -1618,6 +1634,9 @@ impl Element {
     /// The object's own pixels after its effects, before opacity and blending, as an image and
     /// its position relative to the output area's top-left (canvas (`ox`, `oy`), `w` x `h`).
     pub fn pixels(&self, ox: i64, oy: i64, w: u32, h: u32, ctx: &RenderCtx) -> Option<(RgbaImage, i64, i64)> {
+        if let Some(b) = &self.preview {
+            return Some((b.image.clone(), b.x - ox, b.y - oy));
+        }
         let active: Vec<&Effect> = self.effects.iter().filter_map(|e| e.active()).collect();
         let baked = matches!(&self.kind, ElementKind::Text(t) if t.baked_effects && !t.edited);
         if active.is_empty() || baked {
@@ -1692,6 +1711,9 @@ impl Element {
     /// part is rendered).
     pub fn full_region(&self, ctx: &RenderCtx) -> Option<(i64, i64, u32, u32)> {
         const MAX_PIXELS: i64 = 40_000_000;
+        if let Some(b) = &self.preview {
+            return Some((b.x, b.y, b.image.width(), b.image.height()));
+        }
         let (bx, by, bw, bh) = self.deep_bounds(ctx)?;
         if !(bx.is_finite() && by.is_finite() && bw.is_finite() && bh.is_finite()) {
             return None;
