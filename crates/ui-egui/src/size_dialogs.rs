@@ -207,7 +207,7 @@ fn anchor_grid(ui: &mut Ui, anchor: &mut Anchor) {
         p.rect_filled(cell, 3.0, fill);
         p.rect_stroke(cell, 3.0, Stroke::new(1.0, Color32::from_gray(150)), egui::StrokeKind::Inside);
         let c = cell.center();
-        let ink = Color32::from_gray(20);
+        let ink = if crate::theme::pal().dark && !on { crate::theme::pal().glyph } else { Color32::from_gray(20) };
         if on {
             p.circle_filled(c, 2.5, ink);
         } else {

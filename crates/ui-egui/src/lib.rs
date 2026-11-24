@@ -42,7 +42,7 @@ mod tables_ui;
 mod text_editor;
 mod text_menu;
 mod text_tool;
-mod theme;
+pub mod theme;
 mod thumbs;
 pub mod tool_settings;
 mod tools_panel;
@@ -50,7 +50,7 @@ mod transform_tool;
 
 use std::collections::HashMap;
 
-use egui::{Color32, Pos2, TextureHandle, Vec2};
+use egui::{Pos2, TextureHandle, Vec2};
 use firecraft_engine::Session;
 /// File extensions File > Open reads (for the host's file dialog).
 pub use firecraft_io::formats::OPEN_EXTENSIONS;
@@ -251,6 +251,8 @@ pub struct Prefs {
     /// The last gap typed (Fireworks CS6 offers it in the field's menu and brings it back when
     /// the field is clicked while showing Evenly).
     pub align_spacing_px: i32,
+    /// Preferences > Theme: Classic (Fireworks MX's look), Classic Dark, Modern, Modern Dark.
+    pub theme: theme::ThemeKind,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -281,7 +283,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -316,6 +318,7 @@ impl Prefs {
             align_panel::part_key(self.align_part),
             align_panel::spacing_text(self.align_spacing),
             self.align_spacing_px,
+            self.theme.key(),
         )
     }
 
@@ -364,6 +367,7 @@ impl Prefs {
                     p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
                 }
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
+                "theme" => p.theme = theme::ThemeKind::from_key(v.trim()),
                 "align_to_canvas" => p.align_to_canvas = flag,
                 "align_anchors" => p.align_anchors = flag,
                 "align_part" => p.align_part = align_panel::part_from_key(v.trim()),
@@ -446,6 +450,7 @@ impl Default for Prefs {
             align_part: firecraft_engine::align_panel::PointPart::Anchor,
             align_spacing: None,
             align_spacing_px: 0,
+            theme: theme::ThemeKind::Classic,
         }
     }
 }
@@ -530,7 +535,8 @@ pub struct FireCraftApp {
     /// The texture menu whose Other... was last used; a file arriving later goes to it.
     awaiting_texture: Option<stroke_panel::TextureSlot>,
     pi_open: bool,
-    styled: bool,
+    /// The theme applied to egui's style (`None` before the first frame).
+    styled: Option<theme::ThemeKind>,
     nine: Option<nine::NineEdit>,
     crop: Option<crop_tool::CropEdit>,
     transform: Option<transform_tool::TransformEdit>,
@@ -592,7 +598,7 @@ impl FireCraftApp {
             pending_paste: None,
             awaiting_texture: None,
             pi_open: true,
-            styled: false,
+            styled: None,
             nine: None,
             crop: None,
             transform: None,
@@ -1104,10 +1110,11 @@ impl FireCraftApp {
         if let Some(editor) = ctx.data_mut(|m| m.remove_temp::<u64>(egui::Id::unique("symbol_done"))) {
             self.session.finish_symbol_edit(editor);
         }
-        if !self.styled {
-            theme::apply(&ctx);
-            self.styled = true;
+        if self.styled != Some(self.prefs.theme) {
+            theme::apply(&ctx, self.prefs.theme);
+            self.styled = Some(self.prefs.theme);
         }
+        theme::paint_backdrop(&ctx);
         // Dropped files open as documents (read synchronously on desktop, by the platform on the web).
         let dropped: Vec<egui::DroppedFileHandle> = ctx.input(|i| i.raw.dropped_files.clone());
         for f in dropped {
@@ -1158,14 +1165,24 @@ impl FireCraftApp {
         prof.lap("shortcuts");
         egui::Panel::top("menu_bar")
             .frame(theme::menu_frame())
+            .show_separator_line(!theme::pal().modern)
             .show(ui, |ui| menus::menu_bar(self, ui));
         prof.lap("menu_bar");
         if self.prefs.show_tools {
+            // Modern: a dark sidebar card in a 6 px gap.
+            let w = if theme::pal().modern { 66.0 + 12.0 } else { 66.0 };
             egui::Panel::left("tools")
-                .exact_size(66.0)
+                .exact_size(w)
+                .show_separator_line(!theme::pal().modern)
                 .resizable(false)
                 .frame(theme::panel_frame())
-                .show(ui, |ui| tools_panel::show(self, ui));
+                .show(ui, |ui| {
+                    let p = theme::pal();
+                    theme::card(ui, p.tools_top, p.tools_bottom, 0, |ui| {
+                        ui.set_min_height(ui.available_height());
+                        tools_panel::show(self, ui);
+                    });
+                });
         }
         prof.lap("tools");
         if self.prefs.show_dock {
@@ -1173,18 +1190,27 @@ impl FireCraftApp {
             // squeezing the panels' text and controls.
             egui::Panel::right("dock")
                 .default_size(250.0)
+                .show_separator_line(!theme::pal().modern)
                 .size_range(230.0..=520.0)
                 .frame(theme::dock_frame())
                 .show(ui, |ui| panels::dock(self, ui));
         }
         prof.lap("dock");
         if self.prefs.show_properties {
-            let h = if self.pi_open { 128.0 } else { 22.0 };
+            let modern = theme::pal().modern;
+            let h = if self.pi_open { 128.0 } else { 22.0 } + if modern { 22.0 } else { 0.0 };
             egui::Panel::bottom("properties")
                 .exact_size(h)
+                .show_separator_line(!modern)
                 .resizable(false)
                 .frame(theme::panel_frame())
-                .show(ui, |ui| inspector::show(self, ui));
+                .show(ui, |ui| {
+                    let p = theme::pal();
+                    theme::card(ui, p.panel, p.panel_bottom, 4, |ui| {
+                        ui.set_min_size(ui.available_size());
+                        inspector::show(self, ui);
+                    });
+                });
         }
         prof.lap("inspector");
         egui::CentralPanel::default()
@@ -1214,9 +1240,9 @@ impl FireCraftApp {
         }
         if let Some((msg, is_err)) = self.status.clone() {
             let color = if is_err {
-                Color32::from_rgb(180, 0, 0)
+                theme::pal().error
             } else {
-                Color32::from_gray(40)
+                theme::pal().text
             };
             egui::Area::new(egui::Id::unique("status_toast"))
                 .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -150.0])
@@ -1282,9 +1308,12 @@ mod prefs_tests {
             color_math: firecraft_raster::ColorMath::Precise,
             live_drag: false,
             mouse_highlight: false,
+            theme: theme::ThemeKind::ModernDark,
             ..Prefs::default()
         };
         assert_eq!(Prefs::parse(&p.serialize()), p);
+        // Files from before themes existed keep the Classic look.
+        assert_eq!(Prefs::parse("tabs=true").theme, theme::ThemeKind::Classic);
         // Files from before the setting existed keep live dragging on.
         assert!(Prefs::parse("tabs=true").live_drag);
         assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());

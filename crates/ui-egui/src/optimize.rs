@@ -37,7 +37,7 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
                 }
             }
             Err(e) => {
-                ui.colored_label(egui::Color32::from_rgb(170, 30, 30), e);
+                ui.colored_label(crate::theme::pal().error, e);
             }
         },
         None => {

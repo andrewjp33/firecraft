@@ -53,16 +53,30 @@ fn slot_alternatives(t: Tool) -> &'static [Tool] {
 }
 
 fn section_title(ui: &mut egui::Ui, title: &str) {
+    let p = theme::pal();
+    if p.modern {
+        // A small caption on the sidebar, with room above it.
+        ui.add_space(4.0);
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 13.0), Sense::hover());
+        ui.painter().text(
+            r.left_center() + vec2(7.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            title,
+            egui::FontId::proportional(10.0),
+            p.section_text,
+        );
+        return;
+    }
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 13.0), Sense::hover());
-    ui.painter().rect_filled(r, 0.0, theme::SECTION);
+    ui.painter().rect_filled(r, 0.0, p.section);
     ui.painter()
-        .rect_stroke(r, 0.0, Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+        .rect_stroke(r, 0.0, Stroke::new(1.0, p.border), StrokeKind::Inside);
     ui.painter().text(
         r.center(),
         egui::Align2::CENTER_CENTER,
         title,
         egui::FontId::proportional(10.0),
-        Color32::from_gray(30),
+        p.section_text,
     );
 }
 
@@ -83,29 +97,54 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
         .copied();
     let (r, resp) = ui.allocate_exact_size(vec2(26.0, 23.0), Sense::click());
     let active = app.session.tool == shown;
-    if active {
-        ui.painter().rect_filled(r, 1.0, Color32::WHITE);
+    let p = theme::pal();
+    let ink = if active {
+        p.tool_active_ink
+    } else if shown.implemented() {
+        p.tools_ink
+    } else {
+        p.tools_ink_disabled
+    };
+    if p.modern {
+        // Rounded tiles: faint on the sidebar, white and raised for the active tool.
+        let tile = r.shrink(0.5);
+        let radius = 8.0;
+        if active {
+            let shadow = egui::Shadow {
+                offset: [0, 2],
+                blur: 8,
+                spread: 0,
+                color: Color32::from_black_alpha(70),
+            };
+            ui.painter().add(shadow.as_shape(tile, radius));
+            ui.painter().rect_filled(tile, radius, p.tool_active_fill);
+        } else {
+            let fill = if resp.hovered() { p.tool_hover } else { p.tool_fill };
+            ui.painter().rect_filled(tile, radius, fill);
+        }
+    } else if active {
+        ui.painter().rect_filled(r, 1.0, p.tool_active_fill);
         ui.painter().rect_stroke(
             r,
             1.0,
-            Stroke::new(1.0, Color32::from_gray(110)),
+            Stroke::new(1.0, p.tool_active_border),
             StrokeKind::Inside,
         );
     } else if resp.hovered() {
         ui.painter().rect_stroke(
             r,
             1.0,
-            Stroke::new(1.0, Color32::from_gray(170)),
+            Stroke::new(1.0, p.tool_hover),
             StrokeKind::Inside,
         );
     }
-    icons::paint(ui.painter(), r, shown, shown.implemented());
+    icons::paint_ink(ui.painter(), r, shown, ink);
     if !alts.is_empty() {
         // Flyout marker.
-        let c = r.right_bottom() - vec2(3.0, 3.0);
+        let c = r.right_bottom() - if p.modern { vec2(4.0, 4.0) } else { vec2(3.0, 3.0) };
         ui.painter().add(egui::Shape::convex_polygon(
             vec![c, c + vec2(-3.0, 0.0), c + vec2(0.0, -3.0)],
-            Color32::BLACK,
+            if p.dark || p.modern { ink } else { Color32::BLACK },
             Stroke::NONE,
         ));
     }
@@ -184,13 +223,14 @@ fn flyout(
                     None => t.label().to_owned(),
                 };
                 let (row, resp) = ui.allocate_exact_size(vec2(190.0, 22.0), Sense::click());
+                let p = theme::pal();
                 if resp.hovered() || app.session.tool == t {
                     let fill = if resp.hovered() {
-                        theme::SELECT_BLUE
+                        theme::select()
                     } else {
-                        Color32::from_gray(225)
+                        p.button_active
                     };
-                    ui.painter().rect_filled(row, 1.0, fill);
+                    ui.painter().rect_filled(row, p.r_widget, fill);
                 }
                 icons::paint(
                     ui.painter(),
@@ -199,9 +239,9 @@ fn flyout(
                     t.implemented(),
                 );
                 let col = if resp.hovered() {
-                    Color32::WHITE
+                    p.select_text
                 } else {
-                    Color32::from_gray(20)
+                    p.text
                 };
                 ui.painter().text(
                     row.left_center() + vec2(28.0, 0.0),
@@ -231,21 +271,37 @@ fn flyout(
 
 pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.spacing_mut().item_spacing = vec2(2.0, 1.0);
-    // Panel title strip.
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 15.0), Sense::hover());
-    ui.painter().rect_filled(r, 0.0, theme::HEADER);
-    ui.painter().text(
-        r.left_center() + vec2(12.0, 0.0),
-        egui::Align2::LEFT_CENTER,
-        "Tools",
-        egui::FontId::proportional(11.0),
-        Color32::WHITE,
-    );
+    let p = theme::pal();
+    if p.modern {
+        // The sidebar's glyphs and labels in its light ink, a little more air between tiles.
+        ui.visuals_mut().override_text_color = Some(p.tools_ink);
+        ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
+        ui.add_space(6.0);
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 15.0), Sense::hover());
+        ui.painter().text(
+            r.left_center() + vec2(7.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            "Tools",
+            egui::FontId::proportional(12.0),
+            p.tools_ink,
+        );
+    } else {
+        // Panel title strip.
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 15.0), Sense::hover());
+        ui.painter().rect_filled(r, 0.0, p.header);
+        ui.painter().text(
+            r.left_center() + vec2(12.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            "Tools",
+            egui::FontId::proportional(11.0),
+            p.header_text,
+        );
+    }
     for (title, tools) in SECTIONS {
         section_title(ui, title);
         for pair in tools.chunks(2) {
             ui.horizontal(|ui| {
-                ui.add_space(3.0);
+                ui.add_space(if theme::pal().modern { 5.0 } else { 3.0 });
                 for &t in pair {
                     tool_button(app, ui, t);
                 }
@@ -256,7 +312,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     colors(app, ui);
     section_title(ui, "View");
     ui.horizontal(|ui| {
-        ui.add_space(3.0);
+        ui.add_space(if theme::pal().modern { 5.0 } else { 3.0 });
         tool_button(app, ui, Tool::Hand);
         tool_button(app, ui, Tool::Zoom);
     });

@@ -14,13 +14,14 @@ fn dashed_rect(p: &Painter, r: Rect, c: Color32) {
     p.extend(Shape::dashed_line(&pts, Stroke::new(1.0, c), 2.0, 2.0));
 }
 
-/// Paint `tool`'s icon into `r` (about 16x16).
+/// Paint `tool`'s icon into `r` (about 16x16) in the theme's ink.
 pub fn paint(p: &Painter, r: Rect, tool: Tool, enabled: bool) {
-    let c = if enabled {
-        Color32::from_gray(20)
-    } else {
-        Color32::from_gray(150)
-    };
+    let pal = crate::theme::pal();
+    paint_ink(p, r, tool, if enabled { pal.ink } else { pal.ink_disabled });
+}
+
+/// Paint `tool`'s icon into `r` with `c` for its lines (its coloured parts keep their colours).
+pub fn paint_ink(p: &Painter, r: Rect, tool: Tool, c: Color32) {
     let s = Stroke::new(1.2, c);
     let r = r.shrink(2.0);
     let (x0, y0, w, h) = (r.left(), r.top(), r.width(), r.height());
@@ -394,8 +395,8 @@ pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
                 Stroke::new(1.0, Color32::from_rgb(40, 110, 200)),
             ));
         }
-        Glyph::Pencil => paint(p, r.expand(2.0), Tool::Pencil, true),
-        Glyph::Bucket => paint(p, r.expand(2.0), Tool::PaintBucket, true),
+        Glyph::Pencil => paint_ink(p, r.expand(2.0), Tool::Pencil, c),
+        Glyph::Bucket => paint_ink(p, r.expand(2.0), Tool::PaintBucket, c),
         Glyph::Swap => {
             p.line_segment([at(0.25, 0.75), at(0.75, 0.25)], s);
             p.line_segment([at(0.75, 0.25), at(0.5, 0.25)], s);
@@ -502,24 +503,51 @@ pub fn glyph_button(ui: &mut egui::Ui, g: Glyph, size: f32, enabled: bool) -> eg
         },
     );
     if resp.hovered() && enabled {
+        hover_frame(ui, r);
+    }
+    let pal = crate::theme::pal();
+    let c = if enabled { ink(ui) } else { pal.glyph_disabled };
+    paint_glyph(ui.painter(), r.shrink(2.0), g, c);
+    resp
+}
+
+/// The glyph colour here: the theme's ink, or the text colour a panel overrides it with (the
+/// Modern Tools sidebar's light ink).
+fn ink(ui: &egui::Ui) -> Color32 {
+    ui.visuals().override_text_color.unwrap_or(crate::theme::pal().glyph)
+}
+
+/// A glyph button's hover outline (Modern: a soft rounded backing).
+fn hover_frame(ui: &egui::Ui, r: Rect) {
+    let pal = crate::theme::pal();
+    if pal.modern {
+        let fill = if ui.visuals().override_text_color.is_some() { pal.tool_hover } else { pal.button_active };
+        ui.painter().rect_filled(r, r.height() * 0.3, fill);
+    } else {
         ui.painter().rect_stroke(
             r,
             1.0,
-            Stroke::new(1.0, Color32::from_gray(150)),
+            Stroke::new(1.0, if pal.dark { pal.text_weak } else { Color32::from_gray(150) }),
             egui::StrokeKind::Inside,
         );
     }
-    let c = if enabled {
-        Color32::from_gray(30)
-    } else {
-        Color32::from_gray(160)
-    };
-    paint_glyph(ui.painter(), r.shrink(2.0), g, c);
+}
+
+/// A frameless glyph button whose glyph shows only while `shown` (the Layers panel's eye and
+/// lock columns); clickable either way.
+pub fn glyph_toggle(ui: &mut egui::Ui, g: Glyph, size: f32, shown: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(size, size), egui::Sense::click());
+    if resp.hovered() {
+        hover_frame(ui, r);
+    }
+    if shown {
+        paint_glyph(ui.painter(), r.shrink(2.0), g, ink(ui));
+    }
     resp
 }
 
 /// A non-interactive glyph.
 pub fn glyph(ui: &mut egui::Ui, g: Glyph, size: f32) {
     let (r, _) = ui.allocate_exact_size(vec2(size, size), egui::Sense::hover());
-    paint_glyph(ui.painter(), r.shrink(2.0), g, Color32::from_gray(30));
+    paint_glyph(ui.painter(), r.shrink(2.0), g, ink(ui));
 }

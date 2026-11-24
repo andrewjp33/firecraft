@@ -756,22 +756,22 @@ fn animation_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, a: firecraft_doc:
                     let on = s.ccw == ccw;
                     let (rect, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), egui::Sense::click());
                     if on {
-                        ui.painter().rect_filled(rect, 2.0, crate::theme::SELECT_BLUE.gamma_multiply(0.35));
+                        ui.painter().rect_filled(rect, 2.0, crate::theme::select().gamma_multiply(0.35));
                         ui.painter().rect_stroke(
                             rect,
                             2.0,
-                            egui::Stroke::new(1.0, crate::theme::SELECT_BLUE),
+                            egui::Stroke::new(1.0, crate::theme::select()),
                             egui::StrokeKind::Inside,
                         );
                     } else if resp.hovered() {
                         ui.painter().rect_stroke(
                             rect,
                             2.0,
-                            egui::Stroke::new(1.0, egui::Color32::from_gray(150)),
+                            egui::Stroke::new(1.0, crate::theme::pal().text_weak),
                             egui::StrokeKind::Inside,
                         );
                     }
-                    icons::paint_glyph(ui.painter(), rect.shrink(2.0), glyph, egui::Color32::from_gray(30));
+                    icons::paint_glyph(ui.painter(), rect.shrink(2.0), glyph, crate::theme::pal().glyph);
                     if resp.on_hover_text(tip).clicked() {
                         turn = Some(ccw);
                     }

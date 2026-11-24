@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use egui::{Color32, ComboBox, Sense, vec2};
+use egui::{ComboBox, Sense, vec2};
 use firecraft_doc::{EffectEntry, EffectParam};
 use firecraft_raster::Rgba;
 use firecraft_raster::plugins::Params;
@@ -1033,8 +1033,9 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let below = ui.clip_rect().bottom() - ui.cursor().top() - 2.0;
     let room = (ui.available_height().min(below) - 2.0 * LIST_BORDER).clamp(24.0, 70.0);
     egui::Frame::new()
-        .fill(Color32::WHITE)
-        .stroke(egui::Stroke::new(LIST_BORDER, theme::BORDER))
+        .fill(theme::pal().field)
+        .corner_radius(if theme::pal().modern { 6 } else { 0 })
+        .stroke(egui::Stroke::new(LIST_BORDER, theme::border()))
         .show(ui, |ui| {
             ui.set_width(190.0);
             ui.set_min_height(room);
@@ -1068,10 +1069,10 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                             }
                             let mut text = egui::RichText::new(e.name());
                             if !known {
-                                text = text.color(Color32::GRAY);
+                                text = text.color(theme::pal().text_weak);
                             }
                             if selected {
-                                text = text.background_color(theme::SELECT_BLUE).color(Color32::WHITE);
+                                text = text.background_color(theme::select()).color(theme::pal().select_text);
                             }
                             let name = ui.add(egui::Label::new(text).sense(Sense::click()));
                             let name = if known {

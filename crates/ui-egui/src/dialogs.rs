@@ -885,6 +885,18 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         })
         .response
         .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
+        ui.horizontal(|ui| {
+            ui.label("Theme:");
+            egui::ComboBox::from_id_salt("prefs_theme")
+                .selected_text(prefs.theme.label())
+                .show_ui(ui, |ui| {
+                    for t in crate::theme::ThemeKind::ALL {
+                        ui.selectable_value(&mut prefs.theme, t, t.label());
+                    }
+                });
+        })
+        .response
+        .on_hover_text("Classic: Fireworks MX's look. Classic Dark: the same in dark greys. Modern: rounded cards, soft gradients and a dark tool sidebar. Modern Dark: the same in dark greys.");
         scale_commit = ui_scale_row(ui, scale_edit, in_use, saved, overridden);
         ui.separator();
         ui.strong("Editing");

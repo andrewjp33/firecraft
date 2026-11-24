@@ -331,7 +331,7 @@ pub fn canvas(
         painter.rect_stroke(
             r,
             0.0,
-            Stroke::new(1.0, theme::SELECT_BLUE),
+            Stroke::new(1.0, theme::PATH_BLUE),
             egui::StrokeKind::Inside,
         );
     }
@@ -863,7 +863,7 @@ fn overlay(
     to_screen: &dyn Fn(Pt) -> Pos2,
     shift: bool,
 ) {
-    let blue = theme::SELECT_BLUE;
+    let blue = theme::PATH_BLUE;
     let line = Stroke::new(1.0, blue);
     // Selected objects that aren't paths (a bitmap or text member, a group): their bounds.
     for r in &d.selection {

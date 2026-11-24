@@ -367,7 +367,11 @@ pub(crate) fn texture_picker(
     crate::fpui::glyphs::chevron_down(
         ui.painter(),
         arrow,
-        Color32::from_gray(if enabled { 40 } else { 150 }),
+        if crate::theme::pal().dark {
+            if enabled { crate::theme::pal().glyph } else { crate::theme::pal().glyph_disabled }
+        } else {
+            Color32::from_gray(if enabled { 40 } else { 150 })
+        },
     );
     let file = if other {
         let file = app.platform.open_image();
@@ -503,7 +507,8 @@ fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &
     // The drop-down arrow (FirePixel's chevron glyph).
     let r = resp.rect;
     let arrow = Rect::from_center_size(egui::pos2(r.right() - 10.0, r.center().y), vec2(9.0, 9.0));
-    crate::fpui::glyphs::chevron_down(ui.painter(), arrow, Color32::from_gray(40));
+    let ink = if crate::theme::pal().dark { crate::theme::pal().glyph } else { Color32::from_gray(40) };
+    crate::fpui::glyphs::chevron_down(ui.painter(), arrow, ink);
     if pick_options {
         crate::stroke_dialog::open(app, target == Target::Tool);
     }

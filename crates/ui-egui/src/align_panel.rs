@@ -18,14 +18,31 @@ enum Icon {
     Part(PointPart),
 }
 
-const BLUE: Color32 = Color32::from_rgb(0x1F, 0x6A, 0x9A);
 const ORANGE: Color32 = Color32::from_rgb(0xFF, 0x66, 0x00);
-const GREY_FILL: Color32 = Color32::from_rgb(0xD4, 0xD4, 0xD4);
-const GREY_EDGE: Color32 = Color32::from_rgb(0x80, 0x80, 0x80);
-const LINE: Color32 = Color32::from_rgb(0x10, 0x10, 0x10);
 /// The panel's content width.
 const WIDTH: f32 = 214.0;
-const LABEL: Color32 = Color32::from_rgb(0x1A, 0x33, 0x66);
+
+/// The panel's artwork colours (Fireworks MX's in the Classic theme; lighter on dark themes).
+fn accent_blue() -> Color32 {
+    if theme::pal().dark { Color32::from_rgb(0x5A, 0xA8, 0xE0) } else { Color32::from_rgb(0x1F, 0x6A, 0x9A) }
+}
+
+fn grey_fill() -> Color32 {
+    if theme::pal().dark { Color32::from_gray(0x66) } else { Color32::from_rgb(0xD4, 0xD4, 0xD4) }
+}
+
+fn grey_edge() -> Color32 {
+    if theme::pal().dark { Color32::from_gray(0xA0) } else { Color32::from_rgb(0x80, 0x80, 0x80) }
+}
+
+fn line_color() -> Color32 {
+    if theme::pal().dark { Color32::from_gray(0xE8) } else { Color32::from_rgb(0x10, 0x10, 0x10) }
+}
+
+fn label_color() -> Color32 {
+    let p = theme::pal();
+    if p.dark || p.modern { p.text } else { Color32::from_rgb(0x1A, 0x33, 0x66) }
+}
 
 /// The preference value of a point part.
 pub fn part_key(p: PointPart) -> &'static str {
@@ -87,17 +104,28 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, size: egui::Vec2, on: bool) -> egu
     let name = tooltip(icon);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, name));
     let p = ui.painter();
-    let (fill, light, dark) = if on || resp.is_pointer_button_down_on() {
-        (Color32::from_gray(0xDD), Color32::from_gray(0x70), Color32::WHITE)
+    let pal = theme::pal();
+    let down = on || resp.is_pointer_button_down_on();
+    if pal.modern {
+        // A soft rounded tile; pressed or on: sunk a shade and outlined in the accent.
+        let fill = if down { pal.button_active } else if resp.hovered() { pal.button_hover } else { pal.button };
+        p.rect_filled(r, 6.0, fill);
+        let edge = if on { pal.select } else { pal.button_border };
+        p.rect_stroke(r, 6.0, Stroke::new(1.0, edge), egui::StrokeKind::Inside);
     } else {
-        (Color32::from_gray(0xFA), Color32::WHITE, Color32::from_gray(0x90))
-    };
-    p.rect_filled(r, 0.0, fill);
-    p.line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, light));
-    p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.0, light));
-    p.line_segment([r.right_top(), r.right_bottom()], Stroke::new(1.0, dark));
-    p.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, dark));
-    let accent = if on || resp.hovered() { ORANGE } else { BLUE };
+        let (fill, light, dark) = match (down, pal.dark) {
+            (true, false) => (Color32::from_gray(0xDD), Color32::from_gray(0x70), Color32::WHITE),
+            (false, false) => (Color32::from_gray(0xFA), Color32::WHITE, Color32::from_gray(0x90)),
+            (true, true) => (Color32::from_gray(0x2A), Color32::from_gray(0x18), Color32::from_gray(0x60)),
+            (false, true) => (pal.button, Color32::from_gray(0x60), Color32::from_gray(0x22)),
+        };
+        p.rect_filled(r, 0.0, fill);
+        p.line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, light));
+        p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.0, light));
+        p.line_segment([r.right_top(), r.right_bottom()], Stroke::new(1.0, dark));
+        p.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, dark));
+    }
+    let accent = if on || resp.hovered() { ORANGE } else { accent_blue() };
     paint(p, r.shrink2(vec2((r.width() - 16.0) / 2.0, (r.height() - 16.0) / 2.0)), icon, accent);
     resp.on_hover_text(name)
 }
@@ -111,10 +139,10 @@ fn paint(p: &Painter, r: Rect, icon: Icon, accent: Color32) {
         p.rect_stroke(b, 0.0, Stroke::new(1.0, accent.gamma_multiply(0.7)), egui::StrokeKind::Inside);
     };
     let grey = |b: Rect| {
-        p.rect_filled(b, 0.0, GREY_FILL);
-        p.rect_stroke(b, 0.0, Stroke::new(1.0, GREY_EDGE), egui::StrokeKind::Inside);
+        p.rect_filled(b, 0.0, grey_fill());
+        p.rect_stroke(b, 0.0, Stroke::new(1.0, grey_edge()), egui::StrokeKind::Inside);
     };
-    let line = |a: Pos2, b: Pos2| p.line_segment([a, b], Stroke::new(1.0, LINE));
+    let line = |a: Pos2, b: Pos2| p.line_segment([a, b], Stroke::new(1.0, line_color()));
     let vline = |x: f32, y0: f32, y1: f32| line(at(x, y0), at(x, y1));
     let hline = |y: f32, x0: f32, x1: f32| line(at(x0, y), at(x1, y));
     match icon {
@@ -213,10 +241,10 @@ fn paint(p: &Painter, r: Rect, icon: Icon, accent: Color32) {
         }
         Icon::ToCanvas => {
             // A sheet with crop marks at its corners.
-            let fill = if accent == ORANGE { ORANGE } else { GREY_FILL };
+            let fill = if accent == ORANGE { ORANGE } else { grey_fill() };
             let b = bx(0.2, 0.2, 0.8, 0.8);
             p.rect_filled(b, 0.0, fill);
-            p.rect_stroke(b, 0.0, Stroke::new(1.0, GREY_EDGE), egui::StrokeKind::Inside);
+            p.rect_stroke(b, 0.0, Stroke::new(1.0, grey_edge()), egui::StrokeKind::Inside);
             for (x, y, dx, dy) in [(0.2, 0.2, -1.0, -1.0), (0.8, 0.2, 1.0, -1.0), (0.2, 0.8, -1.0, 1.0), (0.8, 0.8, 1.0, 1.0)] {
                 let c = at(x, y);
                 line(c + vec2(dx * 1.0, 0.0), c + vec2(dx * 4.0, 0.0));
@@ -227,7 +255,7 @@ fn paint(p: &Painter, r: Rect, icon: Icon, accent: Color32) {
             // A path through three points, with a curve's handles at the middle one.
             let pts = [at(0.08, 0.92), at(0.5, 0.5), at(0.92, 0.1)];
             p.line_segment([pts[0], pts[2]], Stroke::new(1.0, accent));
-            let handle = Stroke::new(1.0, GREY_EDGE);
+            let handle = Stroke::new(1.0, grey_edge());
             p.add(egui::Shape::QuadraticBezier(egui::epaint::QuadraticBezierShape::from_points_stroke(
                 [at(0.5, 0.5), at(0.75, 0.55), at(0.85, 0.75)],
                 false,
@@ -253,9 +281,9 @@ fn paint(p: &Painter, r: Rect, icon: Icon, accent: Color32) {
                 let (s, c) = if big(i) {
                     (if i == 1 { 5.0 } else { 4.0 }, ORANGE)
                 } else if i == 1 {
-                    (3.0, LINE)
+                    (3.0, line_color())
                 } else {
-                    (3.0, BLUE)
+                    (3.0, accent_blue())
                 };
                 p.rect_filled(Rect::from_center_size(pos2(x, y), vec2(s, s)), 0.0, c);
             }
@@ -326,8 +354,8 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, SPACING_NAME));
         let p = ui.painter();
         let text_rect = Rect::from_min_size(rect.min, field);
-        p.rect_filled(text_rect, 0.0, Color32::WHITE);
-        p.rect_stroke(text_rect, 0.0, Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+        p.rect_filled(text_rect, 0.0, theme::pal().field);
+        p.rect_stroke(text_rect, 0.0, Stroke::new(1.0, theme::border()), egui::StrokeKind::Inside);
         p.text(
             text_rect.left_center() + vec2(4.0, 0.0),
             egui::Align2::LEFT_CENTER,
@@ -337,13 +365,13 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
         );
         let arrow = Rect::from_min_max(pos2(text_rect.right() + 1.0, rect.top()), rect.max);
         if resp.hovered() {
-            p.rect_stroke(arrow, 1.0, Stroke::new(1.0, Color32::from_gray(150)), egui::StrokeKind::Inside);
+            p.rect_stroke(arrow, 1.0, Stroke::new(1.0, theme::pal().text_weak), egui::StrokeKind::Inside);
         }
         crate::icons::paint_glyph(
             p,
             Rect::from_center_size(arrow.center(), vec2(10.0, 10.0)),
             crate::icons::Glyph::TriangleDown,
-            Color32::from_gray(30),
+            theme::pal().ink,
         );
         let resp = resp.on_hover_text(SPACING_NAME);
         egui::Popup::menu(&resp).show(|ui| {
@@ -369,8 +397,8 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
     }
     // A visible box on the panel.
     let resp = egui::Frame::new()
-        .stroke(Stroke::new(1.0, theme::BORDER))
-        .fill(Color32::WHITE)
+        .stroke(Stroke::new(1.0, theme::border()))
+        .fill(theme::pal().field)
         .inner_margin(egui::Margin::symmetric(2, 0))
         .show(ui, |ui| {
             ui.add(
@@ -405,7 +433,7 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
 }
 
 fn label(ui: &mut egui::Ui, text: &str) {
-    ui.label(egui::RichText::new(text).color(LABEL).size(11.0));
+    ui.label(egui::RichText::new(text).color(label_color()).size(11.0));
 }
 
 /// A row of buttons; returns the one clicked.
@@ -435,7 +463,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     );
     // White, as Fireworks MX's panel.
     egui::Frame::new()
-        .fill(theme::SECTION)
+        .fill(if theme::pal().dark || theme::pal().modern { Color32::TRANSPARENT } else { Color32::WHITE })
         .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
             let width = ui.available_width().min(WIDTH);
@@ -460,7 +488,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             toggle(ui, right, "Anchors:", Icon::Anchors, anchors, egui::Align::Max);
             ui.add_space(4.0);
             egui::Frame::new()
-                .stroke(Stroke::new(1.0, Color32::from_gray(0xCC)))
+                .stroke(Stroke::new(1.0, if theme::pal().dark { theme::border() } else { Color32::from_gray(0xCC) }))
                 .corner_radius(egui::CornerRadius {
                     nw: 10,
                     ne: 10,
@@ -486,7 +514,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                                 ui.add_space(14.0);
                             }
                         });
-                        ui.add(egui::Label::new(egui::RichText::new(part_description(part)).color(Color32::from_gray(0x80))).wrap());
+                        ui.add(egui::Label::new(egui::RichText::new(part_description(part)).color(theme::pal().text_weak)).wrap());
                         return;
                     }
                     label(ui, "Distribute:");
@@ -525,7 +553,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         // As in Fireworks CS6: the Space buttons and the spacing field in a
                         // grey box of their own.
                         egui::Frame::new()
-                            .fill(Color32::from_gray(0xEC))
+                            .fill(if theme::pal().dark { Color32::from_white_alpha(10) } else if theme::pal().modern { Color32::from_black_alpha(10) } else { Color32::from_gray(0xEC) })
                             .corner_radius(4)
                             .inner_margin(egui::Margin::symmetric(6, 3))
                             .show(ui, |ui| {

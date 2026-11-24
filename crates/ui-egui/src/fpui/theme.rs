@@ -86,9 +86,49 @@ impl Theme {
         }
     }
 
+    /// FireCraft's Dark and Modern themes: the same entries from FireCraft's palette.
+    fn from_firecraft(p: &crate::theme::Palette) -> Theme {
+        let mut t = Theme::normal();
+        let c = &mut t.colors;
+        c.menu_bg = if p.modern { p.title_active } else { p.menu };
+        c.menu_border = p.border;
+        c.frame_bg = p.panel;
+        c.text = p.text;
+        c.text_disabled = p.text_weak;
+        c.field_bg = p.field;
+        c.field_border = p.button_border;
+        c.field_text = p.text;
+        c.button_bg = p.button;
+        c.button_border = p.button_border;
+        c.button_hover_bg = p.button_hover;
+        c.button_hover_border = p.text_weak;
+        c.tool_selected_bg = p.button_active;
+        c.focus = p.select;
+        c.icon_fg = p.ink;
+        c.icon_light = p.text_weak;
+        c.icon_disabled = p.ink_disabled;
+        if p.dark {
+            c.line_dark = g(20);
+            c.line_light = g(90);
+            c.icon_paper = g(200);
+        }
+        t
+    }
+
     pub fn current(_ctx: &egui::Context) -> Arc<Theme> {
-        static T: std::sync::OnceLock<Arc<Theme>> = std::sync::OnceLock::new();
-        T.get_or_init(|| Arc::new(Theme::normal())).clone()
+        use crate::theme::ThemeKind;
+        static T: std::sync::OnceLock<[Arc<Theme>; 4]> = std::sync::OnceLock::new();
+        let all = T.get_or_init(|| {
+            ThemeKind::ALL.map(|k| {
+                Arc::new(match k {
+                    ThemeKind::Classic => Theme::normal(),
+                    _ => Theme::from_firecraft(k.palette()),
+                })
+            })
+        });
+        let k = crate::theme::kind();
+        let i = ThemeKind::ALL.iter().position(|t| *t == k).unwrap_or(0);
+        all[i].clone()
     }
 
     /// FirePixel's UI font (11.5 pt).

@@ -169,6 +169,16 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if item(ui, if tools { "Hide Panels" } else { "Show Panels" }, "F4", true) {
                 toggle_panels(app);
             }
+            ui.separator();
+            // FireCraft: the interface's look (also in Edit > Preferences).
+            ui.menu_button("Theme", |ui| {
+                for t in crate::theme::ThemeKind::ALL {
+                    if ui.radio(app.prefs.theme == t, t.label()).clicked() {
+                        app.prefs.theme = t;
+                        ui.close();
+                    }
+                }
+            });
         });
         ui.menu_button("Select", |ui| {
             if item(ui, "Select All", "Ctrl+A", has_doc) {

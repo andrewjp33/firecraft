@@ -96,7 +96,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.painter().rect_stroke(
         rect,
         0.0,
-        egui::Stroke::new(1.0, theme::BORDER),
+        egui::Stroke::new(1.0, theme::border()),
         egui::StrokeKind::Inside,
     );
     if let Some(id) = st.selected {
@@ -166,7 +166,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                             kind_icon(ui, *kind).on_hover_text(kind.label());
                             let text = RichText::new(name);
                             let text = if selected {
-                                text.color(Color32::WHITE).background_color(theme::SELECT_BLUE)
+                                text.color(theme::pal().select_text).background_color(theme::select())
                             } else {
                                 text
                             };

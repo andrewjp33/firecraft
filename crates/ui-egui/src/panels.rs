@@ -30,18 +30,25 @@ fn set_group_open(ui: &egui::Ui, g: Group, v: bool) {
 
 fn group(ui: &mut egui::Ui, g: Group, title: &str, default: bool, body: impl FnOnce(&mut egui::Ui)) {
     let mut open = group_open(ui, g, default);
-    theme::group_header(ui, title, &mut open);
+    let p = theme::pal();
+    // Modern: each group is a rounded card, the title on it; leave room for the card's shadow.
+    let w = ui.available_width() - if p.modern { 6.0 } else { 0.0 };
+    ui.allocate_ui(vec2(w, 0.0), |ui| {
+        theme::card(ui, p.panel, p.panel_bottom, 6, |ui| {
+            theme::group_header(ui, title, &mut open);
+            if open {
+                egui::Frame::new()
+                    .fill(if p.modern { Color32::TRANSPARENT } else { p.panel })
+                    .inner_margin(egui::Margin::same(3))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        body(ui);
+                    });
+            }
+        });
+    });
     set_group_open(ui, g, open);
-    if open {
-        egui::Frame::new()
-            .fill(theme::PANEL)
-            .inner_margin(egui::Margin::same(3))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                body(ui);
-            });
-    }
-    ui.add_space(2.0);
+    ui.add_space(if p.modern { 10.0 } else { 2.0 });
 }
 
 pub fn dock(app: &mut FireCraftApp, ui: &mut egui::Ui) {
@@ -190,7 +197,7 @@ const GROUP_HOLDS_SELECTION: Color32 = Color32::from_rgb(0x66, 0xEE, 0xBB);
 /// selection, purple for a mask or masked object, mint for a group, both with white text.
 fn row_colors(selected: bool, holds: bool, group: bool) -> Option<(Color32, Color32)> {
     match (selected, holds, group) {
-        (true, ..) => Some((theme::SELECT_BLUE, Color32::WHITE)),
+        (true, ..) => Some((theme::select(), theme::pal().select_text)),
         (false, true, true) => Some((GROUP_HOLDS_SELECTION, Color32::WHITE)),
         (false, true, false) => Some((HOLDS_SELECTION, Color32::WHITE)),
         _ => None,
@@ -279,20 +286,16 @@ fn mask_kind(mask: &Element, mode: MaskMode) -> &'static str {
 fn eye_and_lock(ui: &mut egui::Ui, r: ElementRef, el: &Element, edited: bool, out: &mut RowActions) -> Rect {
     ui.horizontal(|ui| {
         ui.add_space(14.0 + ui.spacing().item_spacing.x);
-        let eye = icons::glyph_button(ui, Glyph::Eye, 16.0, true);
-        if !el.visible {
-            ui.painter().rect_filled(eye.rect.shrink(1.0), 0.0, theme::PANEL);
-        }
+        let eye = icons::glyph_toggle(ui, Glyph::Eye, 16.0, el.visible);
         if eye.on_hover_text("Show/Hide Object").clicked() {
             out.toggle_vis = Some(r);
         }
-        let lock = icons::glyph_button(ui, Glyph::Lock, 14.0, true);
+        let lock = icons::glyph_toggle(ui, Glyph::Lock, 14.0, el.locked);
         if !el.locked {
-            ui.painter().rect_filled(lock.rect.shrink(1.0), 0.0, theme::PANEL);
             // The bitmap the pixel selection applies to shows a pencil in this column, as in
             // Fireworks MX.
             if edited {
-                icons::paint_glyph(ui.painter(), lock.rect.shrink(2.0), Glyph::Pencil, Color32::from_gray(30));
+                icons::paint_glyph(ui.painter(), lock.rect.shrink(2.0), Glyph::Pencil, theme::pal().glyph);
             }
         }
         if lock.on_hover_text("Lock/Unlock Object").clicked() {
@@ -345,7 +348,7 @@ fn object_rows(
         arrow = a;
         if expandable(el) {
             let g = if open { Glyph::TriangleDown } else { Glyph::TriangleRight };
-            let c = if resp.hovered() { theme::SELECT_BLUE } else { Color32::from_gray(90) };
+            let c = if resp.hovered() { theme::select() } else { theme::pal().text_weak };
             icons::paint_glyph(ui.painter(), a.shrink2(vec2(0.0, 4.0)), g, c);
             let name = format!("{} {}", if open { "Close" } else { "Open" }, row_label(el));
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
@@ -374,7 +377,7 @@ fn object_rows(
                 link_rect = link;
                 // Unlinked: a faint chain, barely there.
                 let c = if flags.linked {
-                    Color32::from_gray(60)
+                    theme::pal().ink
                 } else {
                     Color32::from_rgba_unmultiplied(128, 128, 128, 45)
                 };
@@ -553,7 +556,7 @@ fn mask_row(
         arrow = a;
         if expandable(mask) {
             let g = if open { Glyph::TriangleDown } else { Glyph::TriangleRight };
-            let c = if resp.hovered() { theme::SELECT_BLUE } else { Color32::from_gray(90) };
+            let c = if resp.hovered() { theme::select() } else { theme::pal().text_weak };
             icons::paint_glyph(ui.painter(), a.shrink2(vec2(0.0, 4.0)), g, c);
             let name = format!("{} mask objects", if open { "Close" } else { "Open" });
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &name));
@@ -576,7 +579,7 @@ fn mask_row(
                 let (link, link_resp) = ui.allocate_exact_size(vec2(10.0, 23.0), Sense::hover());
                 inner_link = link;
                 let c = if inner_flags.linked {
-                    Color32::from_gray(60)
+                    theme::pal().ink
                 } else {
                     Color32::from_rgba_unmultiplied(128, 128, 128, 45)
                 };
@@ -736,7 +739,7 @@ fn content_row(
         let (a, resp) = ui.allocate_exact_size(vec2(ARROW_W, 20.0), Sense::click());
         arrow = a;
         let g = if open { Glyph::TriangleDown } else { Glyph::TriangleRight };
-        let c = if resp.hovered() { theme::SELECT_BLUE } else { Color32::from_gray(90) };
+        let c = if resp.hovered() { theme::select() } else { theme::pal().text_weak };
         icons::paint_glyph(ui.painter(), a.shrink2(vec2(0.0, 4.0)), g, c);
         let label = format!("Group: {} objects", content.len());
         let name = format!("{} {label}", if open { "Close" } else { "Open" });
@@ -863,17 +866,11 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             if icons::glyph_button(ui, glyph, 14.0, true).clicked() {
                 toggle_disc = Some(li);
             }
-            let eye = icons::glyph_button(ui, Glyph::Eye, 16.0, true);
-            if !layer.visible {
-                ui.painter().rect_filled(eye.rect.shrink(1.0), 0.0, theme::PANEL);
-            }
+            let eye = icons::glyph_toggle(ui, Glyph::Eye, 16.0, layer.visible);
             if eye.on_hover_text("Show/Hide Layer").clicked() {
                 toggle_vis = Some(li);
             }
-            let lock = icons::glyph_button(ui, Glyph::Lock, 14.0, true);
-            if !layer.locked {
-                ui.painter().rect_filled(lock.rect.shrink(1.0), 0.0, theme::PANEL);
-            }
+            let lock = icons::glyph_toggle(ui, Glyph::Lock, 14.0, layer.locked);
             if lock.on_hover_text("Lock/Unlock Layer").clicked() {
                 toggle_lock = Some(li);
             }
@@ -889,8 +886,8 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             let name = layer.name.clone();
             let text = if current {
                 RichText::new(name)
-                    .color(Color32::WHITE)
-                    .background_color(theme::SELECT_BLUE)
+                    .color(theme::pal().select_text)
+                    .background_color(theme::select())
             } else {
                 RichText::new(name)
             };
@@ -942,7 +939,7 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 Drop::Objects(_, _, _, y) | Drop::Layer(_, y) => *y,
             };
             let x = rows.first().map_or(ui.min_rect().x_range(), |(r, _)| r.x_range());
-            ui.painter().hline(x, y, Stroke::new(2.0, theme::SELECT_BLUE));
+            ui.painter().hline(x, y, Stroke::new(2.0, theme::select()));
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         if released || !down {
@@ -1100,12 +1097,12 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let row = |ui: &mut egui::Ui, text: String, active: bool, here: bool| {
             let rt = if here {
                 RichText::new(text)
-                    .color(Color32::WHITE)
-                    .background_color(theme::SELECT_BLUE)
+                    .color(theme::pal().select_text)
+                    .background_color(theme::select())
             } else if active {
                 RichText::new(text)
             } else {
-                RichText::new(text).color(Color32::GRAY)
+                RichText::new(text).color(theme::pal().text_weak)
             };
             ui.add(egui::Label::new(rt).sense(Sense::click())).clicked()
         };
@@ -1142,8 +1139,8 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                         let text = format!("{}  {}", i + 1, f.name);
                         let rt = if cur {
                             RichText::new(text)
-                                .color(Color32::WHITE)
-                                .background_color(theme::SELECT_BLUE)
+                                .color(theme::pal().select_text)
+                                .background_color(theme::select())
                         } else {
                             RichText::new(text)
                         };

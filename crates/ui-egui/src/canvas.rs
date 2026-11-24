@@ -20,7 +20,14 @@ pub fn workspace(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     "FireCraft\n\nFile > New ({})   |   File > Open (Ctrl+O)   |   or drop a PNG here",
                     crate::menus::NEW_KEY
                 ))
-                .color(Color32::from_gray(230)),
+                .color({
+                    let p = theme::pal();
+                    match (p.modern, p.dark) {
+                        (false, false) => Color32::from_gray(230),
+                        (true, false) => Color32::from_gray(0x50),
+                        _ => Color32::from_gray(0x90),
+                    }
+                }),
             );
         });
         return;
@@ -39,13 +46,16 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         for (i, d) in app.session.docs.iter().enumerate() {
             let active = i == app.session.active;
             let title = format!("{}{}", d.doc.title(), if d.dirty { " *" } else { "" });
+            let p = theme::pal();
+            let r = p.r_widget.saturating_mul(if p.modern { 2 } else { 0 });
             egui::Frame::new()
                 .fill(if active {
-                    theme::PANEL
+                    if p.modern { p.title_active } else { p.panel }
                 } else {
-                    Color32::from_gray(190)
+                    p.tab_inactive
                 })
-                .inner_margin(egui::Margin::symmetric(6, 2))
+                .corner_radius(egui::CornerRadius { nw: r, ne: r, sw: 0, se: 0 })
+                .inner_margin(egui::Margin::symmetric(if p.modern { 10 } else { 6 }, 2))
                 .show(ui, |ui| {
                     if ui.add(egui::Label::new(title).sense(Sense::click())).clicked() {
                         app.session.active = i;
@@ -65,7 +75,8 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         return;
     }
     let i = app.session.active;
-    egui::Frame::new().fill(theme::PANEL).show(ui, |ui| {
+    let p = theme::pal();
+    egui::Frame::new().fill(if p.modern { p.title_active } else { p.panel }).show(ui, |ui| {
         ui.set_min_size(ui.available_size());
         document_view(app, ui, i);
     });
@@ -94,17 +105,12 @@ fn title_bar(ui: &mut egui::Ui, title: &str, active: bool, state: WinState) -> T
     let h = 20.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click_and_drag());
     let p = ui.painter();
-    let fill = if active {
-        Color32::from_rgb(0xD6, 0xD6, 0xD6)
-    } else {
-        Color32::from_rgb(0xE6, 0xE6, 0xE6)
-    };
-    p.rect_filled(rect, 0.0, fill);
-    let text = if active {
-        Color32::from_gray(40)
-    } else {
-        Color32::from_gray(110)
-    };
+    let pal = theme::pal();
+    let fill = if active { pal.title_active } else { pal.title_inactive };
+    // Modern windows are rounded: the bar follows the window's top corners.
+    let r = pal.r_card.saturating_sub(2);
+    p.rect_filled(rect, egui::CornerRadius { nw: r, ne: r, sw: 0, se: 0 }, fill);
+    let text = if active { pal.title_text } else { pal.title_text_inactive };
     p.text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -130,7 +136,7 @@ fn title_bar(ui: &mut egui::Ui, title: &str, active: bool, state: WinState) -> T
             .on_hover_text(tip);
         b.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tip));
         if b.hovered() {
-            ui.painter().rect_filled(r, 2.0, Color32::from_gray(190));
+            ui.painter().rect_filled(r, 2.0, if pal.dark { pal.button_hover } else { Color32::from_gray(190) });
         }
         let c = r.center();
         let s = Stroke::new(1.3, text);
@@ -507,7 +513,7 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                             ui.label(format!("{}  {}", d.doc.export.format.label(), file_size(*bytes)));
                         }
                         Err(e) => {
-                            ui.colored_label(Color32::from_rgb(170, 30, 30), e);
+                            ui.colored_label(theme::pal().error, e);
                         }
                     }
                 }
@@ -669,7 +675,7 @@ fn frame_number(ui: &mut egui::Ui, id: u64, d: &mut firecraft_engine::DocState, 
         ui.painter().rect_stroke(
             resp.rect,
             1.0,
-            egui::Stroke::new(1.0, theme::SELECT_BLUE),
+            egui::Stroke::new(1.0, theme::select()),
             egui::StrokeKind::Inside,
         );
     }
@@ -804,7 +810,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     };
     let view = app.views.entry(d.id).or_default();
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, Color32::from_gray(0xE0));
+    p.rect_filled(rect, 0.0, theme::pal().pasteboard);
 
     // The zoom counts screen pixels (100%: one document pixel per screen pixel, as in
     // Fireworks), so with display scaling a canvas pixel is 1/ppp points; drawing is in points.
