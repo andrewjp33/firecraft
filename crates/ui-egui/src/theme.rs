@@ -564,6 +564,16 @@ pub fn panel_frame() -> Frame {
     }
 }
 
+/// The Property inspector's panel. Modern: no side gaps, so its card lines up with the
+/// document area above it (and a tabbed document's edges).
+pub fn properties_frame() -> Frame {
+    if pal().modern {
+        Frame::new().inner_margin(Margin { left: 0, right: 0, top: 6, bottom: 6 })
+    } else {
+        panel_frame()
+    }
+}
+
 pub fn dock_frame() -> Frame {
     let p = pal();
     if p.modern {

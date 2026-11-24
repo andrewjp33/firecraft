@@ -1230,7 +1230,7 @@ impl FireCraftApp {
                 .exact_size(h)
                 .show_separator_line(!modern)
                 .resizable(false)
-                .frame(theme::panel_frame())
+                .frame(theme::properties_frame())
                 .show(ui, |ui| {
                     let p = theme::pal();
                     theme::card(ui, p.panel, p.panel_bottom, 4, |ui| {
