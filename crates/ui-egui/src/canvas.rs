@@ -604,8 +604,15 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
         v.preview = preview;
     }
     // Status bar: frame controls and document size, like Fireworks' document window footer.
+    // Modern: room left of the first frame button (inside the rounded corner), and above the
+    // row as much as the document's padding leaves below it, so the controls sit centred.
+    let status_frame = if theme::pal().modern {
+        egui::Frame::new().inner_margin(egui::Margin { left: 2, right: 0, top: 3, bottom: 0 })
+    } else {
+        egui::Frame::new()
+    };
     egui::Panel::bottom(egui::Id::unique(("doc_status", id)))
-        .frame(egui::Frame::new())
+        .frame(status_frame)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(d) = app.session.docs.get_mut(index) {
