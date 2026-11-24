@@ -451,7 +451,7 @@ fn crop_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 /// "Read dark mode from system" (View > Theme and Edit > Preferences).
 pub(crate) const FOLLOW_SYSTEM_UNKNOWN: &str = "FireCraft couldn't detect the system's dark or light mode, so the theme stays as chosen.";
 
-pub(crate) const FOLLOW_SYSTEM_TIP: &str = "Use the light or dark version of the theme (Classic or Classic Dark, Modern or Modern Dark) as the system's dark mode is set, switching when it changes, also on a schedule.";
+pub(crate) const FOLLOW_SYSTEM_TIP: &str = "Use the light or dark version of the theme (Classic or Classic Dark, Modern or Modern Dark) as the system's dark mode is set, switching when it changes.";
 
 pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else {
