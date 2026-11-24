@@ -41,6 +41,12 @@ pub fn workspace(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 
 fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut close: Option<usize> = None;
+    // Modern: the tabs sit right on the document below. egui adds the gap when it places the
+    // tab row, so it goes before; the document view gets the usual spacing back.
+    let spacing = ui.spacing().item_spacing.y;
+    if theme::pal().modern {
+        ui.spacing_mut().item_spacing.y = 0.0;
+    }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 1.0;
         for (i, d) in app.session.docs.iter().enumerate() {
@@ -76,11 +82,8 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
     let i = app.session.active;
     let p = theme::pal();
-    if p.modern {
-        // The tabs sit right on the document below, with no gap.
-        ui.spacing_mut().item_spacing.y = 0.0;
-    }
     egui::Frame::new().fill(if p.modern { p.title_active } else { p.panel }).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = spacing;
         ui.set_min_size(ui.available_size());
         document_view(app, ui, i);
     });
@@ -627,7 +630,7 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
                     ui.separator();
                     ui.label(format!("{} x {}", d.doc.width, d.doc.height));
                     ui.separator();
-                    egui::ComboBox::from_id_salt(("zoom", id))
+                    crate::theme::combo(("zoom", id))
                         .width(64.0)
                         .selected_text(format!("{:.0}%", d.zoom * 100.0))
                         .show_ui(ui, |ui| {
@@ -649,7 +652,9 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
     // Right-click: Fireworks MX's context menu (not with the Zoom tool: its right-click zooms
     // out).
     if app.session.tool != Tool::Zoom {
-        resp.context_menu(|ui| crate::menus::context_menu(app, ui));
+        egui::Popup::context_menu(&resp)
+            .style(theme::menu_popup_style())
+            .show(|ui| crate::menus::context_menu(app, ui));
     }
 }
 

@@ -446,7 +446,9 @@ fn object_rows(
             }
         }
         if mask_ref.is_some() {
-            click.context_menu(|ui| mask_menu(ui, d, r, out));
+            egui::Popup::context_menu(&click)
+                .style(theme::menu_popup_style())
+                .show(|ui| mask_menu(ui, d, r, out));
         }
         if click.double_clicked() {
             st.renaming = Some((r.layer, Some(r), el.name.clone().unwrap_or_default()));
@@ -661,7 +663,9 @@ fn mask_row(
             }
         }
         if let Some(owner) = r.parent() {
-            click.context_menu(|ui| mask_menu(ui, d, owner, out));
+            egui::Popup::context_menu(&click)
+                .style(theme::menu_popup_style())
+                .show(|ui| mask_menu(ui, d, owner, out));
         }
     }
     if let Some(owner) = r.parent()

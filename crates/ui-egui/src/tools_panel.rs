@@ -1,6 +1,6 @@
 //! The Tools panel: Select / Bitmap / Vector / Web / Colors / View sections, two columns.
 
-use egui::{Color32, Rect, Sense, Stroke, StrokeKind, vec2};
+use egui::{Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use firecraft_engine::Tool;
 use firecraft_raster::Rgba;
 
@@ -234,24 +234,29 @@ fn flyout(
                 };
                 let (row, resp) = ui.allocate_exact_size(vec2(190.0, 22.0), Sense::click());
                 let p = theme::pal();
-                if resp.hovered() || app.session.tool == t {
-                    let fill = if resp.hovered() {
-                        theme::select()
+                let current = app.session.tool == t;
+                let icon = Rect::from_min_size(row.min, vec2(22.0, 22.0));
+                let col = if p.modern {
+                    // As the dropdown lists: dark grey for the current tool, a light grey
+                    // under the pointer.
+                    if current {
+                        ui.painter().rect_filled(row, p.r_widget, p.popup_selected);
+                        icons::paint_ink(ui.painter(), icon, t, p.popup_selected_text);
+                        p.popup_selected_text
                     } else {
-                        p.button_active
-                    };
-                    ui.painter().rect_filled(row, p.r_widget, fill);
-                }
-                icons::paint(
-                    ui.painter(),
-                    Rect::from_min_size(row.min, vec2(22.0, 22.0)),
-                    t,
-                    t.implemented(),
-                );
-                let col = if resp.hovered() {
-                    p.select_text
+                        if resp.hovered() {
+                            ui.painter().rect_filled(row, p.r_widget, p.popup_hover);
+                        }
+                        icons::paint(ui.painter(), icon, t, t.implemented());
+                        p.text
+                    }
                 } else {
-                    p.text
+                    if resp.hovered() || current {
+                        let fill = if resp.hovered() { theme::select() } else { p.button_active };
+                        ui.painter().rect_filled(row, p.r_widget, fill);
+                    }
+                    icons::paint(ui.painter(), icon, t, t.implemented());
+                    if resp.hovered() { p.select_text } else { p.text }
                 };
                 ui.painter().text(
                     row.left_center() + vec2(28.0, 0.0),
@@ -288,9 +293,10 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing = vec2(2.0, 3.0);
         ui.add_space(6.0);
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 15.0), Sense::hover());
+        // Centred over the two columns of tool tiles (5 px in, 26 + 2 + 26 wide).
         ui.painter().text(
-            r.left_center() + vec2(7.0, 0.0),
-            egui::Align2::LEFT_CENTER,
+            pos2(r.left() + 5.0 + 27.0, r.center().y),
+            egui::Align2::CENTER_CENTER,
             "Tools",
             egui::FontId::proportional(12.0),
             p.tools_ink,

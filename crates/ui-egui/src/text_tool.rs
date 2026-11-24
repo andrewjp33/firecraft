@@ -1,7 +1,7 @@
 //! The Text tool: making text objects and editing them in place on the canvas, and the Property
 //! inspector's text controls (docs/behavior/text.md).
 
-use egui::{Color32, ComboBox, DragValue, Event, EventFilter, Key, Pos2, Rect, Stroke, pos2, vec2};
+use egui::{Color32, DragValue, Event, EventFilter, Key, Pos2, Rect, Stroke, pos2, vec2};
 use firecraft_doc::TextRun;
 use firecraft_engine::text::{self as engine, char_count};
 use firecraft_engine::{DocState, ElementRef, Tool, ToolOptions};
@@ -811,7 +811,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 ];
                 let mut pick = None;
                 let name = ORIENTATIONS.iter().find(|(v, _)| *v == o).map_or("", |(_, n)| n);
-                ComboBox::from_id_salt("text_orientation")
+                crate::theme::combo("text_orientation")
                     .width(160.0)
                     .selected_text(name)
                     .show_ui(ui, |ui| {
@@ -885,7 +885,7 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 .iter()
                 .find(|(v, _)| *v == anti_alias)
                 .map_or(MODES[0].1, |(_, n)| n);
-            ComboBox::from_id_salt("text_aa")
+            crate::theme::combo("text_aa")
                 .width(130.0)
                 .selected_text(name)
                 .show_ui(ui, |ui| {

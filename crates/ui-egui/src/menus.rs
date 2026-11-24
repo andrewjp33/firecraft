@@ -49,7 +49,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         .active_doc()
         .is_some_and(|d| !d.selection.is_empty() || d.pixels.is_some());
 
-    egui::MenuBar::new().ui(ui, |ui| {
+    egui::MenuBar::new().config(crate::theme::menu_config()).ui(ui, |ui| {
         ui.menu_button("File", |ui| {
             if item(ui, "New...", NEW_KEY, true) {
                 open_new_doc(app);

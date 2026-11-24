@@ -3,7 +3,7 @@
 //! its own fonts, sizes and colours (or plainly, with Show Font / Show Size & Color unticked).
 //! OK and Apply put it back as one History step; Cancel and Esc leave the object as it was.
 
-use egui::{Color32, ComboBox, DragValue, Sense, Stroke, vec2};
+use egui::{Color32, DragValue, Sense, Stroke, vec2};
 use firecraft_doc::{Document, Text, TextRun};
 use firecraft_engine::text as engine;
 use firecraft_engine::{DocState, ElementRef, Tool};
@@ -216,7 +216,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                     .iter()
                     .find(|(v, _)| *v == aa)
                     .map_or(MODES[0].1, |(_, n)| n);
-                ComboBox::from_id_salt("editor_aa")
+                crate::theme::combo("editor_aa")
                     .width(130.0)
                     .selected_text(name)
                     .show_ui(ui, |ui| {

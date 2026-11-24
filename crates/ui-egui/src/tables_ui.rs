@@ -65,7 +65,7 @@ impl TableEditor {
 fn channel_choice(ui: &mut Ui, st: &mut TableEditor) {
     ui.horizontal(|ui| {
         ui.label("Channel:");
-        egui::ComboBox::from_id_salt("table_channel")
+        crate::theme::combo("table_channel")
             .selected_text(CHANNEL_NAMES[st.channel.min(3)])
             .show_ui(ui, |ui| {
                 for (i, n) in CHANNEL_NAMES.iter().enumerate() {

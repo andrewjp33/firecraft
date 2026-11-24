@@ -537,7 +537,7 @@ fn lower_controls(
             ui.horizontal(|ui| {
                 ui.label("Preset:");
                 let shown = preset_name(g);
-                egui::ComboBox::from_id_salt("gradient_preset")
+                crate::theme::combo("gradient_preset")
                     .width(150.0)
                     .height(400.0)
                     .selected_text(shown.unwrap_or(""))

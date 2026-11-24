@@ -2,7 +2,7 @@
 
 use std::hash::Hash;
 
-use egui::{Align, ComboBox, Event, EventFilter, Id, Key, Rect, Sense, Ui, Vec2};
+use egui::{Align, Event, EventFilter, Id, Key, Rect, Sense, Ui, Vec2};
 
 /// Letters typed further apart than this (seconds) start a new search.
 const TYPING_GAP: f64 = 1.0;
@@ -51,7 +51,7 @@ pub fn font_combo(
 ) -> Option<String> {
     let state = Id::unique(("font_find", salt));
     let mut picked = None;
-    let shown = ComboBox::from_id_salt(salt)
+    let shown = crate::theme::combo(salt)
         .width(width)
         .height(height)
         .selected_text(current)

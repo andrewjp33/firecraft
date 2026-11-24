@@ -374,7 +374,7 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
             theme::pal().ink,
         );
         let resp = resp.on_hover_text(SPACING_NAME);
-        egui::Popup::menu(&resp).show(|ui| {
+        egui::Popup::menu(&resp).style(crate::theme::menu_popup_style()).show(|ui| {
             if spacing_menu(ui, value, *last) {
                 ui.data_mut(|d| d.insert_temp(focus_id, true));
             }
@@ -424,7 +424,7 @@ fn spacing_field(ui: &mut egui::Ui, value: &mut Option<i32>, last: &mut i32) {
     }
     let menu = crate::icons::glyph_button(ui, crate::icons::Glyph::TriangleDown, 14.0, true)
         .on_hover_text("Spacing");
-    egui::Popup::menu(&menu).show(|ui| {
+    egui::Popup::menu(&menu).style(crate::theme::menu_popup_style()).show(|ui| {
         if spacing_menu(ui, value, *last) {
             ui.data_mut(|d| d.insert_temp(focus_id, true));
         }

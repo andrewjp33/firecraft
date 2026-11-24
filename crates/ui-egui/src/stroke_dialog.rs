@@ -7,7 +7,7 @@
 //! It edits the stroke of the selected paths (one undo step on OK) or, with nothing selected or
 //! from the tool options, the brush of new strokes.
 
-use egui::{Color32, ComboBox, DragValue, Grid, Rect, vec2};
+use egui::{Color32, DragValue, Grid, Rect, vec2};
 use firecraft_doc::brush_presets::BrushFields;
 use firecraft_doc::{BezierPoint, Contour, ElementKind, Path, Stroke};
 use firecraft_fwpng::Node;
@@ -134,7 +134,7 @@ fn number(ui: &mut egui::Ui, v: &mut i32, range: std::ops::RangeInclusive<i32>, 
 fn combo(ui: &mut egui::Ui, id: &str, items: &[&str], cur: usize, enabled: bool) -> Option<usize> {
     let mut out = None;
     ui.add_enabled_ui(enabled, |ui| {
-        ComboBox::from_id_salt(("edit_stroke", id))
+        crate::theme::combo(("edit_stroke", id))
             .width(150.0)
             .selected_text(items.get(cur).copied().unwrap_or_default())
             .show_ui(ui, |ui| {

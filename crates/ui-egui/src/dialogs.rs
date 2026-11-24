@@ -324,7 +324,7 @@ fn numeric_transform(app: &mut FireCraftApp, ctx: &egui::Context) {
     let Some(mut n) = app.dialogs.numeric else { return };
     let (mut ok, mut cancel) = (false, false);
     dialog("Numeric Transform").show(ctx, |ui| {
-        egui::ComboBox::from_id_salt("numeric_mode")
+        crate::theme::combo("numeric_mode")
             .selected_text(match n.mode {
                 NumericMode::Scale => "Scale",
                 NumericMode::Resize => "Resize",
@@ -659,7 +659,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
                     );
                     // Changing the unit converts the number as Fireworks MX does.
                     let was_cm = dl.new_res_cm;
-                    egui::ComboBox::from_id_salt("new_doc_res_unit")
+                    crate::theme::combo("new_doc_res_unit")
                         .selected_text(if dl.new_res_cm { "Pixels/cm" } else { "Pixels/Inch" })
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut dl.new_res_cm, false, "Pixels/Inch");
@@ -812,7 +812,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
 /// Fireworks MX / High precision picker (Preferences and the document Property inspector).
 pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raster::ColorMath) -> bool {
     let mut changed = false;
-    egui::ComboBox::from_id_salt(id)
+    crate::theme::combo(id)
         .selected_text(value.label())
         .show_ui(ui, |ui| {
             for m in firecraft_raster::ColorMath::ALL {
@@ -826,7 +826,7 @@ pub fn color_math_combo(ui: &mut egui::Ui, id: &str, value: &mut firecraft_raste
 pub fn perspective_combo(ui: &mut egui::Ui, id: &str, value: &mut bool) -> bool {
     let label = |mx: bool| if mx { "Fireworks MX" } else { "Pixel-correct" };
     let mut changed = false;
-    egui::ComboBox::from_id_salt(id)
+    crate::theme::combo(id)
         .selected_text(label(*value))
         .show_ui(ui, |ui| {
             for mx in [false, true] {
@@ -875,7 +875,7 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
         ui.horizontal(|ui| {
             ui.label("Tool cursors:");
-            egui::ComboBox::from_id_salt("prefs_cursor_style")
+            crate::theme::combo("prefs_cursor_style")
                 .selected_text(prefs.cursor_style.label())
                 .show_ui(ui, |ui| {
                     for t in crate::cursors::CursorStyle::ALL {
@@ -887,7 +887,7 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
         ui.horizontal(|ui| {
             ui.label("Theme:");
-            egui::ComboBox::from_id_salt("prefs_theme")
+            crate::theme::combo("prefs_theme")
                 .selected_text(prefs.theme.label())
                 .show_ui(ui, |ui| {
                     for t in crate::theme::ThemeKind::ALL {
@@ -910,7 +910,7 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         });
         ui.horizontal(|ui| {
             ui.label("Interpolation:");
-            egui::ComboBox::from_id_salt("prefs_interpolation")
+            crate::theme::combo("prefs_interpolation")
                 .selected_text(prefs.interpolation.label())
                 .show_ui(ui, |ui| {
                     for m in firecraft_raster::transform::Resample::ALL {

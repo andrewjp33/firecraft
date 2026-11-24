@@ -69,7 +69,7 @@ fn number(ui: &mut Ui, id: &str, value: f64, text: impl Fn(f64) -> String + 'sta
 fn unit_combo(ui: &mut Ui, id: &str, unit: &mut Unit, choices: &[Unit], enabled: bool) -> bool {
     let before = *unit;
     ui.add_enabled_ui(enabled, |ui| {
-        egui::ComboBox::from_id_salt(id)
+        crate::theme::combo(id)
             .width(130.0)
             .selected_text(unit.label())
             .show_ui(ui, |ui| {
@@ -449,7 +449,7 @@ pub fn image_size(app: &mut FireCraftApp, ctx: &egui::Context) {
                         st.set_res(v.clamp(1.0, 100_000.0), resample);
                     }
                     let was_cm = st.res_cm;
-                    egui::ComboBox::from_id_salt("image_size_res_unit")
+                    crate::theme::combo("image_size_res_unit")
                         .width(130.0)
                         .selected_text(if st.res_cm { "Pixels/cm" } else { "Pixels/Inch" })
                         .show_ui(ui, |ui| {
@@ -478,7 +478,7 @@ pub fn image_size(app: &mut FireCraftApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.checkbox(&mut prefs.image_size_resample, "Resample Image");
             ui.add_space(40.0);
-            egui::ComboBox::from_id_salt("image_size_method")
+            crate::theme::combo("image_size_method")
                 .width(180.0)
                 .selected_text(prefs.image_size_method.label())
                 .show_ui(ui, |ui| {

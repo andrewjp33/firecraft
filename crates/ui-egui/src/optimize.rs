@@ -1,7 +1,7 @@
 //! The Optimize panel: the active document's export format and its options (Fireworks MX's
 //! Optimize panel), with FireCraft's WebP and JPEG XL.
 
-use egui::{ComboBox, DragValue, Slider, Ui};
+use egui::{DragValue, Slider, Ui};
 use firecraft_doc::export::PRESETS;
 use firecraft_doc::{ExportFormat, ExportSettings, PaletteKind, Transparency};
 use firecraft_raster::Rgba;
@@ -50,7 +50,7 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
     ui.horizontal(|ui| {
         ui.label("Settings:");
         let current = s.preset_name().unwrap_or("(custom)");
-        ComboBox::from_id_salt("opt_preset")
+        crate::theme::combo("opt_preset")
             .selected_text(current)
             .width(170.0)
             .show_ui(ui, |ui| {
@@ -65,7 +65,7 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
             });
     });
     ui.horizontal(|ui| {
-        ComboBox::from_id_salt("opt_format")
+        crate::theme::combo("opt_format")
             .selected_text(s.format.label())
             .width(110.0)
             .show_ui(ui, |ui| {
@@ -116,7 +116,7 @@ fn matte(ui: &mut Ui, s: &mut ExportSettings) {
 
 fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
     ui.horizontal(|ui| {
-        ComboBox::from_id_salt("opt_palette")
+        crate::theme::combo("opt_palette")
             .selected_text(s.palette.label())
             .width(130.0)
             .show_ui(ui, |ui| {
@@ -148,7 +148,7 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) {
             ui.add(DragValue::new(&mut s.websnap_tolerance).range(0..=50));
         });
     }
-    ComboBox::from_id_salt("opt_transparency")
+    crate::theme::combo("opt_transparency")
         .selected_text(s.transparency.label())
         .width(150.0)
         .show_ui(ui, |ui| {
@@ -251,7 +251,7 @@ fn number_combo(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         deferred_drag(ui, id, value, |v| DragValue::new(v).range(range).speed(0.25));
-        ComboBox::from_id_salt(id)
+        crate::theme::combo(id)
             .selected_text("")
             .width(14.0)
             .show_ui(ui, |ui| {
@@ -276,7 +276,7 @@ fn png_optimizer(ui: &mut Ui, s: &mut ExportSettings) {
              filters, bit depths and palette reductions and compress harder. 7 adds Zopfli and \
              can take a long time on large images. The pixels never change.",
         );
-        ComboBox::from_id_salt("opt_png_level")
+        crate::theme::combo("opt_png_level")
             .selected_text(label(s.png_optimize))
             .width(120.0)
             .show_ui(ui, |ui| {
@@ -294,7 +294,7 @@ fn jpeg(ui: &mut Ui, s: &mut ExportSettings) {
     });
     ui.horizontal(|ui| {
         ui.label("Smoothing:");
-        ComboBox::from_id_salt("opt_smoothing")
+        crate::theme::combo("opt_smoothing")
             .selected_text(if s.jpeg_smoothing == 0 {
                 "No Smoothing".to_owned()
             } else {

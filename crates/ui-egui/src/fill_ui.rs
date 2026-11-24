@@ -2,7 +2,7 @@
 //! any kind, the Fill Options menu and Fireworks MX's Fill Options window for Pattern and Web
 //! Dither fills (docs/behavior/gradients.md).
 
-use egui::{Color32, ComboBox, Pos2, Rect, Sense, Stroke, vec2};
+use egui::{Color32, Pos2, Rect, Sense, Stroke, vec2};
 use firecraft_doc::Fill;
 use firecraft_engine::{PATTERN, WEB_DITHER, fill_label, new_pattern};
 use firecraft_io::textures::pattern_label;
@@ -28,7 +28,7 @@ pub(crate) fn fill_options(
     gradients_only: bool,
 ) -> Option<FillPick> {
     let mut pick = None;
-    ComboBox::from_id_salt(id)
+    crate::theme::combo(id)
         .width(90.0)
         .height(400.0)
         .selected_text(label)
@@ -403,7 +403,7 @@ fn body(
     if let Some(p) = &f.pattern {
         ui.horizontal(|ui| {
             ui.label("Pattern:");
-            ComboBox::from_id_salt("fill_window_pattern")
+            crate::theme::combo("fill_window_pattern")
                 .width(190.0)
                 .height(400.0)
                 .selected_text(pattern_label(&p.name))

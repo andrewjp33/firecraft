@@ -94,6 +94,11 @@ pub struct Palette {
     /// as `select`; Modern: a quieter grey, keeping orange for modes.
     pub highlight: Color32,
     pub highlight_text: Color32,
+    /// Modern popups (dropdown lists, menus, the tools' press-and-hold menu): the row under
+    /// the pointer, and the selected row.
+    pub popup_hover: Color32,
+    pub popup_selected: Color32,
+    pub popup_selected_text: Color32,
     pub text: Color32,
     pub text_weak: Color32,
     /// Tool icons on panels.
@@ -169,6 +174,9 @@ const CLASSIC: Palette = Palette {
     select_text: Color32::WHITE,
     highlight: rgb(0x33, 0x99, 0xFF),
     highlight_text: Color32::WHITE,
+    popup_hover: g(0xFA),
+    popup_selected: rgb(0x33, 0x99, 0xFF),
+    popup_selected_text: Color32::WHITE,
     text: g(30),
     text_weak: g(110),
     ink: g(20),
@@ -224,6 +232,9 @@ const DARK: Palette = Palette {
     select_text: Color32::WHITE,
     highlight: rgb(0x2D, 0x7F, 0xE0),
     highlight_text: Color32::WHITE,
+    popup_hover: g(0x56),
+    popup_selected: rgb(0x2D, 0x7F, 0xE0),
+    popup_selected_text: Color32::WHITE,
     text: g(0xDC),
     text_weak: g(0x9A),
     ink: g(0xE2),
@@ -282,6 +293,9 @@ const MODERN: Palette = Palette {
     select_text: Color32::WHITE,
     highlight: g(0xDD),
     highlight_text: g(0x14),
+    popup_hover: g(0xDD),
+    popup_selected: g(0x5A),
+    popup_selected_text: Color32::WHITE,
     text: g(0x1E),
     text_weak: g(0x80),
     ink: g(0x22),
@@ -340,6 +354,9 @@ const MODERN_DARK: Palette = Palette {
     select_text: Color32::WHITE,
     highlight: g(0x4A),
     highlight_text: g(0xF2),
+    popup_hover: g(0x44),
+    popup_selected: g(0x62),
+    popup_selected_text: Color32::WHITE,
     text: g(0xE8),
     text_weak: g(0x90),
     ink: g(0xE8),
@@ -713,6 +730,52 @@ pub fn mode_value<V: PartialEq>(ui: &mut egui::Ui, current: &mut V, value: V, te
         ui.painter().set(glow, shadow.as_shape(resp.rect, radius));
     }
     resp
+}
+
+/// Modern popup colours: a visible grey under the pointer, dark grey for the selected row
+/// (orange is kept for modes).
+fn popup_colors(s: &mut egui::Style) {
+    let p = pal();
+    let v = &mut s.visuals;
+    for w in [&mut v.widgets.hovered, &mut v.widgets.active] {
+        w.weak_bg_fill = p.popup_hover;
+        w.bg_fill = p.popup_hover;
+        w.bg_stroke = Stroke::NONE;
+        w.fg_stroke = Stroke::new(1.0, p.text);
+    }
+    v.selection.bg_fill = p.popup_selected;
+    v.selection.stroke = Stroke::new(1.0, p.popup_selected_text);
+}
+
+/// The style of a dropdown list's popup.
+pub fn popup_style() -> egui::style::StyleModifier {
+    if pal().modern {
+        egui::style::StyleModifier::new(popup_colors)
+    } else {
+        egui::style::StyleModifier::default()
+    }
+}
+
+/// The style of menus (egui's menu style, plus the popup colours in Modern).
+pub fn menu_popup_style() -> egui::style::StyleModifier {
+    if pal().modern {
+        egui::style::StyleModifier::new(|s| {
+            egui::containers::menu::menu_style(s);
+            popup_colors(s);
+        })
+    } else {
+        egui::containers::menu::menu_style.into()
+    }
+}
+
+/// Menu settings carrying [`menu_popup_style`] to a menu and its submenus.
+pub fn menu_config() -> egui::containers::menu::MenuConfig {
+    egui::containers::menu::MenuConfig::new().style(menu_popup_style())
+}
+
+/// A dropdown list styled for the theme.
+pub fn combo<'a>(id_salt: impl egui::AsIdSalt) -> egui::ComboBox<'a> {
+    egui::ComboBox::from_id_salt(id_salt).popup_style(popup_style())
 }
 
 /// A panel-group title bar like Fireworks' ("> Layers") that toggles `open`.

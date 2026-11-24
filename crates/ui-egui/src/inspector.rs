@@ -1,7 +1,7 @@
 //! The Property inspector: one context-sensitive panel for the active tool, the selection or
 //! the document (Fireworks MX's signature panel).
 
-use egui::{ComboBox, DragValue, Rect, Sense, Slider, vec2};
+use egui::{DragValue, Rect, Sense, Slider, vec2};
 use firecraft_doc::ElementKind;
 use firecraft_engine::Tool;
 use firecraft_raster::{AntiAliasStyle, Edge};
@@ -45,7 +45,7 @@ fn edge_combo(ui: &mut egui::Ui, id: &str, edge: &mut Edge) {
         Edge::Feather(_) => "Feather",
     };
     ui.label("Edge:");
-    ComboBox::from_id_salt(id)
+    crate::theme::combo(id)
         .width(90.0)
         .selected_text(label)
         .show_ui(ui, |ui| {
@@ -121,7 +121,7 @@ fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             // FireCraft addition (see docs/behavior/magic-wand.md): Fireworks MX ties the
             // anti-alias strength to Tolerance; "Smooth" computes real edge coverage instead.
             ui.label("Anti-alias:");
-            ComboBox::from_id_salt("aa_style")
+            crate::theme::combo("aa_style")
                 .width(140.0)
                 .selected_text(match o.aa_style {
                     AntiAliasStyle::Smooth => "FireCraft (smooth)",
@@ -142,7 +142,7 @@ fn paint_mix(ui: &mut egui::Ui, o: &mut firecraft_engine::PaintOptions) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.add(DragValue::new(&mut o.opacity).range(0..=100).suffix("%"));
-            ComboBox::from_id_salt("paint_blend")
+            crate::theme::combo("paint_blend")
                 .width(90.0)
                 .selected_text(o.blend.label())
                 .show_ui(ui, |ui| {
@@ -244,7 +244,7 @@ fn marquee(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Style:");
-            ComboBox::from_id_salt("marquee_style")
+            crate::theme::combo("marquee_style")
                 .width(90.0)
                 .selected_text("Normal")
                 .show_ui(ui, |ui| {
@@ -341,7 +341,7 @@ fn fill_edge_row(ui: &mut egui::Ui, d: &mut firecraft_engine::DocState, anti_ali
         } else {
             "Hard Edge"
         };
-        ComboBox::from_id_salt("fill_edge")
+        crate::theme::combo("fill_edge")
             .width(90.0)
             .selected_text(label)
             .show_ui(ui, |ui| {
@@ -708,7 +708,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             let current = first.as_ref().map(|e| e.blend).unwrap_or_default();
             let mut chosen = None;
-            ComboBox::from_id_salt("blend")
+            crate::theme::combo("blend")
                 .width(90.0)
                 .selected_text(current.label())
                 .show_ui(ui, |ui| {

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use egui::{ComboBox, Sense, vec2};
+use egui::{Sense, vec2};
 use firecraft_doc::{EffectEntry, EffectParam};
 use firecraft_raster::Rgba;
 use firecraft_raster::plugins::Params;
@@ -872,7 +872,7 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
                 .find(|(v, _)| *v == raw.trim())
                 .map_or(raw.as_str(), |(_, l)| l)
                 .to_owned();
-            ComboBox::from_id_salt(("fx_choice", f.key))
+            crate::theme::combo(("fx_choice", f.key))
                 .selected_text(current)
                 .show_ui(ui, |ui| {
                     for (v, l) in options {
@@ -923,7 +923,7 @@ fn edit_field(ui: &mut egui::Ui, d: &EffectDef, f: &Field, e: &mut EffectEntry) 
                 .find(|(v, _)| *v == cur)
                 .map_or(cur.as_str(), |(_, l)| l)
                 .to_owned();
-            ComboBox::from_id_salt(("fx_enum", f.key))
+            crate::theme::combo(("fx_enum", f.key))
                 .selected_text(label)
                 .show_ui(ui, |ui| {
                     for (v, l) in options {
@@ -962,7 +962,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut adding = false;
     ui.horizontal(|ui| {
         ui.label("Effects:");
-        ui.menu_button("+", |ui| {
+        egui::containers::menu::MenuButton::new("+").config(theme::menu_config()).ui(ui, |ui| {
             let mut categories: Vec<&str> = Vec::new();
             for d in DEFS {
                 if !categories.contains(&d.category) {
@@ -986,7 +986,7 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 });
             }
         })
-        .response
+        .0
         .on_hover_text("Add an effect");
         let sel = state.selected;
         if ui
