@@ -193,11 +193,11 @@ const HOLDS_SELECTION: Color32 = Color32::from_rgb(0x99, 0x77, 0xFF);
 /// white text.
 const GROUP_HOLDS_SELECTION: Color32 = Color32::from_rgb(0x66, 0xEE, 0xBB);
 
-/// A row's band and text colours: blue and white when selected; while it holds the
+/// A row's band and text colours: the highlight (Classic: blue and white) when selected; while it holds the
 /// selection, purple for a mask or masked object, mint for a group, both with white text.
 fn row_colors(selected: bool, holds: bool, group: bool) -> Option<(Color32, Color32)> {
     match (selected, holds, group) {
-        (true, ..) => Some((theme::select(), theme::pal().select_text)),
+        (true, ..) => Some((theme::pal().highlight, theme::pal().highlight_text)),
         (false, true, true) => Some((GROUP_HOLDS_SELECTION, Color32::WHITE)),
         (false, true, false) => Some((HOLDS_SELECTION, Color32::WHITE)),
         _ => None,
@@ -420,7 +420,7 @@ fn object_rows(
     rows.push((rect, Row::Object(r)));
     let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
     if let Some((fill, _)) = row_colors(selected, holds, matches!(el.kind, ElementKind::Group(_))) {
-        ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
+        ui.painter().set(background, egui::Shape::rect_filled(band, theme::row_radius(band), fill));
     }
     if !editing {
         let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
@@ -630,7 +630,7 @@ fn mask_row(
     let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
     if selected || holds {
         let fill = row_colors(selected, holds, matches!(mask.kind, ElementKind::Group(_))).map_or(HOLDS_SELECTION, |c| c.0);
-        ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
+        ui.painter().set(background, egui::Shape::rect_filled(band, theme::row_radius(band), fill));
     }
     let mode_text = match mode {
         MaskMode::Grayscale => "shows the content by its grayscale",
@@ -759,7 +759,7 @@ fn content_row(
     let rect = row.response.rect;
     if let Some((fill, _)) = row_colors(selected, holds, true) {
         let band = Rect::from_min_max(egui::pos2(buttons.right(), rect.top()), rect.max);
-        ui.painter().set(background, egui::Shape::rect_filled(band, 0.0, fill));
+        ui.painter().set(background, egui::Shape::rect_filled(band, theme::row_radius(band), fill));
     }
     let hit = Rect::from_min_max(egui::pos2(arrow.right(), rect.top()), rect.max);
     let click = ui
@@ -884,14 +884,11 @@ fn layers(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 return;
             }
             let name = layer.name.clone();
-            let text = if current {
-                RichText::new(name)
-                    .color(theme::pal().select_text)
-                    .background_color(theme::select())
+            let r = if current {
+                theme::current_label(ui, name, Sense::click_and_drag())
             } else {
-                RichText::new(name)
+                ui.add(egui::Label::new(RichText::new(name)).sense(Sense::click_and_drag()))
             };
-            let r = ui.add(egui::Label::new(text).sense(Sense::click_and_drag()));
             let r = if layer.web {
                 r
             } else {
@@ -1080,8 +1077,8 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let tab_id = egui::Id::unique("frames_history_tab");
     let mut history = ui.ctx().data(|d| d.get_temp::<bool>(tab_id)).unwrap_or(false);
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut history, false, "Frames");
-        ui.selectable_value(&mut history, true, "History");
+        theme::mode_value(ui, &mut history, false, "Frames");
+        theme::mode_value(ui, &mut history, true, "History");
     });
     ui.ctx().data_mut(|d| d.insert_temp(tab_id, history));
     let Some(d) = app.session.active_doc_mut() else {
@@ -1095,11 +1092,10 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         let current = done.len();
         let mut target: Option<usize> = None;
         let row = |ui: &mut egui::Ui, text: String, active: bool, here: bool| {
-            let rt = if here {
-                RichText::new(text)
-                    .color(theme::pal().select_text)
-                    .background_color(theme::select())
-            } else if active {
+            if here {
+                return theme::current_label(ui, text, Sense::click()).clicked();
+            }
+            let rt = if active {
                 RichText::new(text)
             } else {
                 RichText::new(text).color(theme::pal().text_weak)
@@ -1137,14 +1133,16 @@ fn frames_history(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     let cur = i == d.doc.current_frame;
                     ui.horizontal(|ui| {
                         let text = format!("{}  {}", i + 1, f.name);
-                        let rt = if cur {
-                            RichText::new(text)
-                                .color(theme::pal().select_text)
-                                .background_color(theme::select())
+                        if theme::pal().modern {
+                            // Room for the current row's pill, in line with the buttons above.
+                            ui.add_space(5.0);
+                        }
+                        let r = if cur {
+                            theme::current_label(ui, text, Sense::click())
                         } else {
-                            RichText::new(text)
+                            ui.add(egui::Label::new(RichText::new(text)).sense(Sense::click()))
                         };
-                        if ui.add(egui::Label::new(rt).sense(Sense::click())).clicked() {
+                        if r.clicked() {
                             pick = Some(i);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

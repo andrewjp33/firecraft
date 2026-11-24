@@ -76,6 +76,10 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     }
     let i = app.session.active;
     let p = theme::pal();
+    if p.modern {
+        // The tabs sit right on the document below, with no gap.
+        ui.spacing_mut().item_spacing.y = 0.0;
+    }
     egui::Frame::new().fill(if p.modern { p.title_active } else { p.panel }).show(ui, |ui| {
         ui.set_min_size(ui.available_size());
         document_view(app, ui, i);
@@ -497,8 +501,8 @@ fn document_view(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize) {
         .frame(egui::Frame::new())
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut preview, false, "Original");
-                ui.selectable_value(&mut preview, true, "Preview");
+                theme::mode_value(ui, &mut preview, false, "Original");
+                theme::mode_value(ui, &mut preview, true, "Preview");
                 ui.add_enabled(false, egui::Button::new("2-Up"))
                     .on_disabled_hover_text("Coming soon (Preview works)");
                 ui.add_enabled(false, egui::Button::new("4-Up"))

@@ -1067,14 +1067,15 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                                 }
                                 new_list = Some((l, "Effect On/Off"));
                             }
-                            let mut text = egui::RichText::new(e.name());
-                            if !known {
-                                text = text.color(theme::pal().text_weak);
-                            }
-                            if selected {
-                                text = text.background_color(theme::select()).color(theme::pal().select_text);
-                            }
-                            let name = ui.add(egui::Label::new(text).sense(Sense::click()));
+                            let name = if selected {
+                                theme::current_label(ui, e.name(), Sense::click())
+                            } else {
+                                let mut text = egui::RichText::new(e.name());
+                                if !known {
+                                    text = text.color(theme::pal().text_weak);
+                                }
+                                ui.add(egui::Label::new(text).sense(Sense::click()))
+                            };
                             let name = if known {
                                 name
                             } else {

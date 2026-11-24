@@ -87,9 +87,13 @@ pub struct Palette {
     pub section: Color32,
     pub section_text: Color32,
     pub border: Color32,
-    /// Selected list rows and toggles (Classic: Fireworks' blue; Modern: orange).
+    /// Selected toggles and modes (Classic: Fireworks' blue; Modern: orange).
     pub select: Color32,
     pub select_text: Color32,
+    /// The current row of a list (layer, frame, history step, symbol). Classic: the same blue
+    /// as `select`; Modern: a quieter grey, keeping orange for modes.
+    pub highlight: Color32,
+    pub highlight_text: Color32,
     pub text: Color32,
     pub text_weak: Color32,
     /// Tool icons on panels.
@@ -119,10 +123,13 @@ pub struct Palette {
     pub tools_bottom: Color32,
     pub tools_ink: Color32,
     pub tools_ink_disabled: Color32,
-    /// Modern: the round backing of a tool button.
+    /// Modern: a tool button's rounded tile, a left-to-right gradient with an outline.
     pub tool_fill: Color32,
+    pub tool_fill_end: Color32,
+    pub tool_border: Color32,
     pub tool_hover: Color32,
     pub tool_active_fill: Color32,
+    pub tool_active_fill_end: Color32,
     pub tool_active_ink: Color32,
     pub tool_active_border: Color32,
     pub error: Color32,
@@ -160,6 +167,8 @@ const CLASSIC: Palette = Palette {
     border: g(0x9A),
     select: rgb(0x33, 0x99, 0xFF),
     select_text: Color32::WHITE,
+    highlight: rgb(0x33, 0x99, 0xFF),
+    highlight_text: Color32::WHITE,
     text: g(30),
     text_weak: g(110),
     ink: g(20),
@@ -184,8 +193,11 @@ const CLASSIC: Palette = Palette {
     tools_ink: g(20),
     tools_ink_disabled: g(150),
     tool_fill: Color32::TRANSPARENT,
+    tool_fill_end: Color32::TRANSPARENT,
+    tool_border: Color32::TRANSPARENT,
     tool_hover: g(170),
     tool_active_fill: Color32::WHITE,
+    tool_active_fill_end: Color32::WHITE,
     tool_active_ink: g(20),
     tool_active_border: g(110),
     error: rgb(180, 0, 0),
@@ -210,6 +222,8 @@ const DARK: Palette = Palette {
     border: g(0x1C),
     select: rgb(0x2D, 0x7F, 0xE0),
     select_text: Color32::WHITE,
+    highlight: rgb(0x2D, 0x7F, 0xE0),
+    highlight_text: Color32::WHITE,
     text: g(0xDC),
     text_weak: g(0x9A),
     ink: g(0xE2),
@@ -234,8 +248,11 @@ const DARK: Palette = Palette {
     tools_ink: g(0xE2),
     tools_ink_disabled: g(0x70),
     tool_fill: Color32::TRANSPARENT,
+    tool_fill_end: Color32::TRANSPARENT,
+    tool_border: Color32::TRANSPARENT,
     tool_hover: g(0x6A),
     tool_active_fill: g(0x5C),
+    tool_active_fill_end: g(0x5C),
     tool_active_ink: Color32::WHITE,
     tool_active_border: g(0x80),
     error: rgb(0xFF, 0x6B, 0x6B),
@@ -263,6 +280,8 @@ const MODERN: Palette = Palette {
     border: g(0xD6),
     select: ORANGE,
     select_text: Color32::WHITE,
+    highlight: g(0xDD),
+    highlight_text: g(0x14),
     text: g(0x1E),
     text_weak: g(0x80),
     ink: g(0x22),
@@ -286,11 +305,15 @@ const MODERN: Palette = Palette {
     tools_bottom: g(0x3F),
     tools_ink: g(0xF2),
     tools_ink_disabled: g(0x8C),
-    tool_fill: white_a(0x1C),
-    tool_hover: white_a(0x38),
-    tool_active_fill: Color32::WHITE,
-    tool_active_ink: ORANGE,
-    tool_active_border: Color32::TRANSPARENT,
+    // design_edit2.png: over the sidebar's #686868, #7E fading to #6E, outlined #7F.
+    tool_fill: white_a(0x25),
+    tool_fill_end: white_a(0x0A),
+    tool_border: white_a(0x27),
+    tool_hover: white_a(0x40),
+    tool_active_fill: g(0xD8),
+    tool_active_fill_end: g(0xFC),
+    tool_active_ink: g(0x67),
+    tool_active_border: g(0xF9),
     error: rgb(0xC0, 0x30, 0x20),
     r_card: 14,
     r_widget: 8,
@@ -315,6 +338,8 @@ const MODERN_DARK: Palette = Palette {
     border: g(0x3C),
     select: ORANGE_DARK,
     select_text: Color32::WHITE,
+    highlight: g(0x4A),
+    highlight_text: g(0xF2),
     text: g(0xE8),
     text_weak: g(0x90),
     ink: g(0xE8),
@@ -338,11 +363,14 @@ const MODERN_DARK: Palette = Palette {
     tools_bottom: g(0x22),
     tools_ink: g(0xEE),
     tools_ink_disabled: g(0x78),
-    tool_fill: white_a(0x14),
-    tool_hover: white_a(0x2C),
-    tool_active_fill: g(0xF2),
-    tool_active_ink: ORANGE_DARK,
-    tool_active_border: Color32::TRANSPARENT,
+    tool_fill: white_a(0x1C),
+    tool_fill_end: white_a(0x08),
+    tool_border: white_a(0x20),
+    tool_hover: white_a(0x34),
+    tool_active_fill: g(0xB0),
+    tool_active_fill_end: g(0xD4),
+    tool_active_ink: g(0x3A),
+    tool_active_border: g(0xDC),
     error: rgb(0xFF, 0x7A, 0x66),
     r_card: 14,
     r_widget: 8,
@@ -579,10 +607,20 @@ pub fn vgradient(rect: Rect, radius: u8, top: Color32, bottom: Color32) -> egui:
 /// A rounded rectangle with a vertical gradient: a triangle fan over the outline, with a thin
 /// feathered rim so the corners are anti-aliased like egui's own shapes.
 pub fn rounded_vgradient(rect: Rect, radius: f32, top: Color32, bottom: Color32) -> egui::Shape {
+    rounded_gradient(rect, radius, top, bottom, false)
+}
+
+/// A rounded rectangle shaded from `from` to `to`: top to bottom, or left to right when
+/// `horizontal`.
+pub fn rounded_gradient(rect: Rect, radius: f32, from: Color32, to: Color32, horizontal: bool) -> egui::Shape {
     let r = radius.min(rect.width() / 2.0).min(rect.height() / 2.0).max(0.0);
-    let color_at = |y: f32| {
-        let t = ((y - rect.top()) / rect.height().max(1.0)).clamp(0.0, 1.0);
-        lerp_color(top, bottom, t)
+    let color_at = |q: egui::Pos2| {
+        let t = if horizontal {
+            (q.x - rect.left()) / rect.width().max(1.0)
+        } else {
+            (q.y - rect.top()) / rect.height().max(1.0)
+        };
+        lerp_color(from, to, t.clamp(0.0, 1.0))
     };
     // The outline, clockwise from the top-left corner's start.
     let mut pts: Vec<egui::Pos2> = Vec::new();
@@ -601,13 +639,13 @@ pub fn rounded_vgradient(rect: Rect, radius: f32, top: Color32, bottom: Color32)
     }
     let mut mesh = egui::epaint::Mesh::default();
     let center = rect.center();
-    mesh.colored_vertex(center, color_at(center.y));
+    mesh.colored_vertex(center, color_at(center));
     let n = pts.len() as u32;
     // Inner ring (solid) and outer ring (transparent), half a pixel either side of the outline.
     let feather = 0.5;
     for q in &pts {
         let d = (*q - center).normalized();
-        mesh.colored_vertex(*q - d * feather, color_at(q.y));
+        mesh.colored_vertex(*q - d * feather, color_at(*q));
     }
     for q in &pts {
         let d = (*q - center).normalized();
@@ -622,9 +660,59 @@ pub fn rounded_vgradient(rect: Rect, radius: f32, top: Color32, bottom: Color32)
     egui::Shape::mesh(mesh)
 }
 
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     Color32::from_rgba_premultiplied(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()), l(a.a(), b.a()))
+}
+
+/// Corner radius of a highlighted list row: square in Classic; in Modern a quarter of its
+/// height, half as round as the pill-shaped buttons.
+pub fn row_radius(row: Rect) -> f32 {
+    if pal().modern { row.height() / 4.0 } else { 0.0 }
+}
+
+/// A list's current row label (layer, frame, history step, symbol). Classic: white text on
+/// Fireworks' blue; Modern: a grey pill around the text, which stays where an unmarked row's
+/// text is.
+pub fn current_label(ui: &mut egui::Ui, text: impl Into<String>, sense: egui::Sense) -> egui::Response {
+    let p = pal();
+    let text = text.into();
+    if !p.modern {
+        let rt = egui::RichText::new(text).color(p.highlight_text).background_color(p.highlight);
+        return ui.add(egui::Label::new(rt).sense(sense));
+    }
+    let galley = egui::WidgetText::from(text.as_str()).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Body,
+    );
+    let (rect, resp) = ui.allocate_exact_size(galley.size(), sense);
+    let pill = rect.expand2(egui::vec2(5.0, 2.0));
+    ui.painter().rect_filled(pill, row_radius(pill), p.highlight);
+    ui.painter().galley(rect.min, galley, p.highlight_text);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &text));
+    resp
+}
+
+/// A mode switch (Original/Preview, Frames/History): egui's selectable button, which in Modern
+/// glows softly around the selected one.
+pub fn mode_value<V: PartialEq>(ui: &mut egui::Ui, current: &mut V, value: V, text: &str) -> egui::Response {
+    let p = pal();
+    let glow = ui.painter().add(egui::Shape::Noop);
+    let was = *current == value;
+    let resp = ui.selectable_value(current, value, text);
+    if p.modern && (was || resp.clicked()) {
+        let radius = (resp.rect.height() / 2.0).min(p.r_widget as f32 * 2.0) as u8;
+        let shadow = egui::Shadow {
+            offset: [0, 0],
+            blur: 5,
+            spread: 1,
+            color: p.select.gamma_multiply(if p.dark { 0.35 } else { 0.28 }),
+        };
+        ui.painter().set(glow, shadow.as_shape(resp.rect, radius));
+    }
+    resp
 }
 
 /// A panel-group title bar like Fireworks' ("> Layers") that toggles `open`.

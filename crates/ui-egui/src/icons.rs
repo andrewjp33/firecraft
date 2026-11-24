@@ -21,22 +21,29 @@ pub fn paint(p: &Painter, r: Rect, tool: Tool, enabled: bool) {
 }
 
 /// Paint `tool`'s icon into `r` with `c` for its lines (its coloured parts keep their colours).
+/// The arrow of the Pointer tools' icons, in the button rectangle `r`.
+pub fn pointer_points(r: Rect) -> Vec<Pos2> {
+    let r = r.shrink(2.0);
+    let at = |fx: f32, fy: f32| pos2(r.left() + fx * r.width(), r.top() + fy * r.height());
+    vec![
+        at(0.25, 0.05),
+        at(0.25, 0.85),
+        at(0.45, 0.65),
+        at(0.6, 0.95),
+        at(0.72, 0.9),
+        at(0.58, 0.6),
+        at(0.85, 0.6),
+    ]
+}
+
 pub fn paint_ink(p: &Painter, r: Rect, tool: Tool, c: Color32) {
     let s = Stroke::new(1.2, c);
+    let pts = pointer_points(r);
     let r = r.shrink(2.0);
     let (x0, y0, w, h) = (r.left(), r.top(), r.width(), r.height());
     let at = |fx: f32, fy: f32| pos2(x0 + fx * w, y0 + fy * h);
     match tool {
         Tool::Pointer | Tool::Subselect | Tool::SelectBehind => {
-            let pts = vec![
-                at(0.25, 0.05),
-                at(0.25, 0.85),
-                at(0.45, 0.65),
-                at(0.6, 0.95),
-                at(0.72, 0.9),
-                at(0.58, 0.6),
-                at(0.85, 0.6),
-            ];
             if tool == Tool::SelectBehind {
                 // A pointer in front of a square (the object behind).
                 p.rect_filled(

@@ -164,13 +164,11 @@ pub fn panel(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     |ui| {
                         ui.horizontal(|ui| {
                             kind_icon(ui, *kind).on_hover_text(kind.label());
-                            let text = RichText::new(name);
-                            let text = if selected {
-                                text.color(theme::pal().select_text).background_color(theme::select())
+                            if selected {
+                                theme::current_label(ui, name.as_str(), Sense::hover());
                             } else {
-                                text
-                            };
-                            ui.add(egui::Label::new(text).selectable(false));
+                                ui.add(egui::Label::new(RichText::new(name)).selectable(false));
+                            }
                         });
                     },
                 );

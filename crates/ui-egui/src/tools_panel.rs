@@ -106,10 +106,11 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
         p.tools_ink_disabled
     };
     if p.modern {
-        // Rounded tiles: faint on the sidebar, white and raised for the active tool.
+        // Rounded tiles shaded left to right with a light outline: faint on the sidebar, light
+        // and raised for the active tool.
         let tile = r.shrink(0.5);
         let radius = 8.0;
-        if active {
+        let (from, to, border) = if active {
             let shadow = egui::Shadow {
                 offset: [0, 2],
                 blur: 8,
@@ -117,11 +118,14 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
                 color: Color32::from_black_alpha(70),
             };
             ui.painter().add(shadow.as_shape(tile, radius));
-            ui.painter().rect_filled(tile, radius, p.tool_active_fill);
+            (p.tool_active_fill, p.tool_active_fill_end, p.tool_active_border)
+        } else if resp.hovered() {
+            (p.tool_hover, p.tool_fill, p.tool_border)
         } else {
-            let fill = if resp.hovered() { p.tool_hover } else { p.tool_fill };
-            ui.painter().rect_filled(tile, radius, fill);
-        }
+            (p.tool_fill, p.tool_fill_end, p.tool_border)
+        };
+        ui.painter().add(theme::rounded_gradient(tile, radius, from, to, true));
+        ui.painter().rect_stroke(tile, radius, Stroke::new(1.0, border), StrokeKind::Inside);
     } else if active {
         ui.painter().rect_filled(r, 1.0, p.tool_active_fill);
         ui.painter().rect_stroke(
@@ -139,6 +143,12 @@ fn tool_button(app: &mut FireCraftApp, ui: &mut egui::Ui, slot: Tool) {
         );
     }
     icons::paint_ink(ui.painter(), r, shown, ink);
+    if p.modern && active && shown == Tool::Pointer {
+        // A soft light edge around the solid arrow, as in design_edit2.png.
+        let edge = theme::lerp_color(ink, p.tool_active_fill_end, 0.6);
+        ui.painter()
+            .add(egui::Shape::closed_line(icons::pointer_points(r), Stroke::new(1.0, edge)));
+    }
     if !alts.is_empty() {
         // Flyout marker.
         let c = r.right_bottom() - if p.modern { vec2(4.0, 4.0) } else { vec2(3.0, 3.0) };
