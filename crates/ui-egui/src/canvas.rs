@@ -100,6 +100,8 @@ fn tabs(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         egui::Frame::new()
             .fill(p.title_active)
             .corner_radius(egui::CornerRadius { nw: 0, ne: r, sw: r, se: r })
+            // Room inside the rounded corners for the status bar's first and last controls.
+            .inner_margin(egui::Margin { left: 6, right: 6, top: 2, bottom: 4 })
             .shadow(ui.visuals().window_shadow)
     } else {
         egui::Frame::new().fill(p.panel)
