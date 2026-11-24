@@ -770,8 +770,12 @@ fn exit_bitmap_button(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
     if resp.hovered() && enabled {
         p.rect_stroke(r, 1.0, Stroke::new(1.0, Color32::from_gray(150)), StrokeKind::Inside);
     }
+    let pal = theme::pal();
     let (fill, cross) = if enabled {
         (Color32::from_rgb(210, 30, 30), Color32::WHITE)
+    } else if pal.dark {
+        // As dim as the disabled frame buttons beside it.
+        (pal.glyph_disabled, theme::lerp_color(pal.glyph_disabled, Color32::BLACK, 0.45))
     } else {
         (Color32::from_gray(175), Color32::from_gray(235))
     };
