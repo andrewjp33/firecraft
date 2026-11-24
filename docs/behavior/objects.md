@@ -105,12 +105,25 @@ kernels are standard ones, not yet measured against MX's ([canvas-size.md](canva
 
 With objects selected the Property inspector shows their box: W, H, X and Y, rounded to whole
 pixels (several objects: the box around them all, as in Fireworks MX; an animation symbol: its
-whole motion, see [symbols.md](symbols.md)). X and Y move the objects ("Move"); W and H scale
-them keeping the box's left side or top ("Transform", one undo step; the step name is
-FireCraft's, not measured in MX). An animation's W and H stay greyed: they cover the motion,
-which scaling the instance doesn't map onto. Typed values apply on Enter or on leaving the
-field; dragging a field changes the objects as it goes, each step scaling the objects as they
-were when the drag began (bitmaps are resampled once), one undo step on mouse up.
+whole motion, see [symbols.md](symbols.md)). W and H scale the objects keeping the box's left
+side or top; X and Y move them. Fireworks MX records all four as **"Transform"**, for paths and
+bitmaps alike (the user checked, 2026-11-24). X and Y move by whole pixels from the shown,
+rounded position, so an object at a sub-pixel place (from an earlier Ctrl transform) keeps its
+soft edges as a Pointer drag does instead of snapping onto the grid. An animation's W and H stay
+greyed: they cover the motion, which scaling the instance doesn't map onto. Typed values apply on
+Enter or on leaving the field; dragging a field changes the objects as it goes, each step scaling
+the objects as they were when the drag began (bitmaps are resampled once), one undo step on
+mouse up.
+
+## Scale, Skew and Distort tools: whole pixels
+
+As in Fireworks MX, a Scale tool resize lands on whole pixels: the box sides a handle moves go to
+the nearest pixel grid line, so an upright rectangle path stays crisp instead of gaining soft
+edges from a sub-pixel size. Sides the handle doesn't move keep their place. Dragging inside the
+box (any of the three tools) moves by whole pixels. **Holding Ctrl** gives the sub-pixel resize or
+move instead (FireCraft's addition, the user's request, 2026-11-24; Ctrl is also the pivot's
+"no snapping" key). A turned or slanted box can't sit on the grid and follows the pointer; Skew
+and Distort handles and rotation aren't snapped.
 
 ## Colour pop-up
 

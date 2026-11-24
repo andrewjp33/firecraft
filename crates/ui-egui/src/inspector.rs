@@ -526,7 +526,7 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 sized.push((false, nw, resp));
                 ui.label("X:");
                 let resp = ui.add(DragValue::new(&mut nx).update_while_editing(false));
-                moved.push((nx - x, 0.0, resp));
+                moved.push((nx - x.round(), 0.0, resp));
                 ui.end_row();
                 ui.label("H:");
                 let resp = ui
@@ -535,18 +535,21 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 sized.push((true, nh, resp));
                 ui.label("Y:");
                 let resp = ui.add(DragValue::new(&mut ny).update_while_editing(false));
-                moved.push((0.0, ny - y, resp));
+                moved.push((0.0, ny - y.round(), resp));
                 ui.end_row();
             });
         }
     });
     if let Some(d) = app.session.active_doc_mut() {
+        // X and Y move by whole pixels from the shown (rounded) position, so a sub-pixel place
+        // from an earlier transform keeps its look, as a Pointer drag does. Fireworks MX names
+        // the step "Transform", as for W and H.
         for (dx, dy, resp) in &moved {
-            value_drag(d, resp, "Move", |d, live| {
+            value_drag(d, resp, "Transform", |d, live| {
                 if live {
                     d.move_selection_live(*dx, *dy);
                 } else {
-                    d.move_selection(*dx, *dy, "Move");
+                    d.move_selection(*dx, *dy, "Transform");
                 }
             });
         }

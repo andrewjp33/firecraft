@@ -2644,6 +2644,32 @@ mod tests {
     }
 
     #[test]
+    fn a_rectangle_scaled_to_whole_pixels_keeps_hard_edges() {
+        // The Scale tool lands on whole pixels by default; a sub-pixel width (Ctrl) softens the
+        // right edge.
+        let mut d = DocState::new(Document::new(120, 80, 72.0, None));
+        let o = ToolOptions {
+            fill: Some(Rgba::new(0, 0, 255, 255)),
+            stroke: None,
+            ..ToolOptions::default()
+        };
+        d.add_shape((10.0, 10.0, 50.0, 40.0), false, &o);
+        let from = d.selection_bounds().unwrap();
+        assert!((from.0 - 10.0).abs() < 1e-6 && (from.2 - 40.0).abs() < 1e-6);
+        let start = d.selected_elements();
+        let hard = |d: &DocState| d.doc.render(0).pixels().iter().all(|p| p.a == 0 || p.a == 255);
+        d.resize_from(&start, from, (61.0, 37.0), false);
+        assert!(hard(&d), "whole-pixel size: no soft edges");
+        d.resize_from(&start, from, (61.4, 37.0), false);
+        assert!(!hard(&d), "sub-pixel size: soft edge");
+        // A whole-pixel move keeps the sub-pixel look; it doesn't snap the edge back.
+        let before: Vec<u8> = d.doc.render(0).pixels().iter().map(|p| p.a).collect();
+        d.move_selection(3.0, 2.0, "Transform");
+        let after = d.doc.render(0);
+        assert_eq!(after.get(10 + 3 + 61, 25 + 2).map(|p| p.a), before.get(25 * 120 + 10 + 61).copied());
+    }
+
+    #[test]
     fn inspector_width_and_height_scale_from_the_top_left() {
         let (mut d, red, blue) = red_and_blue();
         d.selection = vec![red];
