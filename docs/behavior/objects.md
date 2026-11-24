@@ -95,11 +95,22 @@ Fireworks MX's Preferences > General > Interpolation ("Set the default pixel tra
 algorithm": Bicubic, Bilinear, Soft, Nearest Neighbor; Bicubic by default) is the preference
 key `EditTransformMode` (Bicubic 1, Soft 3; measured 2026-11-16). FireCraft's Preferences >
 Interpolation does the same job: bitmaps scaled, rotated, skewed or distorted (the tools,
-Rotate/Flip, Numeric Transform) are resampled with it. Turns by 90 degrees, flips and
+Rotate/Flip, Numeric Transform, the Property inspector's W and H) are resampled with it. Turns by 90 degrees, flips and
 whole-pixel moves copy pixels exactly whatever the choice. Image Size keeps its own choice
 (`ImageSizeTransformMode`; setting General to Soft left Image Size at Bicubic); MX also has
 `ExportTransformMode` (export scaling) and `AliasTransformMode` (unknown), not used yet. The
 kernels are standard ones, not yet measured against MX's ([canvas-size.md](canvas-size.md#not-matched-yet)).
+
+## Property inspector W, H, X and Y
+
+With objects selected the Property inspector shows their box: W, H, X and Y, rounded to whole
+pixels (several objects: the box around them all, as in Fireworks MX; an animation symbol: its
+whole motion, see [symbols.md](symbols.md)). X and Y move the objects ("Move"); W and H scale
+them keeping the box's left side or top ("Transform", one undo step; the step name is
+FireCraft's, not measured in MX). An animation's W and H stay greyed: they cover the motion,
+which scaling the instance doesn't map onto. Typed values apply on Enter or on leaving the
+field; dragging a field changes the objects as it goes, each step scaling the objects as they
+were when the drag began (bitmaps are resampled once), one undo step on mouse up.
 
 ## Colour pop-up
 

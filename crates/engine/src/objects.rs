@@ -777,6 +777,32 @@ impl DocState {
         self.transform_from(&originals, &m, "Transform");
     }
 
+    /// Property inspector W/H: scale `originals` (the selected objects when the edit began,
+    /// whose bounds were `from`) so the bounds become `w` x `h`, keeping their top-left corner.
+    /// `live`: part of a drag on the field (no undo step of its own; see
+    /// [`begin_live_edit`](Self::begin_live_edit)).
+    pub fn resize_from(
+        &mut self,
+        originals: &[(ElementRef, Element)],
+        from: (f64, f64, f64, f64),
+        (w, h): (f64, f64),
+        live: bool,
+    ) {
+        let (x, y, _, _) = from;
+        if !(w.is_finite() && h.is_finite()) || w < 1.0 || h < 1.0 {
+            return;
+        }
+        let quad = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)];
+        let Some(m) = Affine::rect_to_quad(from, quad) else {
+            return;
+        };
+        if live {
+            self.transform_from_live(originals, &m);
+        } else {
+            self.transform_from(originals, &m, "Transform");
+        }
+    }
+
     /// Layers panel: move the selected objects to `layer`, inserted at `index` of that layer
     /// as it is now (before the move); they keep their stacking order and stay selected.
     pub fn move_selection_to(&mut self, layer: usize, index: usize) {

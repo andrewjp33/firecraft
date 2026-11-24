@@ -1018,14 +1018,18 @@ impl DocState {
         self.combine_pixels("Magic Wand Tool", Some(target), bx, by, mask, combine);
     }
 
+    /// The pixel-grid box a marquee dragged over `rect` (canvas coordinates, any two corners)
+    /// selects: (left, top, right, bottom) on whole pixels, each corner at the grid line nearest
+    /// the pointer, as the Crop tool's box. The canvas shows this box while the marquee is
+    /// dragged, so what will be selected is visible before the button is let go.
+    pub fn marquee_box(rect: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+        let (ax, ay, bx, by) = (rect.0.round(), rect.1.round(), rect.2.round(), rect.3.round());
+        (ax.min(bx), ay.min(by), ax.max(bx), ay.max(by))
+    }
+
     /// Rectangular or elliptical marquee in canvas coordinates.
     pub fn marquee(&mut self, rect: (f64, f64, f64, f64), oval: bool, opts: &ToolOptions, combine: Combine) {
-        let (x0, y0, x1, y1) = (
-            rect.0.min(rect.2),
-            rect.1.min(rect.3),
-            rect.0.max(rect.2),
-            rect.1.max(rect.3),
-        );
+        let (x0, y0, x1, y1) = Self::marquee_box(rect);
         // The bitmap being edited, else one under the marquee; on empty canvas with no bitmap
         // being edited, none: filling or painting in the marquee then makes a new bitmap
         // (Fireworks MX).
@@ -1041,11 +1045,10 @@ impl DocState {
             firecraft_raster::Edge::Feather(r) => r.min(250) as i64,
             _ => 0,
         } + 1;
-        // Whole pixels, as Fireworks MX: a drag from the pixel at canvas x 20 to the one at 60
-        // selects pixels 20 to 59, and a rectangle's edges stay hard even with Anti-Alias
+        // Whole pixels, as Fireworks MX: at 100% a drag from the pixel at canvas x 20 to the one
+        // at 60 selects pixels 20 to 59, and a rectangle's edges stay hard even with Anti-Alias
         // (measured 2026-11-15: only alpha 0 and 255; a second fill meeting the first leaves no
         // seam). Only an oval's outline is anti-aliased.
-        let (x0, y0, x1, y1) = (x0.floor(), y0.floor(), x1.floor(), y1.floor());
         let (ml, mt) = (x0 as i64 - pad, y0 as i64 - pad);
         let (mr, mb) = (x1 as i64 + pad, y1 as i64 + pad);
         let mut mask = Mask::new((mr - ml).max(1) as u32, (mb - mt).max(1) as u32);
@@ -2606,17 +2609,18 @@ mod tests {
     fn rectangle_marquees_are_whole_pixels_and_overlapping_fills_leave_no_seam() {
         // Fireworks MX (2026-11-15), Anti-Alias on: a marquee from canvas 20,20 to 60,50 and the
         // Paint Bucket fill exactly pixels 20..59 x 20..49, opaque to the edge; a second marquee
-        // 40,35 to 90,70 filled the same way meets the first without a seam. The pointer can be
-        // anywhere inside a pixel (FireCraft's user test had it on half pixels).
+        // 40,35 to 90,70 filled the same way meets the first without a seam. Zoomed in, the
+        // pointer is between grid lines: each corner goes to the nearest one, as the Crop
+        // tool's.
         let mut d = DocState::new(Document::new(200, 150, 72.0, None));
         let o = ToolOptions {
             fill: Some(Rgba::new(153, 153, 153, 255)),
             ..ToolOptions::default()
         };
         assert_ne!(o.marquee_edge, firecraft_raster::Edge::Hard, "anti-aliased by default");
-        d.marquee((20.5, 20.5, 60.5, 50.5), false, &o, Combine::Replace);
+        d.marquee((20.3, 19.6, 60.4, 49.7), false, &o, Combine::Replace);
         d.paint_bucket(30.0, 30.0, &o);
-        d.marquee((40.5, 35.5, 90.5, 70.5), false, &o, Combine::Replace);
+        d.marquee((89.6, 70.3, 40.2, 35.4), false, &o, Combine::Replace);
         d.paint_bucket(80.0, 60.0, &o);
         let img = d.doc.render(0);
         let a = |x: i64, y: i64| img.get(x, y).map_or(0, |p| p.a);
@@ -2626,6 +2630,43 @@ mod tests {
         assert_eq!((a(30, 19), a(30, 20), a(30, 49), a(30, 50)), (0, 255, 255, 0));
         assert_eq!((a(89, 60), a(90, 60), a(45, 69), a(45, 70)), (255, 0, 255, 0));
         assert!(img.pixels().iter().all(|p| p.a == 0 || p.a == 255), "no soft edges or seams");
+    }
+
+    #[test]
+    fn marquee_box_takes_the_nearest_grid_lines_in_any_drag_direction() {
+        assert_eq!(DocState::marquee_box((20.4, 30.6, 10.5, 5.2)), (11.0, 5.0, 20.0, 31.0));
+        // The box the canvas shows is the one selected.
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        d.marquee((20.4, 30.6, 10.5, 5.2), false, &ToolOptions::default(), Combine::Replace);
+        assert!(d.pixels_contain(11.5, 30.5) && d.pixels_contain(19.5, 10.5));
+        assert!(!d.pixels_contain(10.5, 20.0) && !d.pixels_contain(20.5, 20.0) && !d.pixels_contain(15.0, 31.5));
+    }
+
+    #[test]
+    fn inspector_width_and_height_scale_from_the_top_left() {
+        let (mut d, red, blue) = red_and_blue();
+        d.selection = vec![red];
+        let start = d.selected_elements();
+        let from = d.element(red).and_then(|e| e.bounds()).unwrap();
+        // A drag on W: each step scales the originals, one undo step at the end.
+        d.begin_live_edit("Transform");
+        d.resize_from(&start, from, (150.0, from.3), true);
+        d.resize_from(&start, from, (50.0, from.3), true);
+        d.commit_live_edit();
+        assert_eq!(d.element(red).and_then(|e| e.bounds()), Some((10.0, 10.0, 50.0, 80.0)));
+        assert_eq!(d.history.next_undo(), Some("Transform"));
+        // Typed H on both objects: their joint box keeps its top-left corner.
+        d.selection = vec![red, blue];
+        let from = d.selection_bounds().unwrap();
+        assert_eq!(from, (10.0, 10.0, 170.0, 120.0));
+        let now = d.selected_elements();
+        d.resize_from(&now, from, (170.0, 60.0), false);
+        assert_eq!(d.selection_bounds(), Some((10.0, 10.0, 170.0, 60.0)));
+        assert_eq!(d.element(blue).and_then(|e| e.bounds()), Some((80.0, 30.0, 100.0, 40.0)));
+        // Below one pixel nothing happens.
+        d.resize_from(&now, from, (0.0, 60.0), false);
+        assert_eq!(d.selection_bounds(), Some((10.0, 10.0, 170.0, 60.0)));
     }
 
     #[test]

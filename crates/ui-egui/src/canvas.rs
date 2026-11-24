@@ -1603,22 +1603,34 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         // Rubber band for drag tools.
         if let (true, false, Some(a), Some(b)) = (dragging, view.marquee_drag, view.drag_start, drag_now) {
             let r = Rect::from_two_pos(a, b);
+            // The marquee's box sits on the canvas's pixel grid, as the Crop tool's: what it shows
+            // is what will be selected.
+            let grid = || {
+                let ((ax, ay), (bx, by)) = (to_doc(a), to_doc(b));
+                let (l, t, r, b) = firecraft_engine::DocState::marquee_box((ax, ay, bx, by));
+                Rect::from_min_max(to_screen(l, t), to_screen(r, b))
+            };
             match tool {
                 Tool::Marquee => {
+                    // Where the marching ants will run once it's let go (and the Crop tool's box).
+                    let r = grid();
+                    let (lt, rb) = (r.min.floor() + vec2(0.5, 0.5), r.max.floor() + vec2(0.5, 0.5));
                     p.extend(Shape::dashed_line(
-                        &[
-                            r.left_top(),
-                            r.right_top(),
-                            r.right_bottom(),
-                            r.left_bottom(),
-                            r.left_top(),
-                        ],
+                        &[lt, pos2(rb.x, lt.y), rb, pos2(lt.x, rb.y), lt],
                         Stroke::new(1.0, Color32::BLACK),
                         4.0,
                         4.0,
                     ));
                 }
-                Tool::OvalMarquee | Tool::Ellipse => {
+                Tool::OvalMarquee => {
+                    let r = grid();
+                    p.add(egui::epaint::EllipseShape::stroke(
+                        r.center(),
+                        r.size() / 2.0,
+                        Stroke::new(1.0, theme::HANDLE_BLUE),
+                    ));
+                }
+                Tool::Ellipse => {
                     p.add(egui::epaint::EllipseShape::stroke(
                         r.center(),
                         r.size() / 2.0,

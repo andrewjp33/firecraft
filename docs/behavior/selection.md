@@ -57,8 +57,13 @@ default):
   marquee instead of moving it. Every other run (with and without a fill first, with and
   without hovering first) moved it; FireCraft always moves it.
 
-FireCraft: `marquee` snaps the rectangle to whole pixels (`floor` of both corners) and
-anti-aliases only ovals; `pixels_contain` and `move_pixel_selection` serve the drag, with a move
+FireCraft: `marquee` snaps the rectangle to whole pixels and anti-aliases only ovals. Each corner
+goes to the pixel grid line nearest the pointer (`DocState::marquee_box`), as the Crop tool's box
+does, and the canvas draws that snapped box while dragging, where the marching ants will run: zoomed
+in, what will be selected shows before the button is let go (the user's request, 2026-11-24;
+FireCraft once took `floor` of both corners, which agrees with the MX measurement at 100% but
+left the end corner up to a pixel behind the pointer when zoomed in). Fireworks MX's own drag
+outline zoomed in was not measured; `pixels_contain` and `move_pixel_selection` serve the drag, with a move
 cursor over the selection for the Marquee, Oval Marquee, Lasso and Magic Wand tools (Shift or
 Alt pressed: they draw a new selection to combine instead). The marching ants show with every
 tool, the Brush and Pencil included (they paint inside the selection). Edit > Insert > Empty

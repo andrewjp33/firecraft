@@ -460,6 +460,12 @@ fn mask_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, owner: firecraft_engin
     });
 }
 
+/// The largest W or H the Property inspector takes.
+const MAX_SIZE: f64 = 30_000.0;
+
+/// What a drag on W or H scales from: the selected objects and their bounds when it began.
+type ResizeStart = (Vec<(firecraft_engine::ElementRef, firecraft_doc::Element)>, (f64, f64, f64, f64));
+
 fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
     let count = d.selection.len();
@@ -472,7 +478,14 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     };
     let animation = d.selected_animation().map(|(_, a)| a);
     // An animation symbol shows its whole motion (Fireworks MX).
-    let bounds = d.animation_bounds().or_else(|| first.as_ref().and_then(|e| e.bounds()));
+    // Several objects: the box around them all (Fireworks MX).
+    let bounds = d.animation_bounds().or_else(|| {
+        if count > 1 {
+            d.selection_bounds()
+        } else {
+            first.as_ref().and_then(|e| e.bounds())
+        }
+    });
     let mask = count == 1 && d.selection.first().is_some_and(|r| r.is_mask());
     let (title, tool) = match paint.as_ref().map(|e| &e.kind) {
         _ if count > 1 => (format!("{count} objects"), Some(Tool::Pointer)),
@@ -492,23 +505,36 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         None => ("".into(), None),
     };
     let mut moved: Vec<(f64, f64, egui::Response)> = Vec::new();
+    // W/H typed or dragged: (height?, new size, field).
+    let mut sized: Vec<(bool, f64, egui::Response)> = Vec::new();
+    // An animation's W/H cover its whole motion, which scaling the instance doesn't map onto.
+    let resizable = animation.is_none();
     // In the Symbol Editor positions are the symbol's own (0,0 = its origin), as in Fireworks.
     let origin = d.symbol_link.map_or((0.0, 0.0), |l| l.offset);
     identity(ui, &title, tool, |ui| {
         if let Some((x, y, w, h)) = bounds {
             let (x, y) = (x - origin.0, y - origin.1);
             let (mut nx, mut ny) = (x.round(), y.round());
+            let (mut nw, mut nh) = (w.round().max(1.0), h.round().max(1.0));
+            // Typed values apply on Enter (or leaving the field), not at every keystroke: typing
+            // 120 would otherwise scale to 1, 12 and 120, resampling a bitmap three times.
             egui::Grid::new("pi_geom").spacing(vec2(4.0, 2.0)).show(ui, |ui| {
                 ui.label("W:");
-                ui.add_enabled(false, DragValue::new(&mut w.round()));
+                let resp = ui
+                    .add_enabled(resizable, DragValue::new(&mut nw).range(1.0..=MAX_SIZE).update_while_editing(false))
+                    .on_hover_text("Width: scales the selection, keeping its left side");
+                sized.push((false, nw, resp));
                 ui.label("X:");
-                let resp = ui.add(DragValue::new(&mut nx));
+                let resp = ui.add(DragValue::new(&mut nx).update_while_editing(false));
                 moved.push((nx - x, 0.0, resp));
                 ui.end_row();
                 ui.label("H:");
-                ui.add_enabled(false, DragValue::new(&mut h.round()));
+                let resp = ui
+                    .add_enabled(resizable, DragValue::new(&mut nh).range(1.0..=MAX_SIZE).update_while_editing(false))
+                    .on_hover_text("Height: scales the selection, keeping its top");
+                sized.push((true, nh, resp));
                 ui.label("Y:");
-                let resp = ui.add(DragValue::new(&mut ny));
+                let resp = ui.add(DragValue::new(&mut ny).update_while_editing(false));
                 moved.push((0.0, ny - y, resp));
                 ui.end_row();
             });
@@ -523,6 +549,32 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     d.move_selection(*dx, *dy, "Move");
                 }
             });
+        }
+        // A drag on W or H scales the objects as they were when it began, so the bitmaps are
+        // resampled once, not once per step.
+        let start_id = egui::Id::unique("pi_resize_start");
+        for (height, value, resp) in &sized {
+            if resp.drag_started()
+                && let Some(b) = bounds
+            {
+                let start = std::sync::Arc::new((d.selected_elements(), b));
+                ui.data_mut(|m| m.insert_temp(start_id, start));
+            }
+            value_drag(d, resp, "Transform", |d, live| {
+                let start = if live {
+                    ui.data(|m| m.get_temp::<std::sync::Arc<ResizeStart>>(start_id))
+                } else {
+                    bounds.map(|b| std::sync::Arc::new((d.selected_elements(), b)))
+                };
+                if let Some(start) = start {
+                    let (originals, from) = &*start;
+                    let size = if *height { (from.2, *value) } else { (*value, from.3) };
+                    d.resize_from(originals, *from, size, live);
+                }
+            });
+            if resp.drag_stopped() {
+                ui.data_mut(|m| m.remove::<std::sync::Arc<ResizeStart>>(start_id));
+            }
         }
     }
     if let Some(a) = animation {
