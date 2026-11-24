@@ -158,6 +158,26 @@ Other items keep their numbers.
     live preview, each point toggling sharp/smooth (the third number per point, 1 = sharp). How
     profiles are drawn is measured (pieces split at sharp points, the polynomial through each,
     clamped; see [behavior/plugins.md](behavior/plugins.md))
+18. **Exact fill edges in Precise colour math** (the user's idea, 2026-11-24): Fireworks MX samples
+    fills 4 x 4 (edges move in quarter pixels; [behavior/paths.md](behavior/paths.md#fill-anti-aliasing)),
+    so a rectangle 20.1 wide gets no partial pixel although W shows 21. In Precise documents, compute
+    each pixel's exact covered area instead, rounded once (20.1 wide: a 10% edge, alpha 26; 20.5: 128):
+    the same model as MX's sampling without its quantization, as Precise does for effects. Classic
+    documents (all files opened from Fireworks) keep the bit-exact 4 x 4 rasterizer, so parity doesn't
+    move.
+    - An area-accumulation rasterizer (about as fast as 4 x 4 sampling) with even-odd and non-zero
+      rules, used by `stroke_fw::fill_coverage` when the document is Precise: plain and feathered
+      fills, and the Inside/Outside stroke clip (so a stroke's clip meets the fill's exact edge).
+    - Overlapping contours: where edges of two contours cross the same pixel, the average winding
+      can't tell where each lies (A on the left half, B on the top half: even-odd should be 50%,
+      averaging gives 0%; non-zero 75% vs 100%). Detect those pixels and sample them densely
+      (16 x 16) instead. MX's per-contour byte XOR for even-odd paths stays Classic-only.
+    - Not changed: stroke stamping (Fireworks' brush engine places tips in 1/16-pixel steps) and
+      hard edges (one sample at each pixel's centre).
+    - Note: Fireworks MX redraws vector paths itself, so a Precise document's soft edges look like
+      its 4 x 4 ones when opened there (as Precise effects already differ slightly).
+    - Tests: exact-area values (20.1 -> 26, 20.5 -> 128, a diagonal edge against its analytic area,
+      the overlap pixels above) and Classic renders unchanged (MX probes and parity).
 
 ## When needed
 
