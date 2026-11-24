@@ -175,7 +175,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ui.separator();
             // FireCraft: the interface's look (also in Edit > Preferences).
             ui.menu_button("Theme", |ui| {
-                for t in crate::theme::ThemeKind::ALL {
+                for t in crate::theme::ThemeChoice::ALL {
                     if ui.radio(app.prefs.theme == t, t.label()).clicked() {
                         app.prefs.theme = t;
                         ui.close();

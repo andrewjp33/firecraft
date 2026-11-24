@@ -890,13 +890,36 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
             crate::theme::combo("prefs_theme")
                 .selected_text(prefs.theme.label())
                 .show_ui(ui, |ui| {
-                    for t in crate::theme::ThemeKind::ALL {
+                    for t in crate::theme::ThemeChoice::ALL {
                         ui.selectable_value(&mut prefs.theme, t, t.label());
                     }
                 });
         })
         .response
-        .on_hover_text("Classic: Fireworks MX's look. Classic Dark: the same in dark greys. Modern: rounded cards, soft gradients and a dark tool sidebar. Modern Dark: the same in dark greys.");
+        .on_hover_text("Automatic: Modern or Modern Dark, as the system's light/dark setting is, switching when it does (also when the system changes it on a schedule). Classic: Fireworks MX's look. Classic Dark: the same in dark greys. Modern: rounded cards, soft gradients and a dark tool sidebar. Modern Dark: the same in dark greys.");
+        ui.horizontal(|ui| {
+            use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
+            ui.label("Highlight color:");
+            // The theme's own colour while none is chosen.
+            let shown = prefs.accent.unwrap_or_else(|| {
+                let c = crate::theme::pal().select;
+                firecraft_raster::Rgba::new(c.r(), c.g(), c.b(), 255)
+            });
+            if let Some(ColorChoice::Color(c)) =
+                cp::color_box(ui, "prefs_accent", egui::vec2(22.0, 14.0), Some(shown), Footer::Plain)
+            {
+                prefs.accent = Some(firecraft_raster::Rgba { a: 255, ..cp::to_rgba(c) });
+            }
+            if ui
+                .add_enabled(prefs.accent.is_some(), egui::Button::new("Theme Default"))
+                .on_hover_text("Each theme's own highlight color")
+                .clicked()
+            {
+                prefs.accent = None;
+            }
+        })
+        .response
+        .on_hover_text("The color of selected modes, toggles and the slider handles' focus, in place of the theme's own (Modern: blue-violet; Classic: Fireworks' blue). Classic themes also use it for the current list row.");
         scale_commit = ui_scale_row(ui, scale_edit, in_use, saved, overridden);
         ui.separator();
         ui.strong("Editing");

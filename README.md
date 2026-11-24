@@ -122,8 +122,9 @@ Things no version of Fireworks has:
     follows each monitor's DPI.
   - The system's own cursors for the tools, if you prefer them to FireCraft's.
   - Four themes (Edit > Preferences or View > Theme): Classic (Fireworks MX's look), Classic
-    Dark, Modern (rounded cards, soft gradients, a dark tool sidebar, orange accent) and Modern
-    Dark. Documents look the same in all of them.
+    Dark, Modern (rounded cards, soft gradients, a dark tool sidebar, blue-violet accent) and Modern
+    Dark. By default (Automatic) FireCraft is Modern or Modern Dark as the system's light/dark
+    setting is, and follows it when it changes. Documents look the same in all of them.
 
 ### Working today
 
@@ -224,7 +225,8 @@ Things no version of Fireworks has:
     drag-and-drop open; opening files given on the command line.
 - **Preferences**:
   - UI Scale, 50-200% on top of the system's display scaling (`--ui-scale` overrides it at launch).
-  - Theme: Classic, Classic Dark, Modern, Modern Dark (also under View > Theme).
+  - Theme: Automatic (follows the system's light/dark setting), Classic, Classic Dark, Modern,
+    Modern Dark (also under View > Theme), and the highlight color.
   - Live dragging ("Show objects while moving them", off for slower PCs).
   - Tool cursor style.
   - Color math for new documents: Precise (default) or Fireworks MX's exact formulas.

@@ -252,8 +252,11 @@ pub struct Prefs {
     /// The last gap typed (Fireworks CS6 offers it in the field's menu and brings it back when
     /// the field is clicked while showing Evenly).
     pub align_spacing_px: i32,
-    /// Preferences > Theme: Classic (Fireworks MX's look), Classic Dark, Modern, Modern Dark.
-    pub theme: theme::ThemeKind,
+    /// Preferences > Theme: Automatic (Modern or Modern Dark, as the system is set), Classic
+    /// (Fireworks MX's look), Classic Dark, Modern, Modern Dark.
+    pub theme: theme::ThemeChoice,
+    /// Preferences > Highlight color, in place of the theme's own (`None`).
+    pub accent: Option<firecraft_raster::Rgba>,
 }
 
 /// The UI Scale preference's range, in percent.
@@ -284,7 +287,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\naccent={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -320,6 +323,7 @@ impl Prefs {
             align_panel::spacing_text(self.align_spacing),
             self.align_spacing_px,
             self.theme.key(),
+            self.accent.map(|c| c.to_hex()).unwrap_or_default(),
         )
     }
 
@@ -368,7 +372,10 @@ impl Prefs {
                     p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
                 }
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
-                "theme" => p.theme = theme::ThemeKind::from_key(v.trim()),
+                "theme" => p.theme = theme::ThemeChoice::from_key(v.trim()),
+                "accent" => {
+                    p.accent = firecraft_raster::Rgba::from_hex(v.trim()).map(|c| firecraft_raster::Rgba { a: 255, ..c });
+                }
                 "align_to_canvas" => p.align_to_canvas = flag,
                 "align_anchors" => p.align_anchors = flag,
                 "align_part" => p.align_part = align_panel::part_from_key(v.trim()),
@@ -451,7 +458,8 @@ impl Default for Prefs {
             align_part: firecraft_engine::align_panel::PointPart::Anchor,
             align_spacing: None,
             align_spacing_px: 0,
-            theme: theme::ThemeKind::Classic,
+            theme: theme::ThemeChoice::Auto,
+            accent: None,
         }
     }
 }
@@ -560,8 +568,8 @@ pub struct FireCraftApp {
     /// The texture menu whose Other... was last used; a file arriving later goes to it.
     awaiting_texture: Option<stroke_panel::TextureSlot>,
     pi_open: bool,
-    /// The theme applied to egui's style (`None` before the first frame).
-    styled: Option<theme::ThemeKind>,
+    /// The theme and highlight colour applied to egui's style (`None` before the first frame).
+    styled: Option<(theme::ThemeKind, Option<egui::Color32>)>,
     nine: Option<nine::NineEdit>,
     crop: Option<crop_tool::CropEdit>,
     transform: Option<transform_tool::TransformEdit>,
@@ -1135,9 +1143,15 @@ impl FireCraftApp {
         if let Some(editor) = ctx.data_mut(|m| m.remove_temp::<u64>(egui::Id::unique("symbol_done"))) {
             self.session.finish_symbol_edit(editor);
         }
-        if self.styled != Some(self.prefs.theme) {
-            theme::apply(&ctx, self.prefs.theme);
-            self.styled = Some(self.prefs.theme);
+        // Automatic follows the system's light/dark setting as it changes (by hand or on a
+        // schedule), on every platform that reports it.
+        let style = (
+            self.prefs.theme.resolve(ctx.system_theme()),
+            self.prefs.accent.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)),
+        );
+        if self.styled != Some(style) {
+            theme::apply(&ctx, style.0, style.1);
+            self.styled = Some(style);
         }
         theme::paint_backdrop(&ctx);
         // Dropped files open as documents (read synchronously on desktop, by the platform on the web).
@@ -1338,12 +1352,14 @@ mod prefs_tests {
             color_math: firecraft_raster::ColorMath::Precise,
             live_drag: false,
             mouse_highlight: false,
-            theme: theme::ThemeKind::ModernDark,
+            theme: theme::ThemeChoice::Fixed(theme::ThemeKind::ModernDark),
+            accent: Some(firecraft_raster::Rgba::new(0x50, 0x40, 0xD0, 255)),
             ..Prefs::default()
         };
         assert_eq!(Prefs::parse(&p.serialize()), p);
-        // Files from before themes existed keep the Classic look.
-        assert_eq!(Prefs::parse("tabs=true").theme, theme::ThemeKind::Classic);
+        assert_eq!(Prefs::parse(&Prefs::default().serialize()), Prefs::default());
+        // Without a choice: Automatic (Modern, light or dark as the system is).
+        assert_eq!(Prefs::parse("tabs=true").theme, theme::ThemeChoice::Auto);
         // Files from before the setting existed keep live dragging on.
         assert!(Prefs::parse("tabs=true").live_drag);
         assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());

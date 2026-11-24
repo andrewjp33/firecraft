@@ -116,19 +116,30 @@ impl Theme {
     }
 
     pub fn current(_ctx: &egui::Context) -> Arc<Theme> {
-        use crate::theme::ThemeKind;
-        static T: std::sync::OnceLock<[Arc<Theme>; 4]> = std::sync::OnceLock::new();
-        let all = T.get_or_init(|| {
-            ThemeKind::ALL.map(|k| {
-                Arc::new(match k {
-                    ThemeKind::Classic => Theme::normal(),
-                    _ => Theme::from_firecraft(k.palette()),
-                })
-            })
+        // Made again when the palette changes (another theme, or another highlight colour).
+        type Cached = Option<(usize, Arc<Theme>)>;
+        static T: std::sync::Mutex<Cached> = std::sync::Mutex::new(None);
+        let p = crate::theme::pal();
+        let key = p as *const crate::theme::Palette as usize;
+        let mut t = T.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((k, theme)) = t.as_ref()
+            && *k == key
+        {
+            return theme.clone();
+        }
+        let classic = crate::theme::ThemeKind::Classic;
+        let theme = Arc::new(if crate::theme::kind() == classic {
+            let mut th = Theme::normal();
+            // Classic keeps FirePixel's own focus blue unless a highlight colour is chosen.
+            if p.select != classic.palette().select {
+                th.colors.focus = p.select;
+            }
+            th
+        } else {
+            Theme::from_firecraft(p)
         });
-        let k = crate::theme::kind();
-        let i = ThemeKind::ALL.iter().position(|t| *t == k).unwrap_or(0);
-        all[i].clone()
+        *t = Some((key, theme.clone()));
+        theme
     }
 
     /// FirePixel's UI font (11.5 pt).

@@ -3,12 +3,13 @@
 //! - **Classic**: Fireworks MX's look: light panels, grey panel-group headers, mid-grey workspace.
 //! - **Dark**: the same layout and shapes in dark greys.
 //! - **Modern**: soft greys, gradients, rounded cards and pill buttons, a dark tool sidebar
-//!   and an orange accent.
+//!   and a blue-violet accent (the splash screen's).
 //! - **Modern Dark**: Modern's shapes in dark greys.
 //!
 //! Colours that belong to the document (the canvas, checkerboards, selection handles, previews
 //! of colours and strokes) stay the same in every theme; only the interface around them changes.
 
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use egui::{Color32, CornerRadius, Frame, Margin, Rect, Shadow, Stroke, pos2};
@@ -26,6 +27,58 @@ pub enum ThemeKind {
     Dark,
     Modern,
     ModernDark,
+}
+
+/// Edit > Preferences > Theme: one of the themes, or Automatic, which follows the system's
+/// light or dark setting with Modern or Modern Dark (switching when the system does, e.g. on a
+/// schedule).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ThemeChoice {
+    #[default]
+    Auto,
+    Fixed(ThemeKind),
+}
+
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 5] = [
+        Self::Auto,
+        Self::Fixed(ThemeKind::Classic),
+        Self::Fixed(ThemeKind::Dark),
+        Self::Fixed(ThemeKind::Modern),
+        Self::Fixed(ThemeKind::ModernDark),
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic (system light/dark)",
+            Self::Fixed(k) => k.label(),
+        }
+    }
+
+    /// The preferences file's value.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Fixed(k) => k.key(),
+        }
+    }
+
+    /// Unknown or missing: Automatic.
+    pub fn from_key(k: &str) -> Self {
+        ThemeKind::ALL
+            .into_iter()
+            .find(|t| t.key() == k)
+            .map_or(Self::Auto, Self::Fixed)
+    }
+
+    /// The theme to show, given the system's setting (`None`: unknown, taken as light).
+    pub fn resolve(self, system: Option<egui::Theme>) -> ThemeKind {
+        match self {
+            Self::Auto if system == Some(egui::Theme::Dark) => ThemeKind::ModernDark,
+            Self::Auto => ThemeKind::Modern,
+            Self::Fixed(k) => k,
+        }
+    }
 }
 
 impl ThemeKind {
@@ -65,7 +118,7 @@ impl ThemeKind {
 }
 
 /// Every colour (and corner) the interface is drawn with.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Palette {
     pub dark: bool,
     /// Rounded cards, gradients and a tool sidebar (the Modern themes).
@@ -280,8 +333,9 @@ const DARK: Palette = Palette {
     r_menu: 0,
 };
 
-/// The design inspiration's orange.
-const ORANGE: Color32 = rgb(0xDB, 0x67, 0x45);
+/// Modern's accent: the blue-violet of the splash screen (it replaced the design
+/// inspiration's orange, #DB6745).
+const ACCENT: Color32 = rgb(0x50, 0x40, 0xD0);
 
 const MODERN: Palette = Palette {
     dark: false,
@@ -297,7 +351,7 @@ const MODERN: Palette = Palette {
     section: Color32::TRANSPARENT,
     section_text: g(0xC0),
     border: g(0xD6),
-    select: ORANGE,
+    select: ACCENT,
     select_text: Color32::WHITE,
     highlight: g(0xDD),
     highlight_text: g(0x14),
@@ -344,7 +398,8 @@ const MODERN: Palette = Palette {
     r_menu: 10,
 };
 
-const ORANGE_DARK: Color32 = rgb(0xF0, 0x6E, 0x48);
+/// A little lighter on dark greys.
+const ACCENT_DARK: Color32 = rgb(0x62, 0x52, 0xE6);
 
 // Lighter greys, closer to Classic Dark's (user, 2026-11-23: the first version was too dark).
 const MODERN_DARK: Palette = Palette {
@@ -361,7 +416,7 @@ const MODERN_DARK: Palette = Palette {
     section: Color32::TRANSPARENT,
     section_text: g(0xA4),
     border: g(0x4C),
-    select: ORANGE_DARK,
+    select: ACCENT_DARK,
     select_text: Color32::WHITE,
     highlight: g(0x58),
     highlight_text: g(0xF2),
@@ -409,6 +464,9 @@ const MODERN_DARK: Palette = Palette {
 
 static CURRENT: AtomicU8 = AtomicU8::new(0);
 
+/// The palette in use: the theme's, or a copy with the user's highlight colour.
+static ACTIVE: RwLock<&'static Palette> = RwLock::new(&CLASSIC);
+
 /// The theme in use.
 pub fn kind() -> ThemeKind {
     ThemeKind::ALL[CURRENT.load(Ordering::Relaxed) as usize % ThemeKind::ALL.len()]
@@ -416,7 +474,33 @@ pub fn kind() -> ThemeKind {
 
 /// The colours of the theme in use.
 pub fn pal() -> &'static Palette {
-    kind().palette()
+    *ACTIVE.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// `kind`'s palette with `accent` (Edit > Preferences > Highlight color) in place of the theme's
+/// own highlight colour. Classic themes use theirs for current rows and selected menu items
+/// too; Modern keeps grey for those. Made once per combination and kept.
+fn palette_with(kind: ThemeKind, accent: Option<Color32>) -> &'static Palette {
+    type Made = Vec<(ThemeKind, Color32, &'static Palette)>;
+    static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(Vec::new());
+    let base = kind.palette();
+    let Some(c) = accent.filter(|c| *c != base.select) else {
+        return base;
+    };
+    let mut made = MADE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((.., p)) = made.iter().find(|(k, a, _)| *k == kind && *a == c) {
+        return p;
+    }
+    let mut p = *base;
+    p.select = c;
+    if !base.modern {
+        p.highlight = c;
+        p.popup_selected = c;
+        p.slider_fill = c;
+    }
+    let p: &'static Palette = Box::leak(Box::new(p));
+    made.push((kind, c, p));
+    p
 }
 
 /// Panel background.
@@ -432,10 +516,15 @@ pub fn select() -> Color32 {
     pal().select
 }
 
-/// Switch themes: colours, corners and egui's widget style.
-pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
+/// Switch themes: colours, corners and egui's widget style. `accent`: the user's highlight
+/// colour, or the theme's.
+pub fn apply(ctx: &egui::Context, kind: ThemeKind, accent: Option<Color32>) {
     CURRENT.store(ThemeKind::ALL.iter().position(|k| *k == kind).unwrap_or(0) as u8, Ordering::Relaxed);
-    let p = kind.palette();
+    let p = palette_with(kind, accent);
+    *ACTIVE.write().unwrap_or_else(std::sync::PoisonError::into_inner) = p;
+    // egui keeps a light and a dark style and picks one by the system's setting; FireCraft
+    // picks the theme itself, so egui stays on the one that matches it.
+    ctx.set_theme(if p.dark { egui::Theme::Dark } else { egui::Theme::Light });
     ctx.set_visuals(if p.dark {
         egui::Visuals::dark()
     } else {
@@ -930,6 +1019,32 @@ pub fn group_header(ui: &mut egui::Ui, title: &str, open: &mut bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_follows_the_system() {
+        assert_eq!(ThemeChoice::default(), ThemeChoice::Auto);
+        assert_eq!(ThemeChoice::Auto.resolve(Some(egui::Theme::Dark)), ThemeKind::ModernDark);
+        assert_eq!(ThemeChoice::Auto.resolve(Some(egui::Theme::Light)), ThemeKind::Modern);
+        assert_eq!(ThemeChoice::Auto.resolve(None), ThemeKind::Modern);
+        let classic = ThemeChoice::Fixed(ThemeKind::Classic);
+        assert_eq!(classic.resolve(Some(egui::Theme::Dark)), ThemeKind::Classic);
+        for c in ThemeChoice::ALL {
+            assert_eq!(ThemeChoice::from_key(c.key()), c);
+        }
+        assert_eq!(ThemeChoice::from_key(""), ThemeChoice::Auto);
+    }
+
+    #[test]
+    fn a_highlight_colour_replaces_the_accent() {
+        let c = Color32::from_rgb(10, 200, 30);
+        let m = palette_with(ThemeKind::Modern, Some(c));
+        assert_eq!(m.select, c);
+        assert_eq!(m.highlight, MODERN.highlight);
+        let k = palette_with(ThemeKind::Classic, Some(c));
+        assert_eq!((k.select, k.highlight), (c, c));
+        assert!(std::ptr::eq(palette_with(ThemeKind::Modern, None), ThemeKind::Modern.palette()));
+        assert!(std::ptr::eq(palette_with(ThemeKind::Modern, Some(c)), m));
+    }
 
     #[test]
     fn keys_round_trip() {
