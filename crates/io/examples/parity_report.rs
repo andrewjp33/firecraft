@@ -59,6 +59,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let open_ms = t.elapsed().as_millis();
         let fw = firecraft_io::decode_png(&bytes)?;
+        // The stored image is Fireworks' render only in a file Fireworks saved: FireCraft's own
+        // saves (`*_fc*`) and FirePixel's (`*_fp`) store their own render.
+        let not_fireworks = match software(&bytes) {
+            Some(s) if s.contains("Fireworks") => None,
+            Some(s) => Some(s),
+            None => Some("FireCraft".to_owned()),
+        };
         // A frame export: render that frame of the source document instead.
         let frame_ref = (doc.raw.is_none()).then(|| frame_source(&path)).flatten();
         let (doc, frame) = match frame_ref.clone() {
@@ -110,6 +117,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             notes += &format!("frame {} of its document; ", frame + 1);
         } else if doc.raw.is_none() {
             notes += "PLAIN PNG (no Fireworks data; not a parity test); ";
+        } else if let Some(by) = &not_fireworks {
+            notes += &format!("SAVED BY {by} (its stored image isn't a Fireworks render; not a parity test); ");
         }
         if (fw.width(), fw.height()) != (ours.width(), ours.height()) {
             notes += &format!(
@@ -149,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             matched,
             mean,
             save_ok,
-            plain: frame_ref.is_none() && doc.raw.is_none(),
+            plain: frame_ref.is_none() && (doc.raw.is_none() || not_fireworks.is_some()),
             failed: false,
             notes,
         });
@@ -246,10 +255,31 @@ struct Row {
     matched: f64,
     mean: f64,
     save_ok: bool,
-    /// A plain PNG (no Fireworks data): listed, but not a parity test.
+    /// Not a parity test, only listed: a plain PNG (no Fireworks data), or a file another
+    /// program saved (its stored image is that program's render, not Fireworks').
     plain: bool,
     failed: bool,
     notes: String,
+}
+
+/// The program a PNG's `tEXt` "Software" entry names (Fireworks writes "Macromedia Fireworks
+/// MX", "Adobe Fireworks CS5"...; FireCraft writes none).
+fn software(png: &[u8]) -> Option<String> {
+    let mut i = 8;
+    while let (Some(len), Some(kind)) = (png.get(i..i + 4), png.get(i + 4..i + 8)) {
+        let n = u32::from_be_bytes(len.try_into().ok()?) as usize;
+        let body = png.get(i + 8..i + 8 + n)?;
+        if kind == b"tEXt"
+            && let Some(v) = body.strip_prefix(b"Software\0")
+        {
+            return Some(String::from_utf8_lossy(v).into_owned());
+        }
+        if kind == b"IDAT" {
+            return None;
+        }
+        i += 12 + n;
+    }
+    None
 }
 
 /// A run's results.tsv: file name -> (match %, counts as a parity test).

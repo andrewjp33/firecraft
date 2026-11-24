@@ -31,6 +31,14 @@ to 50 files: Fireworks CS5 test files (9-slice symbols, per-object locks), files
 FireCraft for compatibility checks (`*_fc*`), and a few plain PNG screenshots (`r1`-`r6`; the
 report marks them "not a parity test").
 
+Only a file whose stored image Fireworks drew is a parity test: the report reads the PNG's
+`tEXt` "Software" entry (Fireworks writes "Macromedia Fireworks MX", "Adobe Fireworks CS5"...;
+FireCraft writes none) and marks other files "SAVED BY FireCraft" or "SAVED BY Firepixel r2",
+not a parity test: their stored image is that program's own render. They are still listed for the
+round trip and save checks. A FireCraft save re-saved in Fireworks (`*_fc*_cs5`, to check that
+Fireworks opens it right) has Fireworks' render again and counts. Since 2026-11-24, so earlier
+runs' averages include FireCraft's own saves (95.9% then, 95.2% without them).
+
 As of 2026-11-19 (v0.3.0): 93 Fireworks-saved reference files (FireCraft's own `*_fc*` saves and
 plain screenshots left out) average 96.0%: 41 match 100%, 9 more are above 99%, 34 are between
 90% and 99% and 9 are below 90%; every file round-trips losslessly and re-opens to the same
