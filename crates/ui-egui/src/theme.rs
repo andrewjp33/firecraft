@@ -99,6 +99,8 @@ pub struct Palette {
     pub popup_hover: Color32,
     pub popup_selected: Color32,
     pub popup_selected_text: Color32,
+    /// Modern: a menu bar title under the pointer or open (on the backdrop, so darker).
+    pub menu_bar_hover: Color32,
     pub text: Color32,
     pub text_weak: Color32,
     /// Tool icons on panels.
@@ -177,6 +179,7 @@ const CLASSIC: Palette = Palette {
     popup_hover: g(0xFA),
     popup_selected: rgb(0x33, 0x99, 0xFF),
     popup_selected_text: Color32::WHITE,
+    menu_bar_hover: g(0xFA),
     text: g(30),
     text_weak: g(110),
     ink: g(20),
@@ -235,6 +238,7 @@ const DARK: Palette = Palette {
     popup_hover: g(0x56),
     popup_selected: rgb(0x2D, 0x7F, 0xE0),
     popup_selected_text: Color32::WHITE,
+    menu_bar_hover: g(0x56),
     text: g(0xDC),
     text_weak: g(0x9A),
     ink: g(0xE2),
@@ -296,6 +300,7 @@ const MODERN: Palette = Palette {
     popup_hover: g(0xDD),
     popup_selected: g(0x5A),
     popup_selected_text: Color32::WHITE,
+    menu_bar_hover: g(0xC4),
     text: g(0x1E),
     text_weak: g(0x80),
     ink: g(0x22),
@@ -357,6 +362,7 @@ const MODERN_DARK: Palette = Palette {
     popup_hover: g(0x44),
     popup_selected: g(0x62),
     popup_selected_text: Color32::WHITE,
+    menu_bar_hover: g(0x44),
     text: g(0xE8),
     text_weak: g(0x90),
     ink: g(0xE8),
@@ -554,12 +560,8 @@ pub fn panel_frame() -> Frame {
 pub fn dock_frame() -> Frame {
     let p = pal();
     if p.modern {
-        Frame::new().inner_margin(Margin {
-            left: 2,
-            right: 8,
-            top: 6,
-            bottom: 6,
-        })
+        // The same 6 px gap on every side as the Tools panel's.
+        Frame::new().inner_margin(Margin::same(6))
     } else {
         Frame::new().fill(p.dock).inner_margin(Margin::same(2))
     }
@@ -589,10 +591,17 @@ pub fn card<R>(
     }
     let shadow_at = ui.painter().add(egui::Shape::Noop);
     let fill_at = ui.painter().add(egui::Shape::Noop);
-    let r = Frame::new()
-        .inner_margin(Margin::same(margin))
-        .show(ui, body);
-    let rect = r.response.rect;
+    // The card never grows past the space it was given: contents too wide for it are cut off
+    // inside, and its right side stays rounded.
+    let right = ui.max_rect().right();
+    let r = Frame::new().inner_margin(Margin::same(margin)).show(ui, |ui| {
+        let mut clip = ui.clip_rect();
+        clip.max.x = clip.max.x.min(right - margin as f32);
+        ui.set_clip_rect(clip);
+        body(ui)
+    });
+    let mut rect = r.response.rect;
+    rect.max.x = rect.max.x.min(right);
     let a = if p.dark { 90 } else { 30 };
     let shadow = Shadow {
         offset: [0, 3],
@@ -745,6 +754,24 @@ fn popup_colors(s: &mut egui::Style) {
     }
     v.selection.bg_fill = p.popup_selected;
     v.selection.stroke = Stroke::new(1.0, p.popup_selected_text);
+    // Room around the text, so a highlighted row's rounded band doesn't touch it.
+    s.spacing.button_padding = egui::vec2(8.0, 3.0);
+}
+
+/// The menu bar's titles (File, Edit...): egui's menu style with room around the text.
+pub fn menu_bar_style() -> egui::style::StyleModifier {
+    if pal().modern {
+        egui::style::StyleModifier::new(|s| {
+            egui::containers::menu::menu_style(s);
+            popup_colors(s);
+            s.spacing.button_padding = egui::vec2(7.0, 2.0);
+            let p = pal();
+            s.visuals.widgets.hovered.weak_bg_fill = p.menu_bar_hover;
+            s.visuals.widgets.hovered.bg_fill = p.menu_bar_hover;
+        })
+    } else {
+        egui::containers::menu::menu_style.into()
+    }
 }
 
 /// The style of a dropdown list's popup.
@@ -766,6 +793,23 @@ pub fn menu_popup_style() -> egui::style::StyleModifier {
     } else {
         egui::containers::menu::menu_style.into()
     }
+}
+
+/// A menu bar title and its menu; in Modern the title stays highlighted while its menu is open
+/// (egui only highlights it under the pointer).
+pub fn bar_menu<R>(
+    ui: &mut egui::Ui,
+    title: &str,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    let behind = ui.painter().add(egui::Shape::Noop);
+    let r = ui.menu_button(title, add_contents);
+    let p = pal();
+    if p.modern && r.inner.is_some() {
+        let band = egui::Shape::rect_filled(r.response.rect, p.r_widget, p.menu_bar_hover);
+        ui.painter().set(behind, band);
+    }
+    r
 }
 
 /// Menu settings carrying [`menu_popup_style`] to a menu and its submenus.

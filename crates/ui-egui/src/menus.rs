@@ -49,8 +49,11 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         .active_doc()
         .is_some_and(|d| !d.selection.is_empty() || d.pixels.is_some());
 
-    egui::MenuBar::new().config(crate::theme::menu_config()).ui(ui, |ui| {
-        ui.menu_button("File", |ui| {
+    egui::MenuBar::new()
+        .style(crate::theme::menu_bar_style())
+        .config(crate::theme::menu_config())
+        .ui(ui, |ui| {
+        crate::theme::bar_menu(ui, "File", |ui| {
             if item(ui, "New...", NEW_KEY, true) {
                 open_new_doc(app);
             }
@@ -92,7 +95,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             }
         });
-        ui.menu_button("Edit", |ui| {
+        crate::theme::bar_menu(ui, "Edit", |ui| {
             if item(ui, &undo_label, "Ctrl+Z", can_undo) {
                 with_doc(app, |d| d.undo());
             }
@@ -147,7 +150,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             todo(ui, "Keyboard Shortcuts...", "");
         });
-        ui.menu_button("View", |ui| {
+        crate::theme::bar_menu(ui, "View", |ui| {
             if item(ui, "Zoom In", "Ctrl+=", has_doc) {
                 zoom(app, 2.0);
             }
@@ -180,7 +183,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 }
             });
         });
-        ui.menu_button("Select", |ui| {
+        crate::theme::bar_menu(ui, "Select", |ui| {
             if item(ui, "Select All", "Ctrl+A", has_doc) {
                 with_doc(app, |d| d.select_all());
             }
@@ -206,7 +209,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             todo(ui, "Border Marquee...", "");
             todo(ui, "Smooth Marquee...", "");
         });
-        ui.menu_button("Modify", |ui| {
+        crate::theme::bar_menu(ui, "Modify", |ui| {
             ui.menu_button("Canvas", |ui| canvas_items(app, ui));
             ui.menu_button("Animation", |ui| animation_items(app, ui));
             ui.menu_button("Symbol", |ui| symbol_items(app, ui, has_objects));
@@ -246,14 +249,14 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             }
             let _ = several;
         });
-        ui.menu_button("Text", |ui| crate::text_menu::menu(app, ui));
-        ui.menu_button("Commands", |ui| {
+        crate::theme::bar_menu(ui, "Text", |ui| crate::text_menu::menu(app, ui));
+        crate::theme::bar_menu(ui, "Commands", |ui| {
             todo(ui, "Manage Saved Commands...", "");
             todo(ui, "Run Script...", "");
             ui.weak("JavaScript commands (Fireworks API) are on the roadmap.");
         });
-        ui.menu_button("Filters", |ui| crate::effects_ui::filters_menu(app, ui));
-        ui.menu_button("Window", |ui| {
+        crate::theme::bar_menu(ui, "Filters", |ui| crate::effects_ui::filters_menu(app, ui));
+        crate::theme::bar_menu(ui, "Window", |ui| {
             let mut v = app.prefs.show_tools;
             if ui.checkbox(&mut v, "Tools").changed() {
                 app.prefs.show_tools = v;
@@ -305,7 +308,7 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 }
             }
         });
-        ui.menu_button("Help", |ui| {
+        crate::theme::bar_menu(ui, "Help", |ui| {
             if item(ui, "About FireCraft", "", true) {
                 app.dialogs.about = true;
             }

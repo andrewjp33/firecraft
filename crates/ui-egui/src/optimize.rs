@@ -52,7 +52,8 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) {
         let current = s.preset_name().unwrap_or("(custom)");
         crate::theme::combo("opt_preset")
             .selected_text(current)
-            .width(170.0)
+            // Narrower in a narrow dock, so the row fits.
+            .width(ui.available_width().min(170.0))
             .show_ui(ui, |ui| {
                 for name in PRESETS {
                     if ui.selectable_label(current == name, name).clicked()

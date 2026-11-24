@@ -31,8 +31,8 @@ fn set_group_open(ui: &egui::Ui, g: Group, v: bool) {
 fn group(ui: &mut egui::Ui, g: Group, title: &str, default: bool, body: impl FnOnce(&mut egui::Ui)) {
     let mut open = group_open(ui, g, default);
     let p = theme::pal();
-    // Modern: each group is a rounded card, the title on it; leave room for the card's shadow.
-    let w = ui.available_width() - if p.modern { 6.0 } else { 0.0 };
+    // Modern: each group is a rounded card, the title on it.
+    let w = ui.available_width();
     ui.allocate_ui(vec2(w, 0.0), |ui| {
         theme::card(ui, p.panel, p.panel_bottom, 6, |ui| {
             theme::group_header(ui, title, &mut open);
@@ -67,6 +67,11 @@ fn dock_contents(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            if theme::pal().modern {
+                // The cards' shadows reach into the dock's 6 px margins.
+                let clip = ui.clip_rect().expand2(vec2(6.0, 0.0));
+                ui.set_clip_rect(clip);
+            }
             // Fireworks MX groups the Align panel with Optimize as a second tab.
             group(ui, Group::Optimize, "Optimize and Align", false, |ui| optimize_align(app, ui));
             group(ui, Group::Layers, "Layers", true, |ui| layers(app, ui));
