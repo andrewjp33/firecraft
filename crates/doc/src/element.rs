@@ -1681,7 +1681,18 @@ impl Element {
         if let Some(reach) = self.perspective_reach(ctx) {
             return Some(reach);
         }
-        let stroke = self.max_stroke().ceil() as i64;
+        // A symbol instance or group with effects is drawn whole before the effects run, so the
+        // area must hold its members' strokes and effects too (foo3: a 72 px stroke inside a
+        // symbol with Brightness/Contrast was cut 30 px short; max_stroke is 0 for instances).
+        let (bx, by, bw, bh, stroke) = match &self.kind {
+            ElementKind::Instance { .. } | ElementKind::Group(_) => {
+                let (x, y, w, h) = crate::cache::kept_reach(self, ctx, || self.contents_visual_bounds(ctx))
+                    .filter(|b| b.0.is_finite() && b.1.is_finite() && b.2.is_finite() && b.3.is_finite())
+                    .map_or((bx, by, bw, bh), |c| union_rects(&mut [c, (bx, by, bw, bh)].into_iter()).unwrap_or(c));
+                (x, y, w, h, 0)
+            }
+            _ => (bx, by, bw, bh, self.max_stroke().ceil() as i64),
+        };
         let m = self.effect_margin() + stroke + 2;
         let (x, y) = (bx.floor() as i64 - m, by.floor() as i64 - m);
         let (w, h) = ((bx + bw).ceil() as i64 + m - x, (by + bh).ceil() as i64 + m - y);

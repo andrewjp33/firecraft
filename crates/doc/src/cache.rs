@@ -578,6 +578,36 @@ pub(crate) fn kept_contents(
     Some(((*kept.image).clone(), kept.x, kept.y))
 }
 
+type Rect = (f64, f64, f64, f64);
+
+/// Symbols' and groups' drawing reach: see [`kept_reach`].
+static REACH: std::sync::Mutex<Vec<(u64, Option<Rect>)>> = std::sync::Mutex::new(Vec::new());
+
+/// How far a symbol's or group's members draw (their strokes and effects), made once while the
+/// object stays the same: working it out copies every member (bitmaps too), and the render asks
+/// for it on every frame (tubes.png doubled its frame time without this). The object's own
+/// effects, opacity and blend mode don't change it (tubes.png turns an instance's hue frame by
+/// frame), so they're left out of the key.
+pub(crate) fn kept_reach(el: &Element, ctx: &RenderCtx, make: impl FnOnce() -> Option<Rect>) -> Option<Rect> {
+    const LIMIT: usize = 64;
+    let mut bare = el.clone();
+    bare.effects.clear();
+    bare.opacity = 100.0;
+    bare.blend = BlendMode::Normal;
+    let key = fingerprint(&bare, ctx);
+    if let Some(r) = REACH.lock().ok().and_then(|m| m.iter().find(|(k, _)| *k == key).map(|e| e.1)) {
+        return r;
+    }
+    let r = make();
+    if let Ok(mut m) = REACH.lock() {
+        if m.len() >= LIMIT {
+            m.remove(0);
+        }
+        m.push((key, r));
+    }
+    r
+}
+
 /// Masked objects' content drawn whole (its effects included): see [`kept_pixels`].
 static MASKED_CONTENT: std::sync::Mutex<Memory> = std::sync::Mutex::new(Memory::new(8));
 

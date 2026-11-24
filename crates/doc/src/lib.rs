@@ -673,6 +673,59 @@ mod tests {
         assert_eq!(symbols[0].content_bounds(), Some((105.0, 0.0, 10.0, 20.0)));
     }
 
+    /// An instance with an effect is drawn whole before the effect runs: the area holds the
+    /// symbol's strokes, not just their outline (foo3.png: Brightness/Contrast on a symbol cut
+    /// off its 72 px stroke).
+    #[test]
+    fn instance_effect_keeps_member_strokes() {
+        use element::{BezierPoint, Contour, Path, Stroke};
+        use firecraft_raster::transform::Affine;
+        let line = Element::new(ElementKind::Path(Path {
+            contours: vec![Contour {
+                points: vec![BezierPoint::corner(0.0, 0.0), BezierPoint::corner(100.0, 0.0)],
+                closed: false,
+            }],
+            stroke: Some(Stroke::from_preset(Rgba::BLACK, 0, 40.0)),
+            ..Path::default()
+        }));
+        let mut layer = Layer::new("Layer 1");
+        if let Some(c) = layer.elements_mut(0) {
+            c.push(line);
+        }
+        let symbols = vec![Symbol {
+            id: 1,
+            name: "S1".into(),
+            kind: SymbolKind::Graphic,
+            layers: vec![layer],
+            frames: 1,
+            nine: None,
+            raw: None,
+        }];
+        let mut inst = Element::new(ElementKind::Instance {
+            symbol: 1,
+            name: String::new(),
+            matrix: Affine::translate(10.0, 50.0),
+            bounds: None,
+            anim: Animation::default(),
+        });
+        inst.effects.push(effects::EffectEntry::from_pairs(&[
+            ("EffectMoaID", "{3439b08c-1921-11d3-9bde00e02910d580}"),
+            ("brightness_amount", "20"),
+            ("contrast_amount", "0"),
+            ("EffectIsVisible", "true"),
+        ]));
+        assert!(inst.effects[0].active().is_some());
+        let ctx = RenderCtx {
+            symbols: &symbols,
+            ..RenderCtx::EMPTY
+        };
+        let mut out = RgbaImage::new(200, 200, Rgba::TRANSPARENT);
+        inst.render_onto(&mut out, 0, 0, &ctx);
+        // The line runs along y = 50; its 40 px stroke reaches y = 30..70.
+        let alpha = |x, y| out.get(x, y).map_or(0, |p| p.a);
+        assert_eq!((alpha(60, 35), alpha(60, 65)), (255, 255));
+    }
+
     use super::*;
 
     #[test]
