@@ -44,13 +44,14 @@ mod text_menu;
 mod text_tool;
 pub mod theme;
 mod thumbs;
+mod tiles;
 pub mod tool_settings;
 mod tools_panel;
 mod transform_tool;
 
 use std::collections::HashMap;
 
-use egui::{Pos2, TextureHandle, Vec2};
+use egui::{Pos2, Vec2};
 use firecraft_engine::Session;
 /// File extensions File > Open reads (for the host's file dialog).
 pub use firecraft_io::formats::OPEN_EXTENSIONS;
@@ -484,7 +485,7 @@ impl Prof {
 #[derive(Clone, Default)]
 struct View {
     pan: Vec2,
-    texture: Option<(u64, TextureHandle)>,
+    texture: Option<(u64, tiles::TiledTexture)>,
     /// Each object's rendered pixels, so moving or editing one object doesn't re-render the
     /// others.
     cache: std::rc::Rc<std::cell::RefCell<firecraft_doc::RenderCache>>,

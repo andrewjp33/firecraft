@@ -297,12 +297,37 @@ fn env_logger_init() {
         }
         fn flush(&self) {}
     }
+    // The last session's log survives one restart, so a crash report isn't lost by reopening.
     let file = log_file()
-        .and_then(|p| std::fs::File::create(p).ok())
+        .and_then(|p| {
+            let _ = std::fs::rename(&p, p.with_file_name(previous_log_name(&p)));
+            std::fs::File::create(p).ok()
+        })
         .map(std::sync::Mutex::new);
+    let to_file = file.is_some();
     let all = std::env::var("FIRECRAFT_LOG").is_ok_and(|v| v == "all");
     let logger = Box::leak(Box::new(L { all, file }));
     let _ = log::set_logger(logger).map(|()| log::set_max_level(log::LevelFilter::Warn));
+    // A panic's message goes to stderr, which a Windows GUI app (or a Mac app opened from the
+    // Finder) doesn't have: put it and the backtrace in the log too.
+    if to_file {
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            log::error!(
+                "FireCraft {} crashed: {info}\n{}",
+                env!("CARGO_PKG_VERSION"),
+                std::backtrace::Backtrace::force_capture()
+            );
+            default(info);
+        }));
+    }
+}
+
+/// firecraft.log -> firecraft-previous.log
+fn previous_log_name(p: &std::path::Path) -> String {
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("firecraft");
+    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("log");
+    format!("{stem}-previous.{ext}")
 }
 
 /// Where log messages go when nobody would see them on stderr: a Windows GUI app has no

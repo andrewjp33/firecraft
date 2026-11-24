@@ -869,33 +869,21 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             .render_cached(d.doc.current_frame, &mut view.cache.borrow_mut());
         let t1 = t0.elapsed();
         let dirty = view.cache.borrow().dirty;
-        let to_color = |img: &firecraft_raster::RgbaImage| {
-            egui::ColorImage::from_rgba_unmultiplied(
-                [img.width() as usize, img.height() as usize],
-                &img.to_rgba_bytes(),
-            )
-        };
         let options = egui::TextureOptions::NEAREST;
+        let name = format!("doc-{}", d.id);
         match (&mut view.texture, dirty) {
             // Only part of the picture changed: upload just that part.
             (Some((stored, _)), firecraft_doc::Dirty::None) => *stored = key,
             (Some((stored, tex)), firecraft_doc::Dirty::Rect { x, y, w, h }) => {
-                let mut part = firecraft_raster::RgbaImage::new(w, h, firecraft_raster::Rgba::TRANSPARENT);
-                part.copy_from(&img, -(x as i64), -(y as i64));
-                tex.set_partial([x as usize, y as usize], to_color(&part), options);
+                tex.set_rect(&img, x as usize, y as usize, w as usize, h as usize, options);
                 // The cache key (not just the revision), or every frame looks stale.
                 *stored = key;
             }
             (Some((stored, tex)), firecraft_doc::Dirty::Full) => {
-                tex.set(to_color(&img), options);
+                tex.set(&ctx, &name, &img, options);
                 *stored = key;
             }
-            (None, _) => {
-                view.texture = Some((
-                    key,
-                    ctx.load_texture(format!("doc-{}", d.id), to_color(&img), options),
-                ))
-            }
+            (None, _) => view.texture = Some((key, crate::tiles::TiledTexture::new(&ctx, &name, &img, options))),
         }
         // FIRECRAFT_PROFILE=1: how long each canvas refresh takes.
         if std::env::var_os("FIRECRAFT_PROFILE").is_some() {
@@ -919,12 +907,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         None
     };
     if let Some(tex) = shown.or(view.texture.as_ref().map(|t| &t.1)) {
-        p.image(
-            tex.id(),
-            canvas_rect,
-            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-            Color32::WHITE,
-        );
+        tex.paint(&p, canvas_rect);
     }
     p.rect_stroke(
         canvas_rect,
@@ -1747,7 +1730,7 @@ fn marching_ants(
 #[derive(Clone)]
 pub(crate) struct Optimized {
     key: (u64, usize, String),
-    texture: Option<egui::TextureHandle>,
+    texture: Option<crate::tiles::TiledTexture>,
     /// File size in bytes and palette colours, or why it couldn't be exported.
     pub result: Result<(usize, usize), String>,
     /// An animated GIF's every frame, and the frame the texture shows: another frame (playing,
@@ -1769,10 +1752,6 @@ fn optimize_key(d: &firecraft_engine::DocState) -> (u64, usize, String) {
     (d.revision, frame, format!("{s:?}"))
 }
 
-fn color_image(img: &firecraft_raster::RgbaImage) -> egui::ColorImage {
-    egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], &img.to_rgba_bytes())
-}
-
 /// Export the document again if anything it depends on changed since the last preview.
 pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::DocState, ctx: &egui::Context) {
     let key = optimize_key(d);
@@ -1782,16 +1761,17 @@ pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::Do
         if o.frame != frame
             && let (Some(a), Some(tex)) = (o.animation.as_ref(), o.texture.as_mut())
         {
-            tex.set(color_image(&a.frame(frame)), egui::TextureOptions::NEAREST);
+            tex.set(ctx, &format!("optimized-{}", d.id), &a.frame(frame), egui::TextureOptions::NEAREST);
             o.frame = frame;
         }
         return;
     }
     let (texture, result, animation) = match firecraft_io::export::export(&d.doc, &d.doc.export) {
         Ok(e) => {
-            let tex = ctx.load_texture(
-                format!("optimized-{}", d.id),
-                color_image(&e.preview),
+            let tex = crate::tiles::TiledTexture::new(
+                ctx,
+                &format!("optimized-{}", d.id),
+                &e.preview,
                 egui::TextureOptions::NEAREST,
             );
             (Some(tex), Ok((e.bytes.len(), e.palette.len())), e.animation)
