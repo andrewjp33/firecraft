@@ -3,7 +3,8 @@
 //! dependencies: the XDG desktop portal (GNOME 42+, KDE Plasma 5.24+, and others), GNOME's
 //! color-scheme setting, and lastly the desktop's GTK theme name (MATE, Cinnamon, Xfce...,
 //! which have no dark-mode switch of their own: "Yaru-dark", "BlackMATE"). Checked again every
-//! few seconds, so schedules and manual switches are followed.
+//! 15 seconds, so schedules and manual switches are followed. A check runs two or three short
+//! commands (about 10 ms of CPU together).
 
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, Once};
@@ -32,7 +33,7 @@ pub fn start(ctx: &egui::Context) {
                 let _ = first_tx.send(());
                 repaint();
                 loop {
-                    std::thread::sleep(Duration::from_secs(3));
+                    std::thread::sleep(Duration::from_secs(15));
                     let now = read();
                     if now != last {
                         last = now;
