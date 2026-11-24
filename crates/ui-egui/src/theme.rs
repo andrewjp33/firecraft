@@ -2,8 +2,9 @@
 //!
 //! - **Classic**: Fireworks MX's look: light panels, grey panel-group headers, mid-grey workspace.
 //! - **Dark**: the same layout and shapes in dark greys.
-//! - **Modern**: soft greys, gradients, rounded cards and pill buttons, a dark tool sidebar
-//!   and a blue-violet accent (the splash screen's).
+//! - **Modern**: soft greys, gradients, rounded cards and pill buttons and a dark tool sidebar.
+//!
+//! All use Fireworks' blue (#3399FF) as the accent unless the user picks another.
 //! - **Modern Dark**: Modern's shapes in dark greys.
 //!
 //! Colours that belong to the document (the canvas, checkerboards, selection handles, previews
@@ -22,63 +23,11 @@ pub const PATH_BLUE: Color32 = Color32::from_rgb(0x33, 0x99, 0xFF);
 /// Edit > Preferences > Theme.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ThemeKind {
-    #[default]
     Classic,
     Dark,
+    #[default]
     Modern,
     ModernDark,
-}
-
-/// Edit > Preferences > Theme: one of the themes, or Automatic, which follows the system's
-/// light or dark setting with Modern or Modern Dark (switching when the system does, e.g. on a
-/// schedule).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ThemeChoice {
-    #[default]
-    Auto,
-    Fixed(ThemeKind),
-}
-
-impl ThemeChoice {
-    pub const ALL: [ThemeChoice; 5] = [
-        Self::Auto,
-        Self::Fixed(ThemeKind::Classic),
-        Self::Fixed(ThemeKind::Dark),
-        Self::Fixed(ThemeKind::Modern),
-        Self::Fixed(ThemeKind::ModernDark),
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Auto => "Automatic (system light/dark)",
-            Self::Fixed(k) => k.label(),
-        }
-    }
-
-    /// The preferences file's value.
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Fixed(k) => k.key(),
-        }
-    }
-
-    /// Unknown or missing: Automatic.
-    pub fn from_key(k: &str) -> Self {
-        ThemeKind::ALL
-            .into_iter()
-            .find(|t| t.key() == k)
-            .map_or(Self::Auto, Self::Fixed)
-    }
-
-    /// The theme to show, given the system's setting (`None`: unknown, taken as light).
-    pub fn resolve(self, system: Option<egui::Theme>) -> ThemeKind {
-        match self {
-            Self::Auto if system == Some(egui::Theme::Dark) => ThemeKind::ModernDark,
-            Self::Auto => ThemeKind::Modern,
-            Self::Fixed(k) => k,
-        }
-    }
 }
 
 impl ThemeKind {
@@ -105,6 +54,29 @@ impl ThemeKind {
 
     pub fn from_key(k: &str) -> Self {
         Self::ALL.into_iter().find(|t| t.key() == k).unwrap_or_default()
+    }
+
+    pub fn is_dark(self) -> bool {
+        matches!(self, Self::Dark | Self::ModernDark)
+    }
+
+    /// The same theme family (Classic or Modern), light or dark.
+    pub fn with_dark(self, dark: bool) -> Self {
+        match (self, dark) {
+            (Self::Classic | Self::Dark, false) => Self::Classic,
+            (Self::Classic | Self::Dark, true) => Self::Dark,
+            (Self::Modern | Self::ModernDark, false) => Self::Modern,
+            (Self::Modern | Self::ModernDark, true) => Self::ModernDark,
+        }
+    }
+
+    /// The theme shown: with "Read dark mode from system", the light or dark version as the
+    /// system is set (`None`: the system doesn't say; the theme as chosen).
+    pub fn resolve(self, follow_system: bool, system_dark: Option<bool>) -> Self {
+        match system_dark {
+            Some(dark) if follow_system => self.with_dark(dark),
+            _ => self,
+        }
     }
 
     pub fn palette(self) -> &'static Palette {
@@ -287,15 +259,15 @@ const DARK: Palette = Palette {
     section: g(0x2C),
     section_text: g(0xC8),
     border: g(0x1C),
-    select: rgb(0x2D, 0x7F, 0xE0),
+    select: ACCENT,
     select_text: Color32::WHITE,
-    highlight: rgb(0x2D, 0x7F, 0xE0),
+    highlight: ACCENT,
     highlight_text: Color32::WHITE,
     popup_hover: g(0x56),
-    popup_selected: rgb(0x2D, 0x7F, 0xE0),
+    popup_selected: ACCENT,
     popup_selected_text: Color32::WHITE,
     menu_bar_hover: g(0x56),
-    slider_fill: rgb(0x2D, 0x7F, 0xE0),
+    slider_fill: ACCENT,
     text: g(0xDC),
     text_weak: g(0x9A),
     ink: g(0xE2),
@@ -333,9 +305,9 @@ const DARK: Palette = Palette {
     r_menu: 0,
 };
 
-/// Modern's accent: the blue-violet of the splash screen (it replaced the design
-/// inspiration's orange, #DB6745).
-const ACCENT: Color32 = rgb(0x50, 0x40, 0xD0);
+/// Every theme's default accent: Fireworks MX's selection blue (the user's choice; Modern was
+/// first the design inspiration's orange #DB6745, then the splash screen's #5040D0).
+pub const ACCENT: Color32 = rgb(0x33, 0x99, 0xFF);
 
 const MODERN: Palette = Palette {
     dark: false,
@@ -398,8 +370,7 @@ const MODERN: Palette = Palette {
     r_menu: 10,
 };
 
-/// A little lighter on dark greys.
-const ACCENT_DARK: Color32 = rgb(0x62, 0x52, 0xE6);
+
 
 // Lighter greys, closer to Classic Dark's (user, 2026-11-23: the first version was too dark).
 const MODERN_DARK: Palette = Palette {
@@ -416,7 +387,7 @@ const MODERN_DARK: Palette = Palette {
     section: Color32::TRANSPARENT,
     section_text: g(0xA4),
     border: g(0x4C),
-    select: ACCENT_DARK,
+    select: ACCENT,
     select_text: Color32::WHITE,
     highlight: g(0x58),
     highlight_text: g(0xF2),
@@ -477,6 +448,33 @@ pub fn pal() -> &'static Palette {
     *ACTIVE.read().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// White or black, whichever reads on `bg`: black on colours brighter than this by perceived
+/// brightness (luma, Rec. 601 weights), so the default #3399FF (luma 134) keeps white text and
+/// yellows, light greens, cyans and pastels get black.
+pub fn text_on(bg: Color32) -> Color32 {
+    let luma = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
+    if luma >= 150.0 { Color32::BLACK } else { Color32::WHITE }
+}
+
+/// The system's dark mode as FireCraft read it itself (Linux, where winit doesn't report it):
+/// 0 unknown, 1 light, 2 dark.
+static SYSTEM_DARK: AtomicU8 = AtomicU8::new(0);
+
+/// Set by the desktop app's own reading of the system's dark mode (`None`: unknown).
+pub fn set_system_dark(dark: Option<bool>) {
+    SYSTEM_DARK.store(dark.map_or(0, |d| if d { 2 } else { 1 }), Ordering::Relaxed);
+}
+
+/// Is the system in dark mode? FireCraft's own reading first (Linux), then what the window
+/// system reports (Windows, macOS, browsers); `None` if neither knows.
+pub fn system_dark(ctx: &egui::Context) -> Option<bool> {
+    match SYSTEM_DARK.load(Ordering::Relaxed) {
+        1 => Some(false),
+        2 => Some(true),
+        _ => ctx.system_theme().map(|t| t == egui::Theme::Dark),
+    }
+}
+
 /// `kind`'s palette with `accent` (Edit > Preferences > Highlight color) in place of the theme's
 /// own highlight colour. Classic themes use theirs for current rows and selected menu items
 /// too; Modern keeps grey for those. Made once per combination and kept.
@@ -492,10 +490,14 @@ fn palette_with(kind: ThemeKind, accent: Option<Color32>) -> &'static Palette {
         return p;
     }
     let mut p = *base;
+    let text = text_on(c);
     p.select = c;
+    p.select_text = text;
     if !base.modern {
         p.highlight = c;
+        p.highlight_text = text;
         p.popup_selected = c;
+        p.popup_selected_text = text;
         p.slider_fill = c;
     }
     let p: &'static Palette = Box::leak(Box::new(p));
@@ -1021,27 +1023,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn automatic_follows_the_system() {
-        assert_eq!(ThemeChoice::default(), ThemeChoice::Auto);
-        assert_eq!(ThemeChoice::Auto.resolve(Some(egui::Theme::Dark)), ThemeKind::ModernDark);
-        assert_eq!(ThemeChoice::Auto.resolve(Some(egui::Theme::Light)), ThemeKind::Modern);
-        assert_eq!(ThemeChoice::Auto.resolve(None), ThemeKind::Modern);
-        let classic = ThemeChoice::Fixed(ThemeKind::Classic);
-        assert_eq!(classic.resolve(Some(egui::Theme::Dark)), ThemeKind::Classic);
-        for c in ThemeChoice::ALL {
-            assert_eq!(ThemeChoice::from_key(c.key()), c);
-        }
-        assert_eq!(ThemeChoice::from_key(""), ThemeChoice::Auto);
+    fn reading_dark_mode_from_the_system() {
+        use ThemeKind::*;
+        assert_eq!(ThemeKind::default(), Modern);
+        assert_eq!(Modern.resolve(true, Some(true)), ModernDark);
+        assert_eq!(ModernDark.resolve(true, Some(false)), Modern);
+        assert_eq!(Classic.resolve(true, Some(true)), Dark);
+        assert_eq!(Dark.resolve(true, None), Dark);
+        assert_eq!(Classic.resolve(false, Some(true)), Classic);
+    }
+
+    #[test]
+    fn text_reads_on_the_accent() {
+        assert_eq!(text_on(ACCENT), Color32::WHITE);
+        assert_eq!(text_on(Color32::from_rgb(0x50, 0x40, 0xD0)), Color32::WHITE);
+        assert_eq!(text_on(Color32::YELLOW), Color32::BLACK);
+        assert_eq!(text_on(Color32::from_rgb(0x90, 0xEE, 0x90)), Color32::BLACK);
+        assert_eq!(text_on(Color32::BLACK), Color32::WHITE);
     }
 
     #[test]
     fn a_highlight_colour_replaces_the_accent() {
-        let c = Color32::from_rgb(10, 200, 30);
+        let c = Color32::from_rgb(0x90, 0xEE, 0x90);
         let m = palette_with(ThemeKind::Modern, Some(c));
         assert_eq!(m.select, c);
+        // Light green: black text on it.
+        assert_eq!(m.select_text, Color32::BLACK);
         assert_eq!(m.highlight, MODERN.highlight);
         let k = palette_with(ThemeKind::Classic, Some(c));
-        assert_eq!((k.select, k.highlight), (c, c));
+        assert_eq!((k.select, k.highlight, k.highlight_text), (c, c, Color32::BLACK));
+        for t in ThemeKind::ALL {
+            assert_eq!(t.palette().select, ACCENT);
+        }
         assert!(std::ptr::eq(palette_with(ThemeKind::Modern, None), ThemeKind::Modern.palette()));
         assert!(std::ptr::eq(palette_with(ThemeKind::Modern, Some(c)), m));
     }
@@ -1051,6 +1064,6 @@ mod tests {
         for k in ThemeKind::ALL {
             assert_eq!(ThemeKind::from_key(k.key()), k);
         }
-        assert_eq!(ThemeKind::from_key("nonsense"), ThemeKind::Classic);
+        assert_eq!(ThemeKind::from_key("nonsense"), ThemeKind::Modern);
     }
 }

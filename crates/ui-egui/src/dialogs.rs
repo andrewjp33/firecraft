@@ -870,6 +870,7 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
     let scale_edit = &mut app.dialogs.ui_scale_edit;
     let prefs = &mut app.prefs;
     let platform = &mut app.platform;
+    let system_dark = crate::theme::system_dark(ctx);
     dialog("Preferences").show(ctx, |ui| {
         ui.strong("Workspace");
         ui.checkbox(&mut prefs.tabs, "Open documents in tabs (instead of separate document windows)");
@@ -887,22 +888,31 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
         .on_hover_text("Fireworks: FireCraft's own cursors, the same on every system (black Pointer, white Subselection, rotate, resize...). System: the system's cursors where one exists.");
         ui.horizontal(|ui| {
             ui.label("Theme:");
+            let shown = prefs.theme.resolve(prefs.theme_follow_system, system_dark);
             crate::theme::combo("prefs_theme")
-                .selected_text(prefs.theme.label())
+                .selected_text(shown.label())
                 .show_ui(ui, |ui| {
-                    for t in crate::theme::ThemeChoice::ALL {
-                        ui.selectable_value(&mut prefs.theme, t, t.label());
+                    for t in crate::theme::ThemeKind::ALL {
+                        if ui.selectable_label(shown == t, t.label()).clicked() {
+                            prefs.choose_theme(t, system_dark);
+                        }
                     }
                 });
+            ui.add_enabled(
+                system_dark.is_some(),
+                egui::Checkbox::new(&mut prefs.theme_follow_system, "Read dark mode from system"),
+            )
+            .on_hover_text(crate::menus::FOLLOW_SYSTEM_TIP)
+            .on_disabled_hover_text(crate::menus::FOLLOW_SYSTEM_UNKNOWN);
         })
         .response
-        .on_hover_text("Automatic: Modern or Modern Dark, as the system's light/dark setting is, switching when it does (also when the system changes it on a schedule). Classic: Fireworks MX's look. Classic Dark: the same in dark greys. Modern: rounded cards, soft gradients and a dark tool sidebar. Modern Dark: the same in dark greys.");
+        .on_hover_text("Classic: Fireworks MX's look. Classic Dark: the same in dark greys. Modern: rounded cards, soft gradients and a dark tool sidebar. Modern Dark: the same in dark greys.");
         ui.horizontal(|ui| {
             use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
-            ui.label("Highlight color:");
-            // The theme's own colour while none is chosen.
+            ui.label("Accent color:");
+            // The default while none is chosen.
             let shown = prefs.accent.unwrap_or_else(|| {
-                let c = crate::theme::pal().select;
+                let c = crate::theme::ACCENT;
                 firecraft_raster::Rgba::new(c.r(), c.g(), c.b(), 255)
             });
             if let Some(ColorChoice::Color(c)) =
@@ -911,15 +921,15 @@ fn preferences(app: &mut FireCraftApp, ctx: &egui::Context) {
                 prefs.accent = Some(firecraft_raster::Rgba { a: 255, ..cp::to_rgba(c) });
             }
             if ui
-                .add_enabled(prefs.accent.is_some(), egui::Button::new("Theme Default"))
-                .on_hover_text("Each theme's own highlight color")
+                .add_enabled(prefs.accent.is_some(), egui::Button::new("Default"))
+                .on_hover_text("Fireworks' blue, #3399FF")
                 .clicked()
             {
                 prefs.accent = None;
             }
         })
         .response
-        .on_hover_text("The color of selected modes, toggles and the slider handles' focus, in place of the theme's own (Modern: blue-violet; Classic: Fireworks' blue). Classic themes also use it for the current list row.");
+        .on_hover_text("The color of selected modes and toggles (and in the Classic themes of the current list row and menu item). Text on it turns black on light colors so it stays readable.");
         scale_commit = ui_scale_row(ui, scale_edit, in_use, saved, overridden);
         ui.separator();
         ui.strong("Editing");

@@ -4,6 +4,8 @@
 
 //! FireCraft desktop app (Windows, Linux, macOS).
 
+#[cfg(target_os = "linux")]
+mod linux_dark;
 mod splash;
 
 use std::sync::{Arc, Mutex, PoisonError};
@@ -162,6 +164,8 @@ fn run(renderer: eframe::Renderer, launch: Launch, splash: SplashHandle) -> efra
         "FireCraft",
         native_options(renderer),
         Box::new(move |cc| {
+            #[cfg(target_os = "linux")]
+            linux_dark::start(&cc.egui_ctx);
             let mut app = FireCraftApp::new(Box::new(Desktop));
             app.set_clipboard_keys(true);
             if let Some(storage) = cc.storage {

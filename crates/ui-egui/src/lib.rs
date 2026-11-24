@@ -252,10 +252,12 @@ pub struct Prefs {
     /// The last gap typed (Fireworks CS6 offers it in the field's menu and brings it back when
     /// the field is clicked while showing Evenly).
     pub align_spacing_px: i32,
-    /// Preferences > Theme: Automatic (Modern or Modern Dark, as the system is set), Classic
-    /// (Fireworks MX's look), Classic Dark, Modern, Modern Dark.
-    pub theme: theme::ThemeChoice,
-    /// Preferences > Highlight color, in place of the theme's own (`None`).
+    /// Preferences > Theme: Classic (Fireworks MX's look), Classic Dark, Modern, Modern Dark.
+    pub theme: theme::ThemeKind,
+    /// Preferences > Read dark mode from system: the light or dark version of the theme as
+    /// the system's dark mode is, switching when it does.
+    pub theme_follow_system: bool,
+    /// Preferences > Accent color, in place of the default #3399FF (`None`).
     pub accent: Option<firecraft_raster::Rgba>,
 }
 
@@ -287,7 +289,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\naccent={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\ntheme_follow_system={}\naccent={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -323,8 +325,19 @@ impl Prefs {
             align_panel::spacing_text(self.align_spacing),
             self.align_spacing_px,
             self.theme.key(),
+            self.theme_follow_system,
             self.accent.map(|c| c.to_hex()).unwrap_or_default(),
         )
+    }
+
+    /// Edit > Preferences / View > Theme: `kind` chosen. While reading dark mode from the
+    /// system, a theme of the other darkness than the system's turns that off (else the choice
+    /// would be undone at once).
+    pub fn choose_theme(&mut self, kind: theme::ThemeKind, system_dark: Option<bool>) {
+        if system_dark.is_some_and(|d| d != kind.is_dark()) {
+            self.theme_follow_system = false;
+        }
+        self.theme = kind;
     }
 
     pub fn parse(text: &str) -> Self {
@@ -372,7 +385,8 @@ impl Prefs {
                     p.image_size_method = firecraft_raster::transform::Resample::from_key(v.trim());
                 }
                 "fonts_dir" => p.fonts_dir = v.trim().to_owned(),
-                "theme" => p.theme = theme::ThemeChoice::from_key(v.trim()),
+                "theme" => p.theme = theme::ThemeKind::from_key(v.trim()),
+                "theme_follow_system" => p.theme_follow_system = flag,
                 "accent" => {
                     p.accent = firecraft_raster::Rgba::from_hex(v.trim()).map(|c| firecraft_raster::Rgba { a: 255, ..c });
                 }
@@ -458,7 +472,8 @@ impl Default for Prefs {
             align_part: firecraft_engine::align_panel::PointPart::Anchor,
             align_spacing: None,
             align_spacing_px: 0,
-            theme: theme::ThemeChoice::Auto,
+            theme: theme::ThemeKind::Modern,
+            theme_follow_system: true,
             accent: None,
         }
     }
@@ -1143,10 +1158,10 @@ impl FireCraftApp {
         if let Some(editor) = ctx.data_mut(|m| m.remove_temp::<u64>(egui::Id::unique("symbol_done"))) {
             self.session.finish_symbol_edit(editor);
         }
-        // Automatic follows the system's light/dark setting as it changes (by hand or on a
-        // schedule), on every platform that reports it.
+        // "Read dark mode from system" follows the system's setting as it changes (by hand or
+        // on a schedule), on every platform that reports it.
         let style = (
-            self.prefs.theme.resolve(ctx.system_theme()),
+            self.prefs.theme.resolve(self.prefs.theme_follow_system, theme::system_dark(&ctx)),
             self.prefs.accent.map(|c| egui::Color32::from_rgb(c.r, c.g, c.b)),
         );
         if self.styled != Some(style) {
@@ -1352,14 +1367,23 @@ mod prefs_tests {
             color_math: firecraft_raster::ColorMath::Precise,
             live_drag: false,
             mouse_highlight: false,
-            theme: theme::ThemeChoice::Fixed(theme::ThemeKind::ModernDark),
+            theme: theme::ThemeKind::ModernDark,
+            theme_follow_system: false,
             accent: Some(firecraft_raster::Rgba::new(0x50, 0x40, 0xD0, 255)),
             ..Prefs::default()
         };
         assert_eq!(Prefs::parse(&p.serialize()), p);
         assert_eq!(Prefs::parse(&Prefs::default().serialize()), Prefs::default());
-        // Without a choice: Automatic (Modern, light or dark as the system is).
-        assert_eq!(Prefs::parse("tabs=true").theme, theme::ThemeChoice::Auto);
+        // Without a choice: Modern, light or dark as the system is.
+        let old = Prefs::parse("tabs=true");
+        assert_eq!((old.theme, old.theme_follow_system), (theme::ThemeKind::Modern, true));
+        let mut p = Prefs::default();
+        // Picking a theme of the system's darkness keeps following it; the other darkness is
+        // a choice of its own.
+        p.choose_theme(theme::ThemeKind::Classic, Some(false));
+        assert_eq!((p.theme, p.theme_follow_system), (theme::ThemeKind::Classic, true));
+        p.choose_theme(theme::ThemeKind::Dark, Some(false));
+        assert_eq!((p.theme, p.theme_follow_system), (theme::ThemeKind::Dark, false));
         // Files from before the setting existed keep live dragging on.
         assert!(Prefs::parse("tabs=true").live_drag);
         assert_eq!(Prefs::parse("junk\nundo_steps=abc\nfuture=1"), Prefs::default());

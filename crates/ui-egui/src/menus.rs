@@ -175,11 +175,24 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ui.separator();
             // FireCraft: the interface's look (also in Edit > Preferences).
             ui.menu_button("Theme", |ui| {
-                for t in crate::theme::ThemeChoice::ALL {
-                    if ui.radio(app.prefs.theme == t, t.label()).clicked() {
-                        app.prefs.theme = t;
+                let system = crate::theme::system_dark(ui.ctx());
+                let shown = app.prefs.theme.resolve(app.prefs.theme_follow_system, system);
+                for t in crate::theme::ThemeKind::ALL {
+                    if ui.radio(shown == t, t.label()).clicked() {
+                        app.prefs.choose_theme(t, system);
                         ui.close();
                     }
+                }
+                ui.separator();
+                let follow =
+                    egui::Checkbox::new(&mut app.prefs.theme_follow_system, "Read Dark Mode from System");
+                if ui
+                    .add_enabled(system.is_some(), follow)
+                    .on_hover_text(FOLLOW_SYSTEM_TIP)
+                    .on_disabled_hover_text(FOLLOW_SYSTEM_UNKNOWN)
+                    .changed()
+                {
+                    ui.close();
                 }
             });
         });
@@ -435,6 +448,11 @@ fn crop_items(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 /// The document window's context menu (right-click), as Fireworks MX shows it: one for bitmap
 /// editing (a pixel selection), one for selected objects, one for the empty canvas (measured
 /// 2026-11-15). Items FireCraft doesn't have yet are shown disabled.
+/// "Read dark mode from system" (View > Theme and Edit > Preferences).
+pub(crate) const FOLLOW_SYSTEM_UNKNOWN: &str = "FireCraft couldn't detect the system's dark or light mode, so the theme stays as chosen.";
+
+pub(crate) const FOLLOW_SYSTEM_TIP: &str = "Use the light or dark version of the theme (Classic or Classic Dark, Modern or Modern Dark) as the system's dark mode is set, switching when it changes, also on a schedule.";
+
 pub(crate) fn context_menu(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else {
         ui.close();
