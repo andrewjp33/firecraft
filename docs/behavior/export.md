@@ -43,6 +43,7 @@ comparing the records:
 | `PALv` | `FCLi` entries of an exact/custom palette (`PLNi` of them) |
 | `PLRi` | colors requested (`numEntriesRequested`) |
 | `PTNi` | transparency: 0 none, 1 index, 2 index alpha, 3 rgba (PNG 8 alpha) |
+| `PLOb` | Remove Unused Colors (`optimized`; on) |
 | `APSb`, `ASTi` | WebSnap Adaptive and its tolerance (14) |
 | `PLDi` | dither percent (diffusion when non-zero) |
 | `GFIb` | interlaced GIF |
@@ -230,7 +231,10 @@ follows Fireworks MX's help ("Viewing colors in a palette" and the pages after i
 strings (Fireworks Resources.dll):
 
 * It shows the palette of the last export: kept up to date in Preview, otherwise a **Rebuild** button
-  takes the place of the color count once the document has changed.
+  takes the place of the color count once the document has changed. Ten lines of swatches show at
+  once and the rest scroll, as in Fireworks MX. With "Maximize colors per frame" it shows the table of
+  the frame shown (stepping or playing; the frames' tables are kept with the preview only, never
+  written to the document).
 * Swatch marks: edited (a square at the bottom left), locked (bottom right), transparent (checkered),
   web safe (a diamond). Click selects, Ctrl+click adds, Shift+click a range; double-click edits; the
   tooltip gives the color, its marks and how many pixels use it.
@@ -254,12 +258,21 @@ names it `newColorValue`, and two probes it exported (`probes/custom_palette_mx`
 nearest `FCLi` (yellow) when no `FCLi` is red. Fireworks MX reads FireCraft's table back entry for entry
 (`paletteMode` custom, `paletteInfo` with the same flags). Fireworks MX also keeps its last adaptive table
 there for the other palettes; FireCraft reads only the locked entries of those and writes only them.
-Fireworks MX's exports drop unused palette entries (Remove Unused Colors, on by default); FireCraft's
-keep a custom palette's entries.
+### Remove Unused Colors
+
+Fireworks MX's Optimize option (`PLOb`, `optimized` in its script API, on by default; measured by toggling
+it with `dom.setExportOptions` and comparing the saved records). Exports of `probes/remove_unused_mx`
+(two colors, a custom table with an unused edited entry and a locked yellow): on, the file's palette
+has only the entries pixels use, in the table's order, plus locked colors even when unused; off, the
+whole table, or all 16 grays (plus the locked yellow) for Grayscale at 16 colors. Web 216 trimmed below
+its size keeps only colors in use either way (16 requested: the 2 used and the locked yellow), so
+FireCraft's trimming of Web 216, Windows and Macintosh now leaves unused entries out too. FireCraft keeps
+the transparent entry as well (Auto Difference needs it after mapping). The Optimize panel shows it as
+the "Remove unused colors" checkbox (Fireworks MX: in the panel's menu).
 
 ## Not yet
 
 2-Up/4-Up and Export Preview; GIF loss (lossy LZW); the color table's press-and-hold highlight of a
-color's pixels, Replace Palette Entry and Remove Unused Colors;
+color's pixels, Replace Palette Entry;
 Selective JPEG quality; animated WebP export; WebP in the browser build; 16-bit (PNG 48/64) export,
 which needs a 16-bit pipeline (layers are 8 bits per channel).

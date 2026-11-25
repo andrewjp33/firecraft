@@ -379,7 +379,9 @@ pub fn web_snap(palette: &mut [Entry], tolerance: u8) {
 }
 
 /// The `n` entries of a fixed palette the pixels use most (Fireworks MX trims Windows,
-/// Macintosh and Web 216 to the colour count this way), in the palette's order.
+/// Macintosh and Web 216 to the colour count this way), in the palette's order. Entries no pixel
+/// uses aren't among them (Fireworks MX: a 2-colour image exported as Web 216 with 16 colours has
+/// just those 2, with Remove Unused Colors on or off).
 pub fn most_used(palette: &[Entry], hist: &HashMap<u32, u32>, n: usize) -> Vec<Entry> {
     if palette.len() <= n {
         return palette.to_vec();
@@ -393,7 +395,11 @@ pub fn most_used(palette: &[Entry], hist: &HashMap<u32, u32>, n: usize) -> Vec<E
     }
     let mut order: Vec<usize> = (0..palette.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(use_count.get(i).copied().unwrap_or(0)));
-    let mut keep: Vec<usize> = order.into_iter().take(n).collect();
+    let used = |i: &usize| use_count.get(*i).is_some_and(|&u| u > 0);
+    let mut keep: Vec<usize> = order.iter().copied().take(n).filter(used).collect();
+    if keep.is_empty() {
+        keep.extend(order.first());
+    }
     keep.sort_unstable();
     keep.into_iter().filter_map(|i| palette.get(i).copied()).collect()
 }

@@ -237,6 +237,9 @@ pub struct ExportSettings {
     pub alpha_quality: u8,
     /// WebP / JPEG XL: lossless.
     pub lossless: bool,
+    /// Fireworks MX's Remove Unused Colors (`PLOb`, on by default): palette entries no pixel
+    /// uses are left out of the file, locked colors excepted.
+    pub remove_unused: bool,
     /// The color table's own entries: with [`PaletteKind::Custom`] the palette itself, with the
     /// other palettes only the locked colors, which every palette keeps (Fireworks MX: "If you
     /// switch to another palette after colors have been locked, locked colors are added to the
@@ -273,6 +276,7 @@ impl Default for ExportSettings {
             quality: 80,
             alpha_quality: 100,
             lossless: false,
+            remove_unused: true,
             table: Vec::new(),
             raw: None,
         }
@@ -398,6 +402,7 @@ impl ExportSettings {
                 self.palette == other.palette
                     && self.colors == other.colors
                     && self.table == other.table
+                    && self.remove_unused == other.remove_unused
                     && self.dither == other.dither
                     && self.transparency == other.transparency
                     && self.interlaced == other.interlaced

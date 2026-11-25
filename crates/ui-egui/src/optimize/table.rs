@@ -105,21 +105,32 @@ fn same_rgb(a: Rgba, b: Rgba) -> bool {
     (a.r, a.g, a.b) == (b.r, b.g, b.b)
 }
 
-/// The table: a custom palette's own entries; otherwise the last export's palette, with the
-/// table's locked colors marked.
-fn rows(s: &ExportSettings, o: Option<&crate::canvas::Optimized>, current: bool) -> Vec<Row> {
-    let usage = |i: usize| o.filter(|_| current).and_then(|o| o.usage.get(i).copied());
+/// The table: a custom palette's own entries; otherwise the last export's palette (with a table
+/// per frame, the one of document frame `frame`), with the table's locked colors marked.
+fn rows(s: &ExportSettings, o: Option<&crate::canvas::Optimized>, current: bool, frame: usize) -> Vec<Row> {
+    let table = o.and_then(|o| o.animation.as_ref()).and_then(|a| a.table(frame));
+    let (palette, transparent, usage_of) = match (table, o) {
+        (Some(t), _) => (&t.palette[..], t.transparent, &t.usage[..]),
+        (None, Some(o)) => (&o.palette[..], o.transparent, &o.usage[..]),
+        (None, None) => (&[][..], None, &[][..]),
+    };
+    let usage = |i: usize| usage_of.get(i).copied().filter(|_| current);
     if s.palette == PaletteKind::Custom {
-        // The export's palette starts with the table's entries, in order.
+        // The export's entries by color (Remove Unused Colors leaves some out).
         return s
             .table
             .iter()
-            .enumerate()
-            .map(|(i, &entry)| Row { entry, usage: usage(i) })
+            .map(|&entry| {
+                let c = entry.color;
+                let at = palette.iter().position(|p| p[..3] == [c.r, c.g, c.b]);
+                Row {
+                    entry,
+                    usage: current.then(|| at.and_then(usage).unwrap_or(0)),
+                }
+            })
             .collect();
     }
-    let Some(o) = o else { return Vec::new() };
-    o.palette
+    palette
         .iter()
         .enumerate()
         .map(|(i, c)| {
@@ -129,7 +140,7 @@ fn rows(s: &ExportSettings, o: Option<&crate::canvas::Optimized>, current: bool)
                     color,
                     original: None,
                     locked: c[3] != 0 && s.locked().any(|e| same_rgb(e.source(), color)),
-                    transparent: Some(i) == o.transparent || c[3] == 0,
+                    transparent: Some(i) == transparent || c[3] == 0,
                 },
                 usage: usage(i),
             }
@@ -343,7 +354,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     let current = view.is_some_and(|v| crate::canvas::optimized_current(v, d));
     let optimized = view.and_then(|v| v.optimized.as_ref());
     let s = d.doc.export.clone();
-    let rows = rows(&s, optimized, current);
+    let rows = rows(&s, optimized, current, d.doc.current_frame);
     let st = &mut app.optimize_table;
     if st.rows != rows.len() {
         st.selected.clear();
@@ -363,53 +374,31 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
         actions.push(Action::Pick(pick));
     }
 
-    // ---- The swatches ----
-    let cols = ((ui.available_width() / 18.0).floor() as usize).max(6);
-    let cell = vec2((ui.available_width() / cols as f32).floor(), 12.0);
-    let lines = rows.len().div_ceil(cols).max(4);
-    let (area, _) = ui.allocate_exact_size(vec2(cell.x * cols as f32, cell.y * lines as f32), Sense::hover());
-    let p = ui.painter_at(area.expand(1.0));
-    p.rect_filled(area, 0.0, Color32::from_gray(if crate::theme::pal().dark { 30 } else { 60 }));
-    let mut edit_anchor = None;
-    for (k, &i) in order.iter().enumerate() {
-        let Some(row) = rows.get(i) else { continue };
-        let at = pos2(area.left() + (k % cols) as f32 * cell.x, area.top() + (k / cols) as f32 * cell.y);
-        let r = Rect::from_min_size(at, cell).shrink2(vec2(0.5, 0.5));
-        paint_cell(&p, r, row.entry, st.selected.contains(&i));
-        let resp = ui.interact(r, egui::Id::unique(("opt_swatch", i)), Sense::click());
-        if resp.clicked() {
-            if let Some(pick) = st.pick.take() {
-                st.selected = BTreeSet::from([i]);
-                actions.push(Action::Pick(pick));
-            } else {
-                let mods = ui.input(|inp| inp.modifiers);
-                select(st, &order, i, mods.command, mods.shift);
-            }
-        }
-        if resp.double_clicked() {
-            st.selected = BTreeSet::from([i]);
-            edit_anchor = Some(r);
-            actions.push(Action::Edit);
-        }
-        if resp.secondary_clicked() && !st.selected.contains(&i) {
-            st.selected = BTreeSet::from([i]);
-            st.anchor = Some(i);
-        }
-        let resp = resp.on_hover_ui(|ui| swatch_info(ui, row));
-        egui::Popup::context_menu(&resp)
-            .style(crate::theme::menu_popup_style())
-            .show(|ui| menu(ui, &s, &rows, &st.selected, st.sort, &mut actions));
-        if st.selected.contains(&i) && edit_anchor.is_none() {
-            edit_anchor = Some(r);
-        }
-    }
+    // ---- The swatches: a fixed number of lines that scroll (Fireworks MX) ----
+    let pal = crate::theme::pal();
+    let view_h = CELL_H * VISIBLE_LINES as f32;
+    let framed = egui::Frame::new()
+        .stroke(Stroke::new(1.0, pal.border))
+        .inner_margin(1.0)
+        .show(ui, |ui| {
+            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+            egui::ScrollArea::vertical()
+                .id_salt("opt_table_scroll")
+                .max_height(view_h)
+                .min_scrolled_height(view_h)
+                .auto_shrink([false, true])
+                .show(ui, |ui| swatches(ui, st, &rows, &order, &s, &mut actions))
+                .inner
+        });
+    let area = framed.response.rect;
+    let mut edit_anchor = framed.inner;
     if rows.is_empty() {
-        p.text(
+        ui.painter().text(
             area.center(),
             egui::Align2::CENTER_CENTER,
             "Rebuild to show the colors",
             egui::FontId::proportional(11.0),
-            Color32::from_gray(200),
+            pal.text_weak,
         );
     }
 
@@ -567,6 +556,62 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     if save {
         save_palette(app, &rows);
     }
+}
+
+/// Lines of swatches shown at once (more scroll), and a swatch's height.
+const VISIBLE_LINES: usize = 10;
+const CELL_H: f32 = 12.0;
+
+/// The swatches (in the scrolling area); the rectangle of the selected one, if shown.
+fn swatches(
+    ui: &mut Ui,
+    st: &mut TableState,
+    rows: &[Row],
+    order: &[usize],
+    s: &ExportSettings,
+    actions: &mut Vec<Action>,
+) -> Option<Rect> {
+    let cols = ((ui.available_width() / 18.0).floor() as usize).max(6);
+    let cell = vec2((ui.available_width() / cols as f32).floor(), CELL_H);
+    let lines = rows.len().div_ceil(cols).max(VISIBLE_LINES);
+    let (area, _) = ui.allocate_exact_size(vec2(cell.x * cols as f32, cell.y * lines as f32), Sense::hover());
+    let p = ui.painter().clone();
+    let border = crate::theme::pal().border;
+    let mut edit_anchor = None;
+    for (k, &i) in order.iter().enumerate() {
+        let Some(row) = rows.get(i) else { continue };
+        let at = pos2(area.left() + (k % cols) as f32 * cell.x, area.top() + (k / cols) as f32 * cell.y);
+        let r = Rect::from_min_size(at, cell).shrink(1.0);
+        paint_cell(&p, r, row.entry, st.selected.contains(&i));
+        p.rect_stroke(r.expand(0.5), 0.0, Stroke::new(1.0, border), egui::StrokeKind::Middle);
+        let resp = ui.interact(r, egui::Id::unique(("opt_swatch", i)), Sense::click());
+        if resp.clicked() {
+            if let Some(pick) = st.pick.take() {
+                st.selected = BTreeSet::from([i]);
+                actions.push(Action::Pick(pick));
+            } else {
+                let mods = ui.input(|inp| inp.modifiers);
+                select(st, order, i, mods.command, mods.shift);
+            }
+        }
+        if resp.double_clicked() {
+            st.selected = BTreeSet::from([i]);
+            edit_anchor = Some(r);
+            actions.push(Action::Edit);
+        }
+        if resp.secondary_clicked() && !st.selected.contains(&i) {
+            st.selected = BTreeSet::from([i]);
+            st.anchor = Some(i);
+        }
+        let resp = resp.on_hover_ui(|ui| swatch_info(ui, row));
+        egui::Popup::context_menu(&resp)
+            .style(crate::theme::menu_popup_style())
+            .show(|ui| menu(ui, s, rows, &st.selected, st.sort, actions));
+        if st.selected.contains(&i) && edit_anchor.is_none() {
+            edit_anchor = Some(r);
+        }
+    }
+    edit_anchor
 }
 
 /// Click, Ctrl+click (toggle) and Shift+click (range in the shown order).

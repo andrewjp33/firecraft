@@ -34,6 +34,16 @@ pub struct AnimatedPreview {
     size: (u32, u32),
     /// The document frame each exported frame comes from.
     exported: Vec<usize>,
+    /// With a color table per frame ("Maximize colors per frame"): each frame's table.
+    tables: Vec<FrameTable>,
+}
+
+/// One frame's color table: its palette, transparent entry and pixels per entry.
+#[derive(Clone, Debug, Default)]
+pub struct FrameTable {
+    pub palette: Vec<Entry>,
+    pub transparent: Option<usize>,
+    pub usage: Vec<u32>,
 }
 
 enum PreviewFrames {
@@ -54,10 +64,22 @@ impl std::fmt::Debug for AnimatedPreview {
 }
 
 impl AnimatedPreview {
+    /// The exported frame that shows document frame `frame`.
+    fn shown(&self, frame: usize) -> usize {
+        self.exported.iter().filter(|&&i| i <= frame).count().saturating_sub(1)
+    }
+
+    /// The color table of the exported frame that shows document frame `frame`, when each frame
+    /// has its own (`None`: one table for the whole animation).
+    pub fn table(&self, frame: usize) -> Option<&FrameTable> {
+        let show = self.shown(frame);
+        self.tables.get(show).or(self.tables.first())
+    }
+
     /// How the export shows document frame `frame` (a frame not set to export: the exported
     /// frame before it).
     pub fn frame(&self, frame: usize) -> RgbaImage {
-        let show = self.exported.iter().filter(|&&i| i <= frame).count().saturating_sub(1);
+        let show = self.shown(frame);
         match &self.frames {
             PreviewFrames::Indexed { indices, palette } => {
                 let idx = indices.get(show).or(indices.first()).map_or(&[][..], |f| f);
@@ -439,12 +461,58 @@ fn index(
 ) -> Indexed {
     let mut ix = index_colors(images, s, matte, png8, reserve, only);
     apply_table(&mut ix, s);
+    if s.remove_unused {
+        drop_unused(&mut ix, s);
+    }
     ix
+}
+
+/// Remove Unused Colors (Fireworks MX, on by default): the palette loses the entries no pixel
+/// uses, keeping their order, but not locked colors (measured: a locked color nothing uses stays,
+/// an unused edited one goes) or the transparent entry (Auto Difference uses it after mapping).
+fn drop_unused(ix: &mut Indexed, s: &ExportSettings) {
+    let counts = usage(&ix.frames, ix.palette.len());
+    let locked = |c: &Entry| {
+        s.table
+            .iter()
+            .filter(|e| e.locked)
+            .any(|e| [e.source(), e.color].iter().any(|l| [l.r, l.g, l.b] == c[..3]))
+    };
+    let keep: Vec<bool> = ix
+        .palette
+        .iter()
+        .enumerate()
+        .map(|(i, c)| counts.get(i).is_some_and(|&n| n > 0) || Some(i) == ix.transparent.map(usize::from) || locked(c))
+        .collect();
+    if keep.iter().all(|&k| k) {
+        return;
+    }
+    let mut to = vec![0u8; ix.palette.len()];
+    let mut palette = Vec::with_capacity(ix.palette.len());
+    for (i, c) in ix.palette.iter().enumerate() {
+        if keep.get(i).copied().unwrap_or(true) {
+            if let Some(slot) = to.get_mut(i) {
+                *slot = palette.len().min(255) as u8;
+            }
+            palette.push(*c);
+        }
+    }
+    if palette.is_empty() {
+        return;
+    }
+    for frame in &mut ix.frames {
+        for v in frame.iter_mut() {
+            *v = to.get(usize::from(*v)).copied().unwrap_or(0);
+        }
+    }
+    ix.transparent = ix.transparent.and_then(|t| to.get(usize::from(t)).copied());
+    ix.palette = palette;
 }
 
 /// A custom palette's edits: an edited entry exports its new color (the pixels matched its
 /// original), and the pixels of transparent entries all take one transparent entry (a GIF has
-/// just one; the other transparent entries stay in the palette, unused).
+/// just one; the other transparent entries stay in the palette, unused, unless Remove Unused
+/// Colors drops them).
 fn apply_table(ix: &mut Indexed, s: &ExportSettings) {
     if s.palette != PaletteKind::Custom {
         return;
@@ -847,6 +915,7 @@ fn gif(frames: &[(RgbaImage, u32)], s: &ExportSettings, matte: Matte, show: usiz
         },
         size: (w, h),
         exported: Vec::new(),
+        tables: Vec::new(),
     })
     .map(std::sync::Arc::new);
     Ok(Exported {
@@ -903,8 +972,8 @@ fn gif_frame_palettes(
     let mut drawn: Vec<Rgba> = vec![Rgba::TRANSPARENT; len];
     let mut pictures = Vec::with_capacity(frames.len());
     let mut palettes: Vec<Vec<Entry>> = Vec::with_capacity(frames.len());
-    // The shown frame's transparent entry and use of its palette (for the Optimize panel).
-    let mut shown_table: (Option<usize>, Vec<u32>) = (None, Vec::new());
+    // Each frame's table (for the Optimize panel's color table).
+    let mut tables: Vec<FrameTable> = Vec::with_capacity(frames.len());
     let mut out = Vec::new();
     {
         let mut enc = gif::Encoder::new(&mut out, gw, gh, &[]).map_err(err)?;
@@ -998,9 +1067,11 @@ fn gif_frame_palettes(
                 }
             }
             pictures.push(RgbaImage::from_pixels(w, h, drawn.clone()).unwrap_or_else(|| RgbaImage::new(w, h, Rgba::TRANSPARENT)));
-            if j == show {
-                shown_table = (t.map(usize::from), usage(std::slice::from_ref(&buf), ix.palette.len()));
-            }
+            tables.push(FrameTable {
+                palette: ix.palette.clone(),
+                transparent: t.map(usize::from),
+                usage: usage(std::slice::from_ref(&buf), ix.palette.len()),
+            });
             palettes.push(ix.palette);
             if clear_after {
                 screen.iter_mut().for_each(|c| *c = None);
@@ -1017,12 +1088,13 @@ fn gif_frame_palettes(
         bytes: out,
         preview,
         palette: palettes.into_iter().nth(show).unwrap_or_default(),
-        transparent: shown_table.0,
-        usage: shown_table.1,
+        transparent: tables.get(show).and_then(|t| t.transparent),
+        usage: tables.get(show).map(|t| t.usage.clone()).unwrap_or_default(),
         animation: Some(std::sync::Arc::new(AnimatedPreview {
             frames: PreviewFrames::Pictures(pictures),
             size: (w, h),
             exported: Vec::new(),
+            tables,
         })),
     })
 }
@@ -1405,6 +1477,53 @@ mod tests {
         let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
         assert_eq!(e.palette.len(), 2);
         assert_eq!(e.preview.get(1, 1), Some(red));
+    }
+
+    #[test]
+    fn remove_unused_colors_keeps_locked_ones() {
+        use firecraft_doc::PaletteEntry;
+        let d = two_colors();
+        let (red, blue) = (Rgba::new(255, 0, 0, 255), Rgba::new(0, 0, 255, 255));
+        let table = vec![
+            PaletteEntry::new(Rgba::new(0, 255, 0, 255)),
+            PaletteEntry::new(red),
+            PaletteEntry {
+                locked: true,
+                ..PaletteEntry::new(Rgba::new(255, 255, 0, 255))
+            },
+            PaletteEntry::new(blue),
+        ];
+        // On (the default): the unused green goes, the unused but locked yellow stays, in order.
+        let e = export(&d, &custom(table.clone())).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(e.palette, vec![[255, 0, 0, 255], [255, 255, 0, 255], [0, 0, 255, 255]]);
+        assert_eq!(e.preview.get(1, 1), Some(red));
+        assert_eq!(e.preview.get(6, 1), Some(blue));
+        // Off: the whole table.
+        let off = ExportSettings {
+            remove_unused: false,
+            ..custom(table)
+        };
+        assert_eq!(export(&d, &off).unwrap_or_else(|e| unreachable!("{e}")).palette.len(), 4);
+        // Grayscale, 16 colors (measured in Fireworks MX: on, only the grays used; off, all 16).
+        let gray = ExportSettings {
+            palette: PaletteKind::Grayscale,
+            colors: 16,
+            ..with(ExportFormat::Gif)
+        };
+        assert_eq!(export(&d, &gray).unwrap_or_else(|e| unreachable!("{e}")).palette.len(), 2);
+        let gray_off = ExportSettings {
+            remove_unused: false,
+            ..gray
+        };
+        assert_eq!(export(&d, &gray_off).unwrap_or_else(|e| unreachable!("{e}")).palette.len(), 16);
+        // Web 216 below its size keeps only the colors used, either way (Fireworks MX).
+        let web = ExportSettings {
+            palette: PaletteKind::Web216,
+            colors: 16,
+            remove_unused: false,
+            ..with(ExportFormat::Gif)
+        };
+        assert_eq!(export(&d, &web).unwrap_or_else(|e| unreachable!("{e}")).palette.len(), 2);
     }
 
     #[test]

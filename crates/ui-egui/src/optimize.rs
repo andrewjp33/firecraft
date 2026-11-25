@@ -33,8 +33,13 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
     if load {
         table::load_palette(app);
     }
+    if s.format.indexed() {
+        ui.add_space(4.0);
+        table::color_table(app, ui, id);
+    }
+    // Last, so the table doesn't move between Original and Preview: the file size, as the
+    // Preview tab shows the export.
     ui.add_space(4.0);
-    // The file size, as the Preview tab shows the export.
     let view = app.views.get(&id);
     match view.filter(|v| v.preview).and_then(|v| v.optimized.as_ref()) {
         Some(o) => match &o.result {
@@ -55,10 +60,6 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
         None => {
             ui.weak("Preview shows the export and its file size.");
         }
-    }
-    if s.format.indexed() {
-        ui.add_space(4.0);
-        table::color_table(app, ui, id);
     }
 }
 
@@ -203,6 +204,10 @@ fn indexed(ui: &mut Ui, s: &mut ExportSettings) -> bool {
     if s.format != ExportFormat::Png8 {
         ui.checkbox(&mut s.interlaced, "Interlaced");
     }
+    ui.checkbox(&mut s.remove_unused, "Remove unused colors").on_hover_text(
+        "Leave palette colors no pixel uses out of the file (locked colors stay), as Fireworks MX \
+         does by default. Off: the whole palette is written, e.g. for images that must share one.",
+    );
     if s.format == ExportFormat::AnimatedGif {
         ui.checkbox(&mut s.auto_crop, "Auto Crop")
             .on_hover_text("Each frame only covers the area that changed since the previous frame");

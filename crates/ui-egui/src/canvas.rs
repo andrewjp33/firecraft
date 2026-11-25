@@ -1855,7 +1855,7 @@ pub(crate) struct Optimized {
     pub picture: Option<firecraft_raster::RgbaImage>,
     /// An animated GIF's every frame, and the frame the texture shows: another frame (playing,
     /// stepping) is shown from it without exporting again.
-    animation: Option<std::sync::Arc<firecraft_io::export::AnimatedPreview>>,
+    pub animation: Option<std::sync::Arc<firecraft_io::export::AnimatedPreview>>,
     frame: usize,
 }
 
@@ -1884,6 +1884,13 @@ pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::Do
             let picture = a.frame(frame);
             tex.set(ctx, &format!("optimized-{}", d.id), &picture, egui::TextureOptions::NEAREST);
             o.picture = Some(picture);
+            // Each frame's own color table ("Maximize colors per frame"): the Optimize panel
+            // shows the one of the frame shown.
+            if let Some(t) = a.table(frame) {
+                o.palette.clone_from(&t.palette);
+                o.transparent = t.transparent;
+                o.usage.clone_from(&t.usage);
+            }
             o.frame = frame;
         }
         return;

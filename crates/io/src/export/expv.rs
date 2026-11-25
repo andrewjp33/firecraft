@@ -7,7 +7,8 @@
 //! `PTNi` transparency (0 none, 1 index, 2 index alpha, 3 rgba), `APSb` WebSnap Adaptive,
 //! `ASTi` its tolerance, `PLDi` dither percent, `GFIb` interlaced, `GLTi` GIF loss, `JPQi`
 //! JPEG quality, `JPSi` smoothing, `JPPb` progressive, `FLPi` animation repeats (0 forever),
-//! `FNLv` the frames, `AACb`/`AADb` the animation's Auto Crop and Auto Difference. FireCraft's
+//! `FNLv` the frames, `AACb`/`AADb` the animation's Auto Crop and Auto Difference, `PLOb` Remove
+//! Unused Colors (`optimized` in its script API). FireCraft's
 //! own options use `FC..` fields, which Fireworks ignores (`FCOi`: the PNG optimization level).
 //!
 //! The color table is `PALv` (`PLNi` entries): each entry an `FCLi` color (0xAARRGGBB) followed
@@ -93,6 +94,7 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         quality: byte("FCQ", d.quality).min(100),
         alpha_quality: byte("FCA", d.alpha_quality).min(100),
         lossless: exp.bool_of("FCL").unwrap_or(false),
+        remove_unused: exp.bool_of("PLO").unwrap_or(true),
         table,
         raw: Some(exp.clone()),
     }
@@ -204,6 +206,7 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     set(&mut n, Node::int("PLN", s.table.len() as i64));
     set(&mut n, Node::int("PLR", i64::from(colors)));
     set(&mut n, Node::int("PTN", ptn));
+    set(&mut n, Node::bool("PLO", s.remove_unused));
     set(&mut n, Node::bool("APS", s.palette == PaletteKind::WebAdaptive));
     set(&mut n, Node::int("AST", i64::from(s.websnap_tolerance)));
     set(&mut n, Node::int("PLD", i64::from(s.dither.min(100))));
@@ -344,6 +347,7 @@ mod tests {
                 png_optimize: 5,
                 smooth_alpha: true,
                 interlaced: true,
+                remove_unused: false,
                 ..ExportSettings::default()
             },
             ExportSettings {
