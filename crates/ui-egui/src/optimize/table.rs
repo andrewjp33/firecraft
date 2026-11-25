@@ -380,7 +380,12 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     let framed = egui::Frame::new()
         .stroke(Stroke::new(1.0, pal.border))
         .show(ui, |ui| {
-            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+            // A bar beside the swatches (not over them), in the text color as the panels'
+            // floating bars are (light in the dark themes).
+            ui.spacing_mut().scroll = egui::style::ScrollStyle {
+                foreground_color: true,
+                ..egui::style::ScrollStyle::solid()
+            };
             egui::ScrollArea::vertical()
                 .id_salt("opt_table_scroll")
                 .max_height(view_h)
@@ -559,7 +564,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
 
 /// Lines of swatches shown at once (more scroll), and a swatch's height.
 const VISIBLE_LINES: usize = 12;
-/// A swatch's cell, its 1-point separator line included (Fireworks MX's swatches are about this
+/// A swatch's cell at its narrowest (the columns widen to fill the row), its 1-point separator line included (Fireworks MX's swatches are about this
 /// small, with single lines between them).
 const CELL_W: f32 = 12.0;
 const CELL_H: f32 = 10.0;
@@ -576,16 +581,20 @@ fn swatches(
     // Room for the closing line on the right.
     let room = ui.available_width() - 1.0;
     let cols = ((room / CELL_W).floor() as usize).max(6);
-    let cell = vec2((room / cols as f32).floor(), CELL_H);
     let lines = rows.len().div_ceil(cols).max(VISIBLE_LINES);
-    let (area, _) = ui.allocate_exact_size(vec2(cell.x * cols as f32, cell.y * lines as f32), Sense::hover());
+    let (area, _) = ui.allocate_exact_size(vec2(room, CELL_H * lines as f32), Sense::hover());
+    // The columns share the whole width (no gap on the right), their edges on whole pixels.
+    let ppp = ui.ctx().pixels_per_point();
+    let edge = |c: usize| area.left() + (c as f32 * room / cols as f32 * ppp).round() / ppp;
     let p = ui.painter().clone();
     let border = crate::theme::pal().border;
     let mut edit_anchor = None;
     let mut selected = Vec::new();
     for (k, &i) in order.iter().enumerate() {
         let Some(row) = rows.get(i) else { continue };
-        let at = pos2(area.left() + (k % cols) as f32 * cell.x, area.top() + (k / cols) as f32 * cell.y);
+        let (c, line) = (k % cols, k / cols);
+        let at = pos2(edge(c), area.top() + line as f32 * CELL_H);
+        let cell = vec2(edge(c + 1) - at.x, CELL_H);
         // The swatch inside the cell's lines (shared with the neighbours).
         let r = Rect::from_min_max(at + vec2(1.0, 1.0), at + cell);
         paint_cell(&p, r, row.entry);
