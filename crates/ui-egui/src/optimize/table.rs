@@ -379,7 +379,6 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     let view_h = CELL_H * VISIBLE_LINES as f32;
     let framed = egui::Frame::new()
         .stroke(Stroke::new(1.0, pal.border))
-        .inner_margin(1.0)
         .show(ui, |ui| {
             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
             egui::ScrollArea::vertical()
@@ -559,8 +558,11 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
 }
 
 /// Lines of swatches shown at once (more scroll), and a swatch's height.
-const VISIBLE_LINES: usize = 10;
-const CELL_H: f32 = 12.0;
+const VISIBLE_LINES: usize = 12;
+/// A swatch's cell, its 1-point separator line included (Fireworks MX's swatches are about this
+/// small, with single lines between them).
+const CELL_W: f32 = 12.0;
+const CELL_H: f32 = 10.0;
 
 /// The swatches (in the scrolling area); the rectangle of the selected one, if shown.
 fn swatches(
@@ -571,19 +573,31 @@ fn swatches(
     s: &ExportSettings,
     actions: &mut Vec<Action>,
 ) -> Option<Rect> {
-    let cols = ((ui.available_width() / 18.0).floor() as usize).max(6);
-    let cell = vec2((ui.available_width() / cols as f32).floor(), CELL_H);
+    // Room for the closing line on the right.
+    let room = ui.available_width() - 1.0;
+    let cols = ((room / CELL_W).floor() as usize).max(6);
+    let cell = vec2((room / cols as f32).floor(), CELL_H);
     let lines = rows.len().div_ceil(cols).max(VISIBLE_LINES);
     let (area, _) = ui.allocate_exact_size(vec2(cell.x * cols as f32, cell.y * lines as f32), Sense::hover());
     let p = ui.painter().clone();
     let border = crate::theme::pal().border;
     let mut edit_anchor = None;
+    let mut selected = Vec::new();
     for (k, &i) in order.iter().enumerate() {
         let Some(row) = rows.get(i) else { continue };
         let at = pos2(area.left() + (k % cols) as f32 * cell.x, area.top() + (k / cols) as f32 * cell.y);
-        let r = Rect::from_min_size(at, cell).shrink(1.0);
-        paint_cell(&p, r, row.entry, st.selected.contains(&i));
-        p.rect_stroke(r.expand(0.5), 0.0, Stroke::new(1.0, border), egui::StrokeKind::Middle);
+        // The swatch inside the cell's lines (shared with the neighbours).
+        let r = Rect::from_min_max(at + vec2(1.0, 1.0), at + cell);
+        paint_cell(&p, r, row.entry);
+        if st.selected.contains(&i) {
+            selected.push(r);
+        }
+        p.rect_stroke(
+            Rect::from_min_size(at + vec2(0.5, 0.5), cell),
+            0.0,
+            Stroke::new(1.0, border),
+            egui::StrokeKind::Middle,
+        );
         let resp = ui.interact(r, egui::Id::unique(("opt_swatch", i)), Sense::click());
         if resp.clicked() {
             if let Some(pick) = st.pick.take() {
@@ -610,6 +624,11 @@ fn swatches(
         if st.selected.contains(&i) && edit_anchor.is_none() {
             edit_anchor = Some(r);
         }
+    }
+    // The selection over the lines: black on the cell's lines, white inside them.
+    for r in selected {
+        p.rect_stroke(r.expand(0.5), 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Middle);
+        p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Inside);
     }
     edit_anchor
 }
@@ -730,40 +749,39 @@ fn edit_popup(ui: &mut Ui, st: &mut TableState, rows: &[Row]) -> Option<(Option<
     None
 }
 
-/// One swatch: its color (checkered when transparent), the selection, and Fireworks MX's marks.
-fn paint_cell(p: &egui::Painter, r: Rect, e: PaletteEntry, selected: bool) {
+/// One swatch: its color (over a checkerboard when transparent or partly so), and Fireworks MX's
+/// marks.
+fn paint_cell(p: &egui::Painter, r: Rect, e: PaletteEntry) {
     let c = e.color;
-    if e.transparent {
+    // Transparent, or partly (a PNG 8's alpha palette): the color over a checkerboard.
+    if e.transparent || c.a < 255 {
         p.rect_filled(r, 0.0, Color32::WHITE);
         let h = r.size() / 2.0;
         p.rect_filled(Rect::from_min_size(r.min, h), 0.0, Color32::from_gray(204));
         p.rect_filled(Rect::from_min_size(r.min + h, h), 0.0, Color32::from_gray(204));
-    } else {
-        p.rect_filled(r, 0.0, Color32::from_rgb(c.r, c.g, c.b));
+    }
+    if !e.transparent {
+        p.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a));
     }
     // Web safe: a small diamond in the middle.
-    if !e.transparent && is_web_safe(c) {
+    if !e.transparent && c.a == 255 && is_web_safe(c) {
         let m = r.center();
-        let d = 2.5;
+        let d = 2.0;
         let pts = vec![pos2(m.x, m.y - d), pos2(m.x + d, m.y), pos2(m.x, m.y + d), pos2(m.x - d, m.y)];
         p.add(egui::Shape::convex_polygon(pts, Color32::WHITE, Stroke::new(1.0, Color32::BLACK)));
     }
     // Edited: a small square at the bottom left; locked: at the bottom right.
     let mark = |at: Pos2| {
-        let b = Rect::from_min_size(at, vec2(5.0, 5.0));
+        let b = Rect::from_min_size(at, vec2(4.0, 4.0));
         p.rect_filled(b, 0.0, Color32::WHITE);
         p.rect_stroke(b, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Inside);
         p.rect_filled(Rect::from_center_size(b.center(), vec2(1.0, 1.0)), 0.0, Color32::BLACK);
     };
     if e.original.is_some() {
-        mark(pos2(r.left(), r.bottom() - 5.0));
+        mark(pos2(r.left(), r.bottom() - 4.0));
     }
     if e.locked {
-        mark(pos2(r.right() - 5.0, r.bottom() - 5.0));
-    }
-    if selected {
-        p.rect_stroke(r, 0.0, Stroke::new(2.0, Color32::WHITE), egui::StrokeKind::Inside);
-        p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Inside);
+        mark(pos2(r.right() - 4.0, r.bottom() - 4.0));
     }
 }
 

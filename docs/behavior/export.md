@@ -231,8 +231,9 @@ follows Fireworks MX's help ("Viewing colors in a palette" and the pages after i
 strings (Fireworks Resources.dll):
 
 * It shows the palette of the last export: kept up to date in Preview, otherwise a **Rebuild** button
-  takes the place of the color count once the document has changed. Ten lines of swatches show at
-  once and the rest scroll, as in Fireworks MX. With "Maximize colors per frame" it shows the table of
+  takes the place of the color count once the document has changed. Twelve lines of small swatches
+  (12 x 10 points, single lines between them) show at once and the rest scroll, as in Fireworks MX.
+  A PNG 8's partly transparent entries show their color over a checkerboard. With "Maximize colors per frame" it shows the table of
   the frame shown (stepping or playing; the frames' tables are kept with the preview only, never
   written to the document).
 * Swatch marks: edited (a square at the bottom left), locked (bottom right), transparent (checkered),
@@ -268,7 +269,12 @@ whole table, or all 16 grays (plus the locked yellow) for Grayscale at 16 colors
 its size keeps only colors in use either way (16 requested: the 2 used and the locked yellow), so
 FireCraft's trimming of Web 216, Windows and Macintosh now leaves unused entries out too. FireCraft keeps
 the transparent entry as well (Auto Difference needs it after mapping). The Optimize panel shows it as
-the "Remove unused colors" checkbox (Fireworks MX: in the panel's menu).
+the "Remove unused colors" checkbox (Fireworks MX: in the panel's menu). It only changes anything when the palette
+has entries no pixel uses: fixed palettes, custom ones, and the few adaptive entries no pixel ends up
+nearest to. An image whose colors all fit (100dpcm_fw.png: 17 color+alpha combinations) has none.
+cone3.png as PNG 8, Adaptive 256, Alpha: FireCraft's median cut makes 256 entries of which 10 go unused
+(246 with the option on); Fireworks MX's own adaptive palette makes 195 (194 on), a difference of the
+palette algorithm (roadmap: Fireworks MX's own adaptive palette), not of this option.
 
 ## Not yet
 
