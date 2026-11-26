@@ -10,7 +10,7 @@ use crate::FireCraftApp;
 
 mod table;
 
-pub(crate) use table::TableState;
+pub(crate) use table::{TableState, highlight_color, shows};
 
 pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
     table::receive_palette(app);

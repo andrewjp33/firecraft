@@ -233,7 +233,16 @@ strings (Fireworks Resources.dll):
 * It shows the palette of the last export: kept up to date in Preview, otherwise a **Rebuild** button
   takes the place of the color count once the document has changed. Twelve lines of small swatches
   (12 x 10 points, single lines between them) show at once and the rest scroll, as in Fireworks MX.
-  A PNG 8's partly transparent entries show their color over a checkerboard. With "Maximize colors per frame" it shows the table of
+  A PNG 8's partly transparent entries show their color over a checkerboard.
+* Holding the mouse down on a swatch shows its pixels in the Preview in a highlight color until it is
+  released (Fireworks MX's help: "temporarily change to another highlight color"). Measured in Fireworks
+  MX (`probes/highlight_mx`): not one color but the held color's opposite hue, fully saturated, with its
+  lightness inverted (green to #FF08FC, yellow to #0707FE, #808080 to #08FBFE, magenta to #0EFF08, navy
+  to #FEFC82; a grey takes hue 0 and turns cyan); FireCraft computes it the same way, within a few levels
+  of Fireworks MX's Windows 0-240 HLS steps. Partly transparent pixels keep their opacity (the user saw
+  a partly transparent #BE3531 highlighted on screen as #5CF1FE in Fireworks MX); fully transparent ones
+  show nothing. In that session, holding Fireworks MX's first swatch highlighted the pixels of another
+  color (its table order and its highlight disagree); FireCraft highlights the held color. With "Maximize colors per frame" it shows the table of
   the frame shown (stepping or playing; the frames' tables are kept with the preview only, never
   written to the document).
 * Swatch marks: edited (a square at the bottom left), locked (bottom right), transparent (checkered),
@@ -278,7 +287,6 @@ palette algorithm (roadmap: Fireworks MX's own adaptive palette), not of this op
 
 ## Not yet
 
-2-Up/4-Up and Export Preview; GIF loss (lossy LZW); the color table's press-and-hold highlight of a
-color's pixels, Replace Palette Entry;
+2-Up/4-Up and Export Preview; GIF loss (lossy LZW); the color table's Replace Palette Entry;
 Selective JPEG quality; animated WebP export; WebP in the browser build; 16-bit (PNG 48/64) export,
 which needs a 16-bit pipeline (layers are 8 bits per channel).

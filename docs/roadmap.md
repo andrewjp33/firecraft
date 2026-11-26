@@ -87,7 +87,7 @@ Other items keep their numbers.
      handles on an odd-sized object (FireCraft: on the half pixel)
 7. **Optimize panel + Export, the rest**: 2-Up/4-Up and Export Preview; GIF Loss (lossy LZW); custom
    palettes and the Color Table panel (done: [behavior/export.md](behavior/export.md#the-color-table);
-   and Remove Unused Colors; left: press-and-hold highlight of a color's pixels, Replace Palette Entry);
+   Remove Unused Colors and the press-and-hold highlight; left: Replace Palette Entry);
    Selective JPEG quality; Fireworks MX's own adaptive palette and
    dither pattern; more dither types, including ones that stay stable from frame to frame in
    animations (with "Maximize colors per frame" each frame has its own table); animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and

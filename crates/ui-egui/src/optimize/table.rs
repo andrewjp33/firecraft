@@ -38,6 +38,9 @@ pub(crate) struct TableState {
     pub(crate) pick: Option<Pick>,
     /// The color a transparency eyedropper took from the preview: (document, color).
     pub(crate) picked: Option<(u64, Rgba)>,
+    /// The swatch held down: (document, its color). The Preview shows that color's pixels in
+    /// [`highlight_color`] meanwhile (Fireworks MX).
+    pub(crate) held: Option<(u64, Rgba)>,
     /// The color pop-up of Edit Color or Add Color.
     editing: Option<Editing>,
     /// Load Palette is waiting for its file (for this document).
@@ -356,6 +359,8 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     let s = d.doc.export.clone();
     let rows = rows(&s, optimized, current, d.doc.current_frame);
     let st = &mut app.optimize_table;
+    // Set again below while a swatch is held.
+    st.held = None;
     if st.rows != rows.len() {
         st.selected.clear();
         st.anchor = None;
@@ -608,6 +613,18 @@ fn swatches(
             egui::StrokeKind::Middle,
         );
         let resp = ui.interact(r, egui::Id::unique(("opt_swatch", i)), Sense::click());
+        // Held down: the Preview highlights this color's pixels (not a transparent one's, as in
+        // Fireworks MX, where they stay as they are).
+        // (Read from the pointer: egui lets go of a click widget once a press outlasts a click.)
+        let clip = ui.clip_rect();
+        let held = ui.input(|inp| {
+            inp.pointer.primary_down()
+                && inp.pointer.press_origin().is_some_and(|q| r.contains(q) && clip.contains(q))
+        });
+        if held && !row.entry.transparent && row.entry.color.a != 0 {
+            st.held = Some((st.doc, row.entry.color));
+            ui.ctx().request_repaint();
+        }
         if resp.clicked() {
             if let Some(pick) = st.pick.take() {
                 st.selected = BTreeSet::from([i]);
@@ -794,6 +811,46 @@ fn paint_cell(p: &egui::Painter, r: Rect, e: PaletteEntry) {
     }
 }
 
+/// The color Fireworks MX shows a held swatch's pixels in: the opposite hue, fully saturated, the
+/// lightness inverted (a grey counts as hue 0, so it turns cyan). Measured in Fireworks MX, within
+/// a few levels (its HLS math works in Windows' 0-240 steps): green to #FF08FC, yellow to #0707FE,
+/// #808080 to #08FBFE, magenta to #0EFF08, navy to #FEFC82 (probes/highlight_mx).
+pub(crate) fn highlight_color(c: Rgba) -> Rgba {
+    let (r, g, b) = (f32::from(c.r) / 255.0, f32::from(c.g) / 255.0, f32::from(c.b) / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let hue = if max == min {
+        0.0
+    } else if max == r {
+        ((g - b) / (max - min)).rem_euclid(6.0)
+    } else if max == g {
+        (b - r) / (max - min) + 2.0
+    } else {
+        (r - g) / (max - min) + 4.0
+    };
+    // In sixths of a turn: half a turn on.
+    let hue = (hue + 3.0).rem_euclid(6.0);
+    let l = 1.0 - (max + min) / 2.0;
+    // Fully saturated at that lightness.
+    let chroma = 1.0 - (2.0 * l - 1.0).abs();
+    let x = chroma * (1.0 - (hue.rem_euclid(2.0) - 1.0).abs());
+    let (r1, g1, b1) = match hue as u32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let m = l - chroma / 2.0;
+    let v = |f: f32| ((f + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Rgba::new(v(r1), v(g1), v(b1), 255)
+}
+
+/// Whether a pixel of the export shows this table color.
+pub(crate) fn shows(p: Rgba, c: Rgba) -> bool {
+    p.a != 0 && (p.r, p.g, p.b) == (c.r, c.g, c.b) && (c.a == 255 || p.a == c.a)
+}
+
 /// Rebuild Color Table: export again for the document as it is now.
 fn rebuild_table(app: &mut FireCraftApp, ctx: &egui::Context, id: u64) {
     let Some(d) = app.session.docs.iter().find(|d| d.id == id) else { return };
@@ -937,6 +994,24 @@ mod tests {
         apply_pick(&mut s, &rows, Pick::Select, 1);
         let clear: Vec<bool> = s.table.iter().map(|e| e.transparent).collect();
         assert_eq!(clear, [false, true, false]);
+    }
+
+    #[test]
+    fn held_swatches_highlight_as_fireworks_mx() {
+        // Fireworks MX's highlights (probes/highlight_mx), within its rounding.
+        for (c, mx) in [
+            (0x00FF00, 0xFF08FC),
+            (0xFFFF00, 0x0707FE),
+            (0x808080, 0x08FBFE),
+            (0xFF00FF, 0x0EFF08),
+            (0x000080, 0xFEFC82),
+        ] {
+            let rgb = |v: u32| Rgba::new((v >> 16) as u8, (v >> 8) as u8, v as u8, 255);
+            let h = highlight_color(rgb(c));
+            let m = rgb(mx);
+            let off = [(h.r, m.r), (h.g, m.g), (h.b, m.b)].iter().map(|&(a, b)| a.abs_diff(b)).max();
+            assert!(off <= Some(16), "{c:06X}: {h:?}, Fireworks MX {m:?}");
+        }
     }
 
     #[test]

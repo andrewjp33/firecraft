@@ -972,13 +972,35 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         checkerboard(&p, canvas_rect.intersect(rect));
     }
     // Preview: the document as it exports (the Optimize panel's settings).
-    let shown = if view.preview {
+    if view.preview {
         refresh_optimized(view, d, &ctx);
-        view.optimized.as_ref().and_then(|o| o.texture.as_ref())
-    } else {
-        None
-    };
-    if let Some(tex) = shown.or(view.texture.as_ref().map(|t| &t.1)) {
+    }
+    // A color table swatch held down: the Preview with that color's pixels in the highlight
+    // color, each keeping its opacity (Fireworks MX), in place of the export's picture.
+    let held = app.optimize_table.held.filter(|&(doc, _)| doc == d.id && view.preview);
+    if let (Some((_, c)), Some(o)) = (held, view.optimized.as_mut())
+        && o.highlight.as_ref().is_none_or(|h| (h.0, h.1) != (c, o.frame))
+        && let Some(pic) = o.picture.as_ref()
+    {
+        let mark = crate::optimize::highlight_color(c);
+        let px: Vec<firecraft_raster::Rgba> = pic
+            .pixels()
+            .iter()
+            .map(|&q| if crate::optimize::shows(q, c) { firecraft_raster::Rgba { a: q.a, ..mark } } else { q })
+            .collect();
+        if let Some(img) = firecraft_raster::RgbaImage::from_pixels(pic.width(), pic.height(), px) {
+            let tex = crate::tiles::TiledTexture::new(
+                &ctx,
+                &format!("optimized-highlight-{}", d.id),
+                &img,
+                egui::TextureOptions::NEAREST,
+            );
+            o.highlight = Some((c, o.frame, tex));
+        }
+    }
+    let highlighted = held.and_then(|_| view.optimized.as_ref()).and_then(|o| o.highlight.as_ref()).map(|h| &h.2);
+    let shown = if view.preview { view.optimized.as_ref().and_then(|o| o.texture.as_ref()) } else { None };
+    if let Some(tex) = highlighted.or(shown).or(view.texture.as_ref().map(|t| &t.1)) {
         tex.paint(&p, canvas_rect);
     }
     p.rect_stroke(
@@ -1857,6 +1879,8 @@ pub(crate) struct Optimized {
     /// stepping) is shown from it without exporting again.
     pub animation: Option<std::sync::Arc<firecraft_io::export::AnimatedPreview>>,
     frame: usize,
+    /// The pixels of a held color table swatch, in the highlight color: (color, frame, texture).
+    highlight: Option<(firecraft_raster::Rgba, usize, crate::tiles::TiledTexture)>,
 }
 
 /// What the preview depends on. An animated GIF's export holds every frame, so not the current
@@ -1905,6 +1929,7 @@ pub(crate) fn refresh_optimized(view: &mut crate::View, d: &firecraft_engine::Do
         picture: None,
         animation: None,
         frame,
+        highlight: None,
     };
     match firecraft_io::export::export(&d.doc, &d.doc.export) {
         Ok(e) => {
