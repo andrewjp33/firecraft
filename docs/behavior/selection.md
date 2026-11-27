@@ -68,6 +68,12 @@ default):
   (no fade along it), the fade only at the right, top and bottom; the bounds read 0,30 70x80.
   The Lasso is cut too (a polygon from -30,40 to 38,100 gave 0,40 38x60); FireCraft's Lasso
   doesn't select yet.
+* **The marching ants are screen pixels**, whatever the zoom: 4 black, 4 white, in diagonal
+  stripes across the screen (the colour follows x - y: a marquee's top row at y 457 was black
+  from x 443 to 446, its bottom row at y 516 from 446 to 449; measured 2026-11-26). FireCraft
+  draws them, the crop box's dashes and handles on whole physical pixels, so they stay even at
+  any zoom and with display scaling (125%). They used to be canvas pixels long, uneven when
+  zoomed and smeared between pixels at 125%.
 * **The marching ants run on the selection's outermost pixels**: a marquee 0,40 to 60,100 at
   100% shows its left and top ants on the first selected pixel and its right and bottom ants on
   the last one (x 59, y 99), never on the pixel outside (measured 2026-11-26). FireCraft draws

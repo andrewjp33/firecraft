@@ -343,16 +343,19 @@ pub fn overlay(crop: &Option<CropEdit>, d: &DocState, p: &egui::Painter, (origin
     };
     let to_screen = |x: i64, y: i64| pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
     dashes(p, Rect::from_min_max(to_screen(r.0, r.1), to_screen(r.2, r.3)));
+    // Handles: black, 3 screen pixels before the box's edge and 2 after, in a 1 px white ring
+    // so they show on a dark canvas too, as Fireworks MX draws them at any zoom (measured
+    // 2026-11-26). On whole physical pixels, scaled with the display (5 px at 100%, 6 at 125%).
+    let mut px = crate::pixels::PixelMesh::new(p);
+    let (size, before, ring) = (px.pixels(HANDLE), px.pixels(3.0), px.pixels(1.0));
     for h in HANDLES {
         let (x, y) = handle_pos(r, h);
-        let c = pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
-        // Black, 3 screen pixels before the box's edge and 2 after, in a 1 px white ring so
-        // they show on a dark canvas too, as Fireworks MX draws them at any zoom (measured
-        // 2026-11-26).
-        let hr = Rect::from_min_size(c.floor() - vec2(3.0, 3.0), vec2(HANDLE, HANDLE));
-        p.rect_filled(hr.expand(1.0), 0.0, Color32::WHITE);
-        p.rect_filled(hr, 0.0, Color32::BLACK);
+        let (cx, cy) = px.grid(pos2(origin.x + x as f32 * z, origin.y + y as f32 * z));
+        let (x0, y0) = (cx - before, cy - before);
+        px.rect(x0 - ring, y0 - ring, x0 + size + ring, y0 + size + ring, Color32::WHITE);
+        px.rect(x0, y0, x0 + size, y0 + size, Color32::BLACK);
     }
+    px.paint(p);
 }
 
 /// A rectangle drawn dashed, 3 screen pixels black and 3 white, standing still (the crop box
@@ -360,36 +363,13 @@ pub fn overlay(crop: &Option<CropEdit>, d: &DocState, p: &egui::Painter, (origin
 /// last pixel inside, as Fireworks MX draws it (a box the size of the canvas runs along the
 /// canvas's own edge pixels). Measured 2026-11-26 on a black canvas. Each side counts its dashes
 /// from the box's top-left pixel, starting part way into a black dash, as Fireworks' top and
-/// left sides do. Pixels as squares in one mesh: 1 px line segments get their ends rounded.
+/// left sides do. Physical screen pixels, whatever the zoom and display scaling.
 fn dashes(p: &egui::Painter, r: Rect) {
-    let (l, t) = (r.min.x.floor(), r.min.y.floor());
-    let (rr, b) = ((r.max.x.ceil() - 1.0).max(l), (r.max.y.ceil() - 1.0).max(t));
-    // Only what's on screen (a big box zoomed in reaches far past it).
-    let clip = p.clip_rect();
-    let (x0, x1) = (l.max(clip.min.x.floor() - 1.0), rr.min(clip.max.x.ceil()));
-    let (y0, y1) = (t.max(clip.min.y.floor() - 1.0), b.min(clip.max.y.ceil()));
-    let color = |o: f32| {
-        if (o as i64 + 1).rem_euclid(6) < 3 { Color32::BLACK } else { Color32::WHITE }
-    };
-    let mut mesh = egui::Mesh::default();
-    let mut px = |x: f32, y: f32, c: Color32| mesh.add_colored_rect(Rect::from_min_size(pos2(x, y), vec2(1.0, 1.0)), c);
-    let mut x = x0;
-    while x <= x1 {
-        px(x, t, color(x - l));
-        if b > t {
-            px(x, b, color(x - l));
-        }
-        x += 1.0;
-    }
-    let mut y = y0;
-    while y <= y1 {
-        px(l, y, color(y - t));
-        if rr > l {
-            px(rr, y, color(y - t));
-        }
-        y += 1.0;
-    }
-    p.add(egui::Shape::mesh(mesh));
+    let mut px = crate::pixels::PixelMesh::new(p);
+    let ((l, t), (rr, b)) = (px.grid(r.min), px.grid(r.max));
+    let dash = |o: i64| if (o + 1).rem_euclid(6) < 3 { Color32::BLACK } else { Color32::WHITE };
+    px.outline((l, t, rr - 1, b - 1), |x, y| if y == t || y == b - 1 { dash(x - l) } else { dash(y - t) });
+    px.paint(p);
 }
 
 /// The Property inspector's crop box fields (Fireworks MX shows W, H, X and Y under the

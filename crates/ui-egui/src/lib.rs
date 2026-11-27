@@ -36,6 +36,7 @@ mod nine;
 mod optimize;
 mod panels;
 mod path_tool;
+mod pixels;
 mod recent;
 mod stroke_dialog;
 mod stroke_panel;

@@ -1676,18 +1676,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             };
             match tool {
                 Tool::Marquee => {
-                    // Where the marching ants will run once it's let go.
-                    // On its outermost pixels: right and bottom on the last pixel inside, as
-                    // Fireworks MX draws marching ants.
+                    // Where the marching ants will run once it's let go, drawn as they will be:
+                    // on its outermost screen pixels, in screen-pixel dashes.
                     let r = grid();
-                    let lt = r.min.floor() + vec2(0.5, 0.5);
-                    let rb = (r.max.ceil() - vec2(0.5, 0.5)).max(lt);
-                    p.extend(Shape::dashed_line(
-                        &[lt, pos2(rb.x, lt.y), rb, pos2(lt.x, rb.y), lt],
-                        Stroke::new(1.0, Color32::BLACK),
-                        4.0,
-                        4.0,
-                    ));
+                    let mut px = crate::pixels::PixelMesh::new(&p);
+                    let ((l, t), (r, b)) = (px.grid(r.min), px.grid(r.max));
+                    let phase = (ctx.input(|i| i.time) * 8.0) as i64;
+                    px.outline((l, t, r - 1, b - 1), crate::pixels::ant(phase));
+                    px.paint(&p);
                 }
                 Tool::OvalMarquee => {
                     let r = grid();
@@ -1851,33 +1847,21 @@ fn marching_ants(
         }
         return;
     }
-    // Each edge from canvas point `a` to `b` (one pixel long, across or down), drawn as whole
-    // screen pixels on the selected side of it, as Fireworks MX draws them: the selection's
-    // left and top edges on its first pixel, its right and bottom edges on its last pixel
-    // (measured 2026-11-26), so a selection of the whole canvas runs along the canvas's own
-    // edge pixels. `after`: the selection lies right of (below) the edge. Dashed by position
-    // along x+y, so dashes line up across edges and "march" with `phase`. The pixels go into
-    // one mesh of plain squares: 1 px line segments get their ends rounded by the tessellator,
-    // and one a pixel long from edge to edge vanishes.
-    let mut mesh = egui::Mesh::default();
+    // Each edge from canvas point `a` to `b` (one canvas pixel long, across or down), drawn
+    // on whole screen pixels on the selected side of it, as Fireworks MX draws them: the
+    // selection's left and top edges on its first pixel, its right and bottom edges on its last
+    // pixel (measured 2026-11-26), so a selection of the whole canvas runs along the canvas's
+    // own edge pixels. `after`: the selection lies right of (below) the edge. The dashes are
+    // screen pixels whatever the zoom and display scaling ([`crate::pixels::ant`]).
+    let mut px = crate::pixels::PixelMesh::new(p);
+    let color = crate::pixels::ant(phase as i64);
     let mut seg = |a: (f64, f64), b: (f64, f64), after: bool| {
-        let k = (a.0 + a.1) as i64 + (phase as i64);
-        let color = if k.rem_euclid(8) < 4 {
-            Color32::BLACK
+        let (ga, gb) = (px.grid(to_screen(ox + a.0, oy + a.1)), px.grid(to_screen(ox + b.0, oy + b.1)));
+        let side = |v: i64| if after { v } else { v - 1 };
+        if a.0 == b.0 {
+            px.column(side(ga.0), ga.1, gb.1, &color);
         } else {
-            Color32::WHITE
-        };
-        let (pa, pb) = (to_screen(ox + a.0, oy + a.1), to_screen(ox + b.0, oy + b.1));
-        let side = |v: f32| if after { v.floor() } else { v.ceil() - 1.0 };
-        let r = if a.0 == b.0 {
-            let x = side(pa.x);
-            Rect::from_min_max(pos2(x, pa.y.floor()), pos2(x + 1.0, pb.y.floor()))
-        } else {
-            let y = side(pa.y);
-            Rect::from_min_max(pos2(pa.x.floor(), y), pos2(pb.x.floor(), y + 1.0))
-        };
-        if r.is_positive() {
-            mesh.add_colored_rect(r, color);
+            px.row(side(ga.1), ga.0, gb.0, &color);
         }
     };
     for y in 0..=h {
@@ -1891,7 +1875,7 @@ fn marching_ants(
             }
         }
     }
-    p.add(egui::Shape::mesh(mesh));
+    px.paint(p);
 }
 
 /// The Preview tab's export of a document, kept until the document, its frame or its export
