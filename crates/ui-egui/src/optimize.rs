@@ -329,7 +329,7 @@ fn png_optimizer(ui: &mut Ui, s: &mut ExportSettings) {
 fn jpeg(ui: &mut Ui, s: &mut ExportSettings) {
     ui.horizontal(|ui| {
         ui.label("Quality:");
-        crate::theme::slider(ui, Slider::new(&mut s.jpeg_quality, 0..=100));
+        crate::theme::slider(ui, crate::theme::precise(Slider::new(&mut s.jpeg_quality, 0..=100)));
     });
     ui.horizontal(|ui| {
         ui.label("Smoothing:");
@@ -356,12 +356,12 @@ fn modern(ui: &mut Ui, s: &mut ExportSettings) {
     ui.add_enabled_ui(!s.lossless, |ui| {
         ui.horizontal(|ui| {
             ui.label("Quality:");
-            crate::theme::slider(ui, Slider::new(&mut s.quality, 0..=100));
+            crate::theme::slider(ui, crate::theme::precise(Slider::new(&mut s.quality, 0..=100)));
         });
         ui.horizontal(|ui| {
             ui.label("Alpha Quality:")
                 .on_hover_text("Quality of the transparency (100 keeps it exact)");
-            crate::theme::slider(ui, Slider::new(&mut s.alpha_quality, 0..=100));
+            crate::theme::slider(ui, crate::theme::precise(Slider::new(&mut s.alpha_quality, 0..=100)));
         });
     });
 }
