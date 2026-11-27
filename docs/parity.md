@@ -39,6 +39,12 @@ round trip and save checks. A FireCraft save re-saved in Fireworks (`*_fc*_cs5`,
 Fireworks opens it right) has Fireworks' render again and counts. Since 2026-11-24, so earlier
 runs' averages include FireCraft's own saves (95.9% then, 95.2% without them).
 
+As of 2026-11-27 (v0.4.0): 97 Fireworks-saved reference files (probes added since v0.3.0) average
+95.3%: 45 match 100%, 9 more are above 99%, 33 are between 90% and 99% and 10 are below 90%;
+every file round-trips losslessly and re-opens to the same render after a FireCraft save. On the
+same files the average went from 95.2% (2026-11-24) to 95.3%, with path fills now anti-aliased as
+Fireworks MX samples them.
+
 As of 2026-11-19 (v0.3.0): 93 Fireworks-saved reference files (FireCraft's own `*_fc*` saves and
 plain screenshots left out) average 96.0%: 41 match 100%, 9 more are above 99%, 34 are between
 90% and 99% and 9 are below 90%; every file round-trips losslessly and re-opens to the same

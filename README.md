@@ -45,10 +45,42 @@ masks, symbols (animation symbols included), opening common image formats and ex
 Optimize panel: GIF, JPEG, PNG, WebP, JPEG XL) are in place. Frame editing, slices and some tools
 are not yet ([what's next](#not-done-yet)).
 
-**Rendering parity** on 93 Fireworks reference files, scored against Fireworks' own render of each
-file (19 November 2026): 41 match 100%, 9 more are above 99%, 34 are between 90% and 99%, and 9 are
-below 90%. The average is 96.0%. Every file survives the lossless round trip and a FireCraft save
+**Rendering parity** on 97 Fireworks reference files, scored against Fireworks' own render of each
+file (27 November 2026): 45 match 100%, 9 more are above 99%, 33 are between 90% and 99%, and 10 are
+below 90%. The average is 95.3%. Every file survives the lossless round trip and a FireCraft save
 that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
+
+### New in 0.4.0
+
+Highlights (the full list is in the release notes):
+
+- **Four themes**: Classic (Fireworks MX's look), Classic Dark, Modern (the new default: rounded
+  cards, soft gradients, a dark tool sidebar) and Modern Dark, following the system's dark mode,
+  with any accent color (Edit > Preferences or View > Theme).
+- **Tool cursors** for every tool, drawn like Fireworks MX's: marks for add, subtract and
+  intersect, a Pen cursor that says what a click will do, marching ants and crop dashes on whole
+  screen pixels at any zoom or display scaling.
+- **Marquee styles** (Normal, Fixed Ratio, Fixed Size) and **Live marquee** from Fireworks CS:
+  change the Edge or the Magic Wand's Tolerance and the selection just made is redone
+  ([docs/behavior/selection.md](docs/behavior/selection.md)).
+- **Whole-pixel editing, sub-pixel on request**: shapes, moves and transforms land on whole
+  pixels, Ctrl keeps them sub-pixel; the Property inspector's W/H/X/Y show the pixels covered
+  and W/H resize the selection; path fills anti-aliased exactly as Fireworks MX does
+  ([docs/behavior/objects.md](docs/behavior/objects.md)).
+- **Pen and Subselection handles** as in Fireworks: Shift snaps a handle to 45 degrees, Alt
+  mid-drag holds the other handle, a corner point's handles move one at a time
+  ([docs/behavior/paths.md](docs/behavior/paths.md)).
+- **File > Open Recent** and **File > Revert**
+  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
+- **Optimize panel color table**: press and hold a swatch to see its pixels, swatch feedback
+  under the pointer, Sort by, Remove Unused Colors, per-frame tables
+  ([docs/behavior/export.md](docs/behavior/export.md#the-color-table)).
+- **Tool options and each effect's settings are kept** between sessions, with a Defaults button
+  in the effect popups.
+- Smaller things: Tab goes W, H, X, Y in the Property inspector as in Fireworks; sliders reach
+  every value; Copy on Windows also puts a plain picture on the clipboard for other
+  applications; pasting pictures from other applications in the browser; very large documents
+  draw on any graphics card.
 
 ### New in 0.3.1
 
@@ -147,7 +179,8 @@ Things no version of Fireworks has:
 - **Opening images**: PNG, JPEG, GIF, BMP, TIFF, Targa, WebP and JPEG XL open as Fireworks MX
   opens them (a Background layer with the image; animated GIFs, WebPs and PNGs as frames;
   the file's resolution and palette kept for re-export). Saving never overwrites the original: it
-  asks for a `.png` name; **File > Open Recent** lists the last 10 files, as Fireworks MX does
+  asks for a `.png` name; **File > Open Recent** lists the last 10 files, as Fireworks MX does,
+  and **File > Revert** goes back to the saved file
   ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
 - **Masks**: vector and bitmap masks render as in Fireworks MX and can be made and edited with all
   of Fireworks MX's mask commands, from the Layers panel and the Property inspector
@@ -198,7 +231,8 @@ Things no version of Fireworks has:
     rectangle primitives with roundness), Ellipse, **Text**.
   - Eyedropper, Hand, Zoom; tool keys as in Fireworks (G, E, Y...).
 - **Bitmap editing** ([docs/behavior/selection.md](docs/behavior/selection.md)): bitmap mode
-  (double-click, Exit Bitmap Mode), marquees that stay across bitmaps, Delete, Feather, Select
+  (double-click, Exit Bitmap Mode), marquees that stay across bitmaps, the Marquee's Normal,
+  Fixed Ratio and Fixed Size styles, Live marquee (Fireworks CS), Delete, Feather, Select
   Inverse, Edit > Insert > Bitmap via Cut/Copy and Empty Bitmap, New Bitmap Image, filling or
   painting a marquee on empty canvas into a new bitmap.
 - **Objects** ([docs/behavior/objects.md](docs/behavior/objects.md)):
