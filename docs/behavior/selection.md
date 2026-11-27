@@ -53,7 +53,8 @@ default):
   outline moves, the pixels stay ("Move").
 * **The cursor over the selection** (Marquee, Oval Marquee or Magic Wand, no Shift or Alt) is a
   white arrow over a small dashed box, the hotspot at the arrow's tip (seen in the running
-  Fireworks MX 2026-11-26). FireCraft draws a lookalike from shapes (no Fireworks artwork).
+  Fireworks MX 2026-11-26); the box is white inside and the whole cursor has a white outline, so
+  it reads on dark pixels. FireCraft draws a lookalike from shapes (no Fireworks artwork).
 * **A click inside the selection ends it**, with either tool, recorded as "Select Pixels". So does
   a Marquee click outside it. A Magic Wand click outside selects there ("Magic Wand Tool").
 * **A marquee is cut to the canvas when the button is let go** (measured 2026-11-26 on a

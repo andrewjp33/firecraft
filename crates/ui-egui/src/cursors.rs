@@ -159,10 +159,10 @@ pub fn image(cur: Cur, dark: bool, size: u32) -> egui::CustomCursorImage {
     let (rgba, hot) = map
         .entry((cur, dark, n))
         .or_insert_with(|| {
-            let Design { parts, accents, hot, light } = design(cur);
+            let Design { parts, accents, backdrop, hot, light } = design(cur);
             let fill_dark = if light { !dark } else { dark };
             (
-                raster(&parts, &accents, n as usize, scale, fill_dark).into(),
+                raster(&parts, &accents, &backdrop, n as usize, scale, fill_dark).into(),
                 [(hot.0 * scale).round() as u16, (hot.1 * scale).round() as u16],
             )
         })
@@ -186,6 +186,9 @@ enum Part {
 struct Design {
     parts: Vec<Part>,
     accents: Vec<Part>,
+    /// Under everything, solid in the accents' edge tone (white for black accents): a shape and
+    /// how far (screen pixels) the solid reaches past it, a halo.
+    backdrop: Vec<(Part, f32)>,
     hot: (f32, f32),
     light: bool,
 }
@@ -209,27 +212,39 @@ fn design(cur: Cur) -> Design {
             .collect(),
         )
     };
-    // A double arrow along `angle` through (12, 12), 18 units long.
-    let double = |angle: f32| {
-        let pts = [
-            (-9.0, 0.0),
-            (-4.5, -4.5),
-            (-4.5, -1.6),
-            (4.5, -1.6),
-            (4.5, -4.5),
-            (9.0, 0.0),
-            (4.5, 4.5),
-            (4.5, 1.6),
-            (-4.5, 1.6),
-            (-4.5, 4.5),
-        ];
-        let (s, c) = angle.to_radians().sin_cos();
-        Part::Poly(
-            pts.iter()
-                .map(|&(x, y)| (12.0 + x * c - y * s, 12.0 + x * s + y * c))
-                .collect(),
-        )
+    // Arrows out from the hotspot pixel's centre along each unit direction in `dirs`: thin
+    // shafts with small solid heads (the move cursor four ways, the resize cursors two).
+    let arms = |dirs: &[(f32, f32)]| {
+        const REACH: f32 = 7.5; // centre to tip
+        const SHAFT: f32 = 0.5; // half thickness: 1 px
+        const HEAD: f32 = 3.0; // head length
+        const WIDE: f32 = 2.5; // head half width
+        // Diagonal heads are right-angled, their legs along the pixel axes, so they stay crisp.
+        const CORNER: f32 = 6.5; // centre to a diagonal head's tip, along each axis
+        const LEG: f32 = 5.0;
+        let c = (12.5, 12.5);
+        let mut parts = Vec::new();
+        for &(ux, uy) in dirs {
+            if ux != 0.0 && uy != 0.0 {
+                let (sx, sy) = (ux.signum(), uy.signum());
+                let tip = (c.0 + sx * CORNER, c.1 + sy * CORNER);
+                parts.push(Part::Poly(vec![tip, (tip.0 - sx * LEG, tip.1), (tip.0, tip.1 - sy * LEG)]));
+                let (h, w) = (SHAFT * std::f32::consts::SQRT_2, CORNER - 1.5);
+                parts.push(Part::Poly(vec![
+                    (c.0 - h / 2.0 * sx, c.1 + h / 2.0 * sy),
+                    (c.0 + (w - h / 2.0) * sx, c.1 + (w + h / 2.0) * sy),
+                    (c.0 + (w + h / 2.0) * sx, c.1 + (w - h / 2.0) * sy),
+                    (c.0 + h / 2.0 * sx, c.1 - h / 2.0 * sy),
+                ]));
+                continue;
+            }
+            let at = |along: f32, across: f32| (c.0 + ux * along - uy * across, c.1 + uy * along + ux * across);
+            parts.push(Part::Poly(vec![at(0.0, -SHAFT), at(REACH - HEAD, -SHAFT), at(REACH - HEAD, SHAFT), at(0.0, SHAFT)]));
+            parts.push(Part::Poly(vec![at(REACH, 0.0), at(REACH - HEAD, -WIDE), at(REACH - HEAD, WIDE)]));
+        }
+        parts
     };
+    let d = std::f32::consts::FRAC_1_SQRT_2;
     let bar = |x0: f32, y0: f32, x1: f32, y1: f32| Part::Poly(vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)]);
     // A straight band `half` either side of the line from `a` to `b`.
     let line = |a: (f32, f32), b: (f32, f32), half: f32| {
@@ -241,6 +256,7 @@ fn design(cur: Cur) -> Design {
     let plain = |parts: Vec<Part>, hot: (f32, f32)| Design {
         parts,
         accents: Vec::new(),
+        backdrop: Vec::new(),
         hot,
         light: false,
     };
@@ -251,10 +267,10 @@ fn design(cur: Cur) -> Design {
             ..plain(vec![arrow(2.0, 2.0)], (2.0, 2.0))
         },
         Cur::SelectBehind => plain(vec![bar(12.0, 14.0, 19.0, 21.0), arrow(2.0, 2.0)], (2.0, 2.0)),
-        Cur::ResizeH => plain(vec![double(0.0)], (12.0, 12.0)),
-        Cur::ResizeV => plain(vec![double(90.0)], (12.0, 12.0)),
-        Cur::ResizeNwSe => plain(vec![double(45.0)], (12.0, 12.0)),
-        Cur::ResizeNeSw => plain(vec![double(135.0)], (12.0, 12.0)),
+        Cur::ResizeH => plain(arms(&[(1.0, 0.0), (-1.0, 0.0)]), (12.0, 12.0)),
+        Cur::ResizeV => plain(arms(&[(0.0, 1.0), (0.0, -1.0)]), (12.0, 12.0)),
+        Cur::ResizeNwSe => plain(arms(&[(d, d), (-d, -d)]), (12.0, 12.0)),
+        Cur::ResizeNeSw => plain(arms(&[(d, -d), (-d, d)]), (12.0, 12.0)),
         Cur::Crosshair => plain(
             vec![
                 bar(3.0, 11.1, 9.5, 12.9),
@@ -266,22 +282,9 @@ fn design(cur: Cur) -> Design {
         ),
         // Four-way arrow in the style of Fireworks' move cursor: 1-unit shafts with small
         // solid heads, centred on the hotspot pixel.
-        Cur::Move => {
-            const REACH: f32 = 7.5; // centre to tip
-            const SHAFT: f32 = 0.5; // half thickness
-            const HEAD: f32 = 3.0; // head length
-            const WIDE: f32 = 2.5; // head half width
-            let c = (12.5, 12.5);
-            let mut parts = Vec::new();
-            for (ux, uy) in [(1.0f32, 0.0f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
-                let at = |along: f32, across: f32| (c.0 + ux * along - uy * across, c.1 + uy * along + ux * across);
-                parts.push(Part::Poly(vec![at(0.0, -SHAFT), at(REACH - HEAD, -SHAFT), at(REACH - HEAD, SHAFT), at(0.0, SHAFT)]));
-                parts.push(Part::Poly(vec![at(REACH, 0.0), at(REACH - HEAD, -WIDE), at(REACH - HEAD, WIDE)]));
-            }
-            plain(parts, (12.0, 12.0))
-        }
-        // Dragging a selection: a small white arrow over a black dashed box, in the style of
-        // Fireworks'.
+        Cur::Move => plain(arms(&[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]), (12.0, 12.0)),
+        // Dragging a selection: a small white arrow over a white box with a black dashed edge,
+        // all in a white halo so it reads on dark pixels too (in the style of Fireworks').
         Cur::MovePixels => {
             const L: f32 = 8.0; // the box: left, top, right, bottom
             const T: f32 = 12.0;
@@ -295,11 +298,15 @@ fn design(cur: Cur) -> Design {
             let mid = (T + B) / 2.0;
             accents.push(bar(L, mid - 0.5, L + 1.0, mid + 0.5));
             accents.push(bar(R - 1.0, mid - 0.5, R, mid + 0.5));
-            // A short arrowhead, no tail: tip at the hotspot, its lower right clear of the box.
-            let head = Part::Poly(vec![(2.0, 2.0), (2.0, 13.0), (5.0, 10.0), (10.0, 10.0)]);
+            // A short arrowhead, no tail: tip at the hotspot, its lower right clear of the box;
+            // its black edge gets a white halo past it.
+            let head_halo = || Part::Poly(vec![(2.0, 2.0), (2.0, 13.0), (5.0, 10.0), (10.0, 10.0)]);
+            let head = head_halo();
+            let halo = head_halo();
             Design {
                 parts: vec![head],
                 accents,
+                backdrop: vec![(bar(L, T, R, B), 0.0), (halo, 2.0)],
                 hot: (2.0, 2.0),
                 light: true,
             }
@@ -373,8 +380,8 @@ fn dist(p: &Part, x: f32, y: f32) -> f32 {
 
 /// Rasterise parts (design units x `scale`) into an `n` x `n` RGBA bitmap, anti-aliased:
 /// fill black with a white outline (`dark`) or white with a black outline; `accents` go on top
-/// in the other tone.
-fn raster(parts: &[Part], accents: &[Part], n: usize, scale: f32, dark: bool) -> Vec<u8> {
+/// in the other tone, the backdrop under everything in the accents' edge tone.
+fn raster(parts: &[Part], accents: &[Part], backdrop: &[(Part, f32)], n: usize, scale: f32, dark: bool) -> Vec<u8> {
     let outline = 1.0;
     let (fill, edge) = if dark { (0.0f32, 255.0f32) } else { (255.0, 0.0) };
     let nearest = |set: &[Part], x: f32, y: f32| set.iter().map(|p| dist(p, x, y)).fold(f32::MAX, f32::min) * scale;
@@ -388,12 +395,18 @@ fn raster(parts: &[Part], accents: &[Part], n: usize, scale: f32, dark: bool) ->
                     let x = (px as f32 + (sx as f32 + 0.5) / SS as f32) / scale;
                     let y = (py as f32 + (sy as f32 + 0.5) / SS as f32) / scale;
                     let (d, a) = (nearest(parts, x, y), nearest(accents, x, y));
+                    let k = backdrop
+                        .iter()
+                        .map(|(p, halo)| dist(p, x, y) * scale - halo)
+                        .fold(f32::MAX, f32::min);
                     let v = if a <= 0.0 {
                         edge
                     } else if d <= 0.0 {
                         fill
                     } else if d.min(a) <= outline {
                         if a < d { fill } else { edge }
+                    } else if k <= 0.0 {
+                        fill
                     } else {
                         continue;
                     };
@@ -471,6 +484,12 @@ mod tests {
         assert_eq!(at(&img, 4, 8), [255, 255], "the arrow is white inside");
         assert_eq!(at(&img, 15, 12), [0, 255], "a dash of the box");
         assert_eq!(at(&img, 13, 16), [255, 255], "a gap between dashes");
+        assert_eq!(at(&img, 12, 14), [255, 255], "the box is white inside");
+        assert_eq!(at(&img, 0, 6), [255, 255], "a white halo outside the arrow's black edge");
+        // The resize arrows are as thin as the move cursor's.
+        let img = image(Cur::ResizeH, true, 24);
+        assert_eq!(at(&img, 9, 12), [0, 255]);
+        assert_eq!(at(&img, 9, 11), [255, 255], "1 px shaft");
         // It scales with the cursor size.
         assert_eq!(image(Cur::MovePixels, true, 48).hotspot, [4, 4]);
     }
