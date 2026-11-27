@@ -214,11 +214,17 @@ Other items keep their numbers.
       blade over a selected path
     - **Slice and Hotspot tools** (item 9): the marquee's thin cross (`Cur::Marquee(Badge::None)`)
     - **Polygon/Star tool** (item 1): the thin cross, as the Rectangle and Ellipse
-    - Modifier behaviours behind some of MX's cursors, not built: **Ctrl** with any tool shows the
-      Pointer's black arrow and works as the Pointer while held (FireCraft's Pen already switches
-      to the Subselection tool with Ctrl, as MX does); **Alt** with the Brush, Pencil, Paint Bucket,
-      Gradient and Line tools shows the eyedropper and picks the colour under it. Build the
-      behaviour first, then show the cursor.
+    - Modifier behaviours behind some of MX's cursors, not built:
+      - **Ctrl: a temporary tool while held**, which one depending on the tool, and only for the
+        tools that aren't selection tools (the user, 2026-11-26: the Crop tool, for one, has
+        none). The Pen's is the Subselection tool (FireCraft has this already); the Brush's is
+        the Pointer. Seen with Ctrl in Fireworks MX (black Pointer arrow): Brush, Pencil,
+        Eraser, Paint Bucket, Eyedropper, Line, Rectangle, Text, Hand, Zoom. Measure the rest
+        (each tool, which temporary tool, and whether it acts like it: selecting, moving) before
+        building it.
+      - **Alt** with the Brush, Pencil, Paint Bucket, Gradient and Line tools shows the eyedropper
+        and picks the colour under it.
+      Build the behaviour first, then show its cursor.
 
 ## When needed
 
