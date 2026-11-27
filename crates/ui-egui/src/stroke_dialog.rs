@@ -241,6 +241,8 @@ fn shape_page(
     if ui.checkbox(&mut square, "Square").changed() {
         b.round = !square;
     }
+    // Rails long enough for every whole value of 0-100 to have its own point.
+    ui.spacing_mut().slider_width = 140.0;
     Grid::new("edit_stroke_shape")
         .num_columns(2)
         .spacing(vec2(8.0, 6.0))
@@ -249,7 +251,7 @@ fn shape_page(
             let mut d = b.diameter as f64;
             if crate::theme::slider(
                 ui,
-                egui::Slider::new(&mut d, 1.0..=100.0)
+                crate::theme::precise(egui::Slider::new(&mut d, 1.0..=100.0))
                     .max_decimals(0)
                     .clamping(egui::SliderClamping::Never),
             )
@@ -260,7 +262,7 @@ fn shape_page(
             ui.end_row();
             ui.label("Edge:");
             let mut e = pct(b.softness);
-            if crate::theme::slider(ui, egui::Slider::new(&mut e, 0.0..=100.0).max_decimals(0))
+            if crate::theme::slider(ui, crate::theme::precise(egui::Slider::new(&mut e, 0.0..=100.0)).max_decimals(0))
                 .changed()
             {
                 b.softness = permille(e);
@@ -268,7 +270,7 @@ fn shape_page(
             ui.end_row();
             ui.label("Aspect:");
             let mut a = pct(b.aspect).max(1.0);
-            if crate::theme::slider(ui, egui::Slider::new(&mut a, 1.0..=100.0).max_decimals(0))
+            if crate::theme::slider(ui, crate::theme::precise(egui::Slider::new(&mut a, 1.0..=100.0)).max_decimals(0))
                 .changed()
             {
                 b.aspect = permille(a);
