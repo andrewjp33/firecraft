@@ -78,7 +78,8 @@ enum Drag {
         closing: bool,
         /// Only the outgoing handle changes (Subselection's Alt+drag).
         succ_only: bool,
-        /// The point's incoming handle before the drag.
+        /// The point's incoming handle: before the drag, then where the drag has put it. Alt (or
+        /// `succ_only`) holds it there, where it was when Alt went down (Fireworks MX).
         pred: Pt,
         on_click: OnClick,
     },
@@ -481,14 +482,18 @@ fn drag_to(edit: &mut PathEdit, d: &mut DocState, cur: Pt, mods: egui::Modifiers
                 if mods.shift {
                     v = constrain((0.0, 0.0), v);
                 }
-                let (pt, closing, keep_pred, pred) = (*pt, *closing, *succ_only || alt, *pred);
+                let (pt, closing) = (*pt, *closing);
+                if !closing && !(*succ_only || alt) {
+                    *pred = (-v.0, -v.1);
+                }
+                let pred = *pred;
                 d.path_live(r, |p| {
                     if let Some(q) = point_mut(p, pt) {
                         if closing {
                             q.pred = (-v.0, -v.1);
                         } else {
                             q.succ = v;
-                            q.pred = if keep_pred { pred } else { (-v.0, -v.1) };
+                            q.pred = pred;
                         }
                     }
                     p.rect = None;
@@ -1283,6 +1288,24 @@ mod tests {
         s.pen((200.0, 240.0));
         s.click(Tool::Pen, (260.0, 255.0), SHIFT);
         assert_eq!(s.nodes()[1], corner(260.0, 240.0));
+    }
+
+    #[test]
+    fn alt_part_way_through_placing_a_point_keeps_the_incoming_handle_where_it_is() {
+        // Fireworks MX: Alt leaves the incoming handle where the drag had put it when Alt went
+        // down (not where it was before the drag); letting go of Alt mirrors again.
+        let mut s = drawn();
+        s.press(Tool::Pen, (300.0, 200.0), NONE);
+        let far = |_: Pt| true;
+        drag_to(&mut s.edit, &mut s.d, (340.0, 200.0), NONE, &far);
+        assert_eq!(s.nodes()[3].2, (-40.0, 0.0));
+        drag_to(&mut s.edit, &mut s.d, (340.0, 240.0), ALT, &far);
+        assert_eq!((s.nodes()[3].2, s.nodes()[3].3), ((-40.0, 0.0), (40.0, 40.0)));
+        drag_to(&mut s.edit, &mut s.d, (320.0, 260.0), NONE, &far);
+        assert_eq!((s.nodes()[3].2, s.nodes()[3].3), ((-20.0, -60.0), (20.0, 60.0)));
+        drag_to(&mut s.edit, &mut s.d, (360.0, 260.0), ALT, &far);
+        s.up((360.0, 260.0), ALT);
+        assert_eq!((s.nodes()[3].2, s.nodes()[3].3), ((-20.0, -60.0), (60.0, 60.0)));
     }
 
     #[test]

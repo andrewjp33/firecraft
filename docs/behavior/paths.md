@@ -8,7 +8,9 @@ scripting API; `path_tool.rs`'s tests replay them with the same values.
 * Click: a corner point. Click and drag: a curve point; the incoming handle mirrors the drag.
   While dragging, **Shift** snaps the handle to 45-degree steps, keeping the larger of its
   horizontal and vertical distances (a drag of 40, 25 gives 40, 40); **Alt** sets the outgoing
-  handle only. Shift while clicking places the point at 45-degree steps from the last one, the
+  handle only, leaving the incoming one where the drag had put it when Alt went down (not where
+  it was before the drag); letting go of Alt mirrors again (the user, from Fireworks MX,
+  2026-11-26). Shift while clicking places the point at 45-degree steps from the last one, the
   same way (60, 15 gives 60, 0).
 * The next-segment preview shows the curve the click would make.
 * Click the first point to close the path. A drag there sets only its **incoming** handle (the
