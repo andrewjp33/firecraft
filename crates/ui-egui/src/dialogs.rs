@@ -50,6 +50,8 @@ pub struct Dialogs {
     pub add_frames: Option<AddFrames>,
     /// Delete Mask: the masked object whose mask goes (Apply, Discard or Break Apart).
     pub delete_mask: Option<firecraft_engine::ElementRef>,
+    /// File > Revert's question, for this document (id) and file name.
+    pub revert: Option<(u64, String)>,
     /// Paste as Mask onto an object with a mask: what to paste, while asking Replace or Add.
     pub paste_mask: Option<firecraft_engine::Clipboard>,
 }
@@ -105,6 +107,7 @@ impl Dialogs {
             || self.animate.is_some()
             || self.add_frames.is_some()
             || self.delete_mask.is_some()
+            || self.revert.is_some()
             || self.paste_mask.is_some()
     }
 }
@@ -428,6 +431,7 @@ impl Default for Dialogs {
             animate: None,
             add_frames: None,
             delete_mask: None,
+            revert: None,
             paste_mask: None,
         }
     }
@@ -460,6 +464,27 @@ impl Dialogs {
 
 /// Delete Mask: Fireworks CS asks "Apply mask before removing?" (Apply, Discard, Cancel);
 /// FireCraft adds Break Apart, which keeps the mask and the content as separate objects.
+/// File > Revert's question (Fireworks MX's words; OK and Cancel).
+fn revert(app: &mut FireCraftApp, ctx: &egui::Context) {
+    let Some((id, name)) = app.dialogs.revert.clone() else { return };
+    let mut ok = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    let mut cancel = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    dialog("Revert").show(ctx, |ui| {
+        ui.label(format!("Revert to the last saved version of \"{name}\"?"));
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ok |= ui.button("OK").clicked();
+            cancel |= ui.button("Cancel").clicked();
+        });
+    });
+    if ok {
+        app.dialogs.revert = None;
+        app.revert(id);
+    } else if cancel {
+        app.dialogs.revert = None;
+    }
+}
+
 fn delete_mask(app: &mut FireCraftApp, ctx: &egui::Context) {
     let Some(owner) = app.dialogs.delete_mask else { return };
     let mut how = None;
@@ -789,6 +814,7 @@ pub fn show(app: &mut FireCraftApp, ctx: &egui::Context) {
     }
     numeric_transform(app, ctx);
     delete_mask(app, ctx);
+    revert(app, ctx);
     paste_mask(app, ctx);
     convert_symbol(app, ctx);
     animate(app, ctx);

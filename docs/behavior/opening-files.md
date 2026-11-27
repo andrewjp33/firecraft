@@ -99,3 +99,23 @@ forward. FireCraft adds Clear Recent Files. The list is kept with the preference
 In the browser only files picked with the file picker of Chrome and Edge (which gives a file handle) can be
 reopened: their handles are kept in IndexedDB (`firecraft-recent`), and the browser may ask again for
 permission to read the file. Other browsers' uploads and dropped files don't appear.
+
+## File > Revert
+
+Measured in Fireworks MX on 2026-11-27:
+
+* **Grayed** while the document has no changes (as Save is), and for an untitled document that was
+  never saved, even with changes.
+* Choosing it asks **"Revert to the last saved version of "probe.png"?"** (a question mark icon,
+  OK and Cancel).
+* OK reads the file again: the drawn rectangle was gone, the Layers panel listed the file's
+  objects, and the **undo history was empty** (Edit showed Can't Undo). The window stayed where it
+  was, at the **same zoom** (150%) and scroll position.
+
+FireCraft does the same (`FireCraftApp::revert`, `Session::revert`): Revert is enabled when the
+document has changes and its file can be read again (a path on the desktop, a kept file handle in
+the browser), reads it, and replaces the document in its window with no undo history. A crop box,
+9-slice or transform edit and text being edited on it end; Symbol Editors open on the document
+close; its fonts are checked again as when it was opened. In the browser the file is read
+asynchronously and the revert happens when it arrives. A document opened from a JPEG, GIF or other
+flat file reverts to that file.

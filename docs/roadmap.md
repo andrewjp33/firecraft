@@ -57,6 +57,8 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   ([behavior/export.md](behavior/export.md))
 - File > Open Recent: Fireworks MX's 10 files with MFC's shortened names, reopened on the desktop and
   (Chrome/Edge, with file handles kept in IndexedDB) in the browser ([behavior/opening-files.md](behavior/opening-files.md#open-recent))
+- File > Revert: Fireworks MX's question, the file read again in the same window and zoom, undo
+  history cleared ([behavior/opening-files.md](behavior/opening-files.md#file--revert))
 - Tool options and each effect's last settings kept between sessions, as Fireworks MX keeps them;
   Defaults button in effect popups ([behavior/effects.md](behavior/effects.md#last-settings-and-defaults);
   settings of tools not yet built: Next, item 12)

@@ -75,7 +75,11 @@ pub fn menu_bar(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 save(app, true);
             }
             todo(ui, "Save a Copy...", "");
-            todo(ui, "Revert", "");
+            if item(ui, "Revert", "", app.revert_path().is_some())
+                && let Some(d) = app.session.active_doc()
+            {
+                app.dialogs.revert = Some((d.id, d.doc.title()));
+            }
             ui.separator();
             todo(ui, "Import...", "Ctrl+R");
             if item(ui, "Export...", "Ctrl+Shift+R", has_doc) {

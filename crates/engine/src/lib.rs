@@ -2248,6 +2248,28 @@ impl Session {
         Ok(())
     }
 
+    /// File > Revert: document `i` becomes `doc`, its file read again. As in Fireworks MX
+    /// (measured 2026-11-27) the undo history is gone and the window keeps its zoom and place
+    /// (FireCraft keeps the document's id, which its window and scroll position belong to).
+    /// Symbol Editors open on it close: their symbols may no longer be there.
+    pub fn revert(&mut self, i: usize, doc: Document) {
+        let Some(old) = self.docs.get(i) else { return };
+        let (id, zoom, limit, revision) = (old.id, old.zoom, old.history.limit, old.revision);
+        let mut d = DocState::new(doc);
+        d.id = id;
+        d.zoom = zoom;
+        // A new revision, so whatever the window keeps of the old drawing is redrawn.
+        d.revision = revision.wrapping_add(1);
+        d.history.set_limit(limit);
+        self.docs[i] = d;
+        let active = self.docs.get(self.active).map(|d| d.id);
+        self.docs.retain(|d| d.symbol_link.is_none_or(|l| l.parent != id));
+        self.active = active
+            .and_then(|a| self.docs.iter().position(|d| d.id == a))
+            .or_else(|| self.docs.iter().position(|d| d.id == id))
+            .unwrap_or(0);
+    }
+
     pub fn close(&mut self, i: usize) {
         if i < self.docs.len() {
             self.docs.remove(i);
@@ -2263,6 +2285,24 @@ mod tests {
 
     fn undo_steps(d: &DocState) -> usize {
         d.history.labels().count()
+    }
+
+    #[test]
+    fn revert_replaces_the_document_and_forgets_its_history() {
+        let mut s = Session::default();
+        s.push(Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
+        s.push(Document::new(30, 30, 72.0, None));
+        let d = &mut s.docs[0];
+        d.add_shape((5.0, 5.0, 20.0, 20.0), false, &ToolOptions::default());
+        d.zoom = 2.0;
+        let id = d.id;
+        s.active = 0;
+        s.revert(0, Document::new(50, 50, 72.0, Some(firecraft_raster::Rgba::WHITE)));
+        let d = &s.docs[0];
+        assert_eq!((d.id, d.zoom), (id, 2.0), "the same window, at the same zoom");
+        assert!(!d.history.can_undo() && !d.dirty && d.selection.is_empty());
+        assert!(d.doc.layers.iter().all(|l| l.elements(0).is_empty()));
+        assert_eq!((s.docs.len(), s.active), (2, 0));
     }
 
     #[test]

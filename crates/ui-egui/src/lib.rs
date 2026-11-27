@@ -612,6 +612,9 @@ pub struct FireCraftApp {
     pending_save: Option<SaveTarget>,
     /// The paste waiting for the host to read the system clipboard (the browser), if any.
     pending_paste: Option<menus::PasteKind>,
+    /// File > Revert waiting for the host to read the file again (the browser): the document and
+    /// its file.
+    pending_revert: Option<(u64, String)>,
     /// The texture menu whose Other... was last used; a file arriving later goes to it.
     awaiting_texture: Option<stroke_panel::TextureSlot>,
     pi_open: bool,
@@ -680,6 +683,7 @@ impl FireCraftApp {
             status: None,
             pending_save: None,
             pending_paste: None,
+            pending_revert: None,
             awaiting_texture: None,
             pi_open: true,
             styled: None,
@@ -989,6 +993,48 @@ impl FireCraftApp {
         }
     }
 
+    /// The active document's file, if File > Revert can read it again: the document has changes
+    /// and came from (or was saved to) a file this host can reopen. Fireworks MX grays Revert for
+    /// unchanged and untitled documents (measured 2026-11-27); the Symbol Editor has no file.
+    pub fn revert_path(&self) -> Option<String> {
+        let d = self.session.active_doc()?;
+        let path = d.doc.path.as_deref()?;
+        (d.dirty && d.symbol_link.is_none() && self.platform.can_reopen(path)).then(|| path.to_owned())
+    }
+
+    /// File > Revert, confirmed: read document `id`'s file again and put it in its place.
+    pub fn revert(&mut self, id: u64) {
+        let Some(path) = self.session.docs.iter().find(|d| d.id == id).and_then(|d| d.doc.path.clone()) else {
+            return;
+        };
+        match self.platform.reopen(&path) {
+            Some(Ok(bytes)) => self.apply_revert(id, &path, &bytes),
+            Some(Err(e)) => self.error(format!("Could not revert to {}: {e}", self.platform.display_path(&path))),
+            None => self.pending_revert = Some((id, path)),
+        }
+    }
+
+    fn apply_revert(&mut self, id: u64, path: &str, bytes: &[u8]) {
+        let doc = match firecraft_io::open(bytes, Some(path.to_owned())) {
+            Ok(doc) => doc,
+            Err(e) => return self.error(format!("Could not revert to {}: {e}", self.platform.display_path(path))),
+        };
+        let Some(i) = self.session.docs.iter().position(|d| d.id == id) else { return };
+        // Edits in progress belong to the old content: drop them.
+        if let Some(d) = self.session.docs.get_mut(i) {
+            self.text_tool.finish(d);
+        }
+        self.text_editor = None;
+        self.crop = None;
+        self.nine = None;
+        self.transform = None;
+        self.path_edit.end_pen();
+        self.session.revert(i, doc);
+        // Its fonts are checked again, as when it was opened.
+        self.fonts_checked.remove(&id);
+        self.status = None;
+    }
+
     /// File > Open Recent > Clear Recent Files.
     pub fn clear_recent(&mut self) {
         self.recent.clear();
@@ -1278,9 +1324,16 @@ impl FireCraftApp {
             self.platform.read_dropped(f);
         }
         for opened in self.platform.take_opened() {
-            match opened {
-                Ok((name, bytes)) => self.open_bytes(name, &bytes),
-                Err(e) => self.error(e),
+            // The file File > Revert asked for comes back like any opened file.
+            let revert = match (&opened, &self.pending_revert) {
+                (Ok((name, _)), Some((_, path))) if name == path => self.pending_revert.take(),
+                (Err(_), Some(_)) => self.pending_revert.take(),
+                _ => None,
+            };
+            match (opened, revert) {
+                (Ok((_, bytes)), Some((id, path))) => self.apply_revert(id, &path, &bytes),
+                (Ok((name, bytes)), None) => self.open_bytes(name, &bytes),
+                (Err(e), _) => self.error(e),
             }
         }
         // Pictures the browser read from the clipboard; none come while typing text.
