@@ -135,6 +135,20 @@ pub fn is_curve(p: &BezierPoint) -> bool {
     p.pred != (0.0, 0.0) || p.succ != (0.0, 0.0)
 }
 
+/// Whether a point is smooth: both handles out and pointing opposite ways, in line to within
+/// about half a degree (room for handles rounded in a saved file). Dragging one handle of a
+/// smooth point swings the other round with it; a corner's handles move one at a time.
+pub fn handles_in_line(p: &BezierPoint) -> bool {
+    let (a, b) = (p.pred, p.succ);
+    let (la, lb) = (a.0.hypot(a.1), b.0.hypot(b.1));
+    if la == 0.0 || lb == 0.0 {
+        return false;
+    }
+    let cross = (a.0 * b.1 - a.1 * b.0) / (la * lb);
+    let dot = a.0 * b.0 + a.1 * b.1;
+    cross.abs() < 0.01 && dot < 0.0
+}
+
 /// Remove points from a path; contours left with fewer than two points go (a closed contour
 /// with two points stays closed). Returns whether the path still has points.
 pub fn remove_points(p: &mut Path, pts: &[PointRef]) -> bool {

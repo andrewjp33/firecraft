@@ -437,10 +437,11 @@ fn drag_to(edit: &mut PathEdit, d: &mut DocState, cur: Pt, mods: egui::Modifiers
                 let other = if *succ { b.pred } else { b.succ };
                 // A smooth point keeps its handles in line (each keeps its length). Alt leaves
                 // the other handle where it is at that moment, also part way through the drag
-                // (Fireworks MX), making a corner.
+                // (Fireworks MX), making a corner. A corner stays one: only the dragged handle
+                // moves (Fireworks MX; the Pen pulls a point's handles back in line).
                 let len = other.0.hypot(other.1);
                 let vlen = v.0.hypot(v.1);
-                let mirrored = if alt {
+                let mirrored = if alt || !paths::handles_in_line(b) {
                     *held
                 } else if len == 0.0 || vlen == 0.0 {
                     other
@@ -1404,6 +1405,14 @@ mod tests {
         let b = s.nodes()[1];
         assert_eq!(b.3, (20.0, 80.0));
         assert_eq!(b.2, before, "held where it was when Alt went down");
+        // It's a corner now: dragging either handle, without Alt, moves just that one.
+        s.drag(Tool::Subselect, (170.0, 180.0), (200.0, 180.0), NONE);
+        let c = s.nodes()[1];
+        assert_eq!((c.3, c.2), ((50.0, 80.0), before));
+        let pred = (150.0 + before.0, 100.0 + before.1);
+        s.drag(Tool::Subselect, pred, (110.0, 90.0), NONE);
+        let d = s.nodes()[1];
+        assert_eq!((d.2, d.3), ((-40.0, -10.0), (50.0, 80.0)));
     }
 
     #[test]

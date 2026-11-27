@@ -46,7 +46,10 @@ scripting API; `path_tool.rs`'s tests replay them with the same values.
 * Drag a handle to bend the curve: a smooth point keeps its other handle in line (each keeps its
   length); Alt moves just the one handle, leaving the other where it is when Alt goes down, also
   part way through a drag (not where it was before the drag; reported by the user from Fireworks
-  MX, 2026-11-26). **Shift** snaps the handle to 45-degree steps keeping
+  MX, 2026-11-26); letting go of Alt mid-drag mirrors again. **A corner stays a corner**: once
+  a point's handles are out of line, dragging either moves only that one; only the Pen (dragging
+  the point) pulls them back in line (the user, from Fireworks MX). FireCraft tells them apart
+  by the handles (`paths::handles_in_line`: opposite ways, within about half a degree). **Shift** snaps the handle to 45-degree steps keeping
   the larger of its distances, as the Pen does (measured 2026-11-26 through the scripting API,
   a point's outgoing handle dragged to 80, 25 gave 80, 0; 70, 50 gave 70, 70; 20, 80 gave 0, 80;
   -20, 30 gave -30, 30; the other handle stayed opposite at its own length, 40).
