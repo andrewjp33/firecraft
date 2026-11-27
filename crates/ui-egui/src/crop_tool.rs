@@ -18,7 +18,7 @@
 //! * Crop Selected Bitmap puts the box around the bitmap; cropping trims the bitmap (undo step
 //!   "Crop Image") and goes back to the Pointer tool.
 
-use egui::{Color32, Pos2, Rect, pos2, vec2};
+use egui::{Color32, Pos2, Rect, pos2};
 use firecraft_engine::{CropRect, DocState, ElementRef, Tool};
 
 use crate::FireCraftApp;
@@ -372,8 +372,28 @@ fn dashes(p: &egui::Painter, r: Rect) {
     px.paint(p);
 }
 
-/// The Property inspector's crop box fields (Fireworks MX shows W, H, X and Y under the
-/// Document inspector while a box is up).
+/// The crop box's W, H, X and Y, under the Document's name in the Property inspector (Fireworks
+/// MX shows them while a box is up).
+pub fn geometry(crop: &mut Option<CropEdit>, doc: u64, ui: &mut egui::Ui) {
+    let Some(edit) = crop.as_mut().filter(|c| c.doc == doc) else { return };
+    let Some((l, t, r, b)) = edit.rect else { return };
+    let (mut x, mut y, mut w, mut h) = (l, t, r - l, b - t);
+    let mut changed = false;
+    crate::inspector::geometry_grid(ui, "crop_pi", |ui, g| {
+        let (v, range) = match g {
+            crate::inspector::Geom::W => (&mut w, 1..=32_000),
+            crate::inspector::Geom::H => (&mut h, 1..=32_000),
+            crate::inspector::Geom::X => (&mut x, -32_000..=32_000),
+            crate::inspector::Geom::Y => (&mut y, -32_000..=32_000),
+        };
+        changed |= ui.add(egui::DragValue::new(v).range(range)).changed();
+    });
+    if changed {
+        edit.rect = Some((x, y, x + w, y + h));
+    }
+}
+
+/// The Property inspector's Crop tool hint, beside the Document's settings.
 pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let Some(d) = app.session.active_doc() else { return };
     let id = d.id;
@@ -384,24 +404,6 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             ui.weak("Drag on the canvas to draw a crop box.");
             return;
         };
-        let Some((l, t, r, b)) = edit.rect else { return };
-        let (mut x, mut y, mut w, mut h) = (l, t, r - l, b - t);
-        let mut changed = false;
-        egui::Grid::new("crop_pi").spacing(vec2(6.0, 2.0)).show(ui, |ui| {
-            ui.label("W:");
-            changed |= ui.add(egui::DragValue::new(&mut w).range(1..=32_000)).changed();
-            ui.label("X:");
-            changed |= ui.add(egui::DragValue::new(&mut x).range(-32_000..=32_000)).changed();
-            ui.end_row();
-            ui.label("H:");
-            changed |= ui.add(egui::DragValue::new(&mut h).range(1..=32_000)).changed();
-            ui.label("Y:");
-            changed |= ui.add(egui::DragValue::new(&mut y).range(-32_000..=32_000)).changed();
-            ui.end_row();
-        });
-        if changed {
-            edit.rect = Some((x, y, x + w, y + h));
-        }
         let what = match edit.target {
             CropTarget::Document => "Crop the document",
             CropTarget::Bitmap(_) => "Crop the bitmap",

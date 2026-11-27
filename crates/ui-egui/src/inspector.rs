@@ -11,8 +11,44 @@ use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
 use crate::gradient_ui::Target;
 use crate::{FireCraftApp, icons, theme};
 
-/// The Tolerance sliders' width: about 260 points of travel for 0-255 once the handle is taken off.
-const TOLERANCE_RAIL: f32 = 276.0;
+/// The Tolerance sliders' width: a little longer than egui's 100, so about two values per point.
+const TOLERANCE_RAIL: f32 = 150.0;
+
+/// One of the W, H, X and Y fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Geom {
+    W,
+    H,
+    X,
+    Y,
+}
+
+/// W over H, with X over Y beside them (Fireworks' layout), made in the order W, H, X, Y so Tab
+/// goes down the first column and then the second, as in Fireworks. `field` adds each value.
+pub(crate) fn geometry_grid(ui: &mut egui::Ui, id: &str, mut field: impl FnMut(&mut egui::Ui, Geom)) {
+    ui.push_id(id, |ui| {
+        ui.horizontal_top(|ui| {
+            for pair in [[Geom::W, Geom::H], [Geom::X, Geom::Y]] {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for g in pair {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            let label = match g {
+                                Geom::W => "W:",
+                                Geom::H => "H:",
+                                Geom::X => "X:",
+                                Geom::Y => "Y:",
+                            };
+                            ui.add_sized(vec2(14.0, 18.0), egui::Label::new(label));
+                            field(ui, g);
+                        });
+                    }
+                });
+            }
+        });
+    });
+}
 
 fn header(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut open = app.pi_open;
@@ -95,8 +131,9 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             Tool::PaintBucket => paint_bucket(app, ui),
             Tool::Gradient => gradient_tool(app, ui),
             Tool::NineSlice => crate::nine::inspector(app, ui),
+            // The crop box's W, H, X and Y under the Document's name, its hint beside.
             Tool::Crop => {
-                document(app, ui);
+                document_with(app, ui, true);
                 crate::crop_tool::inspector(app, ui);
             }
             // With objects selected, their Property inspector (W, H, X and Y follow the box as it's
@@ -605,25 +642,27 @@ fn object(app: &mut FireCraftApp, ui: &mut egui::Ui) {
             let (mut nw, mut nh) = (sw.max(1.0), sh.max(1.0));
             // Typed values apply on Enter (or leaving the field), not at every keystroke: typing
             // 120 would otherwise scale to 1, 12 and 120, resampling a bitmap three times.
-            egui::Grid::new("pi_geom").spacing(vec2(4.0, 2.0)).show(ui, |ui| {
-                ui.label("W:");
-                let resp = ui
-                    .add_enabled(resizable, DragValue::new(&mut nw).range(1.0..=MAX_SIZE).update_while_editing(false))
-                    .on_hover_text("Width: scales the selection, keeping its left side");
-                sized.push((false, nw, resp));
-                ui.label("X:");
-                let resp = ui.add(DragValue::new(&mut nx).update_while_editing(false));
-                moved.push((from_shown(x, sx, nx) - x, 0.0, resp));
-                ui.end_row();
-                ui.label("H:");
-                let resp = ui
-                    .add_enabled(resizable, DragValue::new(&mut nh).range(1.0..=MAX_SIZE).update_while_editing(false))
-                    .on_hover_text("Height: scales the selection, keeping its top");
-                sized.push((true, nh, resp));
-                ui.label("Y:");
-                let resp = ui.add(DragValue::new(&mut ny).update_while_editing(false));
-                moved.push((0.0, from_shown(y, sy, ny) - y, resp));
-                ui.end_row();
+            geometry_grid(ui, "pi_geom", |ui, g| match g {
+                Geom::W => {
+                    let resp = ui
+                        .add_enabled(resizable, DragValue::new(&mut nw).range(1.0..=MAX_SIZE).update_while_editing(false))
+                        .on_hover_text("Width: scales the selection, keeping its left side");
+                    sized.push((false, nw, resp));
+                }
+                Geom::H => {
+                    let resp = ui
+                        .add_enabled(resizable, DragValue::new(&mut nh).range(1.0..=MAX_SIZE).update_while_editing(false))
+                        .on_hover_text("Height: scales the selection, keeping its top");
+                    sized.push((true, nh, resp));
+                }
+                Geom::X => {
+                    let resp = ui.add(DragValue::new(&mut nx).update_while_editing(false));
+                    moved.push((from_shown(x, sx, nx) - x, 0.0, resp));
+                }
+                Geom::Y => {
+                    let resp = ui.add(DragValue::new(&mut ny).update_while_editing(false));
+                    moved.push((0.0, from_shown(y, sy, ny) - y, resp));
+                }
             });
         }
     });
@@ -958,6 +997,11 @@ fn animation_fields(app: &mut FireCraftApp, ui: &mut egui::Ui, a: firecraft_doc:
 }
 
 fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
+    document_with(app, ui, false);
+}
+
+/// The Document inspector; `crop`: with the Crop tool's box fields under its name.
+fn document_with(app: &mut FireCraftApp, ui: &mut egui::Ui, crop: bool) {
     let Some(d) = app.session.active_doc() else {
         identity(ui, app.session.tool.label(), Some(app.session.tool), |_| {});
         ui.weak(format!(
@@ -969,8 +1013,12 @@ fn document(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let canvas = d.doc.canvas;
     let color_math = d.doc.color_math;
     let title = d.doc.title();
+    let id = d.id;
     identity(ui, "Document", None, |ui| {
         ui.label(egui::RichText::new(title).size(11.0));
+        if crop {
+            crate::crop_tool::geometry(&mut app.crop, id, ui);
+        }
     });
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
