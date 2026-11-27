@@ -961,6 +961,13 @@ pub fn slider(ui: &mut egui::Ui, slider: impl egui::Widget) -> egui::Response {
     .inner
 }
 
+/// `s` without egui's "smart aim", which rounds to "nice" numbers: a 0-255 rail about 100 points
+/// long would only give multiples of 5. The rail then gives the value under the pointer, and
+/// dragging the number beside it moves one unit per two points (Shift: ten times slower).
+pub fn precise(s: egui::Slider<'_>) -> egui::Slider<'_> {
+    s.smart_aim(false).drag_value_speed(0.5)
+}
+
 /// A dropdown list styled for the theme.
 pub fn combo<'a>(id_salt: impl egui::AsIdSalt) -> egui::ComboBox<'a> {
     egui::ComboBox::from_id_salt(id_salt).popup_style(popup_style())
