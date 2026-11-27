@@ -242,7 +242,12 @@ strings (Fireworks Resources.dll):
   of Fireworks MX's Windows 0-240 HLS steps. Partly transparent pixels keep their opacity (the user saw
   a partly transparent #BE3531 highlighted on screen as #5CF1FE in Fireworks MX); fully transparent ones
   show nothing. In that session, holding Fireworks MX's first swatch highlighted the pixels of another
-  color (its table order and its highlight disagree); FireCraft highlights the held color. With "Maximize colors per frame" it shows the table of
+  color (its table order and its highlight disagree); FireCraft highlights the held color.
+* The other way round, Show Swatch Feedback (Fireworks MX's palette menu, on by default; FireCraft: the
+  table's right-click menu): with the pointer over the Preview, the swatch of the color under it gets a
+  white line in place of its black cell line (measured in Fireworks MX on `probes/highlight_mx/stripes.png`,
+  once the document window is active). Over a clear pixel, the transparent entries are outlined. The
+  table doesn't scroll to the swatch. With "Maximize colors per frame" it shows the table of
   the frame shown (stepping or playing; the frames' tables are kept with the preview only, never
   written to the document).
 * Swatch marks: edited (a square at the bottom left), locked (bottom right), transparent (checkered),

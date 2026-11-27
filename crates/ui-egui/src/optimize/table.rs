@@ -41,6 +41,11 @@ pub(crate) struct TableState {
     /// The swatch held down: (document, its color). The Preview shows that color's pixels in
     /// [`highlight_color`] meanwhile (Fireworks MX).
     pub(crate) held: Option<(u64, Rgba)>,
+    /// The pixel under the pointer in the Preview: (document, its color). Its swatch is outlined
+    /// in white (Fireworks MX's Show Swatch Feedback).
+    pub(crate) hovered: Option<(u64, Rgba)>,
+    /// Show Swatch Feedback turned off (Fireworks MX has it on).
+    hide_feedback: bool,
     /// The color pop-up of Edit Color or Add Color.
     editing: Option<Editing>,
     /// Load Palette is waiting for its file (for this document).
@@ -340,6 +345,7 @@ enum Action {
     Load,
     Save,
     Rebuild,
+    Feedback,
     Pick(Pick),
 }
 
@@ -547,6 +553,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
             Action::Load => load = true,
             Action::Save => save = true,
             Action::Rebuild => rebuild = true,
+            Action::Feedback => st.hide_feedback = !st.hide_feedback,
             Action::Edit => {}
         }
     }
@@ -595,6 +602,10 @@ fn swatches(
     let border = crate::theme::pal().border;
     let mut edit_anchor = None;
     let mut selected = Vec::new();
+    // Show Swatch Feedback: the swatch of the Preview pixel under the pointer (a clear pixel:
+    // the transparent entries).
+    let under = st.hovered.filter(|&(doc, _)| doc == st.doc && !st.hide_feedback).map(|(_, q)| q);
+    let mut fed = Vec::new();
     for (k, &i) in order.iter().enumerate() {
         let Some(row) = rows.get(i) else { continue };
         let (c, line) = (k % cols, k / cols);
@@ -605,6 +616,10 @@ fn swatches(
         paint_cell(&p, r, row.entry);
         if st.selected.contains(&i) {
             selected.push(r);
+        }
+        let e = row.entry;
+        if under.is_some_and(|q| if q.a == 0 { e.transparent || e.color.a == 0 } else { !e.transparent && shows(q, e.color) }) {
+            fed.push(r);
         }
         p.rect_stroke(
             Rect::from_min_size(at + vec2(0.5, 0.5), cell),
@@ -646,7 +661,7 @@ fn swatches(
         let resp = resp.on_hover_ui(|ui| swatch_info(ui, row));
         egui::Popup::context_menu(&resp)
             .style(crate::theme::menu_popup_style())
-            .show(|ui| menu(ui, s, rows, &st.selected, st.sort, actions));
+            .show(|ui| menu(ui, s, rows, st, actions));
         if st.selected.contains(&i) && edit_anchor.is_none() {
             edit_anchor = Some(r);
         }
@@ -655,6 +670,10 @@ fn swatches(
     for r in selected {
         p.rect_stroke(r.expand(0.5), 0.0, Stroke::new(1.0, Color32::BLACK), egui::StrokeKind::Middle);
         p.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Inside);
+    }
+    // Swatch feedback: a white line in place of the cell's (Fireworks MX).
+    for r in fed {
+        p.rect_stroke(r.expand(0.5), 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Middle);
     }
     edit_anchor
 }
@@ -705,7 +724,8 @@ fn swatch_info(ui: &mut Ui, row: &Row) {
 }
 
 /// The right-click menu (Fireworks MX's palette menu).
-fn menu(ui: &mut Ui, s: &ExportSettings, rows: &[Row], sel: &BTreeSet<usize>, sort: Sort, out: &mut Vec<Action>) {
+fn menu(ui: &mut Ui, s: &ExportSettings, rows: &[Row], st: &TableState, out: &mut Vec<Action>) {
+    let (sel, sort) = (&st.selected, st.sort);
     let custom = s.palette == PaletteKind::Custom;
     let any_edit = |only: bool| {
         s.table
@@ -741,6 +761,9 @@ fn menu(ui: &mut Ui, s: &ExportSettings, rows: &[Row], sel: &BTreeSet<usize>, so
     item(ui, "Load Palette...", true, Action::Load);
     item(ui, "Save Palette...", !rows.is_empty(), Action::Save);
     item(ui, "Rebuild Color Table", true, Action::Rebuild);
+    ui.separator();
+    let feedback = if st.hide_feedback { "Show Swatch Feedback" } else { "Show Swatch Feedback  \u{2713}" };
+    item(ui, feedback, true, Action::Feedback);
 }
 
 /// The color pop-up of Edit Color / Add Color; the color chosen, and for which row.

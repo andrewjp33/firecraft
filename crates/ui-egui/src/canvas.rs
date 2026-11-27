@@ -1145,6 +1145,20 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
         }
     }
 
+    // The Preview pixel under the pointer, for the color table's swatch feedback (Fireworks MX).
+    let under = resp
+        .hover_pos()
+        .filter(|_| view.preview)
+        .and_then(|pos| {
+            let (x, y) = to_doc(pos);
+            let pic = view.optimized.as_ref().and_then(|o| o.picture.as_ref())?;
+            pic.get(x.floor() as i64, y.floor() as i64)
+        });
+    match under {
+        Some(c) => app.optimize_table.hovered = Some((d.id, c)),
+        None if app.optimize_table.hovered.is_some_and(|(doc, _)| doc == d.id) => app.optimize_table.hovered = None,
+        None => {}
+    }
     // The Optimize panel's transparency eyedroppers take their color from the Preview (Fireworks
     // MX); no tool acts meanwhile.
     if view.preview && app.optimize_table.pick.is_some() {
