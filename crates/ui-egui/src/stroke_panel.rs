@@ -337,7 +337,9 @@ pub(crate) fn texture_picker(
     let button = egui::Button::new(format!("{label}     ")).min_size(vec2(130.0, 18.0));
     let (resp, _) = ui
         .add_enabled_ui(enabled, |ui| {
-            egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
+            egui::containers::menu::MenuButton::from_button(button)
+                .config(crate::theme::menu_config())
+                .ui(ui, |ui| {
                 for t in document_textures(app) {
                     app.texture_library().add(t);
                 }
@@ -477,7 +479,9 @@ fn category_menu(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, s: &
     let mut pick: Option<Option<usize>> = None;
     let mut pick_options = false;
     let button = egui::Button::new(format!("{}     ", s.label)).min_size(vec2(130.0, 18.0));
-    let (resp, _) = egui::containers::menu::MenuButton::from_button(button).ui(ui, |ui| {
+    let (resp, _) = egui::containers::menu::MenuButton::from_button(button)
+                .config(crate::theme::menu_config())
+                .ui(ui, |ui| {
         if ui.selectable_label(!s.has, "None").clicked() {
             pick = Some(None);
             ui.close();

@@ -11,6 +11,9 @@ use crate::fpui::color_picker::{self as cp, ColorChoice, Footer};
 use crate::gradient_ui::Target;
 use crate::{FireCraftApp, icons, theme};
 
+/// The Tolerance sliders' width: about 260 points of travel for 0-255 once the handle is taken off.
+const TOLERANCE_RAIL: f32 = 276.0;
+
 fn header(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     let mut open = app.pi_open;
     theme::group_header(ui, "Properties", &mut open);
@@ -118,6 +121,8 @@ fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Tolerance:");
+            // A rail long enough for each of the 256 values to have its own point.
+            ui.spacing_mut().slider_width = TOLERANCE_RAIL;
             crate::theme::slider(ui, theme::precise(Slider::new(&mut o.tolerance, 0..=255)));
             edge_combo(ui, "wand_edge", &mut o.wand_edge);
         });
@@ -237,6 +242,8 @@ fn paint_bucket(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                 _ => {}
             }
             ui.label("Tolerance:");
+            // A rail long enough for each of the 256 values to have its own point.
+            ui.spacing_mut().slider_width = TOLERANCE_RAIL;
             crate::theme::slider(ui, theme::precise(Slider::new(&mut o.paint.bucket_tolerance, 0..=255)));
         });
         ui.horizontal(|ui| {
