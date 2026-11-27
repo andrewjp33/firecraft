@@ -338,16 +338,21 @@ pub fn overlay(crop: &Option<CropEdit>, d: &DocState, p: &egui::Painter, (origin
     for h in HANDLES {
         let (x, y) = handle_pos(r, h);
         let c = pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
-        let hr = Rect::from_center_size(c.floor() + vec2(0.5, 0.5), vec2(HANDLE, HANDLE));
+        // 3 screen pixels before the box's edge and 2 after, as Fireworks MX draws them at
+        // any zoom (measured 2026-11-26).
+        let hr = Rect::from_min_size(c.floor() - vec2(3.0, 3.0), vec2(HANDLE, HANDLE));
         p.rect_filled(hr, 0.0, Color32::BLACK);
     }
     ctx.request_repaint_after(std::time::Duration::from_millis(120));
 }
 
-/// A rectangle drawn as marching ants (4 px black, 4 px white, moving with `phase`).
+/// A rectangle drawn as marching ants (4 px black, 4 px white, moving with `phase`), on its
+/// outermost screen pixels: the right and bottom sides on the last pixel inside, as Fireworks
+/// MX draws them (a box the size of the canvas runs along the canvas's own edge pixels).
 fn ants(p: &egui::Painter, r: Rect, phase: i64) {
     let o = vec2(0.5, 0.5);
-    let (a, b) = (r.min.floor() + o, r.max.floor() + o);
+    let a = r.min.floor() + o;
+    let b = (r.max.ceil() - vec2(1.0, 1.0) + o).max(a);
     let corners = [a, pos2(b.x, a.y), b, pos2(a.x, b.y), a];
     let mut along = 0.0_f32;
     for (&s, &e) in corners.iter().zip(corners.iter().skip(1)) {

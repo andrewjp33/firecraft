@@ -61,6 +61,11 @@ default):
   (no fade along it), the fade only at the right, top and bottom; the bounds read 0,30 70x80.
   The Lasso is cut too (a polygon from -30,40 to 38,100 gave 0,40 38x60); FireCraft's Lasso
   doesn't select yet.
+* **The marching ants run on the selection's outermost pixels**: a marquee 0,40 to 60,100 at
+  100% shows its left and top ants on the first selected pixel and its right and bottom ants on
+  the last one (x 59, y 99), never on the pixel outside (measured 2026-11-26). FireCraft draws
+  every edge of the selection on its selected side, and the marquee's outline while dragging
+  the same way.
 * One run disagreed: right after a Paint Bucket fill, a drag from inside the marquee drew a new
   marquee instead of moving it. Every other run (with and without a fill first, with and
   without hovering first) moved it; FireCraft always moves it.

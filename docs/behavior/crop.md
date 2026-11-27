@@ -21,7 +21,7 @@ Probe: `crates/engine/examples/crop_probe.rs`, a 300 x 200 white canvas with a r
 | Choose another tool | Removes the box; nothing is cropped. The Hand and Zoom tools (and holding Space) keep it and show it, so you can zoom or scroll and carry on (reported by the user from Fireworks MX, 2026-11-16) |
 | Choose the Crop tool with a marquee | The marquee becomes a crop box of the same size (reported by the user from Fireworks MX, 2026-11-16) |
 | Arrow keys | Move the crop box (Shift: 10 px); with a marquee tool they move the marquee (reported by the user from Fireworks MX, 2026-11-16) |
-| Look | Marching ants with 8 small black square handles; the outside is not dimmed |
+| Look | Marching ants with 8 small black square handles; the outside is not dimmed. The ants run on the box's outermost screen pixels (left and top on the first pixel inside, right and bottom on the last), so a box the size of the canvas runs along the canvas's own edge pixels; each 5 x 5 handle covers 3 screen pixels before the box's edge and 2 after, at 100% and 200% alike (measured 2026-11-26) |
 | Property inspector | The Document inspector plus W, H, X, Y of the box |
 
 Preferences in `Fireworks MX Preferences.txt`: `CropDocCropsImages` (true), `CropToolStickiness`
