@@ -44,7 +44,9 @@ scripting API; `path_tool.rs`'s tests replay them with the same values.
   horizontally or vertically only). Arrow keys nudge them (Shift: 10 px); Delete removes them
   (a path left without points is deleted).
 * Drag a handle to bend the curve: a smooth point keeps its other handle in line (each keeps its
-  length); Alt moves just the one handle. **Shift** snaps the handle to 45-degree steps keeping
+  length); Alt moves just the one handle, leaving the other where it is when Alt goes down, also
+  part way through a drag (not where it was before the drag; reported by the user from Fireworks
+  MX, 2026-11-26). **Shift** snaps the handle to 45-degree steps keeping
   the larger of its distances, as the Pen does (measured 2026-11-26 through the scripting API,
   a point's outgoing handle dragged to 80, 25 gave 80, 0; 70, 50 gave 70, 70; 20, 80 gave 0, 80;
   -20, 30 gave -30, 30; the other handle stayed opposite at its own length, 40).

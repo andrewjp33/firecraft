@@ -62,6 +62,9 @@ enum Drag {
         succ: bool,
         orig: Path,
         moved: bool,
+        /// Where the other handle is now: Alt holds it there (Fireworks MX), not where it was
+        /// before the drag.
+        other: Pt,
     },
     /// Pulling handles out of a point: the Pen placing or re-shaping a curve point, or Alt+drag
     /// with the Subselection tool.
@@ -421,6 +424,7 @@ fn drag_to(edit: &mut PathEdit, d: &mut DocState, cur: Pt, mods: egui::Modifiers
             succ,
             orig,
             moved,
+            other: held,
         }) => {
             if let Some(b) = point(orig, *pt) {
                 *moved = true;
@@ -431,14 +435,19 @@ fn drag_to(edit: &mut PathEdit, d: &mut DocState, cur: Pt, mods: egui::Modifiers
                     v = constrain((0.0, 0.0), v);
                 }
                 let other = if *succ { b.pred } else { b.succ };
-                // A smooth point keeps its handles in line (each keeps its length).
+                // A smooth point keeps its handles in line (each keeps its length). Alt leaves
+                // the other handle where it is at that moment, also part way through the drag
+                // (Fireworks MX), making a corner.
                 let len = other.0.hypot(other.1);
                 let vlen = v.0.hypot(v.1);
-                let mirrored = if alt || len == 0.0 || vlen == 0.0 {
+                let mirrored = if alt {
+                    *held
+                } else if len == 0.0 || vlen == 0.0 {
                     other
                 } else {
                     (-v.0 / vlen * len, -v.1 / vlen * len)
                 };
+                *held = mirrored;
                 let (pt, succ) = (*pt, *succ);
                 let mut p = orig.clone();
                 if let Some(q) = point_mut(&mut p, pt) {
@@ -831,7 +840,7 @@ fn subselect_press(
     {
         for (pt, succ) in visible_handles(&p, &edit.points) {
             let Some(b) = point(&p, pt) else { continue };
-            let h = if succ { b.succ } else { b.pred };
+            let (h, other) = if succ { (b.succ, b.pred) } else { (b.pred, b.succ) };
             if near((b.x + h.0, b.y + h.1), s) {
                 d.begin_live_edit("Move Handle");
                 edit.drag = Some(Drag::Handle {
@@ -839,6 +848,7 @@ fn subselect_press(
                     succ,
                     orig: p,
                     moved: false,
+                    other,
                 });
                 return;
             }
@@ -1375,6 +1385,25 @@ mod tests {
         let c = s.nodes()[1];
         assert_eq!(c.3, (40.0, 70.0));
         assert_eq!(c.2, b.2);
+    }
+
+    #[test]
+    fn alt_part_way_through_a_handle_drag_keeps_the_other_handle_where_it_is() {
+        // Fireworks MX: the other handle stays where it was when Alt went down, not where it
+        // was before the drag.
+        let mut s = curve();
+        s.click(Tool::Subselect, (150.0, 100.0), NONE);
+        s.press(Tool::Subselect, (150.0, 140.0), NONE);
+        let far = |_: Pt| true;
+        drag_to(&mut s.edit, &mut s.d, (190.0, 140.0), NONE, &far);
+        let before = s.nodes()[1].2;
+        assert!((before.0 + 28.284).abs() < 0.01 && (before.1 + 28.284).abs() < 0.01, "{before:?}");
+        drag_to(&mut s.edit, &mut s.d, (190.0, 170.0), ALT, &far);
+        drag_to(&mut s.edit, &mut s.d, (170.0, 180.0), ALT, &far);
+        s.up((170.0, 180.0), ALT);
+        let b = s.nodes()[1];
+        assert_eq!(b.3, (20.0, 80.0));
+        assert_eq!(b.2, before, "held where it was when Alt went down");
     }
 
     #[test]
