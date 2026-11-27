@@ -72,7 +72,8 @@ pub enum Cur {
     /// The Crop tool: two interlocking corner brackets.
     Crop,
     /// The marquee tools: a thin cross, with a badge for adding (Shift), subtracting (Alt) or
-    /// intersecting (Shift+Alt).
+    /// intersecting (Shift+Alt). The vector shape tools (Line, Rectangle, Ellipse) show it
+    /// plain.
     Marquee(Badge),
     /// The Magic Wand: a wand with a sparkle at its tip, the hotspot; badges as the marquee's.
     MagicWand(Badge),

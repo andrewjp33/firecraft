@@ -1143,6 +1143,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::Marquee | Tool::OvalMarquee if !over_marquee => {
                 Some(crate::cursors::Cur::Marquee(crate::cursors::Badge::for_selection(ctx.input(|i| i.modifiers))))
             }
+            // The vector shape tools: the marquee's thin cross, plain.
+            Tool::Line | Tool::Rectangle | Tool::Ellipse => {
+                Some(crate::cursors::Cur::Marquee(crate::cursors::Badge::None))
+            }
             Tool::MagicWand if !over_marquee => {
                 Some(crate::cursors::Cur::MagicWand(crate::cursors::Badge::for_selection(ctx.input(|i| i.modifiers))))
             }
