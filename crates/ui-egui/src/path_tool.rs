@@ -152,7 +152,7 @@ fn shown(d: &DocState) -> Vec<ElementRef> {
 
 /// Constrain `p` to 45-degree steps from `from` (Shift), keeping the larger of the horizontal
 /// and vertical distances (as Fireworks MX: a drag of 40, 25 gives 40, 40).
-fn constrain(from: Pt, p: Pt) -> Pt {
+pub(crate) fn constrain(from: Pt, p: Pt) -> Pt {
     let (dx, dy) = (p.0 - from.0, p.1 - from.1);
     let m = dx.abs().max(dy.abs());
     if m == 0.0 {

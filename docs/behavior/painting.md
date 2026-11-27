@@ -72,6 +72,16 @@ opacity 100%.
 * One dab per pixel along the stroke; each removes its cover from what's left; the opacity
   applies once to the whole stroke, so overlapping dabs never exceed it.
 
+## The tip on the canvas
+
+Over the canvas the Brush and Eraser hide the pointer and show their tip: a 1 px outline in the
+selection blue (#00A8FF), round (a square Eraser: square), centred on the pointer, its size on
+screen rounded up to an even number of pixels (Fireworks MX, measured 2026-11-26: a 13 px tip drew
+14, 5 drew 6, 3 drew 4, 1 drew 2, 40 drew 40; at 200% 13 drew 26). While the outline is 4 pixels or
+less a small open cross shows as well (2 at 200% did, 3 at 200% didn't). FireCraft's circle takes
+the pixels within `half - 0.15` of the centre, matching those circles exactly up to 14 pixels (the
+40-pixel one differs in 16 of its 112 pixels). The Pencil keeps a pencil cursor, no outline.
+
 ## Paint Bucket
 
 Defaults: tolerance 32, Anti-alias edge. It selects like the Magic Wand in its Classic style

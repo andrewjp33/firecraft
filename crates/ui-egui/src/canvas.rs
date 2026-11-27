@@ -853,6 +853,50 @@ fn paint_input(
     ctx.request_repaint();
 }
 
+/// The pixels of a brush tip's outline `2 * half` pixels across, relative to its centre (a
+/// pixel corner): the edge pixels of a disc (`round`) or of a square. The disc takes the
+/// pixels whose middles lie within `half - 0.15` of the centre, which reproduces Fireworks MX's
+/// circles at 2, 4, 6 and 14 pixels exactly (and its 40-pixel one to 16 of 112 pixels).
+fn tip_outline(half: i64, round: bool) -> Vec<(i64, i64)> {
+    let r = half as f64 - 0.15;
+    let inside = |x: i64, y: i64| {
+        if round {
+            (x as f64 + 0.5).hypot(y as f64 + 0.5) <= r
+        } else {
+            (-half..half).contains(&x) && (-half..half).contains(&y)
+        }
+    };
+    let mut out = Vec::new();
+    for y in -half - 1..=half {
+        for x in -half - 1..=half {
+            if inside(x, y) && !(inside(x - 1, y) && inside(x + 1, y) && inside(x, y - 1) && inside(x, y + 1)) {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+/// A shape tool's drag from `a` to `b` (canvas points) with its modifiers, as Fireworks MX draws
+/// it (measured 2026-11-26): Rectangle and Ellipse, Shift a square on the larger side, toward the
+/// drag (80 x 40 gave 80 x 80); Alt from the centre, the start (80 x 40 from 30,30 gave 160 x 80
+/// at -50,-10); both a square around the start. Line, Shift: 45-degree steps keeping the larger
+/// distance (80, 20 gave a level line 80 long; 80, 60 gave 80, 80). Other tools: as dragged.
+fn shape_points(tool: Tool, a: (f64, f64), b: (f64, f64), mods: egui::Modifiers) -> ((f64, f64), (f64, f64)) {
+    match tool {
+        Tool::Rectangle | Tool::Ellipse => {
+            let (mut dx, mut dy) = (b.0 - a.0, b.1 - a.1);
+            if mods.shift {
+                let side = dx.abs().max(dy.abs());
+                (dx, dy) = (side.copysign(dx), side.copysign(dy));
+            }
+            if mods.alt { ((a.0 - dx, a.1 - dy), (a.0 + dx, a.1 + dy)) } else { (a, (a.0 + dx, a.1 + dy)) }
+        }
+        Tool::Line if mods.shift => (a, crate::path_tool::constrain(a, b)),
+        _ => (a, b),
+    }
+}
+
 /// Tools that drag the marquee when pressed inside it (Fireworks MX).
 fn marquee_moves(tool: Tool) -> bool {
     matches!(tool, Tool::Marquee | Tool::OvalMarquee | Tool::Lasso | Tool::MagicWand)
@@ -1143,6 +1187,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::Marquee | Tool::OvalMarquee if !over_marquee => {
                 Some(crate::cursors::Cur::Marquee(crate::cursors::Badge::for_selection(ctx.input(|i| i.modifiers))))
             }
+            Tool::Pencil => Some(crate::cursors::Cur::Pencil),
+            Tool::Eyedropper => Some(crate::cursors::Cur::Eyedropper),
+            // The Gradient tool shows the Paint Bucket's (Fireworks MX).
+            Tool::PaintBucket | Tool::Gradient => Some(crate::cursors::Cur::PaintBucket),
+            Tool::Text => Some(crate::cursors::Cur::Text),
+            // An open hand, also while dragging (Fireworks MX).
+            Tool::Hand => Some(crate::cursors::Cur::Hand),
+            Tool::Zoom => Some(crate::cursors::Cur::Zoom(ctx.input(|i| i.modifiers.alt))),
             // The vector shape tools: the marquee's thin cross, plain.
             Tool::Line | Tool::Rectangle | Tool::Ellipse => {
                 Some(crate::cursors::Cur::Marquee(crate::cursors::Badge::None))
@@ -1415,6 +1467,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 // Corners on the nearest pixel grid lines, so the shape's edges are crisp; Ctrl
                 // draws it where the pointer is, sub-pixel (as Ctrl with the Scale tool).
                 Tool::Rectangle | Tool::Ellipse => {
+                    let ((ax, ay), (bx, by)) = shape_points(tool, (ax, ay), (bx, by), mods);
                     let rect = if mods.ctrl || mods.command {
                         (ax, ay, bx, by)
                     } else {
@@ -1422,7 +1475,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     };
                     d.add_shape(rect, tool == Tool::Ellipse, &options)
                 }
-                Tool::Line => d.add_line((ax, ay), (bx, by), &options),
+                Tool::Line => {
+                    let (a, b) = shape_points(tool, (ax, ay), (bx, by), mods);
+                    d.add_line(a, b, &options)
+                }
                 Tool::Gradient => {
                     if !d.gradient_drag((ax, ay), (bx, by), &options) {
                         d.gradient_bitmap((ax, ay), (bx, by), &options);
@@ -1562,27 +1618,39 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     }
 
     // ---- Overlays ----------------------------------------------------------------------
-    // The Brush and Eraser pointer shows the size of the tip.
+    // The Brush and Eraser show their tip instead of a pointer, as Fireworks MX does: a 1 px
+    // outline in the selection blue, round (or a square Eraser), the tip's size on screen
+    // rounded up to an even number of pixels, centred on the pointer (measured 2026-11-26: a
+    // 13 px tip drew a 14 px circle, 40 px 40, 3 px 4; at 200% a 13 px tip 26). While the
+    // outline is 4 pixels or less the small open cross shows too, so the pointer isn't lost.
     let tip = match tool {
         Tool::Brush if options.stroke.is_some() => Some((options.stroke_size as f32, true)),
         Tool::Eraser => Some((options.paint.eraser_size as f32, options.paint.eraser_round)),
         _ => None,
     };
-    if let (Some((size, round)), Some(pos)) = (tip, hover) {
-        let screen = size * z;
-        if screen >= 4.0 {
-            let tip_rect = Rect::from_center_size(pos, vec2(screen, screen));
-            let radius = if round { screen / 2.0 } else { 0.0 };
-            let line = |c: Color32, grow: f32| {
-                p.rect_stroke(
-                    tip_rect.expand(grow),
-                    radius + grow,
-                    Stroke::new(1.0, c),
-                    egui::StrokeKind::Middle,
-                );
-            };
-            line(Color32::WHITE, 1.0);
-            line(Color32::BLACK, 0.0);
+    if paint_tool(tool).is_some_and(|k| k != PaintTool::Pencil)
+        && (resp.hovered() || resp.dragged())
+    {
+        match (tip, hover) {
+            (Some((size, round)), Some(pos)) => {
+                let mut px = crate::pixels::PixelMesh::new(&p);
+                let across = size * z * ctx.pixels_per_point();
+                let half = ((across / 2.0).ceil() as i64).max(1);
+                let (cx, cy) = px.grid(pos);
+                for (x, y) in tip_outline(half, round) {
+                    px.rect(cx + x, cy + y, cx + x + 1, cy + y + 1, theme::HANDLE_BLUE);
+                }
+                px.paint(&p);
+                if half <= 2 {
+                    crate::cursors::set(&ctx, crate::cursors::Cur::Precise, app.prefs.cursor_style);
+                } else {
+                    ctx.set_cursor_icon(egui::CursorIcon::None);
+                }
+            }
+            // No stroke colour (nothing to paint with) or the pointer is elsewhere.
+            _ => {
+                crate::cursors::set(&ctx, crate::cursors::Cur::Precise, app.prefs.cursor_style);
+            }
         }
     }
     // Pixel selection: marching ants along the mask edge, with every tool (Brush and Pencil
@@ -1679,11 +1747,14 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             let r = Rect::from_two_pos(a, b);
             // The marquee's box sits on the canvas's pixel grid, as the Crop tool's: what it shows
             // is what will be selected (and the Rectangle and Ellipse tools' shape).
+            // The shape tools' modifiers (square, from the centre, 45-degree lines) show while
+            // dragging, as they'll be drawn.
+            let (da, db) = shape_points(tool, to_doc(a), to_doc(b), mods);
             let grid = || {
-                let ((ax, ay), (bx, by)) = (to_doc(a), to_doc(b));
-                let (l, t, r, b) = firecraft_engine::DocState::marquee_box((ax, ay, bx, by));
+                let (l, t, r, b) = firecraft_engine::DocState::marquee_box((da.0, da.1, db.0, db.1));
                 Rect::from_min_max(to_screen(l, t), to_screen(r, b))
             };
+            let exact = || Rect::from_two_pos(to_screen(da.0, da.1), to_screen(db.0, db.1));
             match tool {
                 Tool::Marquee => {
                     // Where the marching ants will run once it's let go, drawn as they will be:
@@ -1705,7 +1776,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 }
                 // The shape as it will be drawn: on the pixel grid unless Ctrl is held.
                 Tool::Ellipse => {
-                    let r = if mods.ctrl || mods.command { r } else { grid() };
+                    let r = if mods.ctrl || mods.command { exact() } else { grid() };
                     p.add(egui::epaint::EllipseShape::stroke(
                         r.center(),
                         r.size() / 2.0,
@@ -1713,10 +1784,13 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     ));
                 }
                 Tool::Rectangle => {
-                    let r = if mods.ctrl || mods.command { r } else { grid() };
+                    let r = if mods.ctrl || mods.command { exact() } else { grid() };
                     p.rect_stroke(r, 0.0, Stroke::new(1.0, theme::HANDLE_BLUE), StrokeKind::Middle);
                 }
-                Tool::Line | Tool::Gradient => {
+                Tool::Line => {
+                    p.line_segment([to_screen(da.0, da.1), to_screen(db.0, db.1)], Stroke::new(1.0, theme::HANDLE_BLUE));
+                }
+                Tool::Gradient => {
                     p.line_segment([a, b], Stroke::new(1.0, theme::HANDLE_BLUE));
                 }
                 // The Pointer's selection band: a thin black rectangle, as in Fireworks MX.
@@ -1993,5 +2067,63 @@ pub(crate) fn file_size(bytes: usize) -> String {
         format!("{:.2}K", bytes as f64 / 1024.0)
     } else {
         format!("{:.2}M", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::*;
+
+    /// Fireworks MX's Rectangle and Line tools with modifiers (measured 2026-11-26).
+    #[test]
+    fn shape_modifiers_match_fireworks_mx() {
+        let m = |shift, alt| egui::Modifiers { shift, alt, ..Default::default() };
+        let drag = |tool, b, mods| shape_points(tool, (30.0, 30.0), b, mods);
+        assert_eq!(drag(Tool::Rectangle, (110.0, 70.0), m(false, false)), ((30.0, 30.0), (110.0, 70.0)));
+        assert_eq!(drag(Tool::Rectangle, (110.0, 70.0), m(true, false)), ((30.0, 30.0), (110.0, 110.0)));
+        assert_eq!(drag(Tool::Rectangle, (70.0, 110.0), m(true, false)), ((30.0, 30.0), (110.0, 110.0)));
+        assert_eq!(drag(Tool::Rectangle, (-10.0, -10.0), m(true, false)), ((30.0, 30.0), (-10.0, -10.0)));
+        assert_eq!(drag(Tool::Ellipse, (110.0, 70.0), m(false, true)), ((-50.0, -10.0), (110.0, 70.0)));
+        assert_eq!(drag(Tool::Rectangle, (110.0, 70.0), m(true, true)), ((-50.0, -50.0), (110.0, 110.0)));
+        assert_eq!(drag(Tool::Line, (110.0, 50.0), m(true, false)).1, (110.0, 30.0));
+        assert_eq!(drag(Tool::Line, (110.0, 90.0), m(true, false)).1, (110.0, 110.0));
+        assert_eq!(drag(Tool::Line, (50.0, 110.0), m(true, false)).1, (30.0, 110.0));
+        assert_eq!(drag(Tool::Line, (110.0, 50.0), m(false, false)).1, (110.0, 50.0));
+    }
+
+    /// Fireworks MX's brush outline for a 13 px tip at 100%: 14 pixels across, as captured.
+    #[test]
+    fn tip_outline_matches_fireworks_mx() {
+        let rows = [
+            ".......BBBB.......",
+            ".....BB....BB.....",
+            "....B........B....",
+            "...B..........B...",
+            "...B..........B...",
+            "..B............B..",
+            "..B............B..",
+            "..B............B..",
+            "..B............B..",
+            "...B..........B...",
+            "...B..........B...",
+            "....B........B....",
+            ".....BB....BB.....",
+            ".......BBBB.......",
+        ];
+        // The captured rows start 9 pixels left of and 7 above the pointer.
+        let mut mx: Vec<(i64, i64)> = Vec::new();
+        for (y, row) in rows.iter().enumerate() {
+            for (x, c) in row.chars().enumerate() {
+                if c == 'B' {
+                    mx.push((x as i64 - 9, y as i64 - 7));
+                }
+            }
+        }
+        let mut ours = tip_outline(7, true);
+        mx.sort_unstable();
+        ours.sort_unstable();
+        assert_eq!(ours, mx);
+        // A square Eraser: the edge of a square.
+        assert_eq!(tip_outline(2, false).len(), 12);
     }
 }

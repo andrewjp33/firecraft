@@ -71,6 +71,20 @@ Rectangles drawn with the Rectangle tool are Fireworks rectangle primitives (see
 Rectangle tool option for new rectangles). Moving, scaling, rotating, skewing and distorting
 keep them rectangles.
 
+**Modifiers while dragging** (Fireworks MX, measured 2026-11-26 at 200%, Property inspector),
+for the Rectangle and Ellipse tools (the Ellipse assumed the same; not measured on its own):
+
+| Drag from 30,30 | none | Shift | Alt | Shift+Alt |
+|---|---|---|---|---|
+| to 110,70 (80 x 40) | 30,30 80x40 | 30,30 80x80 | -50,-10 160x80 | -50,-50 160x160 |
+
+Shift makes a square on the larger side, toward the drag (a 40 x 80 drag also gave 80 x 80; up
+and left to -10,-10 gave -10,-10 40x40); Alt draws from the centre, the press. Their cursor
+stays the thin cross. The **Line tool** with Shift goes in 45-degree steps keeping the larger
+distance (80, 20 gave a level line 80 long; 80, 60 gave 80, 80; 20, 80 an upright one); Alt
+there is the eyedropper in Fireworks MX (not built in FireCraft). FireCraft shows the modified
+shape while dragging, as it will be drawn (`shape_points` in canvas.rs).
+
 ## Fill anti-aliasing
 
 Measured in Fireworks MX under Wine on 2026-11-24 (scripted probes: black rectangles on white with

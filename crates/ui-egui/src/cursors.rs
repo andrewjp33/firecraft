@@ -79,6 +79,22 @@ pub enum Cur {
     MagicWand(Badge),
     /// The Pen: a nib pointing up, the hotspot at its tip, with a badge for what a click does.
     Pen(Badge),
+    /// The Pencil: a pencil, its point (the hotspot) bottom left.
+    Pencil,
+    /// The Eyedropper: a dropper, its tip (the hotspot) bottom left.
+    Eyedropper,
+    /// The Paint Bucket and Gradient tools: a tipped bucket pouring, the hotspot where the paint
+    /// lands.
+    PaintBucket,
+    /// The Text tool: an I-beam.
+    Text,
+    /// The Hand tool: an open hand (also while dragging, as Fireworks MX).
+    Hand,
+    /// The Zoom tool: a magnifier with a plus, or (`true`, Alt) a minus.
+    Zoom(bool),
+    /// A small cross with an open middle: the Brush and Eraser when their tip is too small on
+    /// screen for its outline to show where they paint.
+    Precise,
 }
 
 /// A small mark at a cursor's side saying what a click will do (in the style of Fireworks').
@@ -123,9 +139,19 @@ impl Cur {
             Cur::ResizeNwSe => egui::CursorIcon::ResizeNwSe,
             Cur::ResizeNeSw => egui::CursorIcon::ResizeNeSw,
             Cur::Rotate => egui::CursorIcon::Default,
-            Cur::Crosshair | Cur::Crop | Cur::Marquee(_) | Cur::MagicWand(_) | Cur::Pen(_) => {
-                egui::CursorIcon::Crosshair
-            }
+            Cur::Crosshair
+            | Cur::Crop
+            | Cur::Marquee(_)
+            | Cur::MagicWand(_)
+            | Cur::Pen(_)
+            | Cur::Pencil
+            | Cur::Eyedropper
+            | Cur::PaintBucket
+            | Cur::Precise => egui::CursorIcon::Crosshair,
+            Cur::Text => egui::CursorIcon::Text,
+            Cur::Hand => egui::CursorIcon::Grab,
+            Cur::Zoom(false) => egui::CursorIcon::ZoomIn,
+            Cur::Zoom(true) => egui::CursorIcon::ZoomOut,
         }
     }
 }
@@ -422,6 +448,161 @@ fn design(cur: Cur) -> Design {
                 light: true,
             }
         }
+        // The Pencil: a white pencil outlined black, its point bottom left (the hotspot) with a
+        // black lead, a black band near its far end.
+        Cur::Pencil => {
+            let t = (3.5, 20.5); // the point
+            let u = (std::f32::consts::FRAC_1_SQRT_2, -std::f32::consts::FRAC_1_SQRT_2); // up the pencil
+            let n = (-u.1, u.0);
+            let at = |along: f32, across: f32| (t.0 + u.0 * along + n.0 * across, t.1 + u.1 * along + n.1 * across);
+            const W: f32 = 2.2; // half width
+            const CONE: f32 = 5.0;
+            const LEN: f32 = 17.0;
+            Design {
+                parts: vec![Part::Poly(vec![at(0.0, 0.0), at(CONE, W), at(LEN, W), at(LEN, -W), at(CONE, -W)])],
+                accents: vec![
+                    Part::Poly(vec![at(0.0, 0.0), at(2.0, 0.9), at(2.0, -0.9)]),
+                    Part::Poly(vec![at(LEN - 4.0, W), at(LEN - 2.8, W), at(LEN - 2.8, -W), at(LEN - 4.0, -W)]),
+                ],
+                backdrop: Vec::new(),
+                hot: (3.0, 20.0),
+                light: true,
+            }
+        }
+        // The Eyedropper: a white glass tube from the tip (bottom left, the hotspot) up to a black
+        // collar and bulb.
+        Cur::Eyedropper => {
+            let t = (3.5, 20.5);
+            let u = (std::f32::consts::FRAC_1_SQRT_2, -std::f32::consts::FRAC_1_SQRT_2);
+            let n = (-u.1, u.0);
+            let at = |along: f32, across: f32| (t.0 + u.0 * along + n.0 * across, t.1 + u.1 * along + n.1 * across);
+            const TUBE: f32 = 9.5; // tip to collar
+            Design {
+                parts: vec![Part::Poly(vec![at(0.0, 0.0), at(2.0, 1.3), at(TUBE, 1.3), at(TUBE, -1.3), at(2.0, -1.3)])],
+                accents: vec![
+                    Part::Poly(vec![at(TUBE, 2.6), at(TUBE + 1.5, 2.6), at(TUBE + 1.5, -2.6), at(TUBE, -2.6)]),
+                    Part::Poly(vec![
+                        at(TUBE + 1.5, 1.9),
+                        at(TUBE + 5.0, 1.9),
+                        at(TUBE + 6.2, 0.9),
+                        at(TUBE + 6.2, -0.9),
+                        at(TUBE + 5.0, -1.9),
+                        at(TUBE + 1.5, -1.9),
+                    ]),
+                ],
+                backdrop: Vec::new(),
+                hot: (3.0, 20.0),
+                light: true,
+            }
+        }
+        // The Paint Bucket: a white bucket tipped to the left, its handle over it, black paint
+        // pouring from its lip to a drop at the hotspot.
+        Cur::PaintBucket => {
+            let (c, a) = ((15.0f32, 10.0f32), (-60f32).to_radians()); // centre, tilt
+            let (sa, ca) = a.sin_cos();
+            let rot = |x: f32, y: f32| (c.0 + x * ca - y * sa, c.1 + x * sa + y * ca);
+            const TOP: f32 = 5.0; // half widths of the opening and the bottom, half height
+            const BOTTOM: f32 = 4.0;
+            const H: f32 = 4.5;
+            let body = Part::Poly(vec![rot(-TOP, -H), rot(TOP, -H), rot(BOTTOM, H), rot(-BOTTOM, H)]);
+            // The handle: a half circle between the bucket's two upper corners (its opening's
+            // far end and its bottom's), bulging away from it.
+            let (p0, p1) = (rot(TOP, -H), rot(BOTTOM, H));
+            let mid = ((p0.0 + p1.0) / 2.0, (p0.1 + p1.1) / 2.0);
+            let a0 = (p0.1 - mid.1).atan2(p0.0 - mid.0);
+            let handle = Part::Arc(mid, (p1.0 - p0.0).hypot(p1.1 - p0.1) / 2.0, 0.5, a0, a0 + std::f32::consts::PI);
+            let lip = rot(-TOP, -H);
+            let drop = (4.5, 19.5);
+            Design {
+                parts: vec![body],
+                accents: vec![
+                    handle,
+                    line((lip.0 + 0.3, lip.1), (drop.0 + 0.3, drop.1 - 2.0), 1.0),
+                    Part::Poly(vec![(drop.0 - 1.4, drop.1 - 2.0), (drop.0 + 1.6, drop.1 - 2.0), (drop.0, drop.1 + 0.5)]),
+                ],
+                backdrop: Vec::new(),
+                hot: (4.0, 19.0),
+                light: true,
+            }
+        }
+        // The Text tool: an I-beam, its serifs split around the stem.
+        Cur::Text => plain(
+            vec![
+                bar(11.0, 6.0, 12.0, 18.0),
+                bar(8.0, 5.0, 11.0, 6.0),
+                bar(12.0, 5.0, 15.0, 6.0),
+                bar(8.0, 18.0, 11.0, 19.0),
+                bar(12.0, 18.0, 15.0, 19.0),
+                bar(9.0, 11.0, 14.0, 12.0),
+            ],
+            (11.0, 12.0),
+        ),
+        // The Hand tool: an open white hand outlined black, fingers up, lines between them.
+        Cur::Hand => {
+            let finger = |cx: f32, top: f32, bottom: f32, hw: f32| {
+                Part::Poly(vec![
+                    (cx - hw, bottom),
+                    (cx - hw, top + hw * 0.6),
+                    (cx - hw * 0.45, top),
+                    (cx + hw * 0.45, top),
+                    (cx + hw, top + hw * 0.6),
+                    (cx + hw, bottom),
+                ])
+            };
+            const SPACE: f32 = 2.5; // between the fingers' middles
+            const X0: f32 = 8.5; // the first finger's middle
+            let tops = [5.0, 3.5, 4.0, 6.0];
+            let mut parts: Vec<Part> = tops.iter().enumerate().map(|(i, &t)| finger(X0 + i as f32 * SPACE, t, 13.0, 1.25)).collect();
+            // The palm, narrowing to the wrist, and the thumb out to the left.
+            parts.push(Part::Poly(vec![(7.25, 11.0), (17.75, 11.0), (17.75, 16.0), (15.5, 20.0), (9.5, 20.0), (7.25, 16.5)]));
+            parts.push(line((8.0, 16.5), (4.0, 12.0), 1.25));
+            // A line down between each two fingers, from below the shorter one's tip.
+            let accents = tops
+                .iter()
+                .zip(tops.iter().skip(1))
+                .enumerate()
+                .map(|(i, (a, b))| {
+                    let x = X0 + (i as f32 + 0.5) * SPACE;
+                    bar(x - 0.5, a.max(*b) + 1.5, x + 0.5, 11.0)
+                })
+                .collect();
+            Design {
+                parts,
+                accents,
+                backdrop: Vec::new(),
+                hot: (12.0, 12.0),
+                light: true,
+            }
+        }
+        // The Zoom tool: a white lens in a black ring, a plus (or minus) in it, a black handle
+        // down to the right; the hotspot is the lens's middle.
+        Cur::Zoom(out) => {
+            let c = (9.5, 9.5);
+            let lens = Part::Poly((0..32).map(|i| {
+                let a = i as f32 / 32.0 * std::f32::consts::TAU;
+                (c.0 + 5.5 * a.cos(), c.1 + 5.5 * a.sin())
+            }).collect());
+            let mut accents = vec![
+                Part::Arc(c, 5.5, 0.6, 0.0, std::f32::consts::TAU),
+                line((c.0 + 4.6, c.1 + 4.6), (c.0 + 10.0, c.1 + 10.0), 1.4),
+                bar(c.0 - 2.5, c.1 - 0.5, c.0 + 2.5, c.1 + 0.5),
+            ];
+            if !out {
+                accents.push(bar(c.0 - 0.5, c.1 - 2.5, c.0 + 0.5, c.1 + 2.5));
+            }
+            Design {
+                parts: vec![lens],
+                accents,
+                backdrop: Vec::new(),
+                hot: (9.0, 9.0),
+                light: true,
+            }
+        }
+        // A small cross with an open middle, for a brush tip too small to show.
+        Cur::Precise => plain(
+            vec![bar(12.0, 7.0, 13.0, 10.0), bar(12.0, 15.0, 13.0, 18.0), bar(7.0, 12.0, 10.0, 13.0), bar(15.0, 12.0, 18.0, 13.0)],
+            (12.0, 12.0),
+        ),
         // Four-way arrow in the style of Fireworks' move cursor: 1-unit shafts with small
         // solid heads, centred on the hotspot pixel.
         Cur::Move => plain(arms(&[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]), (12.0, 12.0)),
@@ -661,6 +842,24 @@ mod tests {
         let ring = image(Cur::Pen(Badge::Ring), true, 24);
         assert_eq!(at(&ring, 15, 15), [0, 255], "the ring's top");
         assert_ne!(at(&ring, 15, 17), [0, 255], "open in its middle");
+        // The other tools' cursors: hotspots where they act, drawn black and white.
+        for (cur, hot) in [
+            (Cur::Pencil, [3, 20]),
+            (Cur::Eyedropper, [3, 20]),
+            (Cur::PaintBucket, [4, 19]),
+            (Cur::Text, [11, 12]),
+            (Cur::Hand, [12, 12]),
+            (Cur::Zoom(false), [9, 9]),
+            (Cur::Precise, [12, 12]),
+        ] {
+            let img = image(cur, true, 24);
+            assert_eq!(img.hotspot, hot, "{cur:?}");
+            assert!(img.rgba.chunks(4).any(|p| p == [0, 0, 0, 255]), "{cur:?} has black");
+            assert!(img.rgba.chunks(4).any(|p| p == [255, 255, 255, 255]), "{cur:?} has white");
+        }
+        assert_eq!(at(&image(Cur::Zoom(false), true, 24), 9, 7), [0, 255], "zoom in: a plus");
+        assert_eq!(at(&image(Cur::Zoom(true), true, 24), 9, 7)[0], 255, "zoom out: a minus");
+        assert_eq!(at(&image(Cur::Precise, true, 24), 12, 12)[1], 0, "an open middle");
         // The resize arrows are as thin as the move cursor's.
         let img = image(Cur::ResizeH, true, 24);
         assert_eq!(at(&img, 9, 12), [0, 255]);

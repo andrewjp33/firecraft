@@ -199,6 +199,26 @@ Other items keep their numbers.
       its 4 x 4 ones when opened there (as Precise effects already differ slightly).
     - Tests: exact-area values (20.1 -> 26, 20.5 -> 128, a diagonal edge against its analytic area,
       the overlap pixels above) and Classic renders unchanged (MX probes and parity).
+19. **Tool cursors for the tools not built yet** (the built tools have theirs: lookalikes drawn from
+    shapes in `crates/ui-egui/src/cursors.rs`, never Fireworks' artwork). Seen in Fireworks MX
+    over the canvas, 2026-11-26; give each tool its cursor when it's built:
+    - **Lasso and Polygon Lasso** (item 3): a lasso loop; Shift/Alt/Shift+Alt add the marquee's
+      + / − / × marks (`Badge`), and over the selection the move-selection cursor, as the Marquee
+    - **Blur, Sharpen, Dodge, Burn, Smudge** (item 4): no pointer, the tip's outline in the
+      selection blue, as the Brush and Eraser (`tip_outline` in canvas.rs)
+    - **Rubber Stamp** (item 4): a small circled target with ticks (where the source is taken
+      from); while painting, the tip's outline
+    - **Freeform and Reshape Area** (item 1): an arrow with a small ring beside it (and the tool's
+      size circle while it pushes or pulls)
+    - **Knife** (item 1): a "not allowed" sign (a circle with a bar) when no path is selected; a
+      blade over a selected path
+    - **Slice and Hotspot tools** (item 9): the marquee's thin cross (`Cur::Marquee(Badge::None)`)
+    - **Polygon/Star tool** (item 1): the thin cross, as the Rectangle and Ellipse
+    - Modifier behaviours behind some of MX's cursors, not built: **Ctrl** with any tool shows the
+      Pointer's black arrow and works as the Pointer while held (FireCraft's Pen already switches
+      to the Subselection tool with Ctrl, as MX does); **Alt** with the Brush, Pencil, Paint Bucket,
+      Gradient and Line tools shows the eyedropper and picks the colour under it. Build the
+      behaviour first, then show the cursor.
 
 ## When needed
 
