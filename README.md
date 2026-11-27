@@ -52,74 +52,14 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
 ### New in 0.4.0
 
-Highlights (the full list is in the release notes):
+- **Themes**: Classic (Fireworks MX's look), Classic Dark, Modern (the new default) and Modern
+  Dark, following the system's dark mode.
+- **Tool cursors** for every tool, drawn like Fireworks MX's.
+- **Selections**: the Marquee's Fixed Ratio and Fixed Size styles, and Fireworks CS's Live marquee.
+- **Whole-pixel editing**, sub-pixel with Ctrl.
+- **File > Open Recent and Revert**; tool and effect settings kept between sessions.
 
-- **Four themes**: Classic (Fireworks MX's look), Classic Dark, Modern (the new default: rounded
-  cards, soft gradients, a dark tool sidebar) and Modern Dark, following the system's dark mode,
-  with any accent color (Edit > Preferences or View > Theme).
-- **Tool cursors** for every tool, drawn like Fireworks MX's: marks for add, subtract and
-  intersect, a Pen cursor that says what a click will do, marching ants and crop dashes on whole
-  screen pixels at any zoom or display scaling.
-- **Marquee styles** (Normal, Fixed Ratio, Fixed Size) and **Live marquee** from Fireworks CS:
-  change the Edge or the Magic Wand's Tolerance and the selection just made is redone
-  ([docs/behavior/selection.md](docs/behavior/selection.md)).
-- **Whole-pixel editing, sub-pixel on request**: shapes, moves and transforms land on whole
-  pixels, Ctrl keeps them sub-pixel; the Property inspector's W/H/X/Y show the pixels covered
-  and W/H resize the selection; path fills anti-aliased exactly as Fireworks MX does
-  ([docs/behavior/objects.md](docs/behavior/objects.md)).
-- **Pen and Subselection handles** as in Fireworks: Shift snaps a handle to 45 degrees, Alt
-  mid-drag holds the other handle, a corner point's handles move one at a time
-  ([docs/behavior/paths.md](docs/behavior/paths.md)).
-- **File > Open Recent** and **File > Revert**
-  ([docs/behavior/opening-files.md](docs/behavior/opening-files.md)).
-- **Optimize panel color table**: press and hold a swatch to see its pixels, swatch feedback
-  under the pointer, Sort by, Remove Unused Colors, per-frame tables
-  ([docs/behavior/export.md](docs/behavior/export.md#the-color-table)).
-- **Tool options and each effect's settings are kept** between sessions, with a Defaults button
-  in the effect popups.
-- Smaller things: Tab goes W, H, X, Y in the Property inspector as in Fireworks; sliders reach
-  every value; Copy on Windows also puts a plain picture on the clipboard for other
-  applications; pasting pictures from other applications in the browser; very large documents
-  draw on any graphics card.
-
-### New in 0.3.1
-
-- **macOS app**: one download for Apple silicon and Intel Macs (macOS 11 or later on Apple silicon,
-  10.13 or later on Intel), with the system clipboard (text, pictures, files copied in the Finder).
-  See [Try it](#try-it) for opening it the first time.
-- **The web version runs in older browsers**, back to Safari 13: the page picks a build the browser
-  can run, and says so when it can't run at all.
-
-### New in 0.3.0
-
-Highlights (the full list is in the release notes):
-
-- **Masks, fully editable** ([docs/behavior/masks.md](docs/behavior/masks.md)):
-  - Modify > Mask: Reveal All, Hide All, Reveal Selection, Hide Selection, Group as Mask, Disable
-    and Delete Mask; Edit > Paste as Mask and Paste Inside; the Layers panel's Add Mask button.
-    Each measured against Fireworks MX.
-  - Select a mask from its thumbnail; move and transform it alone; paint on bitmap masks, the
-    masking shown live as you paint.
-  - The **link** between an object and its mask (the chain in the Layers panel): linked, they move
-    together; unlinked, the objects move alone.
-  - The Property inspector's mask settings: Path outline or Grayscale, Alpha channel or Grayscale,
-    Show fill and stroke.
-  - A masked object is shown as the object it masks ("Rectangle"), its fill and stroke editable
-    there, as in Fireworks.
-- **Layers panel**: rendered **thumbnails** for every object, mask thumbnails and the link chain,
-  as in Fireworks CS; arrows that open masks and groups so the objects inside can be selected,
-  renamed and dragged ([docs/behavior/masks.md](docs/behavior/masks.md#layers-panel)).
-- **Crop tool**, Edit > Crop Document and Crop Selected Bitmap; **Canvas Size** with anchors and
-  units; **Image Size** with resampling; Preferences > Interpolation
-  ([docs/behavior/crop.md](docs/behavior/crop.md), [docs/behavior/canvas-size.md](docs/behavior/canvas-size.md)).
-- **Align panel** (Window > Align), with Fireworks CS6's Space by a gap in pixels
-  ([docs/behavior/align.md](docs/behavior/align.md)).
-- **Paste pictures from other applications** (screenshots, BMP, JPEG, copied files) and File >
-  New from the clipboard ([docs/behavior/clipboard.md](docs/behavior/clipboard.md)).
-- **Alt+drag duplicates** with the Pointer, as in Fireworks MX.
-- **Eye Candy filter improvements**: Bevel Boss (profile, highlight, soft edges) and Motion
-  Trail fitted to Windows Fireworks MX renders ([docs/behavior/plugins.md](docs/behavior/plugins.md)).
-- Faster dragging and painting of masks over effect-heavy content.
+The full list is in the release notes.
 
 ### Only in FireCraft
 
@@ -218,6 +158,8 @@ Things no version of Fireworks has:
     **documents in tabs**.
   - The Tools panel's color boxes follow the selection, text included; fields with mixed values
     across the selection show blank, as in Fireworks MX.
+  - Cursors for every tool, drawn like Fireworks MX's; tool options and each effect's settings
+    kept between sessions.
 - **Tools** ([docs/behavior/paths.md](docs/behavior/paths.md)):
   - Selection: Pointer (click a symbol's stroke or glow; drag a band on empty canvas; Alt+drag
     duplicates), Select Behind, **Subselection** (points of paths, members inside groups, masks;
@@ -228,7 +170,8 @@ Things no version of Fireworks has:
     with Fireworks' brush tips and sensitivities
     ([docs/behavior/painting.md](docs/behavior/painting.md)).
   - Vector: Line, **Pen** (Fireworks MX's curve drawing and point editing), Rectangle (Fireworks
-    rectangle primitives with roundness), Ellipse, **Text**.
+    rectangle primitives with roundness), Ellipse, **Text**; Fireworks' Shift and Alt handle
+    controls in the Pen and Subselection tools.
   - Eyedropper, Hand, Zoom; tool keys as in Fireworks (G, E, Y...).
 - **Bitmap editing** ([docs/behavior/selection.md](docs/behavior/selection.md)): bitmap mode
   (double-click, Exit Bitmap Mode), marquees that stay across bitmaps, the Marquee's Normal,
@@ -240,6 +183,8 @@ Things no version of Fireworks has:
     Wine).
   - Duplicate/Clone, Group/Ungroup, Arrange, Align (and the Align panel), Rotate/Flip, Numeric
     Transform.
+  - Moves, shapes and transforms on whole pixels (Ctrl: sub-pixel); W/H/X/Y in the Property
+    inspector.
   - Names, per-object show/hide and **lock** (from Fireworks CS).
   - Layers panel with thumbnails, reordering by drag, and objects inside groups and masks;
     Select > Superselect/Subselect; a right-click menu on the canvas.
@@ -271,7 +216,7 @@ Things no version of Fireworks has:
   - Color math for new documents: Precise (default) or Fireworks MX's exact formulas.
   - Perspective symbols in new documents: pixel-correct (default) or drawn as Fireworks MX does.
   - Fonts, Textures and Patterns folders.
-- **Web version**: real file pickers for Open, Save and Export; Fonts, Textures and Patterns
+- **Web version** (back to Safari 13): real file pickers for Open, Save and Export; Fonts, Textures and Patterns
   folders; Ctrl+Alt+N/W/T alternatives for shortcuts the browser keeps for itself.
 
 ### Not done yet
