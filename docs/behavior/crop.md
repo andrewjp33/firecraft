@@ -10,10 +10,11 @@ Probe: `crates/engine/examples/crop_probe.rs`, a 300 x 200 white canvas with a r
 
 | Action | Fireworks MX |
 |---|---|
-| Drag on the canvas | A box from where the drag began to the pointer. The start isn't limited, but the dragged corner stays on the canvas (dragging 60 px past the bottom right stopped at the canvas corner; a drag from -11,-18 towards -30,-30 gave -11,-18 to 0,0) |
-| Drag one of the 8 handles | Resizes the box, past the canvas too (+10, +30, +120 px all kept); dragged past the opposite side the box turns over (top-left handle 20,20 dragged to 190,100 over a box to 170,90 gave 170,90 20x10) |
+| Drag on the canvas | A box from where the drag began to the pointer, kept on the canvas: the dragged corner stays on it, and so does the start, per axis, unless both ends lie past the same side (see below) |
+| Drag one of the 8 handles | Resizes the box, past the canvas too (+10, +30, +120 px all kept); dragged past the opposite side the box turns over (top-left handle 20,20 dragged to 190,100 over a box to 170,90 gave 170,90 20x10). A side let go up to 5 screen pixels past the canvas snaps to its edge (see below) |
 | Drag a side of the box (between handles) | Moves that side, as its middle handle does (reported by the user from Fireworks MX, 2026-11-16) |
-| Drag inside the box | Moves it |
+| Drag inside the box | Moves it; it snaps the same way |
+| Ctrl while resizing or moving | No snapping |
 | Drag outside the box | Draws a new one |
 | Double-click inside, or Enter | Crops ("Crop Document"); the Crop tool stays chosen |
 | Escape | Removes the box and chooses the Pointer tool (also when the Crop tool was chosen from the Pencil) |
@@ -24,12 +25,49 @@ Probe: `crates/engine/examples/crop_probe.rs`, a 300 x 200 white canvas with a r
 | Property inspector | The Document inspector plus W, H, X, Y of the box |
 
 Preferences in `Fireworks MX Preferences.txt`: `CropDocCropsImages` (true), `CropToolStickiness`
-(20), `CropTool_Constraint` (1), `CropTool_Horiz`/`CropTool_Vert` (100). Stickiness didn't show
-in any of the drags above; the others have no control in MX's UI that we found.
+(20), `CropTool_Constraint` (1), `CropTool_Horiz`/`CropTool_Vert` (100). None of them has a
+control in MX's UI that we found.
 
-One drag didn't fit: a top-left handle at 20,20 of a box to 202,122 dragged to 215,135 gave
-202,122 to 210,130 (clamped to the canvas corner), while other handle drags past the canvas were
-never clamped. Not reproduced since; FireCraft doesn't clamp handle drags.
+### Drawing a new box (measured 2026-11-26)
+
+Drags on the 300 x 200 probe at 100% (the user had reported the first one from Fireworks MX:
+the whole box stays on the canvas):
+
+| Drag | Box |
+|---|---|
+| -20,-20 to 320,220 | 0,0 300x200 |
+| -20,-20 to 100,80 | 0,0 100x80 |
+| 320,220 to 100,100 | 100,100 200x100 |
+| -20,60 to 100,120 | 0,60 100x60 |
+| -20,-20 to -40,-40 | -20,-20 20x20 |
+| -20,-20 to 100,-40 | 0,-20 100x20 |
+| -20,60 to -40,120 | -20,60 20x60 |
+| 320,60 to 370,120 | 300,60 20x60 |
+
+So, along each axis, the end is clamped to the canvas and so is the start, unless both clamp to
+the same edge: the start then stays where it was, so the box keeps some size (this is the
+-11,-18 to -30,-30 → -11,-18 to 0,0 of the 2026-11-16 session).
+
+### Snapping to the canvas's edges (measured 2026-11-26)
+
+A box from 50,50 to 250,150; its right handle dragged to the canvas's right edge (300) plus d:
+
+| d (100%) | -25 … -1 | +1 … +5 | +6, +7, +9 … +40 |
+|---|---|---|---|
+| right side | 300 + d | 300 (snapped) | 300 + d |
+
+Fast jumps and 1 px steps gave the same, and so did coming back in from outside (730 → 695):
+only where the side is let go counts. The left handle (-3, -5 → 0; -6 kept; +3 inside kept), the
+top side (-3 → 0) and a corner (303,203 → 300,200) behave alike. Moving the whole box snaps
+too: moved so its right side would be at 305 it went to 300, at 306 it stayed, at 299 it
+stayed; its left side at -3 went to 0. With Ctrl held neither a handle (303) nor a move (103)
+snapped. At 200% a side 2 canvas pixels past snapped, 3 didn't: the distance is 5 **screen**
+pixels. Inside the canvas nothing snaps. (`CropToolStickiness` 20 in the preferences didn't
+match any distance seen.)
+
+This explains a drag that didn't fit on 2026-11-16: a top-left handle of a box to 202,122 on
+the then 210 x 130 canvas, dragged to 215,135, gave 202,122 to 210,130: both coordinates were
+5 px past the canvas and snapped.
 
 ## What cropping does
 

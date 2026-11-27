@@ -1042,14 +1042,16 @@ impl DocState {
     /// Rectangular or elliptical marquee in canvas coordinates.
     pub fn marquee(&mut self, rect: (f64, f64, f64, f64), oval: bool, opts: &ToolOptions, combine: Combine) {
         let (x0, y0, x1, y1) = Self::marquee_box(rect);
-        // The bitmap being edited, else one under the marquee; on empty canvas with no bitmap
-        // being edited, none: filling or painting in the marquee then makes a new bitmap
-        // (Fireworks MX).
+        let (cw, ch) = (f64::from(self.doc.width), f64::from(self.doc.height));
+        // The bitmap being edited, else one under the marquee's part on the canvas; on empty
+        // canvas with no bitmap being edited, none: filling or painting in the marquee then
+        // makes a new bitmap (Fireworks MX).
+        let (vx0, vy0, vx1, vy1) = (x0.clamp(0.0, cw), y0.clamp(0.0, ch), x1.clamp(0.0, cw), y1.clamp(0.0, ch));
         let target = match &self.pixels {
             Some(p) => p.target,
             None => self
-                .pixel_target((x0 + x1) / 2.0, (y0 + y1) / 2.0)
-                .or_else(|| self.pixel_target(x0, y0)),
+                .pixel_target((vx0 + vx1) / 2.0, (vy0 + vy1) / 2.0)
+                .or_else(|| self.pixel_target(vx0, vy0)),
         };
         // The mask covers the marquee (and room for a feathered edge), wherever the bitmap is:
         // it stays put when another bitmap is picked for editing.
@@ -1088,6 +1090,19 @@ impl DocState {
         }
         if let firecraft_raster::Edge::Feather(r) = opts.marquee_edge {
             mask.feather(r);
+        }
+        // What lies off the canvas isn't selected: the marquee shows whole while it is dragged
+        // and is cut to the canvas when the button is let go, also when adding to a selection.
+        // The feather comes first, so a feathered marquee reaching past the canvas stays fully
+        // selected up to the canvas's edge (Fireworks MX, measured 2026-11-26).
+        let (cw, ch) = (i64::from(self.doc.width), i64::from(self.doc.height));
+        for py in 0..mask.height() as i64 {
+            let off_y = !(0..ch).contains(&(mt + py));
+            for px in 0..mask.width() as i64 {
+                if off_y || !(0..cw).contains(&(ml + px)) {
+                    mask.set(px, py, 0);
+                }
+            }
         }
         self.combine_pixels("Select Pixels", target, ml, mt, mask, combine);
     }
@@ -2499,6 +2514,51 @@ mod tests {
         let local = d.pixels.as_ref().unwrap().local(0, 0, 200, 150);
         assert_eq!(local.get(25, 25), 0);
         assert_eq!(local.get(65, 65), 255);
+    }
+
+    /// The selection's bounds on the canvas (left, top, width, height).
+    fn pixel_bounds(d: &DocState) -> (i64, i64, u32, u32) {
+        let p = d.pixels.as_ref().expect("pixels selected");
+        let (x, y, w, h) = p.mask.bounds().expect("not empty");
+        (p.x + i64::from(x), p.y + i64::from(y), w, h)
+    }
+
+    #[test]
+    fn a_marquee_is_cut_to_the_canvas() {
+        // Fireworks MX (2026-11-26): a marquee from -30,40 to 60,100 shows whole while dragged
+        // and selects 0,40 60x60 when let go; so does one added with Shift.
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        let o = ToolOptions::default();
+        d.marquee((-30.0, 40.0, 60.0, 100.0), false, &o, Combine::Replace);
+        assert_eq!(pixel_bounds(&d), (0, 40, 60, 60));
+        d.marquee((150.0, 120.0, 230.0, 180.0), false, &o, Combine::Add);
+        assert_eq!(pixel_bounds(&d), (0, 40, 200, 110));
+        let sel = d.pixels.clone().unwrap();
+        assert_eq!(sel.mask.get(-1 - sel.x, 50 - sel.y), 0);
+        assert_eq!(sel.mask.get(200 - sel.x, 130 - sel.y), 0);
+        assert_eq!(sel.mask.get(199 - sel.x, 149 - sel.y), 255);
+        // Wholly off the canvas: nothing is selected.
+        d.marquee((-60.0, 10.0, -10.0, 50.0), false, &o, Combine::Replace);
+        assert!(d.pixels.is_none());
+    }
+
+    #[test]
+    fn a_feathered_marquee_is_cut_after_feathering() {
+        // Fireworks MX (2026-11-26), Feather 10, -30,40 to 60,100: fully selected at the
+        // canvas's left edge (feathered first, then cut), the bounds 0,30 70x80.
+        let (mut d, red, _) = red_and_blue();
+        d.selection = vec![red];
+        let o = ToolOptions {
+            marquee_edge: firecraft_raster::Edge::Feather(10),
+            ..ToolOptions::default()
+        };
+        d.marquee((-30.0, 40.0, 60.0, 100.0), false, &o, Combine::Replace);
+        let local = d.pixels.as_ref().unwrap().local(0, 0, 200, 150);
+        assert_eq!(local.get(0, 70), 255);
+        let (x, _, w, _) = pixel_bounds(&d);
+        assert_eq!(x, 0);
+        assert!(w <= 71, "feather reaches about 10 px right of 60: {w}");
     }
 
     fn fill_options() -> ToolOptions {

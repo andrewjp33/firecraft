@@ -53,6 +53,14 @@ default):
   outline moves, the pixels stay ("Move").
 * **A click inside the selection ends it**, with either tool, recorded as "Select Pixels". So does
   a Marquee click outside it. A Magic Wand click outside selects there ("Magic Wand Tool").
+* **A marquee is cut to the canvas when the button is let go** (measured 2026-11-26 on a
+  200 x 150 bitmap filling the canvas). While dragged from -30,40 to 60,100 the outline shows
+  whole, past the canvas; let go, it becomes 0,40 60x60 (the Property inspector's marquee
+  fields agree). A marquee added with Shift is cut the same way. With Feather 10 the feather
+  comes first: the same drag then Delete left alpha 0 right up to the canvas's left edge
+  (no fade along it), the fade only at the right, top and bottom; the bounds read 0,30 70x80.
+  The Lasso is cut too (a polygon from -30,40 to 38,100 gave 0,40 38x60); FireCraft's Lasso
+  doesn't select yet.
 * One run disagreed: right after a Paint Bucket fill, a drag from inside the marquee drew a new
   marquee instead of moving it. Every other run (with and without a fill first, with and
   without hovering first) moved it; FireCraft always moves it.

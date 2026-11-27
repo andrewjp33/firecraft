@@ -1,11 +1,13 @@
 //! The Crop tool and Edit > Crop Selected Bitmap: a crop box on the canvas, as in Fireworks MX
 //! (measured 2026-11-16, docs/behavior/crop.md).
 //!
-//! * Dragging outside the box draws a new one. Where the drag began isn't limited, but the
-//!   corner being dragged stays on the canvas.
+//! * Dragging outside the box draws a new one, kept on the canvas: the corner being dragged
+//!   stays on it, and so does where the drag began, unless both ends lie past the same side
+//!   of the canvas (a drag from -20,-20 to -40,-40 gives -20,-20 to 0,0).
 //! * The eight handles and the four sides resize it, also past the canvas (the canvas then
 //!   grows), and turn it over when dragged past the opposite side. Dragging inside the box
-//!   moves it.
+//!   moves it. While resizing or moving, a side that ends up to 5 screen pixels past the
+//!   canvas snaps to the canvas's edge; Ctrl turns this off.
 //! * Double-clicking inside or pressing Enter crops; the Crop tool stays chosen. Escape drops
 //!   the box and chooses the Pointer tool; choosing another tool drops it too, except the Hand
 //!   and Zoom tools, which keep it.
@@ -55,6 +57,31 @@ const HANDLE: f32 = 5.0;
 const GRAB: f32 = 5.0;
 /// How near a side of the box the pointer must be to drag that side (screen points).
 const SIDE_GRAB: f32 = 3.0;
+/// How far past the canvas a side of the box may be let go and still snap to the canvas's
+/// edge (screen points; Fireworks MX: 5 at 100% and at 200%, measured 2026-11-26).
+const SNAP: f64 = 5.0;
+
+/// The canvas edge (0 or `size`) that canvas coordinate `v` snaps to, when it lies just past
+/// it: up to [`SNAP`] screen points outside, at zoom `z`. Inside the canvas nothing snaps.
+fn snap(v: f64, size: i64, z: f64) -> Option<i64> {
+    if v < 0.0 && -v * z <= SNAP {
+        Some(0)
+    } else if v > size as f64 && (v - size as f64) * z <= SNAP {
+        Some(size)
+    } else {
+        None
+    }
+}
+
+/// One axis of a new box drawn from `start` to `end` over a canvas `size` long: the dragged
+/// end stays on the canvas, and so does the start, unless both lie past the same edge (the
+/// start then stays put, so the box doesn't vanish). Measured in Fireworks MX 2026-11-26:
+/// -20 to 320 over 300 gave 0 to 300, -20 to -40 gave -20 to 0, 320 to 370 gave 300 to 320.
+fn new_side(start: i64, end: f64, size: i64) -> (i64, i64) {
+    let e = (end.round() as i64).clamp(0, size);
+    let s = start.clamp(0, size);
+    (if s == e { start } else { s }, e)
+}
 
 fn handle_pos(r: CropRect, (hx, hy): (i8, i8)) -> (f64, f64) {
     let pick = |a: i64, b: i64, k: i8| match k {
@@ -211,20 +238,39 @@ pub fn canvas(
         && resp.dragged()
     {
         let (x, y) = to_doc(q);
+        // Sides let go just past the canvas snap to its edges, unless Ctrl is held.
+        let free = ctx.input(|i| i.modifiers.ctrl || i.modifiers.command);
+        let zf = f64::from(z);
+        let place = |v: f64, size: i64| {
+            let snapped = if free { None } else { snap(v, size, zf) };
+            snapped.unwrap_or(v.round() as i64)
+        };
+        // How far a moved box goes along one axis: as far as the pointer, unless one of its
+        // sides then snaps.
+        let shift = |d: f64, a: i64, b: i64, size: i64| {
+            let snapped = (!free)
+                .then(|| {
+                    snap(a as f64 + d, size, zf)
+                        .map(|e| e - a)
+                        .or_else(|| snap(b as f64 + d, size, zf).map(|e| e - b))
+                })
+                .flatten();
+            snapped.unwrap_or(d.round() as i64)
+        };
         edit.rect = Some(match drag {
             Drag::New((sx, sy)) => {
-                // The dragged corner stays on the canvas (Fireworks MX); the start doesn't.
-                let ex = (x.round() as i64).clamp(0, cw);
-                let ey = (y.round() as i64).clamp(0, ch);
-                normalized(sx, sy, ex, ey)
+                let (l, r) = new_side(sx, x, cw);
+                let (t, b) = new_side(sy, y, ch);
+                normalized(l, t, r, b)
             }
             Drag::Move((fx, fy), r) => {
-                let (dx, dy) = ((x - fx).round() as i64, (y - fy).round() as i64);
+                let dx = shift(x - fx, r.0, r.2, cw);
+                let dy = shift(y - fy, r.1, r.3, ch);
                 (r.0 + dx, r.1 + dy, r.2 + dx, r.3 + dy)
             }
             Drag::Handle((hx, hy), r) => {
                 let (mut l, mut t, mut rr, mut b) = r;
-                let (x, y) = (x.round() as i64, y.round() as i64);
+                let (x, y) = (place(x, cw), place(y, ch));
                 match hx {
                     -1 => l = x,
                     1 => rr = x,
@@ -357,4 +403,40 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
         ui.weak(format!("{what}: Enter or double-click."))
             .on_hover_text("Escape removes the box. Dragging past the canvas makes it bigger.");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// New boxes, as drawn in Fireworks MX on a 300 x 200 canvas (2026-11-26).
+    #[test]
+    fn new_box_stays_on_the_canvas() {
+        let draw = |(sx, sy): (i64, i64), (ex, ey): (f64, f64)| {
+            let (l, r) = new_side(sx, ex, 300);
+            let (t, b) = new_side(sy, ey, 200);
+            normalized(l, t, r, b)
+        };
+        assert_eq!(draw((-20, -20), (320.0, 220.0)), (0, 0, 300, 200));
+        assert_eq!(draw((-20, -20), (100.0, 80.0)), (0, 0, 100, 80));
+        assert_eq!(draw((320, 220), (100.0, 100.0)), (100, 100, 300, 200));
+        assert_eq!(draw((-20, -20), (-40.0, -40.0)), (-20, -20, 0, 0));
+        assert_eq!(draw((-20, -20), (100.0, -40.0)), (0, -20, 100, 0));
+        assert_eq!(draw((-20, 60), (-40.0, 120.0)), (-20, 60, 0, 120));
+        assert_eq!(draw((320, 60), (370.0, 120.0)), (300, 60, 320, 120));
+    }
+
+    /// Sides snap up to 5 screen pixels past the canvas, never inside it (Fireworks MX).
+    #[test]
+    fn sides_snap_just_past_the_canvas() {
+        assert_eq!(snap(305.0, 300, 1.0), Some(300));
+        assert_eq!(snap(306.0, 300, 1.0), None);
+        assert_eq!(snap(299.0, 300, 1.0), None);
+        assert_eq!(snap(-5.0, 300, 1.0), Some(0));
+        assert_eq!(snap(-6.0, 300, 1.0), None);
+        assert_eq!(snap(3.0, 300, 1.0), None);
+        // At 200% the distance is on screen: 2 canvas pixels snap, 3 don't.
+        assert_eq!(snap(302.0, 300, 2.0), Some(300));
+        assert_eq!(snap(303.0, 300, 2.0), None);
+    }
 }
