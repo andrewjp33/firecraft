@@ -341,9 +341,16 @@ pub fn canvas(
         release(edit, d, end, mods, &tiny);
     }
 
-    // Cursor: the Subselection arrow; the Pen its nib, badged with what a click there does.
+    // Cursor: the Subselection arrow, a small arrowhead over a point or handle and while
+    // dragging one (Fireworks MX); the Pen its nib, badged with what a click there does.
     if subselecting && (resp.hovered() || resp.dragged()) {
-        crate::cursors::set(&ctx, crate::cursors::Cur::Subselect, cursors);
+        let on_point = match &edit.drag {
+            Some(Drag::Points { .. } | Drag::Handle { .. } | Drag::Pull { .. }) => true,
+            None => pointer.filter(|_| resp.hovered()).is_some_and(|s| over_point(edit, d, s, &near)),
+            _ => false,
+        };
+        let cur = if on_point { crate::cursors::Cur::SubselectPoint } else { crate::cursors::Cur::Subselect };
+        crate::cursors::set(&ctx, cur, cursors);
     } else if tool == Tool::Pen && (resp.hovered() || resp.dragged()) {
         let badge = match (&edit.drag, pointer.filter(|_| resp.hovered())) {
             (None, Some(s)) => pen_badge(edit, d, to_doc(s), s, &near),
@@ -788,6 +795,23 @@ fn pen_badge(edit: &PathEdit, d: &DocState, at: Pt, s: Pos2, near: &dyn Fn(Pt, P
     if drawing.is_some() { Badge::None } else { Badge::Cross }
 }
 
+/// Whether a Subselection press at `s` would take a point or handle (as [`subselect_press`]
+/// looks for them): a handle of a selected point, or a point of a path that shows its points.
+fn over_point(edit: &PathEdit, d: &DocState, s: Pos2, near: &dyn Fn(Pt, Pos2) -> bool) -> bool {
+    let handle = edit.target.and_then(|r| d.path(r)).is_some_and(|p| {
+        visible_handles(p, &edit.points).into_iter().any(|(pt, succ)| {
+            point(p, pt).is_some_and(|b| {
+                let h = if succ { b.succ } else { b.pred };
+                near((b.x + h.0, b.y + h.1), s)
+            })
+        })
+    });
+    handle
+        || shown(d).into_iter().filter_map(|r| d.path(r)).any(|p| {
+            p.contours.iter().any(|c| c.points.iter().any(|b| near((b.x, b.y), s)))
+        })
+}
+
 fn subselect_press(
     edit: &mut PathEdit,
     d: &mut DocState,
@@ -1166,6 +1190,21 @@ mod tests {
         s.pen((300.0, 250.0));
         assert_eq!(s.badge((50.0, 50.0)), Badge::Join);
         assert_eq!(s.badge((100.0, 50.0)), Badge::None);
+    }
+
+    #[test]
+    fn the_subselection_cursor_knows_points_and_handles() {
+        // Drawn: corners at 50,50 and 150,50, the curve point 150,150 selected, its handles at
+        // 110,150 and 190,150.
+        let mut s = drawn();
+        s.edit.sync(&s.d);
+        let near = |q: Pt, p: Pos2| pos2(q.0 as f32, q.1 as f32).distance(p) <= HIT;
+        let over = |s: &Sim, x: f32, y: f32| over_point(&s.edit, &s.d, pos2(x, y), &near);
+        assert!(over(&s, 50.0, 50.0), "a point");
+        assert!(over(&s, 152.0, 149.0), "near the curve point");
+        assert!(over(&s, 190.0, 150.0), "a handle of the selected point");
+        assert!(!over(&s, 100.0, 50.0), "a segment");
+        assert!(!over(&s, 300.0, 250.0), "empty canvas");
     }
 
     #[test]

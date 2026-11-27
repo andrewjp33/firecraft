@@ -50,6 +50,11 @@ scripting API; `path_tool.rs`'s tests replay them with the same values.
 * Pressing inside the selection and dragging moves the selection, even where another object lies
   on top of it; a click there without a drag selects the object on top. Repeated clicks don't
   cycle through overlapping objects (measured in Fireworks MX on `tworect.png`).
+* **The cursor** is the white arrow; over a point (of any path that shows its points) or a
+  handle, and while dragging one, it's a small white arrowhead without a tail. Over a segment,
+  the path's body or empty canvas it stays the white arrow. The same with the Pen while Ctrl
+  is held; the Pointer tool keeps its black arrow over points (seen in Fireworks MX,
+  2026-11-26). FireCraft draws a lookalike from shapes.
 * Click an object to select it **inside groups**: the innermost member under the pointer (a
   group's members, a masked group's content), as Fireworks' Subselection tool does; a path's
   points show. Drag the body to move it. Members can be transformed, given effects, reordered,

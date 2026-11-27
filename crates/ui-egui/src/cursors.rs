@@ -53,6 +53,9 @@ pub enum Cur {
     Pointer,
     /// White arrow.
     Subselect,
+    /// A small white arrowhead: the Subselection tool over a path's point or handle, or
+    /// dragging one (Fireworks MX).
+    SubselectPoint,
     /// Black arrow with a small square behind it.
     SelectBehind,
     /// Four-way arrow (Fireworks MX's move cursor).
@@ -112,7 +115,7 @@ impl Cur {
     /// The system cursor closest to this one.
     fn system(self) -> egui::CursorIcon {
         match self {
-            Cur::Pointer | Cur::Subselect | Cur::SelectBehind => egui::CursorIcon::Default,
+            Cur::Pointer | Cur::Subselect | Cur::SubselectPoint | Cur::SelectBehind => egui::CursorIcon::Default,
             Cur::Move | Cur::MovePixels => egui::CursorIcon::Move,
             Cur::ResizeH => egui::CursorIcon::ResizeHorizontal,
             Cur::ResizeV => egui::CursorIcon::ResizeVertical,
@@ -322,6 +325,8 @@ fn design(cur: Cur) -> Design {
             ],
         }
     };
+    // A short arrowhead, no tail, its tip at (2, 2) (the hotspot).
+    let small_head = || Part::Poly(vec![(2.0, 2.0), (2.0, 13.0), (5.0, 10.0), (10.0, 10.0)]);
     let plain = |parts: Vec<Part>, hot: (f32, f32)| Design {
         parts,
         accents: Vec::new(),
@@ -334,6 +339,14 @@ fn design(cur: Cur) -> Design {
         Cur::Subselect => Design {
             light: true,
             ..plain(vec![arrow(2.0, 2.0)], (2.0, 2.0))
+        },
+        // A short white arrowhead (no tail) in a white halo, the hotspot at its tip.
+        Cur::SubselectPoint => Design {
+            parts: vec![small_head()],
+            accents: Vec::new(),
+            backdrop: vec![(small_head(), 2.0)],
+            hot: (2.0, 2.0),
+            light: true,
         },
         Cur::SelectBehind => plain(vec![bar(12.0, 14.0, 19.0, 21.0), arrow(2.0, 2.0)], (2.0, 2.0)),
         Cur::ResizeH => plain(arms(&[(1.0, 0.0), (-1.0, 0.0)]), (12.0, 12.0)),
@@ -426,15 +439,12 @@ fn design(cur: Cur) -> Design {
             let mid = (T + B) / 2.0;
             accents.push(bar(L, mid - 0.5, L + 1.0, mid + 0.5));
             accents.push(bar(R - 1.0, mid - 0.5, R, mid + 0.5));
-            // A short arrowhead, no tail: tip at the hotspot, its lower right clear of the box;
-            // its black edge gets a white halo past it.
-            let head_halo = || Part::Poly(vec![(2.0, 2.0), (2.0, 13.0), (5.0, 10.0), (10.0, 10.0)]);
-            let head = head_halo();
-            let halo = head_halo();
+            // The short arrowhead, its lower right clear of the box; its black edge gets a white
+            // halo past it.
             Design {
-                parts: vec![head],
+                parts: vec![small_head()],
                 accents,
-                backdrop: vec![(bar(L, T, R, B), 0.0), (halo, 2.0)],
+                backdrop: vec![(bar(L, T, R, B), 0.0), (small_head(), 2.0)],
                 hot: (2.0, 2.0),
                 light: true,
             }
@@ -625,6 +635,11 @@ mod tests {
         assert_eq!(img.hotspot, [7, 7]);
         assert_eq!(at(&img, 7, 7), [0, 255]);
         assert_eq!(at(&img, 15, 15), [0, 255], "the stick");
+        // Over a path's point: the small arrowhead alone, white inside, its tip the hotspot.
+        let img = image(Cur::SubselectPoint, true, 24);
+        assert_eq!(img.hotspot, [2, 2]);
+        assert_eq!(at(&img, 3, 6), [255, 255]);
+        assert_eq!(at(&img, 12, 14)[1], 0, "no box");
         // Badges: the marquee's below right of the cross, the wand's below the sparkle, the
         // Pen's below right of the nib; the hotspot doesn't move.
         let plus = image(Cur::Marquee(Badge::Plus), true, 24);
