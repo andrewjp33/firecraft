@@ -138,6 +138,19 @@ FireCraft: `DocState::marquee_drag_box` gives the box for each Style; the canvas
 dragging and `marquee` selects it. With Fixed Ratio both ends go to the nearest pixel grid line,
 as a Normal marquee's do. The Style and its numbers are kept with the other tool settings.
 
+## The marquee's W, H, X and Y
+
+Fireworks MX's Property inspector shows W, H, X and Y under the Marquee tool's name: the
+marquee's bounds, or with no marquee the selection's (200 x 150 at 0,0 on the probe, whose bitmap
+fills the canvas). Typing a value **transforms the selected pixels** (measured 2026-11-27, undo
+step "Transform"): a 40 x 30 marquee at 13,11 given W 80 stretched the pixels inside to 80 wide,
+and the marquee with them; X 100 then moved them, leaving a transparent hole where they had been.
+They float until the selection ends: moved onto the green square (Y 60) and away again (X 13), the
+square came back untouched.
+
+FireCraft shows the same values (grayed) and Tab goes W, H, X, Y as everywhere; transforming
+selected pixels isn't built yet ([roadmap](../roadmap.md), item 3).
+
 ## Live marquee (Fireworks CS)
 
 Fireworks CS3 and later add a **Live marquee** checkbox to the Property inspector of the Marquee,

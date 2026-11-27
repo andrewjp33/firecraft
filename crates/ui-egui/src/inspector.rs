@@ -294,7 +294,32 @@ fn paint_bucket(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 }
 
 fn marquee(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
-    identity(ui, tool.label(), Some(tool), |_| {});
+    // Fireworks MX shows the marquee's bounds under the tool's name (with no marquee, the
+    // selection's). Typing there scales or moves the selected pixels in Fireworks (a floating
+    // "Transform"); FireCraft has no floating pixels yet, so they only show (docs/roadmap.md).
+    let bounds = app.session.active_doc().and_then(|d| {
+        let origin = d.symbol_link.map_or((0.0, 0.0), |l| l.offset);
+        let b = match &d.pixels {
+            Some(p) => p.mask.bounds().map(|(x, y, w, h)| {
+                ((p.x + i64::from(x)) as f64, (p.y + i64::from(y)) as f64, f64::from(w), f64::from(h))
+            }),
+            None => d.selection_bounds(),
+        };
+        b.map(|(x, y, w, h)| firecraft_engine::covered_pixels((x - origin.0, y - origin.1, w, h)))
+    });
+    identity(ui, tool.label(), Some(tool), |ui| {
+        let Some((x, y, w, h)) = bounds else { return };
+        geometry_grid(ui, "marquee_geom", |ui, g| {
+            let mut v = match g {
+                Geom::W => w,
+                Geom::H => h,
+                Geom::X => x,
+                Geom::Y => y,
+            };
+            ui.add_enabled(false, DragValue::new(&mut v))
+                .on_disabled_hover_text("The selection's bounds. Scaling or moving the selected pixels from here isn't built yet.");
+        });
+    });
     // The Lasso has only the Edge (Fireworks MX); its selections aren't built yet.
     let live_tool = match tool {
         Tool::Marquee => Some(LiveTool::Marquee),

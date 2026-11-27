@@ -76,6 +76,11 @@ Other items keep their numbers.
    that share one group or mask (and the Layers panel lists, selects and drags them); members from
    different groups or masks still do nothing
 3. **Lasso and Polygon Lasso** (the Crop tool is done); the Export Area tool
+   - **Transforming selected pixels**: the Marquee tools' W/H/X/Y only show the bounds today. In
+     Fireworks MX (measured 2026-11-27) typing there scales or moves the pixels inside the marquee
+     ("Transform" steps): they lift out, leaving a transparent hole, and float until the selection
+     ends (moved over green and away again, the green was untouched). The same floating pixels
+     serve Free Transform and the Scale/Skew/Distort tools on a marquee (now disabled).
 4. Blur/Sharpen/Dodge/Burn/Smudge, Rubber Stamp; the Paint Bucket's gradient and pattern fills;
    write `PCLv` for new paths so random brushes scatter the same in Fireworks
    - Investigate the Outline brush's soft-edge opacity (alpha remap 5) against Fireworks MX
