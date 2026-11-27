@@ -7,6 +7,10 @@
   therefore looks smaller at 100% than the scaled interface around it.
   (Before 2026-11-04 the zoom counted interface points, so at 125% scaling "100%" stretched
   each document pixel to 1.25 screen pixels and textures aliased.)
+* **No outline around the canvas**: Fireworks MX's pasteboard runs straight into the canvas
+  (a canvas in the pasteboard's #E3E3E3 blends in). FireCraft drew a dark 1 px outline until
+  2026-11-26; it hid a crop box or marquee on the canvas's edge pixels, so it went (the user's
+  call).
 * Fireworks MX itself is unaware of display scaling: Windows enlarges its whole window, so at
   125% its "100%" is blurred rather than aliased.
 * View > 100% (Ctrl+1), Zoom In/Out, Fit All; Ctrl+wheel zooms at the pointer; the Zoom tool

@@ -55,7 +55,10 @@ pub enum Cur {
     Subselect,
     /// Black arrow with a small square behind it.
     SelectBehind,
+    /// Four-way arrow (Fireworks MX's move cursor).
     Move,
+    /// White arrow over a small dashed box: dragging a marquee or wand selection (Fireworks MX).
+    MovePixels,
     /// Double arrows: horizontal, vertical, NW-SE, NE-SW.
     ResizeH,
     ResizeV,
@@ -63,6 +66,8 @@ pub enum Cur {
     ResizeNeSw,
     Rotate,
     Crosshair,
+    /// The Crop tool: two interlocking corner brackets.
+    Crop,
 }
 
 impl Cur {
@@ -70,13 +75,13 @@ impl Cur {
     fn system(self) -> egui::CursorIcon {
         match self {
             Cur::Pointer | Cur::Subselect | Cur::SelectBehind => egui::CursorIcon::Default,
-            Cur::Move => egui::CursorIcon::Move,
+            Cur::Move | Cur::MovePixels => egui::CursorIcon::Move,
             Cur::ResizeH => egui::CursorIcon::ResizeHorizontal,
             Cur::ResizeV => egui::CursorIcon::ResizeVertical,
             Cur::ResizeNwSe => egui::CursorIcon::ResizeNwSe,
             Cur::ResizeNeSw => egui::CursorIcon::ResizeNeSw,
             Cur::Rotate => egui::CursorIcon::Default,
-            Cur::Crosshair => egui::CursorIcon::Crosshair,
+            Cur::Crosshair | Cur::Crop => egui::CursorIcon::Crosshair,
         }
     }
 }
@@ -154,10 +159,10 @@ pub fn image(cur: Cur, dark: bool, size: u32) -> egui::CustomCursorImage {
     let (rgba, hot) = map
         .entry((cur, dark, n))
         .or_insert_with(|| {
-            let (parts, hot, light_fill) = design(cur);
-            let fill_dark = if light_fill { !dark } else { dark };
+            let Design { parts, accents, hot, light } = design(cur);
+            let fill_dark = if light { !dark } else { dark };
             (
-                raster(&parts, n as usize, scale, fill_dark).into(),
+                raster(&parts, &accents, n as usize, scale, fill_dark).into(),
                 [(hot.0 * scale).round() as u16, (hot.1 * scale).round() as u16],
             )
         })
@@ -176,8 +181,18 @@ enum Part {
     Arc((f32, f32), f32, f32, f32, f32),
 }
 
-/// Shapes, hotspot and whether the fill is the light colour (Subselect) for a cursor.
-fn design(cur: Cur) -> (Vec<Part>, (f32, f32), bool) {
+/// A cursor's drawing: its shapes, filled black with a white edge (or, `light`, white with a
+/// black edge, as Subselect), accents on top in the other tone, and the hotspot.
+struct Design {
+    parts: Vec<Part>,
+    accents: Vec<Part>,
+    hot: (f32, f32),
+    light: bool,
+}
+
+/// The drawing of each cursor. Shapes meant to be 1 unit thick run along pixel centres
+/// (x.5), so they stay crisp at the 24 px size; the hotspot is then that pixel.
+fn design(cur: Cur) -> Design {
     let arrow = |dx: f32, dy: f32| {
         Part::Poly(
             [
@@ -216,20 +231,31 @@ fn design(cur: Cur) -> (Vec<Part>, (f32, f32), bool) {
         )
     };
     let bar = |x0: f32, y0: f32, x1: f32, y1: f32| Part::Poly(vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)]);
+    // A straight band `half` either side of the line from `a` to `b`.
+    let line = |a: (f32, f32), b: (f32, f32), half: f32| {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len = dx.hypot(dy).max(1e-6);
+        let (nx, ny) = (-dy / len * half, dx / len * half);
+        Part::Poly(vec![(a.0 + nx, a.1 + ny), (b.0 + nx, b.1 + ny), (b.0 - nx, b.1 - ny), (a.0 - nx, a.1 - ny)])
+    };
+    let plain = |parts: Vec<Part>, hot: (f32, f32)| Design {
+        parts,
+        accents: Vec::new(),
+        hot,
+        light: false,
+    };
     match cur {
-        Cur::Pointer => (vec![arrow(2.0, 2.0)], (2.0, 2.0), false),
-        Cur::Subselect => (vec![arrow(2.0, 2.0)], (2.0, 2.0), true),
-        Cur::SelectBehind => (
-            vec![bar(12.0, 14.0, 19.0, 21.0), arrow(2.0, 2.0)],
-            (2.0, 2.0),
-            false,
-        ),
-        Cur::Move => (vec![double(0.0), double(90.0)], (12.0, 12.0), false),
-        Cur::ResizeH => (vec![double(0.0)], (12.0, 12.0), false),
-        Cur::ResizeV => (vec![double(90.0)], (12.0, 12.0), false),
-        Cur::ResizeNwSe => (vec![double(45.0)], (12.0, 12.0), false),
-        Cur::ResizeNeSw => (vec![double(135.0)], (12.0, 12.0), false),
-        Cur::Crosshair => (
+        Cur::Pointer => plain(vec![arrow(2.0, 2.0)], (2.0, 2.0)),
+        Cur::Subselect => Design {
+            light: true,
+            ..plain(vec![arrow(2.0, 2.0)], (2.0, 2.0))
+        },
+        Cur::SelectBehind => plain(vec![bar(12.0, 14.0, 19.0, 21.0), arrow(2.0, 2.0)], (2.0, 2.0)),
+        Cur::ResizeH => plain(vec![double(0.0)], (12.0, 12.0)),
+        Cur::ResizeV => plain(vec![double(90.0)], (12.0, 12.0)),
+        Cur::ResizeNwSe => plain(vec![double(45.0)], (12.0, 12.0)),
+        Cur::ResizeNeSw => plain(vec![double(135.0)], (12.0, 12.0)),
+        Cur::Crosshair => plain(
             vec![
                 bar(3.0, 11.1, 9.5, 12.9),
                 bar(14.5, 11.1, 21.0, 12.9),
@@ -237,8 +263,65 @@ fn design(cur: Cur) -> (Vec<Part>, (f32, f32), bool) {
                 bar(11.1, 14.5, 12.9, 21.0),
             ],
             (12.0, 12.0),
-            false,
         ),
+        // Four-way arrow in the style of Fireworks' move cursor: 1-unit shafts with small
+        // solid heads, centred on the hotspot pixel.
+        Cur::Move => {
+            const REACH: f32 = 7.5; // centre to tip
+            const SHAFT: f32 = 0.5; // half thickness
+            const HEAD: f32 = 3.0; // head length
+            const WIDE: f32 = 2.5; // head half width
+            let c = (12.5, 12.5);
+            let mut parts = Vec::new();
+            for (ux, uy) in [(1.0f32, 0.0f32), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                let at = |along: f32, across: f32| (c.0 + ux * along - uy * across, c.1 + uy * along + ux * across);
+                parts.push(Part::Poly(vec![at(0.0, -SHAFT), at(REACH - HEAD, -SHAFT), at(REACH - HEAD, SHAFT), at(0.0, SHAFT)]));
+                parts.push(Part::Poly(vec![at(REACH, 0.0), at(REACH - HEAD, -WIDE), at(REACH - HEAD, WIDE)]));
+            }
+            plain(parts, (12.0, 12.0))
+        }
+        // Dragging a selection: a small white arrow over a black dashed box, in the style of
+        // Fireworks'.
+        Cur::MovePixels => {
+            const L: f32 = 8.0; // the box: left, top, right, bottom
+            const T: f32 = 12.0;
+            const R: f32 = 16.0;
+            const B: f32 = 17.0;
+            let mut accents = Vec::new();
+            for (x0, x1) in [(L, L + 2.0), (L + 3.0, R - 3.0), (R - 2.0, R)] {
+                accents.push(bar(x0, T, x1, T + 1.0));
+                accents.push(bar(x0, B - 1.0, x1, B));
+            }
+            let mid = (T + B) / 2.0;
+            accents.push(bar(L, mid - 0.5, L + 1.0, mid + 0.5));
+            accents.push(bar(R - 1.0, mid - 0.5, R, mid + 0.5));
+            // A short arrowhead, no tail: tip at the hotspot, its lower right clear of the box.
+            let head = Part::Poly(vec![(2.0, 2.0), (2.0, 13.0), (5.0, 10.0), (10.0, 10.0)]);
+            Design {
+                parts: vec![head],
+                accents,
+                hot: (2.0, 2.0),
+                light: true,
+            }
+        }
+        // Crop: two interlocking corner brackets (the usual crop symbol, as Fireworks'), with
+        // a thin diagonal tick across the frame they make; the hotspot is the tick's middle.
+        Cur::Crop => {
+            const X: f32 = 6.0; // outer left / top of the top-left bracket
+            const Y: f32 = 7.0;
+            const T: f32 = 2.0; // thickness
+            const A: f32 = 6.0; // the frame's inside
+            const E: f32 = 3.0; // how far each bracket runs past the frame
+            let (fx, fy) = (X + T, Y + T); // the frame's inside, top-left
+            let parts = vec![
+                bar(X, Y, X + T, Y + T + A + T + E),
+                bar(X, Y, X + T + A + T + E, Y + T),
+                bar(fx + A, Y - E, fx + A + T, fy + A + T),
+                bar(X - E, fy + A, fx + A + T, fy + A + T),
+                line((fx + 1.5, fy + 1.5), (fx + A - 0.5, fy + A - 0.5), 0.5),
+            ];
+            plain(parts, (fx + A / 2.0, fy + A / 2.0))
+        }
         Cur::Rotate => {
             let (c, r, a1) = ((12.0, 12.0), 6.2, 52f32.to_radians());
             let end = (c.0 + r * a1.cos(), c.1 + r * a1.sin());
@@ -248,11 +331,7 @@ fn design(cur: Cur) -> (Vec<Part>, (f32, f32), bool) {
                 (end.0 + 3.8 * n.0 - 1.2 * t.0, end.1 + 3.8 * n.1 - 1.2 * t.1),
                 (end.0 - 3.8 * n.0 - 1.2 * t.0, end.1 - 3.8 * n.1 - 1.2 * t.1),
             ]);
-            (
-                vec![Part::Arc(c, r, 1.05, (-200f32).to_radians(), a1), head],
-                (12.0, 12.0),
-                false,
-            )
+            plain(vec![Part::Arc(c, r, 1.05, (-200f32).to_radians(), a1), head], (12.0, 12.0))
         }
     }
 }
@@ -293,32 +372,39 @@ fn dist(p: &Part, x: f32, y: f32) -> f32 {
 }
 
 /// Rasterise parts (design units x `scale`) into an `n` x `n` RGBA bitmap, anti-aliased:
-/// fill black with a white outline (`dark`) or white with a black outline.
-fn raster(parts: &[Part], n: usize, scale: f32, dark: bool) -> Vec<u8> {
+/// fill black with a white outline (`dark`) or white with a black outline; `accents` go on top
+/// in the other tone.
+fn raster(parts: &[Part], accents: &[Part], n: usize, scale: f32, dark: bool) -> Vec<u8> {
     let outline = 1.0;
-    let (fill, edge) = if dark { (0u8, 255u8) } else { (255u8, 0u8) };
+    let (fill, edge) = if dark { (0.0f32, 255.0f32) } else { (255.0, 0.0) };
+    let nearest = |set: &[Part], x: f32, y: f32| set.iter().map(|p| dist(p, x, y)).fold(f32::MAX, f32::min) * scale;
     let mut out = vec![0u8; n * n * 4];
     const SS: usize = 4;
     for py in 0..n {
         for px in 0..n {
-            let (mut body, mut rim) = (0.0f32, 0.0f32);
+            let (mut sum, mut covered) = (0.0f32, 0.0f32);
             for sy in 0..SS {
                 for sx in 0..SS {
                     let x = (px as f32 + (sx as f32 + 0.5) / SS as f32) / scale;
                     let y = (py as f32 + (sy as f32 + 0.5) / SS as f32) / scale;
-                    let d = parts.iter().map(|p| dist(p, x, y)).fold(f32::MAX, f32::min) * scale;
-                    if d <= 0.0 {
-                        body += 1.0;
-                    } else if d <= outline {
-                        rim += 1.0;
-                    }
+                    let (d, a) = (nearest(parts, x, y), nearest(accents, x, y));
+                    let v = if a <= 0.0 {
+                        edge
+                    } else if d <= 0.0 {
+                        fill
+                    } else if d.min(a) <= outline {
+                        if a < d { fill } else { edge }
+                    } else {
+                        continue;
+                    };
+                    sum += v;
+                    covered += 1.0;
                 }
             }
-            let cover = (body + rim) / (SS * SS) as f32;
-            if cover > 0.0 {
-                let v = ((fill as f32 * body + edge as f32 * rim) / (body + rim)).round() as u8;
+            if covered > 0.0 {
+                let v = (sum / covered).round() as u8;
                 if let Some(p) = out.get_mut((py * n + px) * 4..(py * n + px) * 4 + 4) {
-                    p.copy_from_slice(&[v, v, v, (cover * 255.0).round() as u8]);
+                    p.copy_from_slice(&[v, v, v, (covered / (SS * SS) as f32 * 255.0).round() as u8]);
                 }
             }
         }
@@ -356,5 +442,36 @@ mod tests {
             &image(Cur::Move, true, 24).rgba,
             &image(Cur::Move, true, 24).rgba
         ));
+    }
+
+    #[test]
+    fn crop_cursor() {
+        // Two 2 px brackets around a 6 px frame, the hotspot on the tick across it.
+        let img = image(Cur::Crop, true, 24);
+        assert_eq!(img.hotspot, [11, 12]);
+        assert!(at(&img, 11, 12)[0] < 90, "the tick, under the hotspot");
+        assert_eq!(at(&img, 6, 12), [0, 255], "the left bracket");
+        assert_eq!(at(&img, 15, 12), [0, 255], "the right bracket");
+        assert_eq!(at(&img, 10, 13)[0], 255, "white beside the tick");
+    }
+
+    #[test]
+    fn move_cursors() {
+        // Four-way arrow: crisp 1 px shafts crossing at the hotspot.
+        let img = image(Cur::Move, true, 24);
+        assert_eq!(img.hotspot, [12, 12]);
+        assert_eq!(at(&img, 12, 12), [0, 255]);
+        assert_eq!(at(&img, 9, 12), [0, 255], "the horizontal shaft");
+        assert_eq!(at(&img, 9, 11), [255, 255], "white beside it: 1 px thick");
+        assert_eq!(at(&img, 9, 13), [255, 255]);
+        assert_eq!(at(&img, 12, 6), [0, 255], "the top arrowhead");
+        // Over a selection: a white arrow, black dashes below it, hotspot at the tip.
+        let img = image(Cur::MovePixels, true, 24);
+        assert_eq!(img.hotspot, [2, 2]);
+        assert_eq!(at(&img, 4, 8), [255, 255], "the arrow is white inside");
+        assert_eq!(at(&img, 15, 12), [0, 255], "a dash of the box");
+        assert_eq!(at(&img, 13, 16), [255, 255], "a gap between dashes");
+        // It scales with the cursor size.
+        assert_eq!(image(Cur::MovePixels, true, 48).hotspot, [4, 4]);
     }
 }

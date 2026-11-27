@@ -17,10 +17,11 @@
 //! * Crop Selected Bitmap puts the box around the bitmap; cropping trims the bitmap (undo step
 //!   "Crop Image") and goes back to the Pointer tool.
 
-use egui::{Color32, CursorIcon, Pos2, Rect, Stroke, pos2, vec2};
+use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
 use firecraft_engine::{CropRect, DocState, ElementRef, Tool};
 
 use crate::FireCraftApp;
+use crate::cursors::{self, Cur, CursorStyle};
 
 /// What the box crops.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -144,6 +145,7 @@ pub fn canvas(
     resp: &egui::Response,
     (origin, z): (Pos2, f32),
     keys_free: bool,
+    style: CursorStyle,
 ) -> bool {
     let ctx = resp.ctx.clone();
     let to_screen = |x: f64, y: f64| pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
@@ -293,20 +295,27 @@ pub fn canvas(
         }
     }
 
-    // Cursor: resize arrows over the handles, a move cursor inside the box.
-    if let (Some(r), Some(q)) = (edit.rect, resp.hover_pos())
-        && edit.drag.is_none()
+    // Cursor: resize arrows over the handles, a move cursor inside the box, also while they
+    // are dragged; elsewhere the crop cursor the canvas has set.
+    let resize = |(hx, hy): (i8, i8)| match (hx, hy) {
+        (0, _) => Cur::ResizeV,
+        (_, 0) => Cur::ResizeH,
+        (a, b) if a == b => Cur::ResizeNwSe,
+        _ => Cur::ResizeNeSw,
+    };
+    let cur = match edit.drag {
+        Some(Drag::Handle(h, _)) => Some(resize(h)),
+        Some(Drag::Move(..)) => Some(Cur::Move),
+        Some(Drag::New(_)) => None,
+        None => edit.rect.zip(resp.hover_pos()).and_then(|(r, q)| match handle_at(r, q) {
+            Some(h) => Some(resize(h)),
+            None => inside(r, q).then_some(Cur::Move),
+        }),
+    };
+    if let Some(cur) = cur
+        && (resp.hovered() || resp.dragged())
     {
-        if let Some((hx, hy)) = handle_at(r, q) {
-            ctx.set_cursor_icon(match (hx, hy) {
-                (0, _) => CursorIcon::ResizeVertical,
-                (_, 0) => CursorIcon::ResizeHorizontal,
-                (a, b) if a == b => CursorIcon::ResizeNwSe,
-                _ => CursorIcon::ResizeNeSw,
-            });
-        } else if inside(r, q) {
-            ctx.set_cursor_icon(CursorIcon::Move);
-        }
+        cursors::set(&ctx, cur, style);
     }
 
     overlay(crop, d, p, (origin, z));

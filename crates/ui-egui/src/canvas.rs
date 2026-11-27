@@ -1003,12 +1003,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     if let Some(tex) = highlighted.or(shown).or(view.texture.as_ref().map(|t| &t.1)) {
         tex.paint(&p, canvas_rect);
     }
-    p.rect_stroke(
-        canvas_rect,
-        0.0,
-        Stroke::new(1.0, Color32::from_gray(60)),
-        StrokeKind::Outside,
-    );
+    // No outline around the canvas, as in Fireworks MX: a canvas the pasteboard's colour
+    // blends into it, and a crop box or marquee on the canvas's edge pixels shows clearly.
     // Symbol Editor: the symbol's origin (registration point), as Fireworks marks it.
     if let Some(link) = d.symbol_link {
         let c = to_screen(link.offset.0, link.offset.1);
@@ -1120,7 +1116,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::Text => egui::CursorIcon::Text,
             _ => egui::CursorIcon::Default,
         });
-        // Over the pixel selection a marquee tool or the Magic Wand drags it: a move cursor.
+        // Over the pixel selection a marquee tool or the Magic Wand drags it.
         let plain = !ctx.input(|i| i.modifiers.shift || i.modifiers.alt);
         let over_marquee = marquee_moves(tool)
             && (view.marquee_drag
@@ -1129,8 +1125,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                         let (x, y) = to_doc(pos);
                         d.pixels_contain(x, y)
                     }));
+        // Fireworks MX shows its white arrow over a small dashed box there.
         if over_marquee {
-            ctx.set_cursor_icon(egui::CursorIcon::Move);
+            crate::cursors::set(&ctx, crate::cursors::Cur::MovePixels, app.prefs.cursor_style);
         }
         // Selection tools: FireCraft's own cursors (Fireworks style: black Pointer, white
         // Subselection arrow, Select Behind).
@@ -1138,6 +1135,8 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::Pointer => Some(crate::cursors::Cur::Pointer),
             Tool::Subselect => Some(crate::cursors::Cur::Subselect),
             Tool::SelectBehind => Some(crate::cursors::Cur::SelectBehind),
+            // Over the crop box's handles and inside it, the Crop tool sets its own.
+            Tool::Crop => Some(crate::cursors::Cur::Crop),
             _ => None,
         };
         if let Some(cur) = own {
@@ -1221,7 +1220,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     }
     // The Crop tool too (Escape and finished bitmap crops go back to the Pointer tool).
     if tool == Tool::Crop {
-        if crate::crop_tool::canvas(&mut app.crop, d, &p, resp, (origin, z), keys_free) {
+        if crate::crop_tool::canvas(&mut app.crop, d, &p, resp, (origin, z), keys_free, app.prefs.cursor_style) {
             app.session.tool = Tool::Pointer;
         }
         return;
