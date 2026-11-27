@@ -231,6 +231,11 @@ Other items keep their numbers.
       - **Alt** with the Brush, Pencil, Paint Bucket, Gradient and Line tools shows the eyedropper
         and picks the colour under it.
       Build the behaviour first, then show its cursor.
+20. **File > Save a Copy...**: save the document to another Fireworks PNG while it stays as it is
+    (same file name, unsaved changes still marked, Save still going to its own file). Measure
+    Fireworks MX first: the name it suggests, whether the copy joins Open Recent, and what it does
+    when the copy is given the document's own file name. On the desktop through the save dialog,
+    in the browser as a download or the file picker, like Save As.
 
 ## When needed
 
