@@ -341,9 +341,15 @@ pub fn canvas(
         release(edit, d, end, mods, &tiny);
     }
 
-    // Cursor: the Subselection arrow; the Pen a crosshair (set by the canvas).
+    // Cursor: the Subselection arrow; the Pen its nib, badged with what a click there does.
     if subselecting && (resp.hovered() || resp.dragged()) {
         crate::cursors::set(&ctx, crate::cursors::Cur::Subselect, cursors);
+    } else if tool == Tool::Pen && (resp.hovered() || resp.dragged()) {
+        let badge = match (&edit.drag, pointer.filter(|_| resp.hovered())) {
+            (None, Some(s)) => pen_badge(edit, d, to_doc(s), s, &near),
+            _ => crate::cursors::Badge::None,
+        };
+        crate::cursors::set(&ctx, crate::cursors::Cur::Pen(badge), cursors);
     }
     edit.revision = d.revision;
     // Mouse highlight: the member a click would select (inside groups), in red.
@@ -725,6 +731,63 @@ fn pen_press(
     }
 }
 
+/// What a Pen click at `at` (screen `s`) would do, as the cursor's badge, following
+/// [`pen_press`] (Fireworks MX shows the same): a new path (cross); while drawing, nothing
+/// (none), closing it on its first point (ring), joining another path's end (join); on the path
+/// drawn or selected, adding a point on a segment (plus), deleting a corner point (minus),
+/// converting a curve point or carrying on from an end (caret; also on the last point drawn).
+fn pen_badge(edit: &PathEdit, d: &DocState, at: Pt, s: Pos2, near: &dyn Fn(Pt, Pos2) -> bool) -> crate::cursors::Badge {
+    use crate::cursors::Badge;
+    let drawing = edit
+        .pen
+        .filter(|(r, c)| d.path(*r).is_some_and(|p| p.contours.get(*c).is_some()));
+    if let Some((r, ci)) = drawing
+        && let Some(c) = d.path(r).and_then(|p| p.contours.get(ci))
+        && c.points.len() >= 2
+        && c.points.first().is_some_and(|f| near((f.x, f.y), s))
+    {
+        return Badge::Ring;
+    }
+    let selected = match d.selection[..] {
+        [r] if d.path(r).is_some() => Some(r),
+        _ => None,
+    };
+    if let Some(r) = drawing.map(|p| p.0).or(selected)
+        && let Some(p) = d.path(r)
+    {
+        let hit = p.contours.iter().enumerate().find_map(|(ci, c)| {
+            c.points
+                .iter()
+                .position(|b| near((b.x, b.y), s))
+                .map(|index| PointRef { contour: ci, index })
+        });
+        if let Some(pt) = hit
+            && let (Some(c), Some(b)) = (p.contours.get(pt.contour), point(p, pt))
+        {
+            let last = pt.index + 1 == c.points.len();
+            let end = !c.closed && (pt.index == 0 || last);
+            return if drawing.is_none() && end && c.points.len() >= 2
+                || drawing == Some((r, pt.contour)) && last
+                || paths::is_curve(b)
+            {
+                Badge::Caret
+            } else {
+                Badge::Minus
+            };
+        }
+        if let Some((r, _)) = drawing
+            && d.open_end_at(|x, y| near((x, y), s), r).is_some()
+        {
+            return Badge::Join;
+        }
+        let tol = (HIT as f64) / edit.scale.max(1e-3) as f64;
+        if paths::nearest_segment(p, at.0, at.1, tol).is_some() {
+            return Badge::Plus;
+        }
+    }
+    if drawing.is_some() { Badge::None } else { Badge::Cross }
+}
+
 fn subselect_press(
     edit: &mut PathEdit,
     d: &mut DocState,
@@ -1029,6 +1092,13 @@ mod tests {
             self.click(Tool::Pen, at, NONE);
         }
 
+        /// The Pen cursor's badge with the pointer at `at`.
+        fn badge(&mut self, at: Pt) -> crate::cursors::Badge {
+            self.edit.sync(&self.d);
+            let near = |q: Pt, s: Pos2| pos2(q.0 as f32, q.1 as f32).distance(s) <= HIT;
+            pen_badge(&self.edit, &self.d, at, pos2(at.0 as f32, at.1 as f32), &near)
+        }
+
         fn double(&mut self, at: Pt) {
             self.click(Tool::Pen, at, NONE);
             self.now -= 10.0;
@@ -1071,6 +1141,31 @@ mod tests {
         s.pen((150.0, 50.0));
         s.drag(Tool::Pen, (150.0, 150.0), (190.0, 150.0), NONE);
         s
+    }
+
+    #[test]
+    fn the_pen_cursor_says_what_a_click_does() {
+        use crate::cursors::Badge;
+        // Nothing drawn: a click starts a new path.
+        assert_eq!(Sim::new().badge((10.0, 10.0)), Badge::Cross);
+        // Drawing (corners at 50,50 and 150,50, a curve point at 150,150 last).
+        let mut s = drawn();
+        assert_eq!(s.badge((300.0, 250.0)), Badge::None, "the next point");
+        assert_eq!(s.badge((50.0, 50.0)), Badge::Ring, "the first point closes");
+        assert_eq!(s.badge((100.0, 50.0)), Badge::Plus, "a segment gets a point");
+        assert_eq!(s.badge((150.0, 50.0)), Badge::Minus, "a corner goes");
+        assert_eq!(s.badge((150.0, 150.0)), Badge::Caret, "the last point");
+        s.pen((250.0, 150.0));
+        assert_eq!(s.badge((150.0, 150.0)), Badge::Caret, "a curve point becomes a corner");
+        // Finished and selected: its ends carry on; elsewhere a new path.
+        s.double((250.0, 150.0));
+        assert_eq!(s.badge((50.0, 50.0)), Badge::Caret, "carry on from an end");
+        assert_eq!(s.badge((150.0, 50.0)), Badge::Minus);
+        assert_eq!(s.badge((300.0, 250.0)), Badge::Cross);
+        // Drawing another path: the first one's end joins, its segments are just more points.
+        s.pen((300.0, 250.0));
+        assert_eq!(s.badge((50.0, 50.0)), Badge::Join);
+        assert_eq!(s.badge((100.0, 50.0)), Badge::None);
     }
 
     #[test]

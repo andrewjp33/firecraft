@@ -68,10 +68,44 @@ pub enum Cur {
     Crosshair,
     /// The Crop tool: two interlocking corner brackets.
     Crop,
-    /// The marquee tools: a thin cross.
-    Marquee,
-    /// The Magic Wand: a wand with a sparkle at its tip, the hotspot.
-    MagicWand,
+    /// The marquee tools: a thin cross, with a badge for adding (Shift), subtracting (Alt) or
+    /// intersecting (Shift+Alt).
+    Marquee(Badge),
+    /// The Magic Wand: a wand with a sparkle at its tip, the hotspot; badges as the marquee's.
+    MagicWand(Badge),
+    /// The Pen: a nib pointing up, the hotspot at its tip, with a badge for what a click does.
+    Pen(Badge),
+}
+
+/// A small mark at a cursor's side saying what a click will do (in the style of Fireworks').
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Badge {
+    None,
+    /// Add to the selection; the Pen: add a point on the segment.
+    Plus,
+    /// Subtract from the selection; the Pen: delete the point.
+    Minus,
+    /// Intersect with the selection; the Pen: start a new path.
+    Cross,
+    /// The Pen: close the path (on its first point).
+    Ring,
+    /// The Pen: convert a curve point, or carry on from an end point.
+    Caret,
+    /// The Pen: join another path's end.
+    Join,
+}
+
+impl Badge {
+    /// The selection tools' badge for the modifiers held: Shift adds, Alt subtracts, both
+    /// intersect.
+    pub fn for_selection(mods: egui::Modifiers) -> Self {
+        match (mods.shift, mods.alt) {
+            (true, true) => Badge::Cross,
+            (true, false) => Badge::Plus,
+            (false, true) => Badge::Minus,
+            (false, false) => Badge::None,
+        }
+    }
 }
 
 impl Cur {
@@ -85,7 +119,9 @@ impl Cur {
             Cur::ResizeNwSe => egui::CursorIcon::ResizeNwSe,
             Cur::ResizeNeSw => egui::CursorIcon::ResizeNeSw,
             Cur::Rotate => egui::CursorIcon::Default,
-            Cur::Crosshair | Cur::Crop | Cur::Marquee | Cur::MagicWand => egui::CursorIcon::Crosshair,
+            Cur::Crosshair | Cur::Crop | Cur::Marquee(_) | Cur::MagicWand(_) | Cur::Pen(_) => {
+                egui::CursorIcon::Crosshair
+            }
         }
     }
 }
@@ -257,6 +293,35 @@ fn design(cur: Cur) -> Design {
         let (nx, ny) = (-dy / len * half, dx / len * half);
         Part::Poly(vec![(a.0 + nx, a.1 + ny), (b.0 + nx, b.1 + ny), (b.0 - nx, b.1 - ny), (a.0 - nx, a.1 - ny)])
     };
+    // A badge, 5 pixels across, centred on the pixel at (`x`, `y`): whole pixels, so its small
+    // diagonals stay crisp at 24 px (they scale with the cursor).
+    let badge = |b: Badge, x: f32, y: f32| -> Vec<Part> {
+        let px = |dx: f32, dy: f32| bar(x + dx, y + dy, x + dx + 1.0, y + dy + 1.0);
+        let across = bar(x - 2.0, y, x + 3.0, y + 1.0);
+        match b {
+            Badge::None => Vec::new(),
+            Badge::Plus => vec![across, bar(x, y - 2.0, x + 1.0, y + 3.0)],
+            Badge::Minus => vec![across],
+            Badge::Cross => (-2..=2).flat_map(|k| [px(k as f32, k as f32), px(k as f32, -k as f32)]).collect(),
+            // A small round ring: a 5 x 5 square without its corners.
+            Badge::Ring => vec![
+                bar(x - 1.0, y - 2.0, x + 2.0, y - 1.0),
+                bar(x - 1.0, y + 2.0, x + 2.0, y + 3.0),
+                bar(x - 2.0, y - 1.0, x - 1.0, y + 2.0),
+                bar(x + 2.0, y - 1.0, x + 3.0, y + 2.0),
+            ],
+            // An upturned V, 5 wide and 3 high.
+            Badge::Caret => vec![px(0.0, -1.0), px(-1.0, 0.0), px(1.0, 0.0), px(-2.0, 1.0), px(2.0, 1.0)],
+            // A line into a small ring.
+            Badge::Join => vec![
+                bar(x - 3.0, y, x, y + 1.0),
+                bar(x + 1.0, y - 1.0, x + 2.0, y),
+                bar(x + 1.0, y + 1.0, x + 2.0, y + 2.0),
+                px(0.0, 0.0),
+                px(2.0, 0.0),
+            ],
+        }
+    };
     let plain = |parts: Vec<Part>, hot: (f32, f32)| Design {
         parts,
         accents: Vec::new(),
@@ -285,17 +350,18 @@ fn design(cur: Cur) -> Design {
             (12.0, 12.0),
         ),
         // The marquee tools: a thin 1 px cross through the hotspot pixel's centre.
-        Cur::Marquee => {
+        // A badge sits below right of the cross.
+        Cur::Marquee(b) => {
             const ARM: f32 = 5.5; // centre to each end
             let c = 12.5;
-            plain(
-                vec![bar(c - ARM, c - 0.5, c + ARM, c + 0.5), bar(c - 0.5, c - ARM, c + 0.5, c + ARM)],
-                (12.0, 12.0),
-            )
+            let mut parts = vec![bar(c - ARM, c - 0.5, c + ARM, c + 0.5), bar(c - 0.5, c - ARM, c + 0.5, c + ARM)];
+            parts.extend(badge(b, 19.0, 19.0));
+            plain(parts, (12.0, 12.0))
         }
         // The Magic Wand: a stick down to the right from a small sparkle (a dot with four short
         // rays); the hotspot is the dot.
-        Cur::MagicWand => {
+        // A badge sits below the sparkle, left of the stick.
+        Cur::MagicWand(b) => {
             const S: f32 = 7.5; // the sparkle's centre (both axes)
             const RAY: (f32, f32) = (2.5, 4.5); // its rays, from and to (a dot in the middle)
             const STICK: (f32, f32) = (3.5, 12.5); // the stick along the diagonal, from and to
@@ -307,7 +373,40 @@ fn design(cur: Cur) -> Design {
             ];
             parts.push(bar(S - 0.5, S - 0.5, S + 0.5, S + 0.5));
             parts.push(line((S + STICK.0, S + STICK.0), (S + STICK.1, S + STICK.1), 1.1));
+            parts.extend(badge(b, 4.0, 17.0));
             plain(parts, (S - 0.5, S - 0.5))
+        }
+        // The Pen: a white nib, outlined black (and haloed white), pointing up to the hotspot,
+        // a slit down its middle and a black collar below; a badge below right of it.
+        Cur::Pen(b) => {
+            const X: f32 = 6.5; // the nib's middle (a pixel centre: the slit stays crisp)
+            const TIP: f32 = 2.0;
+            const WIDE: f32 = 3.5; // half width at the shoulders
+            const SHOULDER: f32 = 8.5;
+            const BASE: f32 = 12.0; // where the collar starts
+            const COLLAR: f32 = 4.0; // its height
+            let nib = || {
+                Part::Poly(vec![
+                    (X, TIP),
+                    (X + WIDE, SHOULDER),
+                    (X + WIDE - 1.0, BASE),
+                    (X - WIDE + 1.0, BASE),
+                    (X - WIDE, SHOULDER),
+                ])
+            };
+            let mut accents = vec![
+                bar(X - 0.5, TIP + 2.0, X + 0.5, SHOULDER + 0.5),
+                bar(X - WIDE, BASE, X + WIDE, BASE + COLLAR),
+            ];
+            accents.extend(badge(b, 15.0, 17.0));
+            // A white halo past the nib's black outline, so it shows on dark pixels too.
+            Design {
+                parts: vec![nib()],
+                accents,
+                backdrop: vec![(nib(), 2.0)],
+                hot: (X - 0.5, TIP - 1.0),
+                light: true,
+            }
         }
         // Four-way arrow in the style of Fireworks' move cursor: 1-unit shafts with small
         // solid heads, centred on the hotspot pixel.
@@ -516,16 +615,36 @@ mod tests {
         assert_eq!(at(&img, 12, 14), [255, 255], "the box is white inside");
         assert_eq!(at(&img, 0, 6), [255, 255], "a white halo outside the arrow's black edge");
         // The marquee cross: 1 px, the hotspot where the arms cross.
-        let img = image(Cur::Marquee, true, 24);
+        let img = image(Cur::Marquee(Badge::None), true, 24);
         assert_eq!(img.hotspot, [12, 12]);
         assert_eq!(at(&img, 12, 12), [0, 255]);
         assert_eq!(at(&img, 8, 12), [0, 255]);
         assert_eq!(at(&img, 8, 11), [255, 255], "1 px arm");
         // The wand: the hotspot on the sparkle's dot, the stick down to the right.
-        let img = image(Cur::MagicWand, true, 24);
+        let img = image(Cur::MagicWand(Badge::None), true, 24);
         assert_eq!(img.hotspot, [7, 7]);
         assert_eq!(at(&img, 7, 7), [0, 255]);
         assert_eq!(at(&img, 15, 15), [0, 255], "the stick");
+        // Badges: the marquee's below right of the cross, the wand's below the sparkle, the
+        // Pen's below right of the nib; the hotspot doesn't move.
+        let plus = image(Cur::Marquee(Badge::Plus), true, 24);
+        assert_eq!(plus.hotspot, [12, 12]);
+        assert_eq!(at(&plus, 19, 19), [0, 255], "the plus's middle");
+        assert_eq!(at(&plus, 19, 17), [0, 255], "its upright");
+        let minus = image(Cur::Marquee(Badge::Minus), true, 24);
+        assert_eq!(at(&minus, 19, 17)[1], 0, "a minus has no upright");
+        let cross = image(Cur::Marquee(Badge::Cross), true, 24);
+        assert_eq!(at(&cross, 17, 17), [0, 255]);
+        assert_eq!(at(&cross, 21, 17), [0, 255]);
+        assert_eq!(at(&image(Cur::MagicWand(Badge::Minus), true, 24), 4, 17), [0, 255]);
+        let pen = image(Cur::Pen(Badge::None), true, 24);
+        assert_eq!(pen.hotspot, [6, 1]);
+        assert_eq!(at(&pen, 6, 1), [0, 255], "the nib's tip");
+        assert_eq!(at(&pen, 5, 9)[0], 255, "white inside the nib");
+        assert_eq!(at(&pen, 6, 13), [0, 255], "the collar");
+        let ring = image(Cur::Pen(Badge::Ring), true, 24);
+        assert_eq!(at(&ring, 15, 15), [0, 255], "the ring's top");
+        assert_ne!(at(&ring, 15, 17), [0, 255], "open in its middle");
         // The resize arrows are as thin as the move cursor's.
         let img = image(Cur::ResizeH, true, 24);
         assert_eq!(at(&img, 9, 12), [0, 255]);

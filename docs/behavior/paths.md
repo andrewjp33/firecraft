@@ -26,6 +26,14 @@ scripting API; `path_tool.rs`'s tests replay them with the same values.
   point of **another open path to join it**: its points follow from the clicked end, drawing
   goes on from its far end, and the joined path takes the topmost path's attributes.
 * New paths use the Tools panel's fill and stroke, as the shape tools do.
+* **The cursor** is a pen nib pointing up, the hotspot at its tip, with a small mark beside it
+  saying what a click there does (seen in Fireworks MX, 2026-11-26): **×** a new path (nothing
+  being drawn); none while drawing, also over another path's segment; **o** on the first point
+  (close); **+** on a segment of the path drawn or selected (add a point); **−** on a corner
+  point (delete it); a **caret** on a curve point (make it a corner), on an end point of the
+  selected open path (continue) and on the last point drawn; a **join** mark on another open
+  path's end while drawing. FireCraft draws lookalikes from shapes and works the mark out the
+  same way its click does (`pen_badge` beside `pen_press`).
 
 ## Subselection tool (A)
 

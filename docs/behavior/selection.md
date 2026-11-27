@@ -54,6 +54,10 @@ default):
 * **Tool cursors** elsewhere on the canvas (Fireworks MX, 2026-11-26): the Marquee and Oval
   Marquee show a thin 1 px cross, the Magic Wand a wand running down to the right from a small
   sparkle at its tip, the hotspot. FireCraft draws lookalikes from shapes.
+* **Shift, Alt, Shift+Alt** add a mark below right of the marquee tools' cross, and below the
+  Magic Wand's sparkle: **+** (add to the selection), **−** (subtract), **×** (intersect). Over
+  the selection the marked cursor shows too, not the move cursor (a drag there draws, it
+  doesn't move). Seen in Fireworks MX 2026-11-26; FireCraft's marks are its own drawings.
 * **The cursor over the selection** (Marquee, Oval Marquee or Magic Wand, no Shift or Alt) is a
   white arrow over a small dashed box, the hotspot at the arrow's tip (seen in the running
   Fireworks MX 2026-11-26); the box is white inside and the whole cursor has a white outline, so
