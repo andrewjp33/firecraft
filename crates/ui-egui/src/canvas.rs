@@ -1676,7 +1676,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             };
             match tool {
                 Tool::Marquee => {
-                    // Where the marching ants will run once it's let go (and the Crop tool's box).
+                    // Where the marching ants will run once it's let go.
                     // On its outermost pixels: right and bottom on the last pixel inside, as
                     // Fireworks MX draws marching ants.
                     let r = grid();

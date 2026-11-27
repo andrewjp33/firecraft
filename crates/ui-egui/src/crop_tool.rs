@@ -11,13 +11,14 @@
 //! * Double-clicking inside or pressing Enter crops; the Crop tool stays chosen. Escape drops
 //!   the box and chooses the Pointer tool; choosing another tool drops it too, except the Hand
 //!   and Zoom tools, which keep it.
-//! * The box is marching ants with small black handles; the outside isn't dimmed.
+//! * The box is dashed black and white (standing still, not marching ants) with small black
+//!   handles in white rings; the outside isn't dimmed.
 //! * Choosing the Crop tool with pixels selected makes a box of the selection's size. The arrow
 //!   keys move the box (Shift: 10 px).
 //! * Crop Selected Bitmap puts the box around the bitmap; cropping trims the bitmap (undo step
 //!   "Crop Image") and goes back to the Pointer tool.
 
-use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
+use egui::{Color32, Pos2, Rect, pos2, vec2};
 use firecraft_engine::{CropRect, DocState, ElementRef, Tool};
 
 use crate::FireCraftApp;
@@ -341,43 +342,54 @@ pub fn overlay(crop: &Option<CropEdit>, d: &DocState, p: &egui::Painter, (origin
         return;
     };
     let to_screen = |x: i64, y: i64| pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
-    let ctx = p.ctx();
-    let phase = (ctx.input(|i| i.time) * 8.0) as i64;
-    ants(p, Rect::from_min_max(to_screen(r.0, r.1), to_screen(r.2, r.3)), phase);
+    dashes(p, Rect::from_min_max(to_screen(r.0, r.1), to_screen(r.2, r.3)));
     for h in HANDLES {
         let (x, y) = handle_pos(r, h);
         let c = pos2(origin.x + x as f32 * z, origin.y + y as f32 * z);
-        // 3 screen pixels before the box's edge and 2 after, as Fireworks MX draws them at
-        // any zoom (measured 2026-11-26).
+        // Black, 3 screen pixels before the box's edge and 2 after, in a 1 px white ring so
+        // they show on a dark canvas too, as Fireworks MX draws them at any zoom (measured
+        // 2026-11-26).
         let hr = Rect::from_min_size(c.floor() - vec2(3.0, 3.0), vec2(HANDLE, HANDLE));
+        p.rect_filled(hr.expand(1.0), 0.0, Color32::WHITE);
         p.rect_filled(hr, 0.0, Color32::BLACK);
     }
-    ctx.request_repaint_after(std::time::Duration::from_millis(120));
 }
 
-/// A rectangle drawn as marching ants (4 px black, 4 px white, moving with `phase`), on its
-/// outermost screen pixels: the right and bottom sides on the last pixel inside, as Fireworks
-/// MX draws them (a box the size of the canvas runs along the canvas's own edge pixels).
-fn ants(p: &egui::Painter, r: Rect, phase: i64) {
-    let o = vec2(0.5, 0.5);
-    let a = r.min.floor() + o;
-    let b = (r.max.ceil() - vec2(1.0, 1.0) + o).max(a);
-    let corners = [a, pos2(b.x, a.y), b, pos2(a.x, b.y), a];
-    let mut along = 0.0_f32;
-    for (&s, &e) in corners.iter().zip(corners.iter().skip(1)) {
-        let len = (e - s).length();
-        let dir = if len > 0.0 { (e - s) / len } else { vec2(0.0, 0.0) };
-        let mut t = 0.0;
-        while t < len {
-            let k = ((along + t) as i64 + phase).rem_euclid(8);
-            let step = (4 - k % 4) as f32;
-            let end = (t + step).min(len);
-            let color = if k < 4 { Color32::BLACK } else { Color32::WHITE };
-            p.line_segment([s + dir * t, s + dir * end], Stroke::new(1.0, color));
-            t = end;
+/// A rectangle drawn dashed, 3 screen pixels black and 3 white, standing still (the crop box
+/// isn't marching ants), on its outermost screen pixels: the right and bottom sides on the
+/// last pixel inside, as Fireworks MX draws it (a box the size of the canvas runs along the
+/// canvas's own edge pixels). Measured 2026-11-26 on a black canvas. Each side counts its dashes
+/// from the box's top-left pixel, starting part way into a black dash, as Fireworks' top and
+/// left sides do. Pixels as squares in one mesh: 1 px line segments get their ends rounded.
+fn dashes(p: &egui::Painter, r: Rect) {
+    let (l, t) = (r.min.x.floor(), r.min.y.floor());
+    let (rr, b) = ((r.max.x.ceil() - 1.0).max(l), (r.max.y.ceil() - 1.0).max(t));
+    // Only what's on screen (a big box zoomed in reaches far past it).
+    let clip = p.clip_rect();
+    let (x0, x1) = (l.max(clip.min.x.floor() - 1.0), rr.min(clip.max.x.ceil()));
+    let (y0, y1) = (t.max(clip.min.y.floor() - 1.0), b.min(clip.max.y.ceil()));
+    let color = |o: f32| {
+        if (o as i64 + 1).rem_euclid(6) < 3 { Color32::BLACK } else { Color32::WHITE }
+    };
+    let mut mesh = egui::Mesh::default();
+    let mut px = |x: f32, y: f32, c: Color32| mesh.add_colored_rect(Rect::from_min_size(pos2(x, y), vec2(1.0, 1.0)), c);
+    let mut x = x0;
+    while x <= x1 {
+        px(x, t, color(x - l));
+        if b > t {
+            px(x, b, color(x - l));
         }
-        along += len;
+        x += 1.0;
     }
+    let mut y = y0;
+    while y <= y1 {
+        px(l, y, color(y - t));
+        if rr > l {
+            px(rr, y, color(y - t));
+        }
+        y += 1.0;
+    }
+    p.add(egui::Shape::mesh(mesh));
 }
 
 /// The Property inspector's crop box fields (Fireworks MX shows W, H, X and Y under the
