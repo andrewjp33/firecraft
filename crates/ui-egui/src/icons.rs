@@ -134,11 +134,15 @@ pub fn paint_ink(p: &Painter, r: Rect, tool: Tool, c: Color32) {
                 ));
             }
         }
+        // Two interlocking corner brackets turned as the Crop tool's cursor (and Fireworks'
+        // icon): the left one runs down past the frame and right along its top, the other up
+        // past it and left along its bottom; a thin tick across the frame.
         Tool::Crop => {
-            p.line_segment([at(0.25, 0.0), at(0.25, 0.75)], s);
-            p.line_segment([at(0.0, 0.25), at(0.75, 0.25)], s);
-            p.line_segment([at(0.25, 0.75), at(1.0, 0.75)], s);
-            p.line_segment([at(0.75, 0.25), at(0.75, 1.0)], s);
+            p.line_segment([at(0.25, 0.25), at(0.25, 1.0)], s);
+            p.line_segment([at(0.25, 0.25), at(1.0, 0.25)], s);
+            p.line_segment([at(0.75, 0.0), at(0.75, 0.75)], s);
+            p.line_segment([at(0.0, 0.75), at(0.75, 0.75)], s);
+            p.line_segment([at(0.36, 0.36), at(0.64, 0.64)], Stroke::new(1.0, s.color));
         }
         Tool::Marquee => dashed_rect(p, Rect::from_min_max(at(0.1, 0.2), at(0.9, 0.8)), c),
         Tool::OvalMarquee => {

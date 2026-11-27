@@ -1137,6 +1137,9 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
             Tool::SelectBehind => Some(crate::cursors::Cur::SelectBehind),
             // Over the crop box's handles and inside it, the Crop tool sets its own.
             Tool::Crop => Some(crate::cursors::Cur::Crop),
+            // Over the selection these show the move-selection cursor, set above.
+            Tool::Marquee | Tool::OvalMarquee if !over_marquee => Some(crate::cursors::Cur::Marquee),
+            Tool::MagicWand if !over_marquee => Some(crate::cursors::Cur::MagicWand),
             _ => None,
         };
         if let Some(cur) = own {

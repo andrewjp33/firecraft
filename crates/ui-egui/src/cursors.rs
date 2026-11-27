@@ -68,6 +68,10 @@ pub enum Cur {
     Crosshair,
     /// The Crop tool: two interlocking corner brackets.
     Crop,
+    /// The marquee tools: a thin cross.
+    Marquee,
+    /// The Magic Wand: a wand with a sparkle at its tip, the hotspot.
+    MagicWand,
 }
 
 impl Cur {
@@ -81,7 +85,7 @@ impl Cur {
             Cur::ResizeNwSe => egui::CursorIcon::ResizeNwSe,
             Cur::ResizeNeSw => egui::CursorIcon::ResizeNeSw,
             Cur::Rotate => egui::CursorIcon::Default,
-            Cur::Crosshair | Cur::Crop => egui::CursorIcon::Crosshair,
+            Cur::Crosshair | Cur::Crop | Cur::Marquee | Cur::MagicWand => egui::CursorIcon::Crosshair,
         }
     }
 }
@@ -280,6 +284,31 @@ fn design(cur: Cur) -> Design {
             ],
             (12.0, 12.0),
         ),
+        // The marquee tools: a thin 1 px cross through the hotspot pixel's centre.
+        Cur::Marquee => {
+            const ARM: f32 = 5.5; // centre to each end
+            let c = 12.5;
+            plain(
+                vec![bar(c - ARM, c - 0.5, c + ARM, c + 0.5), bar(c - 0.5, c - ARM, c + 0.5, c + ARM)],
+                (12.0, 12.0),
+            )
+        }
+        // The Magic Wand: a stick down to the right from a small sparkle (a dot with four short
+        // rays); the hotspot is the dot.
+        Cur::MagicWand => {
+            const S: f32 = 7.5; // the sparkle's centre (both axes)
+            const RAY: (f32, f32) = (2.5, 4.5); // its rays, from and to (a dot in the middle)
+            const STICK: (f32, f32) = (3.5, 12.5); // the stick along the diagonal, from and to
+            let mut parts = vec![
+                bar(S - 0.5, S - RAY.1, S + 0.5, S - RAY.0),
+                bar(S - 0.5, S + RAY.0, S + 0.5, S + RAY.1),
+                bar(S - RAY.1, S - 0.5, S - RAY.0, S + 0.5),
+                bar(S + RAY.0, S - 0.5, S + RAY.1, S + 0.5),
+            ];
+            parts.push(bar(S - 0.5, S - 0.5, S + 0.5, S + 0.5));
+            parts.push(line((S + STICK.0, S + STICK.0), (S + STICK.1, S + STICK.1), 1.1));
+            plain(parts, (S - 0.5, S - 0.5))
+        }
         // Four-way arrow in the style of Fireworks' move cursor: 1-unit shafts with small
         // solid heads, centred on the hotspot pixel.
         Cur::Move => plain(arms(&[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]), (12.0, 12.0)),
@@ -486,6 +515,17 @@ mod tests {
         assert_eq!(at(&img, 13, 16), [255, 255], "a gap between dashes");
         assert_eq!(at(&img, 12, 14), [255, 255], "the box is white inside");
         assert_eq!(at(&img, 0, 6), [255, 255], "a white halo outside the arrow's black edge");
+        // The marquee cross: 1 px, the hotspot where the arms cross.
+        let img = image(Cur::Marquee, true, 24);
+        assert_eq!(img.hotspot, [12, 12]);
+        assert_eq!(at(&img, 12, 12), [0, 255]);
+        assert_eq!(at(&img, 8, 12), [0, 255]);
+        assert_eq!(at(&img, 8, 11), [255, 255], "1 px arm");
+        // The wand: the hotspot on the sparkle's dot, the stick down to the right.
+        let img = image(Cur::MagicWand, true, 24);
+        assert_eq!(img.hotspot, [7, 7]);
+        assert_eq!(at(&img, 7, 7), [0, 255]);
+        assert_eq!(at(&img, 15, 15), [0, 255], "the stick");
         // The resize arrows are as thin as the move cursor's.
         let img = image(Cur::ResizeH, true, 24);
         assert_eq!(at(&img, 9, 12), [0, 255]);
