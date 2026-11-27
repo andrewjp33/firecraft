@@ -18,7 +18,7 @@ pub mod stroke_fw;
 mod cache;
 pub mod effects;
 pub mod export;
-pub use export::{ExportFormat, ExportSettings, PaletteEntry, PaletteKind, Transparency};
+pub use export::{ExportFormat, ExportSettings, PaletteEntry, PaletteKind, PaletteSort, Transparency};
 pub use cache::{Dirty, RenderCache, element_key, kept_hit, perspective_hit};
 pub use effects::{EffectEntry, EffectParam};
 pub use element::{

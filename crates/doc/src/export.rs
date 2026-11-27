@@ -130,6 +130,29 @@ impl PaletteKind {
     }
 }
 
+/// The color table's Sort by (Fireworks MX's `sorting`): it orders the table, and with Popularity
+/// an Exact palette's file too (measured: an Adaptive file keeps its order). Kept for the session,
+/// not saved: Fireworks MX writes it neither in the document nor in its preferences.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PaletteSort {
+    #[default]
+    None,
+    Luminance,
+    Popularity,
+}
+
+impl PaletteSort {
+    pub const ALL: [PaletteSort; 3] = [Self::None, Self::Luminance, Self::Popularity];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Luminance => "Luminance",
+            Self::Popularity => "Popularity",
+        }
+    }
+}
+
 /// One color of the Optimize panel's color table: Fireworks MX's `PALv > FCLi`, with its flags
 /// `CLLb` (locked), `CLTb` (transparent) and `CLMb` + `BCLi` (edited, and the color it was).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -240,11 +263,14 @@ pub struct ExportSettings {
     /// Fireworks MX's Remove Unused Colors (`PLOb`, on by default): palette entries no pixel
     /// uses are left out of the file, locked colors excepted.
     pub remove_unused: bool,
-    /// The color table's own entries: with [`PaletteKind::Custom`] the palette itself, with the
-    /// other palettes only the locked colors, which every palette keeps (Fireworks MX: "If you
-    /// switch to another palette after colors have been locked, locked colors are added to the
-    /// new palette").
+    /// The color table's own entries: with [`PaletteKind::Custom`] the palette itself; with the
+    /// other palettes the colors with something set (locked, transparent, edited), applied to
+    /// whatever palette is built where it has their color, and locked ones added to it (Fireworks
+    /// MX: an edit keeps the palette Adaptive, and "If you switch to another palette after colors
+    /// have been locked, locked colors are added to the new palette").
     pub table: Vec<PaletteEntry>,
+    /// Sort by (not saved in the document).
+    pub sort: PaletteSort,
     /// The record read from the file (`EXPv`), kept for the fields FireCraft doesn't model.
     pub raw: Option<Node>,
 }
@@ -278,6 +304,7 @@ impl Default for ExportSettings {
             lossless: false,
             remove_unused: true,
             table: Vec::new(),
+            sort: PaletteSort::None,
             raw: None,
         }
     }
@@ -307,6 +334,12 @@ impl ExportSettings {
             PaletteKind::Custom => self.table.len().clamp(1, 256),
             _ => usize::from(self.colors.clamp(2, 256)),
         }
+    }
+
+    /// Whether this table entry has anything set (with a palette other than Custom, only these
+    /// are kept).
+    pub fn flagged(e: &PaletteEntry) -> bool {
+        e.locked || e.transparent || e.original.is_some()
     }
 
     /// The locked colors of the table, which every palette keeps.

@@ -62,7 +62,8 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
     };
     let mut table = read_table(exp);
     if palette != PaletteKind::Custom {
-        table.retain(|e| e.locked);
+        // Fireworks MX keeps its whole last table; only the entries with something set matter.
+        table.retain(ExportSettings::flagged);
     }
     let transparency = match int("PTN") {
         Some(1) => Transparency::Index,
@@ -96,6 +97,7 @@ pub(crate) fn read(exp: &Node) -> ExportSettings {
         lossless: exp.bool_of("FCL").unwrap_or(false),
         remove_unused: exp.bool_of("PLO").unwrap_or(true),
         table,
+        sort: firecraft_doc::PaletteSort::None,
         raw: Some(exp.clone()),
     }
 }
@@ -164,6 +166,8 @@ pub(crate) fn unchanged(raw: &Node, s: &ExportSettings) -> bool {
     a.raw = None;
     let mut b = s.clone();
     b.raw = None;
+    // Not saved.
+    b.sort = a.sort;
     a == b
 }
 
@@ -200,8 +204,8 @@ pub(crate) fn write(s: &ExportSettings, frames: &[Frame]) -> Node {
     set(&mut n, Node::int("FMT", fmt));
     set(&mut n, Node::int("CLR", clr));
     set(&mut n, Node::int("PLT", plt));
-    // The color table: a custom palette's entries, otherwise the locked colors (Fireworks MX
-    // rebuilds the rest).
+    // The color table: a custom palette's entries, otherwise the ones with something set
+    // (Fireworks MX writes its whole last table; it rebuilds the rest).
     set(&mut n, table_node(&s.table));
     set(&mut n, Node::int("PLN", s.table.len() as i64));
     set(&mut n, Node::int("PLR", i64::from(colors)));
@@ -423,14 +427,14 @@ mod tests {
         let back = read(&n);
         assert_eq!(back.palette, PaletteKind::Custom);
         assert_eq!(back.table, table);
-        // Another palette keeps only the locked colors.
+        // Another palette keeps only the entries with something set.
         let s = ExportSettings {
             palette: PaletteKind::Adaptive,
             ..s
         };
         let back = read(&write(&s, &[Frame::default()]));
         assert_eq!(back.palette, PaletteKind::Adaptive);
-        assert_eq!(back.table, table[..1]);
+        assert_eq!(back.table, table[..2]);
     }
 
     #[test]

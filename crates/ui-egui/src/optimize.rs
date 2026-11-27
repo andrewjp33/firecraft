@@ -22,9 +22,10 @@ pub(crate) fn panel(app: &mut FireCraftApp, ui: &mut Ui) {
     let before = d.doc.export.clone();
     let mut s = before.clone();
     let load = settings(ui, &mut s);
-    // Another palette keeps only the table's locked colors (Fireworks MX).
+    // Another palette keeps the table's entries with something set (Fireworks MX keeps its
+    // table, and applies it to the new palette where the colors meet).
     if s.palette != PaletteKind::Custom && before.palette == PaletteKind::Custom {
-        s.table.retain(|e| e.locked);
+        s.table.retain(ExportSettings::flagged);
     }
     if s != before {
         d.doc.export = s.clone();
@@ -79,9 +80,9 @@ fn settings(ui: &mut Ui, s: &mut ExportSettings) -> bool {
                         && let Some(p) = ExportSettings::preset(name)
                     {
                         let raw = s.raw.take();
-                        // Locked colors stay, whatever the palette.
-                        let table = s.table.iter().filter(|e| e.locked).copied().collect();
-                        *s = ExportSettings { raw, table, ..p };
+                        // The table stays (locked colors, edits), whatever the palette.
+                        let table = s.table.iter().filter(|e| ExportSettings::flagged(e)).copied().collect();
+                        *s = ExportSettings { raw, table, sort: s.sort, ..p };
                     }
                 }
             });

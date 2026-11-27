@@ -255,8 +255,8 @@ strings (Fireworks Resources.dll):
   a partly transparent #BE3531 highlighted on screen as #5CF1FE in Fireworks MX); fully transparent ones
   show nothing. In that session, holding Fireworks MX's first swatch highlighted the pixels of another
   color (its table order and its highlight disagree); FireCraft highlights the held color.
-* The other way round, Show Swatch Feedback (Fireworks MX's palette menu, on by default; FireCraft: the
-  table's right-click menu): with the pointer over the Preview, the swatch of the color under it gets a
+* The other way round, Show Swatch Feedback (Fireworks MX's palette menu, a preference,
+  `XPDPaletteFeedback`, on by default; FireCraft: the table's right-click menu, kept in Preferences): with the pointer over the Preview, the swatch of the color under it gets a
   white line in place of its black cell line (measured in Fireworks MX on `probes/highlight_mx/stripes.png`,
   once the document window is active). Over a clear pixel, the transparent entries are outlined. The
   table doesn't scroll to the swatch. With "Maximize colors per frame" it shows the table of
@@ -267,14 +267,20 @@ strings (Fireworks Resources.dll):
   tooltip gives the color, its marks and how many pixels use it.
 * Buttons: Select Transparent Color, Add Color to Transparency, Remove Color from Transparency (then click
   a swatch or a pixel of the Preview), Edit Color, Snap to Web Safe, Lock Color, Add Color, Delete Color.
-  Sort by None, Luminance or Popularity. The right-click menu adds Unlock All Colors, Remove Edit,
+  Sort by None, Luminance (lightest first by Rec. 709 luma: Fireworks MX shows #00C000 before #8080FF)
+  or Popularity (most used first). With Exact, Popularity reorders the exported file too; with Adaptive
+  the table only (measured, `probes/sort_edit_mx`). Sort by lasts the session: Fireworks MX saves it
+  neither in the document nor in its preferences. The right-click menu adds Unlock All Colors, Remove Edit,
   Remove All Edits, Load Palette (`.act`, a GIF's or a PNG 8's colors), Save Palette (`.act`) and Rebuild
   Color Table. The palette menu's Custom... loads a palette, as in Fireworks MX.
-* Any edit makes the palette **Custom**: the table itself (Fireworks MX's help: "Custom is a palette that
-  has been modified or loaded"; whether its own UI switches the menu on an edit is unchecked). Locking
-  doesn't: locked colors join whatever palette is chosen, as the help says.
-* Transparent colors switch No Transparency to Index Transparency; with a custom palette they replace the
-  matte color as the transparent one. A GIF has one transparent entry, so the pixels of every transparent
+* Edits keep the palette (measured: Snap to Web Safe on an Adaptive table left Fireworks MX's menu on
+  "WebSnap Adaptive", saved `PLTi` 1, and exported #FF9900 in place of #FF8000). The edited, transparent
+  and locked colors are kept in the table and applied, by color, to whatever palette is built; locked
+  colors are also added to it, as the help says. Add Color, Delete Color and Load Palette make the
+  palette **Custom**: the table itself (the help: "Custom is a palette that has been modified or
+  loaded").
+* Transparent colors switch No Transparency to Index Transparency, and replace the matte color as the
+  transparent one. A GIF has one transparent entry, so the pixels of every transparent
   color take it (in an animation that can make frames clear and redraw, which costs file size).
 
 Stored in `EXPv > PALv`: one `FCLi` per entry, then `CLLb` (locked), `CLTb` (transparent), `CLMb` +
@@ -284,7 +290,8 @@ names it `newColorValue`, and two probes it exported (`probes/custom_palette_mx`
 `crates/io/examples/custom_palette_probe.rs`) map red pixels to the `FCLi` red's `BCLi` green, and to the
 nearest `FCLi` (yellow) when no `FCLi` is red. Fireworks MX reads FireCraft's table back entry for entry
 (`paletteMode` custom, `paletteInfo` with the same flags). Fireworks MX also keeps its last adaptive table
-there for the other palettes; FireCraft reads only the locked entries of those and writes only them.
+there for the other palettes (an edited Adaptive table: all 7 entries, the edited one flagged);
+FireCraft reads and writes the entries with something set (locked, transparent, edited).
 ### Remove Unused Colors
 
 Fireworks MX's Optimize option (`PLOb`, `optimized` in its script API, on by default; measured by toggling

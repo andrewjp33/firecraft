@@ -326,7 +326,7 @@ fn clear_mode(s: &ExportSettings, png8: bool) -> Clear {
     );
     // A custom palette with transparent entries: they are the transparent colors (see
     // `apply_table`), not the matte's.
-    let own_clear = s.palette == PaletteKind::Custom && s.table.iter().any(|e| e.transparent);
+    let own_clear = s.table.iter().any(|e| e.transparent);
     match s.transparency {
         Transparency::None => Clear::None,
         Transparency::Index if own_clear => Clear::None,
@@ -388,6 +388,15 @@ fn palette_for(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> V
     };
     let light = |c: &Entry| 299 * u32::from(c[0]) + 587 * u32::from(c[1]) + 114 * u32::from(c[2]);
     let exact = s.palette == PaletteKind::Exact && fits();
+    // Sort by Popularity reorders an Exact palette's file, most used first (Fireworks MX; an
+    // Adaptive file keeps its order, and Luminance is Exact's order already).
+    if exact && s.sort == firecraft_doc::PaletteSort::Popularity {
+        let used: Vec<Entry> = pixels.iter().copied().filter(|p| alpha || p[3] != 0).collect();
+        let hist = quantize::histogram(&used);
+        let count = |c: &Entry| hist.get(&u32::from_be_bytes(*c)).copied().unwrap_or(0);
+        palette.sort_by_key(|c| (std::cmp::Reverse(count(c)), std::cmp::Reverse(light(c))));
+        return palette;
+    }
     match (alpha, exact) {
         (true, false) => palette.sort_by_key(|c| (c[3], std::cmp::Reverse(light(c)))),
         (true, true) => palette.sort_by_key(|c| (std::cmp::Reverse(c[3]), std::cmp::Reverse(light(c)))),
@@ -545,12 +554,13 @@ fn drop_unused(ix: &mut Indexed, s: &ExportSettings) {
     ix.palette = palette;
 }
 
-/// A custom palette's edits: an edited entry exports its new color (the pixels matched its
-/// original), and the pixels of transparent entries all take one transparent entry (a GIF has
-/// just one; the other transparent entries stay in the palette, unused, unless Remove Unused
-/// Colors drops them).
+/// The color table's edits, with any palette (Fireworks MX keeps an edited Adaptive palette
+/// Adaptive and applies the edit to the rebuilt palette): an entry of an edited color exports
+/// its new color (the pixels matched the original), and the pixels of transparent entries all take
+/// one transparent entry (a GIF has just one; the other transparent entries stay in the palette,
+/// unused, unless Remove Unused Colors drops them).
 fn apply_table(ix: &mut Indexed, s: &ExportSettings) {
-    if s.palette != PaletteKind::Custom {
+    if s.table.is_empty() {
         return;
     }
     let mut clear: Vec<u8> = Vec::new();
@@ -1594,6 +1604,58 @@ mod tests {
         let e = export(&d, &png8(PaletteKind::Exact)).unwrap_or_else(|e| unreachable!("{e}"));
         assert_eq!(rgb(&e.palette)[..4], [0xFFFFFF, 0xFFFF00, 0x00C000, 0x000000]);
         assert_eq!(e.palette.last().map(|c| c[3]), Some(0));
+    }
+
+    #[test]
+    fn edits_and_sorting_with_any_palette_as_fireworks_mx() {
+        use firecraft_doc::{PaletteEntry, PaletteSort};
+        let hex = |v: u32| Rgba::new((v >> 16) as u8, (v >> 8) as u8, v as u8, 255);
+        let rgb = |p: &[Entry]| -> Vec<u32> {
+            p.iter().map(|c| u32::from(c[0]) << 16 | u32::from(c[1]) << 8 | u32::from(c[2])).collect()
+        };
+        let d = bands(&[
+            (hex(0xFF0000), 5),
+            (hex(0x00C000), 30),
+            (hex(0x0000FF), 10),
+            (hex(0xFFFFFF), 2),
+            (hex(0x000000), 20),
+            (hex(0xFF8000), 13),
+            (hex(0x8080FF), 7),
+        ]);
+        // probes/sort_edit_mx: orange snapped to #FF9900 on an Adaptive table; the palette stays
+        // Adaptive and the file has #FF9900 in orange's place.
+        let s = ExportSettings {
+            palette: PaletteKind::Adaptive,
+            table: vec![PaletteEntry {
+                original: Some(hex(0xFF8000)),
+                ..PaletteEntry::new(hex(0xFF9900))
+            }],
+            ..with(ExportFormat::Png8)
+        };
+        let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0x000000, 0x0000FF, 0xFF0000, 0x00C000, 0x8080FF, 0xFF9900, 0xFFFFFF]);
+        // A transparent color with Adaptive.
+        let s = ExportSettings {
+            table: vec![PaletteEntry {
+                transparent: true,
+                ..PaletteEntry::new(hex(0x0000FF))
+            }],
+            transparency: Transparency::Index,
+            ..with(ExportFormat::Gif)
+        };
+        let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(e.transparent, Some(1));
+        assert_eq!(e.preview.get(40, 5).map(|p| p.a), Some(0));
+        // Sort by Popularity reorders an Exact file, not an Adaptive one.
+        let sorted = |palette| ExportSettings {
+            palette,
+            sort: PaletteSort::Popularity,
+            ..with(ExportFormat::Png8)
+        };
+        let e = export(&d, &sorted(PaletteKind::Exact)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0x00C000, 0x000000, 0xFF8000, 0x0000FF, 0x8080FF, 0xFF0000, 0xFFFFFF]);
+        let e = export(&d, &sorted(PaletteKind::Adaptive)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0x000000, 0x0000FF, 0xFF0000, 0x00C000, 0x8080FF, 0xFF8000, 0xFFFFFF]);
     }
 
     #[test]

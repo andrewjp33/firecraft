@@ -94,20 +94,11 @@ Other items keep their numbers.
    - **Optimize panel menu items not built**: Save Settings / Delete Settings (the Settings row's + and
      -, saved presets in an Export Settings folder), Optimize to Size, Sharpen JPEG Edges
    - **Color table**: Replace Palette Entry (Fireworks MX's palette menu: swap an entry for another
-     color, measure in Fireworks MX how it differs from Edit Color); keep Sort by and Show Swatch
-     Feedback between sessions; perhaps scroll the table to the hovered swatch (with a modifier key, so
+     color, measure in Fireworks MX how it differs from Edit Color); perhaps scroll the table to the hovered swatch (with a modifier key, so
      it doesn't jump while the pointer moves over the image)
-   - **Measured in Fireworks MX, not adopted yet** (`probes/sort_edit_mx`, 2026-11-26):
-     - A swatch edit doesn't make the palette Custom: Snap to Web Safe on an Adaptive table kept
-       "WebSnap Adaptive" (`PLTi` 1); the table went into `PALv` (every entry, `FCLi` #FF8000 with
-       `CLMb` + `BCLi` #FF9900) and the export had #FF9900. So edits (and likely transparent flags) are
-       kept with any palette and applied to the rebuilt one by color, as locks are. FireCraft switches
-       to Custom and, for other palettes, keeps only locked entries.
-     - Sort by: Popularity reorders an Exact export's file (most used first); Luminance leaves it (Exact
-       is lightest first already); with Adaptive both only reorder the table, not the file. The table's
-       Luminance is lightest first by Rec. 709 luma (green #00C000 before #8080FF), FireCraft's is
-       darkest first by Rec. 601. Sort by isn't saved in the document or the preferences (session
-       only); Show Swatch Feedback is a preference (`XPDPaletteFeedback`, on).
+   - Done after measuring in Fireworks MX (`probes/sort_edit_mx`): edits keep the palette (no switch to
+     Custom), Sort by Popularity reorders an Exact file, Luminance by Rec. 709, Show Swatch Feedback
+     is a preference ([behavior/export.md](behavior/export.md#the-color-table))
    - **Fireworks MX's own adaptive palette**: its color count (cone3 as PNG 8 Adaptive 256 with alpha:
      Fireworks MX 195 entries, FireCraft's median cut 256 with 10 unused), the order of a reduced
      palette (Fireworks MX's is unsorted, FireCraft's most used first), the small color shifts of its

@@ -243,6 +243,9 @@ pub struct Prefs {
     /// Mouse highlight (Fireworks: Preferences > Editing): the object the Pointer or
     /// Subselection tool would select is outlined in red under the mouse.
     pub mouse_highlight: bool,
+    /// The Optimize panel's Show Swatch Feedback: the color table's swatch of the Preview pixel
+    /// under the pointer is outlined (Fireworks MX's `XPDPaletteFeedback`, on).
+    pub swatch_feedback: bool,
     /// Fireworks' install folder (or a folder of textures), for its textures; empty: look in
     /// the usual places.
     pub textures_dir: String,
@@ -314,7 +317,7 @@ impl Prefs {
             firecraft_raster::AntiAliasStyle::Classic => "classic",
         };
         format!(
-            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\ntheme_follow_system={}\naccent={}\n",
+            "tabs={}\nshow_tools={}\nshow_properties={}\nshow_dock={}\nundo_steps={}\nnew_doc_color_math={math}\naa_style={aa}\nnew_doc={}x{}@{}{}:{}\ncursor_style={}\nlive_drag={}\nmouse_highlight={}\ntextures_dir={}\npatterns_dir={}\nmx_perspective={}\nfonts_dir={}\nui_scale={}\nadd_frames={}\nimage_size_constrain={}\nimage_size_resample={}\nimage_size_method={}\ninterpolation={}\nalign_to_canvas={}\nalign_anchors={}\nalign_part={}\nalign_spacing={}\nalign_spacing_px={}\ntheme={}\ntheme_follow_system={}\naccent={}\nswatch_feedback={}\n",
             self.tabs,
             self.show_tools,
             self.show_properties,
@@ -352,6 +355,7 @@ impl Prefs {
             self.theme.key(),
             self.theme_follow_system,
             self.accent.map(|c| c.to_hex()).unwrap_or_default(),
+            self.swatch_feedback,
         )
     }
 
@@ -398,6 +402,7 @@ impl Prefs {
                 "mx_perspective" => p.mx_perspective = v.trim() == "true",
                 "live_drag" => p.live_drag = flag,
                 "mouse_highlight" => p.mouse_highlight = flag,
+                "swatch_feedback" => p.swatch_feedback = flag,
                 // `fireworks_dir` is the older name; an install folder still finds its textures.
                 "textures_dir" | "fireworks_dir" => p.textures_dir = v.trim().to_owned(),
                 "patterns_dir" => p.patterns_dir = v.trim().to_owned(),
@@ -483,6 +488,7 @@ impl Default for Prefs {
             mx_perspective: false,
             live_drag: true,
             mouse_highlight: true,
+            swatch_feedback: true,
             textures_dir: String::new(),
             patterns_dir: String::new(),
             fonts_dir: String::new(),
@@ -1457,6 +1463,7 @@ mod prefs_tests {
             color_math: firecraft_raster::ColorMath::Precise,
             live_drag: false,
             mouse_highlight: false,
+            swatch_feedback: false,
             theme: theme::ThemeKind::ModernDark,
             theme_follow_system: false,
             accent: Some(firecraft_raster::Rgba::new(0x50, 0x40, 0xD0, 255)),

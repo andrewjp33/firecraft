@@ -8,15 +8,17 @@
 //! bottom left), locked (bottom right), transparent (checkered) and web safe (a diamond). The
 //! buttons below: Select Transparent Color, Add Color to Transparency, Remove Color from
 //! Transparency (pick a swatch or a pixel of the preview), Edit Color, Snap to Web Safe, Lock
-//! Color, Add Color and Delete Color. Edits make the palette Custom (the table itself, saved in
-//! the document as Fireworks MX saves it); locked colors stay with any palette. The right-click
+//! Color, Add Color and Delete Color. Edits keep the palette as it is (Fireworks MX, measured):
+//! the edited, transparent and locked colors are kept in the document and applied by color to the
+//! palette built; Add Color, Delete Color and Load Palette make it Custom (the table itself). The
+//! right-click
 //! menu has those and Fireworks MX's Unlock All Colors, Remove Edit, Remove All Edits, the sort
 //! orders, Load Palette, Save Palette and Rebuild Color Table.
 
 use std::collections::BTreeSet;
 
 use egui::{Color32, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2};
-use firecraft_doc::{ExportSettings, PaletteEntry, PaletteKind, Transparency};
+use firecraft_doc::{ExportSettings, PaletteEntry, PaletteKind, PaletteSort as Sort, Transparency};
 use firecraft_raster::Rgba;
 
 use crate::FireCraftApp;
@@ -33,7 +35,6 @@ pub(crate) struct TableState {
     anchor: Option<usize>,
     /// How many colors the selection was made in (a different table clears it).
     rows: usize,
-    sort: Sort,
     /// A transparency eyedropper waiting for a swatch or a pixel of the preview.
     pub(crate) pick: Option<Pick>,
     /// The color a transparency eyedropper took from the preview: (document, color).
@@ -44,33 +45,10 @@ pub(crate) struct TableState {
     /// The pixel under the pointer in the Preview: (document, its color). Its swatch is outlined
     /// in white (Fireworks MX's Show Swatch Feedback).
     pub(crate) hovered: Option<(u64, Rgba)>,
-    /// Show Swatch Feedback turned off (Fireworks MX has it on).
-    hide_feedback: bool,
     /// The color pop-up of Edit Color or Add Color.
     editing: Option<Editing>,
     /// Load Palette is waiting for its file (for this document).
     loading: Option<u64>,
-}
-
-/// The table's order (Fireworks MX's Sort by).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Sort {
-    #[default]
-    None,
-    Luminance,
-    Popularity,
-}
-
-impl Sort {
-    const ALL: [Sort; 3] = [Sort::None, Sort::Luminance, Sort::Popularity];
-
-    fn label(self) -> &'static str {
-        match self {
-            Sort::None => "None",
-            Sort::Luminance => "Luminance",
-            Sort::Popularity => "Popularity",
-        }
-    }
 }
 
 /// The transparency eyedroppers.
@@ -104,17 +82,36 @@ struct Editing {
 /// A color of the table as shown.
 #[derive(Clone, Copy, Debug)]
 struct Row {
+    /// The color shown, with what the table has set for it.
     entry: PaletteEntry,
+    /// Transparent in the export without the table saying so (Index Transparency's matte entry,
+    /// the entry an export adds for transparent pixels).
+    clear: bool,
     /// Pixels using it in the last export, when known.
     usage: Option<u32>,
+}
+
+impl Row {
+    /// The entry as its swatch shows it.
+    fn shown(&self) -> PaletteEntry {
+        PaletteEntry {
+            transparent: self.entry.transparent || self.clear,
+            ..self.entry
+        }
+    }
 }
 
 fn same_rgb(a: Rgba, b: Rgba) -> bool {
     (a.r, a.g, a.b) == (b.r, b.g, b.b)
 }
 
+/// The table entry that gives an export this color (its new color when edited).
+fn table_entry(s: &ExportSettings, color: Rgba) -> Option<usize> {
+    s.table.iter().position(|e| same_rgb(e.color, color))
+}
+
 /// The table: a custom palette's own entries; otherwise the last export's palette (with a table
-/// per frame, the one of document frame `frame`), with the table's locked colors marked.
+/// per frame, the one of document frame `frame`), with what the table sets for its colors.
 fn rows(s: &ExportSettings, o: Option<&crate::canvas::Optimized>, current: bool, frame: usize) -> Vec<Row> {
     let table = o.and_then(|o| o.animation.as_ref()).and_then(|a| a.table(frame));
     let (palette, transparent, usage_of) = match (table, o) {
@@ -133,6 +130,7 @@ fn rows(s: &ExportSettings, o: Option<&crate::canvas::Optimized>, current: bool,
                 let at = palette.iter().position(|p| p[..3] == [c.r, c.g, c.b]);
                 Row {
                     entry,
+                    clear: false,
                     usage: current.then(|| at.and_then(usage).unwrap_or(0)),
                 }
             })
@@ -143,20 +141,20 @@ fn rows(s: &ExportSettings, o: Option<&crate::canvas::Optimized>, current: bool,
         .enumerate()
         .map(|(i, c)| {
             let color = Rgba::new(c[0], c[1], c[2], c[3]);
+            let set = (c[3] != 0)
+                .then(|| table_entry(s, color))
+                .flatten()
+                .and_then(|k| s.table.get(k));
             Row {
-                entry: PaletteEntry {
-                    color,
-                    original: None,
-                    locked: c[3] != 0 && s.locked().any(|e| same_rgb(e.source(), color)),
-                    transparent: Some(i) == transparent || c[3] == 0,
-                },
+                entry: set.map_or(PaletteEntry::new(color), |e| PaletteEntry { color, ..*e }),
+                clear: Some(i) == transparent || c[3] == 0,
                 usage: usage(i),
             }
         })
         .collect()
 }
 
-/// Make the table the palette (Custom), as an edit in Fireworks MX does. The position in the
+/// Make the table the palette (Custom), for Add Color and Delete Color. The position in the
 /// table of each row (none for the entry an export adds for transparent pixels).
 fn make_custom(s: &mut ExportSettings, rows: &[Row]) -> Vec<Option<usize>> {
     if s.palette == PaletteKind::Custom {
@@ -170,10 +168,7 @@ fn make_custom(s: &mut ExportSettings, rows: &[Row]) -> Vec<Option<usize>> {
             continue;
         }
         map.push(Some(table.len()));
-        table.push(PaletteEntry {
-            transparent: false,
-            ..r.entry
-        });
+        table.push(r.entry);
     }
     s.palette = PaletteKind::Custom;
     s.colors = table.len().clamp(2, 256) as u16;
@@ -181,10 +176,32 @@ fn make_custom(s: &mut ExportSettings, rows: &[Row]) -> Vec<Option<usize>> {
     map
 }
 
-/// The table entries of these rows, made custom first.
-fn custom_entries(s: &mut ExportSettings, rows: &[Row], sel: &[usize]) -> Vec<usize> {
-    let map = make_custom(s, rows);
-    sel.iter().filter_map(|&i| map.get(i).copied().flatten()).collect()
+/// The table entries of these rows: a custom palette's own; with another palette the ones kept
+/// for their colors, made for colors that have none yet (an export's own transparent entry gets
+/// none). The palette stays as it is, as in Fireworks MX.
+fn entries(s: &mut ExportSettings, rows: &[Row], sel: &[usize]) -> Vec<usize> {
+    if s.palette == PaletteKind::Custom {
+        return sel.iter().copied().filter(|&i| i < s.table.len()).collect();
+    }
+    let mut out = Vec::new();
+    for r in sel.iter().filter_map(|&i| rows.get(i)) {
+        if r.entry.color.a == 0 {
+            continue;
+        }
+        let k = table_entry(s, r.entry.color).unwrap_or_else(|| {
+            s.table.push(PaletteEntry::new(Rgba { a: 255, ..r.entry.color }));
+            s.table.len() - 1
+        });
+        out.push(k);
+    }
+    out
+}
+
+/// With a palette other than Custom, only entries with something set are kept.
+fn tidy(s: &mut ExportSettings) {
+    if s.palette != PaletteKind::Custom {
+        s.table.retain(ExportSettings::flagged);
+    }
 }
 
 /// Give an entry a new color; it remembers the color it had (Fireworks MX's edited mark).
@@ -206,11 +223,12 @@ fn is_web_safe(c: Rgba) -> bool {
 /// Transparent on (if any selected color isn't) or off.
 fn toggle_transparent(s: &mut ExportSettings, rows: &[Row], sel: &[usize]) {
     let on = sel.iter().any(|&i| rows.get(i).is_some_and(|r| !r.entry.transparent));
-    for i in custom_entries(s, rows, sel) {
-        if let Some(e) = s.table.get_mut(i) {
+    for k in entries(s, rows, sel) {
+        if let Some(e) = s.table.get_mut(k) {
             e.transparent = on;
         }
     }
+    tidy(s);
     clear_needs_transparency(s);
 }
 
@@ -221,44 +239,43 @@ fn clear_needs_transparency(s: &mut ExportSettings) {
     }
 }
 
-/// Lock (if any selected color isn't locked) or unlock. Locking doesn't make the palette custom.
+/// Lock (if any selected color isn't locked) or unlock.
 fn toggle_lock(s: &mut ExportSettings, rows: &[Row], sel: &[usize]) {
-    let picked: Vec<Row> = sel.iter().filter_map(|&i| rows.get(i).copied()).filter(|r| r.entry.color.a != 0).collect();
-    let lock = picked.iter().any(|r| !r.entry.locked);
-    if s.palette == PaletteKind::Custom {
-        for &i in sel {
-            if let Some(e) = s.table.get_mut(i) {
-                e.locked = lock;
-            }
-        }
-        return;
-    }
-    for r in picked {
-        let c = r.entry.color;
-        if lock {
-            if !s.table.iter().any(|e| same_rgb(e.source(), c)) {
-                s.table.push(PaletteEntry {
-                    locked: true,
-                    ..PaletteEntry::new(Rgba { a: 255, ..c })
-                });
-            }
-        } else {
-            s.table.retain(|e| !same_rgb(e.source(), c));
+    let lock = sel
+        .iter()
+        .filter_map(|&i| rows.get(i))
+        .any(|r| r.entry.color.a != 0 && !r.entry.locked);
+    for k in entries(s, rows, sel) {
+        if let Some(e) = s.table.get_mut(k) {
+            e.locked = lock;
         }
     }
+    tidy(s);
 }
 
 fn snap_web(s: &mut ExportSettings, rows: &[Row], sel: &[usize]) {
-    for i in custom_entries(s, rows, sel) {
-        if let Some(e) = s.table.get_mut(i) {
+    for k in entries(s, rows, sel) {
+        if let Some(e) = s.table.get_mut(k) {
             let c = web_safe(e.color);
             recolor(e, c);
         }
     }
+    tidy(s);
+}
+
+/// Edit Color's choice for row `i`.
+fn edit_color(s: &mut ExportSettings, rows: &[Row], i: usize, c: Rgba) {
+    if let Some(&k) = entries(s, rows, &[i]).first()
+        && let Some(e) = s.table.get_mut(k)
+    {
+        recolor(e, c);
+    }
+    tidy(s);
 }
 
 fn delete(s: &mut ExportSettings, rows: &[Row], sel: &[usize]) {
-    let mut gone = custom_entries(s, rows, sel);
+    let map = make_custom(s, rows);
+    let mut gone: Vec<usize> = sel.iter().filter_map(|&i| map.get(i).copied().flatten()).collect();
     gone.sort_unstable();
     for i in gone.into_iter().rev() {
         if i < s.table.len() && s.table.len() > 1 {
@@ -276,41 +293,49 @@ fn add_color(s: &mut ExportSettings, rows: &[Row], c: Rgba) {
     }
 }
 
-fn remove_edits(s: &mut ExportSettings, sel: Option<&[usize]>) {
-    if s.palette != PaletteKind::Custom {
-        return;
-    }
-    for (i, e) in s.table.iter_mut().enumerate() {
-        if sel.is_none_or(|sel| sel.contains(&i))
+/// Remove Edit (these rows) or Remove All Edits (`None`).
+fn remove_edits(s: &mut ExportSettings, rows: &[Row], sel: Option<&[usize]>) {
+    let only: Option<Vec<usize>> = sel.map(|sel| {
+        if s.palette == PaletteKind::Custom {
+            sel.to_vec()
+        } else {
+            sel.iter()
+                .filter_map(|&i| rows.get(i))
+                .filter_map(|r| table_entry(s, r.entry.color))
+                .collect()
+        }
+    });
+    for (k, e) in s.table.iter_mut().enumerate() {
+        if only.as_ref().is_none_or(|o| o.contains(&k))
             && let Some(o) = e.original.take()
         {
             e.color = o;
         }
     }
+    tidy(s);
 }
 
 fn unlock_all(s: &mut ExportSettings) {
-    if s.palette == PaletteKind::Custom {
-        s.table.iter_mut().for_each(|e| e.locked = false);
-    } else {
-        s.table.clear();
-    }
+    s.table.iter_mut().for_each(|e| e.locked = false);
+    tidy(s);
 }
 
 /// A transparency eyedropper's pick of the row `i`.
 fn apply_pick(s: &mut ExportSettings, rows: &[Row], pick: Pick, i: usize) {
-    let map = make_custom(s, rows);
-    let Some(t) = map.get(i).copied().flatten() else { return };
     if pick == Pick::Select {
         s.table.iter_mut().for_each(|e| e.transparent = false);
     }
-    if let Some(e) = s.table.get_mut(t) {
-        e.transparent = pick != Pick::Remove;
+    for k in entries(s, rows, &[i]) {
+        if let Some(e) = s.table.get_mut(k) {
+            e.transparent = pick != Pick::Remove;
+        }
     }
+    tidy(s);
     clear_needs_transparency(s);
 }
 
-/// The order the rows are shown in.
+/// The order the rows are shown in. Luminance: lightest first by Rec. 709 luma (measured in
+/// Fireworks MX: #00C000 comes before #8080FF); Popularity: most used first.
 fn order(rows: &[Row], sort: Sort) -> Vec<usize> {
     let mut order: Vec<usize> = (0..rows.len()).collect();
     match sort {
@@ -318,9 +343,9 @@ fn order(rows: &[Row], sort: Sort) -> Vec<usize> {
         Sort::Luminance => {
             let luma = |r: &Row| {
                 let c = r.entry.color;
-                299 * u32::from(c.r) + 587 * u32::from(c.g) + 114 * u32::from(c.b)
+                2126 * u32::from(c.r) + 7152 * u32::from(c.g) + 722 * u32::from(c.b)
             };
-            order.sort_by_key(|&i| rows.get(i).map_or(0, luma));
+            order.sort_by_key(|&i| std::cmp::Reverse(rows.get(i).map_or(0, luma)));
         }
         Sort::Popularity => {
             order.sort_by_key(|&i| std::cmp::Reverse(rows.get(i).and_then(|r| r.usage).unwrap_or(0)));
@@ -354,7 +379,6 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     if app.optimize_table.doc != id {
         app.optimize_table = TableState {
             doc: id,
-            sort: app.optimize_table.sort,
             ..TableState::default()
         };
     }
@@ -364,6 +388,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     let optimized = view.and_then(|v| v.optimized.as_ref());
     let s = d.doc.export.clone();
     let rows = rows(&s, optimized, current, d.doc.current_frame);
+    let feedback = app.prefs.swatch_feedback;
     let st = &mut app.optimize_table;
     // Set again below while a swatch is held.
     st.held = None;
@@ -372,7 +397,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
         st.anchor = None;
         st.rows = rows.len();
     }
-    let order = order(&rows, st.sort);
+    let order = order(&rows, s.sort);
     let mut actions: Vec<Action> = Vec::new();
     // A color the transparency eyedropper took from the preview.
     if let Some((doc, c)) = st.picked.take()
@@ -402,7 +427,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
                 .max_height(view_h)
                 .min_scrolled_height(view_h)
                 .auto_shrink([false, true])
-                .show(ui, |ui| swatches(ui, st, &rows, &order, &s, &mut actions))
+                .show(ui, |ui| swatches(ui, st, &rows, &order, &s, feedback, &mut actions))
                 .inner
         });
     let area = framed.response.rect;
@@ -420,7 +445,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     // ---- Sort by, and the count or Rebuild ----
     ui.horizontal(|ui| {
         ui.label("Sort by:");
-        let mut sort = st.sort;
+        let mut sort = s.sort;
         crate::theme::combo("opt_sort")
             .selected_text(sort.label())
             .width(90.0)
@@ -429,7 +454,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
                     ui.selectable_value(&mut sort, o, o.label());
                 }
             });
-        if sort != st.sort {
+        if sort != s.sort {
             actions.push(Action::Sort(sort));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -513,11 +538,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     if let Some((row, c)) = edited {
         match row {
             Some(i) => {
-                if let Some(t) = custom_entries(&mut new, &rows, &[i]).first()
-                    && let Some(e) = new.table.get_mut(*t)
-                {
-                    recolor(e, c);
-                }
+                edit_color(&mut new, &rows, i, c);
             }
             None => add_color(&mut new, &rows, c),
         }
@@ -525,6 +546,7 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
     let mut load = false;
     let mut save = false;
     let mut rebuild = false;
+    let mut toggle_feedback = false;
     for a in actions {
         match a {
             Action::Transparent => toggle_transparent(&mut new, &rows, &sel),
@@ -535,9 +557,9 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
                 st.selected.clear();
             }
             Action::UnlockAll => unlock_all(&mut new),
-            Action::RemoveEdit => remove_edits(&mut new, Some(&sel)),
-            Action::RemoveAllEdits => remove_edits(&mut new, None),
-            Action::Sort(o) => st.sort = o,
+            Action::RemoveEdit => remove_edits(&mut new, &rows, Some(&sel)),
+            Action::RemoveAllEdits => remove_edits(&mut new, &rows, None),
+            Action::Sort(o) => new.sort = o,
             Action::Pick(pick) => {
                 if let Some(&i) = sel.first() {
                     apply_pick(&mut new, &rows, pick, i);
@@ -553,15 +575,20 @@ pub(crate) fn color_table(app: &mut FireCraftApp, ui: &mut Ui, id: u64) {
             Action::Load => load = true,
             Action::Save => save = true,
             Action::Rebuild => rebuild = true,
-            Action::Feedback => st.hide_feedback = !st.hide_feedback,
+            Action::Feedback => toggle_feedback = true,
             Action::Edit => {}
         }
+    }
+    if toggle_feedback {
+        app.prefs.swatch_feedback = !app.prefs.swatch_feedback;
     }
     if new != s
         && let Some(d) = app.session.docs.iter_mut().find(|d| d.id == id)
     {
+        // Sort by alone isn't a change to save (it isn't saved).
+        let sort_only = ExportSettings { sort: s.sort, ..new.clone() } == s;
         d.doc.export = new;
-        d.dirty = true;
+        d.dirty |= !sort_only;
     }
     if rebuild {
         rebuild_table(app, ui.ctx(), id);
@@ -588,6 +615,7 @@ fn swatches(
     rows: &[Row],
     order: &[usize],
     s: &ExportSettings,
+    feedback: bool,
     actions: &mut Vec<Action>,
 ) -> Option<Rect> {
     // Room for the closing line on the right.
@@ -604,7 +632,7 @@ fn swatches(
     let mut selected = Vec::new();
     // Show Swatch Feedback: the swatch of the Preview pixel under the pointer (a clear pixel:
     // the transparent entries).
-    let under = st.hovered.filter(|&(doc, _)| doc == st.doc && !st.hide_feedback).map(|(_, q)| q);
+    let under = st.hovered.filter(|&(doc, _)| doc == st.doc && feedback).map(|(_, q)| q);
     let mut fed = Vec::new();
     for (k, &i) in order.iter().enumerate() {
         let Some(row) = rows.get(i) else { continue };
@@ -613,11 +641,11 @@ fn swatches(
         let cell = vec2(edge(c + 1) - at.x, CELL_H);
         // The swatch inside the cell's lines (shared with the neighbours).
         let r = Rect::from_min_max(at + vec2(1.0, 1.0), at + cell);
-        paint_cell(&p, r, row.entry);
+        paint_cell(&p, r, row.shown());
         if st.selected.contains(&i) {
             selected.push(r);
         }
-        let e = row.entry;
+        let e = row.shown();
         if under.is_some_and(|q| if q.a == 0 { e.transparent || e.color.a == 0 } else { !e.transparent && shows(q, e.color) }) {
             fed.push(r);
         }
@@ -636,7 +664,7 @@ fn swatches(
             inp.pointer.primary_down()
                 && inp.pointer.press_origin().is_some_and(|q| r.contains(q) && clip.contains(q))
         });
-        if held && !row.entry.transparent && row.entry.color.a != 0 {
+        if held && !row.shown().transparent && row.entry.color.a != 0 {
             st.held = Some((st.doc, row.entry.color));
             ui.ctx().request_repaint();
         }
@@ -661,7 +689,7 @@ fn swatches(
         let resp = resp.on_hover_ui(|ui| swatch_info(ui, row));
         egui::Popup::context_menu(&resp)
             .style(crate::theme::menu_popup_style())
-            .show(|ui| menu(ui, s, rows, st, actions));
+            .show(|ui| menu(ui, s, rows, st, feedback, actions));
         if st.selected.contains(&i) && edit_anchor.is_none() {
             edit_anchor = Some(r);
         }
@@ -724,14 +752,14 @@ fn swatch_info(ui: &mut Ui, row: &Row) {
 }
 
 /// The right-click menu (Fireworks MX's palette menu).
-fn menu(ui: &mut Ui, s: &ExportSettings, rows: &[Row], st: &TableState, out: &mut Vec<Action>) {
-    let (sel, sort) = (&st.selected, st.sort);
-    let custom = s.palette == PaletteKind::Custom;
+fn menu(ui: &mut Ui, s: &ExportSettings, rows: &[Row], st: &TableState, feedback: bool, out: &mut Vec<Action>) {
+    let (sel, sort) = (&st.selected, s.sort);
     let any_edit = |only: bool| {
-        s.table
-            .iter()
-            .enumerate()
-            .any(|(i, e)| custom && e.original.is_some() && (!only || sel.contains(&i)))
+        if only {
+            sel.iter().any(|&i| rows.get(i).is_some_and(|r| r.entry.original.is_some()))
+        } else {
+            s.table.iter().any(|e| e.original.is_some())
+        }
     };
     let mut item = |ui: &mut Ui, label: &str, enabled: bool, a: Action| {
         if crate::menus::item(ui, label, "", enabled) {
@@ -762,8 +790,8 @@ fn menu(ui: &mut Ui, s: &ExportSettings, rows: &[Row], st: &TableState, out: &mu
     item(ui, "Save Palette...", !rows.is_empty(), Action::Save);
     item(ui, "Rebuild Color Table", true, Action::Rebuild);
     ui.separator();
-    let feedback = if st.hide_feedback { "Show Swatch Feedback" } else { "Show Swatch Feedback  \u{2713}" };
-    item(ui, feedback, true, Action::Feedback);
+    let label = if feedback { "Show Swatch Feedback  \u{2713}" } else { "Show Swatch Feedback" };
+    item(ui, label, true, Action::Feedback);
 }
 
 /// The color pop-up of Edit Color / Add Color; the color chosen, and for which row.
@@ -957,49 +985,79 @@ mod tests {
             .iter()
             .map(|&c| Row {
                 entry: PaletteEntry::new(c),
+                clear: c.a == 0,
                 usage: None,
             })
             .collect()
     }
 
-    #[test]
-    fn an_edit_makes_the_palette_custom_and_remembers_the_color() {
-        let (red, blue) = (Rgba::new(255, 0, 0, 255), Rgba::new(0, 0, 255, 255));
-        let mut s = ExportSettings::default();
-        // The export's palette has red, blue and its own transparent entry.
-        let mut rows = rows_of(&[red, blue, Rgba::TRANSPARENT]);
-        rows[2].entry.transparent = true;
-        snap_web(&mut s, &rows, &[1]);
-        assert_eq!(s.palette, PaletteKind::Custom);
-        assert_eq!(s.table.len(), 2, "the export's transparent entry isn't a color");
-        assert_eq!(s.table[1].color, blue, "blue is web safe already: no edit");
-        assert_eq!(s.table[1].original, None);
-        let rows = rows_of(&[red, blue]);
-        let mut e = s.table[0];
-        recolor(&mut e, Rgba::new(10, 20, 30, 255));
-        assert_eq!(e.original, Some(red));
-        recolor(&mut e, red);
-        assert_eq!(e.original, None, "back to its own color: no longer edited");
-        // Snap: 10/20/30 -> 0/0/51.
-        s.table[0].color = Rgba::new(10, 20, 30, 255);
-        snap_web(&mut s, &rows, &[0]);
-        assert_eq!(s.table[0].color, Rgba::new(0, 0, 51, 255));
-        remove_edits(&mut s, None);
-        assert_eq!(s.table[0].color, Rgba::new(10, 20, 30, 255));
+    /// The rows an export of these colors would show with `s`'s table.
+    fn rows_with(s: &ExportSettings, colors: &[Rgba]) -> Vec<Row> {
+        colors
+            .iter()
+            .map(|&c| {
+                let set = table_entry(s, c).and_then(|k| s.table.get(k));
+                Row {
+                    entry: set.map_or(PaletteEntry::new(c), |e| PaletteEntry { color: c, ..*e }),
+                    clear: c.a == 0,
+                    usage: None,
+                }
+            })
+            .collect()
     }
 
     #[test]
-    fn locks_stay_without_a_custom_palette() {
+    fn an_edit_keeps_the_palette_and_remembers_the_color() {
+        // Fireworks MX (probes/sort_edit_mx): Snap to Web Safe on an Adaptive table keeps it
+        // Adaptive, with the edited color kept for the palette built.
+        let (orange, blue) = (Rgba::new(255, 128, 0, 255), Rgba::new(0, 0, 255, 255));
+        let mut s = ExportSettings::default();
+        // The export's palette has orange, blue and its own transparent entry.
+        let rows = rows_of(&[orange, blue, Rgba::TRANSPARENT]);
+        snap_web(&mut s, &rows, &[0, 1, 2]);
+        assert_eq!(s.palette, PaletteKind::Adaptive);
+        // Blue is web safe already (nothing set: not kept); the transparent entry isn't a color.
+        assert_eq!(s.table.len(), 1);
+        assert_eq!((s.table[0].color, s.table[0].original), (Rgba::new(255, 153, 0, 255), Some(orange)));
+        // The export now shows #FF9900 for it: the row finds the entry by that color.
+        let rows = rows_with(&s, &[Rgba::new(255, 153, 0, 255), blue]);
+        assert_eq!(rows[0].entry.original, Some(orange));
+        edit_color(&mut s, &rows, 0, Rgba::new(10, 20, 30, 255));
+        assert_eq!((s.table[0].color, s.table[0].original), (Rgba::new(10, 20, 30, 255), Some(orange)));
+        // Back to its own color: no longer edited, and with nothing else set, gone.
+        let rows = rows_with(&s, &[Rgba::new(10, 20, 30, 255), blue]);
+        edit_color(&mut s, &rows, 0, orange);
+        assert!(s.table.is_empty());
+        // Remove Edit.
+        snap_web(&mut s, &rows_of(&[orange]), &[0]);
+        let rows = rows_with(&s, &[Rgba::new(255, 153, 0, 255)]);
+        remove_edits(&mut s, &rows, Some(&[0]));
+        assert!(s.table.is_empty());
+        // Add Color makes the palette Custom, with the table's edits.
+        snap_web(&mut s, &rows_of(&[orange]), &[0]);
+        let rows = rows_with(&s, &[Rgba::new(255, 153, 0, 255), blue]);
+        add_color(&mut s, &rows, Rgba::new(1, 2, 3, 255));
+        assert_eq!(s.palette, PaletteKind::Custom);
+        assert_eq!(s.table.len(), 3);
+        assert_eq!(s.table[0].original, Some(orange));
+    }
+
+    #[test]
+    fn locks_and_transparency_stay_with_the_palette() {
         let (red, blue) = (Rgba::new(255, 0, 0, 255), Rgba::new(0, 0, 255, 255));
         let mut s = ExportSettings::default();
-        let rows = rows_of(&[red, blue]);
-        toggle_lock(&mut s, &rows, &[1]);
+        toggle_lock(&mut s, &rows_of(&[red, blue]), &[1]);
         assert_eq!(s.palette, PaletteKind::Adaptive);
         assert_eq!(s.table.len(), 1);
         assert!(s.table[0].locked);
-        let mut rows = rows;
-        rows[1].entry.locked = true;
-        toggle_lock(&mut s, &rows, &[1]);
+        let r = rows_with(&s, &[red, blue]);
+        toggle_transparent(&mut s, &r, &[1]);
+        assert!(s.table[0].transparent && s.table[0].locked);
+        assert_eq!(s.transparency, Transparency::Index);
+        let r = rows_with(&s, &[red, blue]);
+        toggle_lock(&mut s, &r, &[1]);
+        let r = rows_with(&s, &[red, blue]);
+        toggle_transparent(&mut s, &r, &[1]);
         assert!(s.table.is_empty());
     }
 
@@ -1009,14 +1067,16 @@ mod tests {
         let mut s = ExportSettings::default();
         apply_pick(&mut s, &rows_of(&colors), Pick::Select, 0);
         assert_eq!(s.transparency, Transparency::Index);
-        let rows: Vec<Row> = s.table.iter().map(|&entry| Row { entry, usage: None }).collect();
-        apply_pick(&mut s, &rows, Pick::Add, 2);
-        let clear: Vec<bool> = s.table.iter().map(|e| e.transparent).collect();
+        assert_eq!(s.palette, PaletteKind::Adaptive);
+        let r = rows_with(&s, &colors);
+        apply_pick(&mut s, &r, Pick::Add, 2);
+        let clear: Vec<bool> = rows_with(&s, &colors).iter().map(|r| r.entry.transparent).collect();
         assert_eq!(clear, [true, false, true]);
-        let rows: Vec<Row> = s.table.iter().map(|&entry| Row { entry, usage: None }).collect();
-        apply_pick(&mut s, &rows, Pick::Select, 1);
-        let clear: Vec<bool> = s.table.iter().map(|e| e.transparent).collect();
+        let r = rows_with(&s, &colors);
+        apply_pick(&mut s, &r, Pick::Select, 1);
+        let clear: Vec<bool> = rows_with(&s, &colors).iter().map(|r| r.entry.transparent).collect();
         assert_eq!(clear, [false, true, false]);
+        assert_eq!(s.table.len(), 1);
     }
 
     #[test]
@@ -1040,15 +1100,19 @@ mod tests {
     #[test]
     fn sorting_and_ranges() {
         let mut rows = rows_of(&[Rgba::new(255, 255, 255, 255), Rgba::new(0, 0, 0, 255), Rgba::new(128, 128, 128, 255)]);
-        assert_eq!(order(&rows, Sort::Luminance), [1, 2, 0]);
+        // Lightest first.
+        assert_eq!(order(&rows, Sort::Luminance), [0, 2, 1]);
+        // By Rec. 709 luma, as Fireworks MX: #00C000 before #8080FF.
+        let mx = rows_of(&[Rgba::new(128, 128, 255, 255), Rgba::new(0, 192, 0, 255)]);
+        assert_eq!(order(&mx, Sort::Luminance), [1, 0]);
         rows[0].usage = Some(5);
         rows[1].usage = Some(1);
         rows[2].usage = Some(9);
         assert_eq!(order(&rows, Sort::Popularity), [2, 0, 1]);
         let mut st = TableState::default();
         let shown = order(&rows, Sort::Luminance);
-        select(&mut st, &shown, 1, false, false);
-        select(&mut st, &shown, 0, false, true);
+        select(&mut st, &shown, 0, false, false);
+        select(&mut st, &shown, 1, false, true);
         assert_eq!(st.selected, BTreeSet::from([0, 1, 2]));
         select(&mut st, &shown, 2, true, false);
         assert_eq!(st.selected, BTreeSet::from([0, 1]));
