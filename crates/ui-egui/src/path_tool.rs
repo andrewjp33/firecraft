@@ -424,7 +424,12 @@ fn drag_to(edit: &mut PathEdit, d: &mut DocState, cur: Pt, mods: egui::Modifiers
         }) => {
             if let Some(b) = point(orig, *pt) {
                 *moved = true;
-                let v = (cur.0 - b.x, cur.1 - b.y);
+                let mut v = (cur.0 - b.x, cur.1 - b.y);
+                // Shift: 45-degree steps keeping the larger distance, as the Pen's handles
+                // (Fireworks MX: 80, 25 gave 80, 0; 70, 50 gave 70, 70; -20, 30 gave -30, 30).
+                if mods.shift {
+                    v = constrain((0.0, 0.0), v);
+                }
                 let other = if *succ { b.pred } else { b.succ };
                 // A smooth point keeps its handles in line (each keeps its length).
                 let len = other.0.hypot(other.1);
@@ -1370,6 +1375,24 @@ mod tests {
         let c = s.nodes()[1];
         assert_eq!(c.3, (40.0, 70.0));
         assert_eq!(c.2, b.2);
+    }
+
+    #[test]
+    fn shift_snaps_a_dragged_handle_to_45_degree_steps() {
+        // Measured in Fireworks MX: a smooth point's outgoing handle dragged with Shift goes in
+        // 45-degree steps keeping the larger distance; the other handle stays opposite, its
+        // length kept.
+        let mut s = curve();
+        s.click(Tool::Subselect, (150.0, 100.0), NONE);
+        s.drag(Tool::Subselect, (150.0, 140.0), (230.0, 125.0), SHIFT);
+        let b = s.nodes()[1];
+        assert_eq!((b.3, b.2), ((80.0, 0.0), (-40.0, 0.0)));
+        s.drag(Tool::Subselect, (230.0, 100.0), (220.0, 150.0), SHIFT);
+        let b = s.nodes()[1];
+        assert_eq!(b.3, (70.0, 70.0));
+        assert!((b.2.0 + 28.284).abs() < 0.01 && (b.2.1 + 28.284).abs() < 0.01, "{b:?}");
+        s.drag(Tool::Subselect, (220.0, 170.0), (130.0, 130.0), SHIFT);
+        assert_eq!(s.nodes()[1].3, (-30.0, 30.0));
     }
 
     #[test]
