@@ -164,9 +164,11 @@ pub fn paint_ink(p: &Painter, r: Rect, tool: Tool, c: Color32) {
             p.add(Shape::line(pts, s));
             p.line_segment([at(0.3, 0.6), at(0.25, 0.95)], s);
         }
+        // Turned as the Magic Wand's cursor (and Fireworks' icon): the sparkle top left, the
+        // stick down to the right.
         Tool::MagicWand => {
-            p.line_segment([at(0.15, 0.9), at(0.6, 0.45)], Stroke::new(2.0, c));
-            let star = at(0.72, 0.3);
+            p.line_segment([at(0.85, 0.9), at(0.4, 0.45)], Stroke::new(2.0, c));
+            let star = at(0.28, 0.3);
             for k in 0..4 {
                 let a = k as f32 * std::f32::consts::FRAC_PI_4 * 2.0;
                 p.line_segment(
