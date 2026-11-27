@@ -3,7 +3,7 @@
 
 use egui::{DragValue, Rect, Sense, Slider, vec2};
 use firecraft_doc::ElementKind;
-use firecraft_engine::Tool;
+use firecraft_engine::{LiveTool, MarqueeStyle, Tool};
 use firecraft_raster::{AntiAliasStyle, Edge};
 
 use crate::fill_ui;
@@ -64,7 +64,7 @@ fn edge_combo(ui: &mut egui::Ui, id: &str, edge: &mut Edge) {
     };
     let feather = matches!(edge, Edge::Feather(_));
     if ui
-        .add_enabled(feather, DragValue::new(&mut amount).range(0..=250))
+        .add_enabled(feather, DragValue::new(&mut amount).range(0..=250).update_while_editing(false))
         .changed()
     {
         *edge = Edge::Feather(amount);
@@ -114,6 +114,7 @@ pub fn show(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     identity(ui, "Magic Wand tool", Some(Tool::MagicWand), |_| {});
     let o = &mut app.session.options;
+    let before = (o.tolerance, o.wand_edge, o.aa_style);
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Tolerance:");
@@ -136,8 +137,15 @@ fn wand(app: &mut FireCraftApp, ui: &mut egui::Ui) {
                     ui.selectable_value(&mut o.aa_style, AntiAliasStyle::Classic, "Fireworks MX (classic)")
                         .on_hover_text("Bit-compatible with Fireworks MX: edge strength equals Tolerance");
                 });
+            ui.add_space(8.0);
+            ui.checkbox(&mut o.wand_live, "Live marquee")
+                .on_hover_text("Changing Tolerance or Edge redoes the selection the Magic Wand just made");
         });
     });
+    let o = &app.session.options;
+    if o.wand_live && (o.tolerance, o.wand_edge, o.aa_style) != before {
+        live_marquee(app, ui, LiveTool::MagicWand);
+    }
 }
 
 /// Opacity, blend mode and Preserve Transparency, shared by the painting tools.
@@ -243,22 +251,75 @@ fn paint_bucket(app: &mut FireCraftApp, ui: &mut egui::Ui) {
 
 fn marquee(app: &mut FireCraftApp, ui: &mut egui::Ui, tool: Tool) {
     identity(ui, tool.label(), Some(tool), |_| {});
+    // The Lasso has only the Edge (Fireworks MX); its selections aren't built yet.
+    let live_tool = match tool {
+        Tool::Marquee => Some(LiveTool::Marquee),
+        Tool::OvalMarquee => Some(LiveTool::OvalMarquee),
+        _ => None,
+    };
     let o = &mut app.session.options;
+    let edge = o.marquee_edge;
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
-            ui.label("Style:");
-            crate::theme::combo("marquee_style")
-                .width(90.0)
-                .selected_text("Normal")
-                .show_ui(ui, |ui| {
-                    let _ = ui.selectable_label(true, "Normal");
-                    ui.add_enabled(false, egui::Button::new("Fixed Ratio"));
-                    ui.add_enabled(false, egui::Button::new("Fixed Size"));
-                });
+            if live_tool.is_some() {
+                ui.label("Style:");
+                crate::theme::combo("marquee_style")
+                    .width(90.0)
+                    .selected_text(o.marquee_style.label())
+                    .show_ui(ui, |ui| {
+                        for st in MarqueeStyle::ALL {
+                            ui.selectable_value(&mut o.marquee_style, st, st.label());
+                        }
+                    });
+            }
             edge_combo(ui, "marquee_edge", &mut o.marquee_edge);
         });
+        if live_tool.is_some() {
+            ui.horizontal(|ui| {
+                // Width and height: the ratio's parts or the fixed size; grayed with 0 for Normal
+                // (Fireworks MX).
+                let mut none = (0, 0);
+                let (pair, tip) = match o.marquee_style {
+                    MarqueeStyle::Normal => (&mut none, ""),
+                    MarqueeStyle::FixedRatio => (&mut o.marquee_ratio, "ratio"),
+                    MarqueeStyle::FixedSize => (&mut o.marquee_size, "in pixels"),
+                };
+                let on = o.marquee_style != MarqueeStyle::Normal;
+                let max = crate::tool_settings::MARQUEE_MAX;
+                for (glyph, v, what) in [(icons::Glyph::ArrowsH, &mut pair.0, "Width"), (icons::Glyph::ArrowsV, &mut pair.1, "Height")] {
+                    icons::glyph(ui, glyph, 16.0);
+                    let range = if on { 1..=max } else { 0..=0 };
+                    ui.add_enabled(on, DragValue::new(v).range(range).update_while_editing(false))
+                        .on_hover_text(format!("{what} ({tip})"));
+                }
+                ui.add_space(8.0);
+                ui.checkbox(&mut o.marquee_live, "Live marquee")
+                    .on_hover_text("Changing the Edge redoes the selection this tool just made");
+            });
+        }
         ui.weak("Shift: add to selection   Alt: subtract   Shift+Alt: intersect");
     });
+    if let Some(t) = live_tool
+        && app.session.options.marquee_live
+        && app.session.options.marquee_edge != edge
+    {
+        live_marquee(app, ui, t);
+    }
+}
+
+/// Live marquee (Fireworks CS3 and later): `tool`'s settings changed this frame, so redo the
+/// selection it just made with them. Changes while one press drags a slider or number amend a
+/// single undo step.
+fn live_marquee(app: &mut FireCraftApp, ui: &egui::Ui, tool: LiveTool) {
+    let id = egui::Id::unique("live_marquee_press");
+    let press = ui.input(|i| i.pointer.press_start_time());
+    let last: Option<Option<f64>> = ui.data(|m| m.get_temp(id));
+    let amend = press.is_some() && last == Some(press);
+    ui.data_mut(|m| m.insert_temp(id, press));
+    let opts = app.session.options.clone();
+    if let Some(d) = app.session.active_doc_mut() {
+        d.live_reselect(tool, &opts, amend);
+    }
 }
 
 /// The fill row of the tools that draw shapes: its box and Fill Options.

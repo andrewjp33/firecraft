@@ -33,6 +33,9 @@ pub struct History {
     undo: Vec<Step>,
     redo: Vec<Step>,
     pub limit: usize,
+    /// Counts every change to the steps (a new step, undo, redo, a dropped step): an action that
+    /// may only follow its own step (Live marquee) compares it.
+    serial: u64,
 }
 
 impl Default for History {
@@ -41,6 +44,7 @@ impl Default for History {
             undo: Vec::new(),
             redo: Vec::new(),
             limit: DEFAULT_UNDO_STEPS,
+            serial: 0,
         }
     }
 }
@@ -68,6 +72,7 @@ impl History {
 
     /// Remember `before` (and what was selected) as the state preceding the step `label`.
     pub fn push(&mut self, label: &str, before: &Document, selected: Selected) {
+        self.serial += 1;
         self.undo.push((label.to_owned(), before.clone(), selected));
         if self.undo.len() > self.limit {
             self.undo.remove(0);
@@ -84,25 +89,34 @@ impl History {
 
     /// Drop the most recent undo step without applying it (an edit that changed nothing).
     pub fn discard_last(&mut self) {
+        self.serial += 1;
         self.undo.pop();
     }
 
     /// Remove the most recent undo step and return its document (cancelling a live edit).
     pub fn take_last(&mut self) -> Option<Document> {
+        self.serial += 1;
         self.undo.pop().map(|(_, d, _)| d)
     }
 
     /// Step back: the document and selection before the newest step (`current` goes to redo).
     pub fn undo(&mut self, current: &Document, selected: Selected) -> Option<(Document, Selected)> {
         let (label, doc, sel) = self.undo.pop()?;
+        self.serial += 1;
         self.redo.push((label, current.clone(), selected));
         Some((doc, sel))
     }
 
     pub fn redo(&mut self, current: &Document, selected: Selected) -> Option<(Document, Selected)> {
         let (label, doc, sel) = self.redo.pop()?;
+        self.serial += 1;
         self.undo.push((label, current.clone(), selected));
         Some((doc, sel))
+    }
+
+    /// Changes whenever the steps change (see the field).
+    pub fn serial(&self) -> u64 {
+        self.serial
     }
 
     /// Step labels for the History panel, oldest first.

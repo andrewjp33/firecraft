@@ -100,6 +100,72 @@ tool, the Brush and Pencil included (they paint inside the selection). Edit > In
 Bitmap and the Layers panel's New Bitmap Image keep the selection, which then applies to the new
 bitmap.
 
+## Marquee Style: Normal, Fixed Ratio, Fixed Size
+
+The Property inspector of the Marquee and Oval Marquee has **Style** (Normal, Fixed Ratio, Fixed
+Size) with two numbers under it, a width (↔) and a height (↕), grayed and showing 0 for Normal.
+They are stored as `MarqueeToolMode` (0, 1, 2), `MarqueeToolModeRatioX/Y` and
+`MarqueeToolModeWidthX/Y`; both Fireworks MX's and CS6's preferences start at 1:2 and 64 x 64.
+The Lasso's inspector has only the Edge.
+
+Measured on 2026-11-26 in Fireworks MX and in CS6, which behave the same (a 200 x 150 document at
+100%, the inspector's marquee X/Y/W/H read after each drag):
+
+| Style, numbers | Drag (canvas) | Marquee |
+|---|---|---|
+| Fixed Ratio 1:2 | 13,11 by +100,+40 | 13,11 20x40 |
+| Fixed Ratio 1:2 | 113,111 by −20,−90 | 68,21 45x90 |
+| Fixed Ratio 1:2 | 13,11 by +10,+100 | 13,11 50x100 |
+| Fixed Ratio 2:1 | 23,13 by +100,+20 | 23,13 100x50 |
+| Fixed Ratio 2:1 | 23,13 by +30,+60 | 23,13 30x15 |
+| Fixed Ratio 2:1 | 23,13 by +3,+1 | 23,13 3x2 |
+| Fixed Ratio 3:1 | 13,11 by +7,+40 | 13,11 7x2 |
+| Fixed Ratio 3:1 | 13,11 by +8,+40 | 13,11 8x3 |
+| Fixed Ratio 1:1 | 13,11 by +100,+20 | 13,11 20x20 |
+| Fixed Ratio 1:1 | 13,11 by +20,+80 | 13,11 80x80 |
+| Fixed Size 64x64 | click at 33,26 | 33,26 64x64 |
+| Fixed Size 64x64 | 153,126 to 103,76 | 103,76 64x64 |
+| Fixed Size 64x64 | 13,11 to 183,136 | 183,136 17x14 (cut to the canvas) |
+
+* **Fixed Ratio:** the side with the larger number follows the pointer (the height when they're
+  equal), whichever way the drag goes; the other is that side times the ratio, rounded to the
+  nearest pixel (1.5 up). The box starts where the drag started and grows towards the pointer.
+* **Fixed Size:** the box's top-left pixel is the one under the pointer. While dragging it follows
+  the pointer; it lands where the button is let go, and a click puts it there. Like any marquee it
+  is cut to the canvas.
+
+FireCraft: `DocState::marquee_drag_box` gives the box for each Style; the canvas draws it while
+dragging and `marquee` selects it. With Fixed Ratio both ends go to the nearest pixel grid line,
+as a Normal marquee's do. The Style and its numbers are kept with the other tool settings.
+
+## Live marquee (Fireworks CS)
+
+Fireworks CS3 and later add a **Live marquee** checkbox to the Property inspector of the Marquee,
+Oval Marquee, Lasso and Magic Wand (on by default; CS6's preferences `MarqueeToolLiveRedo`,
+`LassoToolLiveRedo`, `WandToolLiveRedo`; tooltip "Enable live adjustments for marquee tool
+settings"). Fireworks MX doesn't have it. Measured in CS6 on 2026-11-26:
+
+* Changing the **Edge** (Hard, Anti-alias, Feather) or the **feather amount** right after a marquee
+  redoes that marquee with the new edge. Changing the Magic Wand's **Tolerance** or Edge redoes the
+  wand from the same click (tolerance 32 to 230 took in the white around the clicked disc).
+  Typed numbers apply on Enter.
+* Every change is a **new undo step** with the tool's own name, "Select Pixels" or "Magic Wand
+  Tool" (CS6's History panel marks them as not replayable).
+* Only the **newest step** is redone: a marquee added with Shift to an earlier one, then given a
+  feather, feathered only the added part.
+* Only for the **tool that made it**: the Marquee's Edge left an Oval Marquee selection as it was,
+  and a Magic Wand selection too.
+* **A Move ends it**, and so does **Undo**: after either, changing the Edge changed only the tool's
+  setting, also after undoing the Move or a live change.
+* Changing the Style or the Fixed Size numbers does nothing to the selection.
+
+FireCraft does the same for the Marquee, Oval Marquee and Magic Wand (`DocState::live_reselect`,
+crates/engine/src/live_marquee.rs; the Lasso doesn't select yet). It also redoes the wand when its
+FireCraft-only Anti-alias style changes. While a slider or number is dragged, its changes amend a
+single undo step instead of one step for every value passed (FireCraft's choice: Fireworks takes
+only typed or picked values). The checkboxes are the tools' own settings (`marquee_live`,
+`wand_live`), on by default as in CS6.
+
 ## The canvas context menu; New Bitmap Via Copy/Cut
 
 A right-click on the canvas opens one of three menus in Fireworks MX (2026-11-15):

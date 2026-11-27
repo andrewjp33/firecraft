@@ -326,12 +326,27 @@ pub enum Glyph {
     /// The transparency eyedroppers: a checkered swatch, an eyedropper, and "=", "+" or "-"
     /// (Select Transparent Color, Add Color to Transparency, Remove Color from Transparency).
     ClearPick(char),
+    /// A double-headed arrow across (width) or up and down (height): the Marquee's Style fields.
+    ArrowsH,
+    ArrowsV,
 }
 
 pub fn paint_glyph(p: &Painter, r: Rect, g: Glyph, c: Color32) {
     let s = Stroke::new(1.2, c);
     let at = |fx: f32, fy: f32| pos2(r.left() + fx * r.width(), r.top() + fy * r.height());
     match g {
+        Glyph::ArrowsH | Glyph::ArrowsV => {
+            // Drawn across, then turned for the vertical one.
+            let pt = |a: f32, b: f32| if g == Glyph::ArrowsH { at(a, b) } else { at(b, a) };
+            p.line_segment([pt(0.1, 0.5), pt(0.9, 0.5)], s);
+            for (tip, back) in [(0.1, 0.32), (0.9, 0.68)] {
+                p.add(Shape::convex_polygon(
+                    vec![pt(tip, 0.5), pt(back, 0.28), pt(back, 0.72)],
+                    c,
+                    Stroke::NONE,
+                ));
+            }
+        }
         Glyph::TriangleUp => {
             p.add(Shape::convex_polygon(
                 vec![at(0.2, 0.7), at(0.8, 0.7), at(0.5, 0.25)],

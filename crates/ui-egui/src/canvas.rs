@@ -1461,8 +1461,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 Tool::Pointer | Tool::SelectBehind => {
                     d.move_selection((bx - ax).round(), (by - ay).round(), "Move")
                 }
+                // The tool's Style decides the box (Normal: the drag's).
                 Tool::Marquee | Tool::OvalMarquee => {
-                    d.marquee((ax, ay, bx, by), tool == Tool::OvalMarquee, &options, combine)
+                    let r = firecraft_engine::DocState::marquee_drag_box((ax, ay), (bx, by), &options);
+                    d.marquee(r, tool == Tool::OvalMarquee, &options, combine)
                 }
                 // Corners on the nearest pixel grid lines, so the shape's edges are crisp; Ctrl
                 // draws it where the pointer is, sub-pixel (as Ctrl with the Scale tool).
@@ -1594,6 +1596,12 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 if let Some((sx, sy)) = d.selected_gradient().map(|(_, g)| g.start) {
                     d.edit_gradient("Move Fill Handle", false, |g| g.translate(x - sx, y - sy));
                 }
+            }
+            // Fixed Size: a click puts the box there, its top-left pixel under the pointer
+            // (Fireworks MX). Otherwise a click ends the selection.
+            Tool::Marquee | Tool::OvalMarquee if options.marquee_style == firecraft_engine::MarqueeStyle::FixedSize => {
+                let r = firecraft_engine::DocState::marquee_drag_box((x, y), (x, y), &options);
+                d.marquee(r, tool == Tool::OvalMarquee, &options, combine);
             }
             Tool::Marquee | Tool::OvalMarquee => {
                 if combine == Combine::Replace {
@@ -1755,11 +1763,16 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                 Rect::from_min_max(to_screen(l, t), to_screen(r, b))
             };
             let exact = || Rect::from_two_pos(to_screen(da.0, da.1), to_screen(db.0, db.1));
+            // The marquee tools' box with their Style (Fixed Ratio, Fixed Size).
+            let marquee = || {
+                let (l, t, r, b) = firecraft_engine::DocState::marquee_drag_box(to_doc(a), to_doc(b), &options);
+                Rect::from_min_max(to_screen(l, t), to_screen(r, b))
+            };
             match tool {
                 Tool::Marquee => {
                     // Where the marching ants will run once it's let go, drawn as they will be:
                     // on its outermost screen pixels, in screen-pixel dashes.
-                    let r = grid();
+                    let r = marquee();
                     let mut px = crate::pixels::PixelMesh::new(&p);
                     let ((l, t), (r, b)) = (px.grid(r.min), px.grid(r.max));
                     let phase = (ctx.input(|i| i.time) * 8.0) as i64;
@@ -1767,7 +1780,7 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
                     px.paint(&p);
                 }
                 Tool::OvalMarquee => {
-                    let r = grid();
+                    let r = marquee();
                     p.add(egui::epaint::EllipseShape::stroke(
                         r.center(),
                         r.size() / 2.0,

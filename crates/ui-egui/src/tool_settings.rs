@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use firecraft_doc::{EffectEntry, EffectParam};
-use firecraft_engine::ToolOptions;
+use firecraft_engine::{MarqueeStyle, ToolOptions};
 use firecraft_fwpng::Node;
 use firecraft_raster::blend::BlendMode;
 use firecraft_raster::gradient::{Gradient, GradientKind};
@@ -119,6 +119,16 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+/// The largest number the Marquee's Style takes (ratio parts, fixed width and height).
+pub const MARQUEE_MAX: u32 = 30_000;
+
+/// `a,b`, both in `range`.
+fn parse_pair(v: &str, range: std::ops::RangeInclusive<u32>) -> Option<(u32, u32)> {
+    let (a, b) = v.split_once(',')?;
+    let (a, b) = (a.trim().parse().ok()?, b.trim().parse().ok()?);
+    (range.contains(&a) && range.contains(&b)).then_some((a, b))
+}
+
 /// Text with no line breaks (names and folders).
 fn one_line(s: &str) -> String {
     s.replace(['\n', '\r'], "")
@@ -145,7 +155,12 @@ pub fn serialize_tools(o: &ToolOptions) -> String {
         ("gradient_tool", stops_text(&o.gradient_tool)),
         ("tolerance", o.tolerance.to_string()),
         ("wand_edge", edge_text(o.wand_edge)),
+        ("wand_live", o.wand_live.to_string()),
         ("marquee_edge", edge_text(o.marquee_edge)),
+        ("marquee_style", o.marquee_style.code().to_string()),
+        ("marquee_ratio", format!("{},{}", o.marquee_ratio.0, o.marquee_ratio.1)),
+        ("marquee_size", format!("{},{}", o.marquee_size.0, o.marquee_size.1)),
+        ("marquee_live", o.marquee_live.to_string()),
         ("paint_opacity", p.opacity.to_string()),
         ("paint_blend", p.blend.fw_code().to_string()),
         ("paint_preserve_transparency", p.preserve_transparency.to_string()),
@@ -266,6 +281,15 @@ pub fn parse_tools(text: &str, o: &mut ToolOptions) -> Pending {
             "tolerance" => set(&mut o.tolerance, v),
             "wand_edge" => o.wand_edge = parse_edge(v).unwrap_or(o.wand_edge),
             "marquee_edge" => o.marquee_edge = parse_edge(v).unwrap_or(o.marquee_edge),
+            "wand_live" => set(&mut o.wand_live, v),
+            "marquee_live" => set(&mut o.marquee_live, v),
+            "marquee_style" => {
+                if let Some(st) = v.parse().ok().and_then(MarqueeStyle::from_code) {
+                    o.marquee_style = st;
+                }
+            }
+            "marquee_ratio" => o.marquee_ratio = parse_pair(v, 1..=MARQUEE_MAX).unwrap_or(o.marquee_ratio),
+            "marquee_size" => o.marquee_size = parse_pair(v, 1..=MARQUEE_MAX).unwrap_or(o.marquee_size),
             "paint_opacity" => {
                 set(&mut p.opacity, v);
                 p.opacity = p.opacity.min(100);
@@ -484,6 +508,11 @@ mod tests {
             tolerance: 99,
             wand_edge: Edge::Feather(7),
             marquee_edge: Edge::Hard,
+            marquee_style: MarqueeStyle::FixedSize,
+            marquee_ratio: (3, 4),
+            marquee_size: (120, 30),
+            marquee_live: false,
+            wand_live: false,
             text_anti_alias: 2,
             text_auto_kern: false,
             fill_feather: 3,

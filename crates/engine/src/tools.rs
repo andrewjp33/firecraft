@@ -192,12 +192,56 @@ impl Default for PaintOptions {
     }
 }
 
+/// The Marquee tools' Style (Property inspector), measured in Fireworks MX and CS6 (2026-11-26).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarqueeStyle {
+    /// The box spans the drag.
+    #[default]
+    Normal,
+    /// Width to height as `ToolOptions::marquee_ratio`.
+    FixedRatio,
+    /// Always `ToolOptions::marquee_size`, its top-left corner under the pointer.
+    FixedSize,
+}
+
+impl MarqueeStyle {
+    pub const ALL: [Self; 3] = [Self::Normal, Self::FixedRatio, Self::FixedSize];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "Normal",
+            Self::FixedRatio => "Fixed Ratio",
+            Self::FixedSize => "Fixed Size",
+        }
+    }
+
+    /// Fireworks MX's `MarqueeToolMode` number.
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_code(c: u8) -> Option<Self> {
+        Self::ALL.get(usize::from(c)).copied()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolOptions {
     pub tolerance: u8,
     pub wand_edge: Edge,
     pub aa_style: AntiAliasStyle,
+    /// Live marquee (Fireworks CS3 and later): changing the Magic Wand's Tolerance or Edge redoes
+    /// the selection it just made.
+    pub wand_live: bool,
     pub marquee_edge: Edge,
+    /// The Marquee and Oval Marquee's Style and its two numbers (Fireworks MX's
+    /// `MarqueeToolMode`, `MarqueeToolModeRatioX/Y`, `MarqueeToolModeWidthX/Y`).
+    pub marquee_style: MarqueeStyle,
+    pub marquee_ratio: (u32, u32),
+    pub marquee_size: (u32, u32),
+    /// Live marquee for the Marquee and Oval Marquee: changing the Edge redoes the selection
+    /// the tool just made.
+    pub marquee_live: bool,
     /// Stroke colour (`None` = no stroke), as the Tools panel's colour boxes.
     pub stroke: Option<Rgba>,
     pub fill: Option<Rgba>,
@@ -265,7 +309,13 @@ impl Default for ToolOptions {
             tolerance: 32,
             wand_edge: Edge::AntiAlias,
             aa_style: AntiAliasStyle::Smooth,
+            wand_live: true,
             marquee_edge: Edge::AntiAlias,
+            // Fireworks MX's and CS6's preferences both start with 1:2 and 64 x 64.
+            marquee_style: MarqueeStyle::Normal,
+            marquee_ratio: (1, 2),
+            marquee_size: (64, 64),
+            marquee_live: true,
             stroke: Some(Rgba::BLACK),
             fill: Some(Rgba::new(0x99, 0x99, 0x99, 255)),
             stroke_size: 1,

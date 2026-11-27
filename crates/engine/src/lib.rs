@@ -13,6 +13,8 @@ mod filters;
 pub use filters::filter_image;
 mod animation;
 mod history;
+mod live_marquee;
+pub use live_marquee::LiveTool;
 mod masks;
 pub use masks::{MaskPaste, MaskRemoval};
 mod objects;
@@ -44,14 +46,13 @@ pub fn covered_pixels((x, y, w, h): (f64, f64, f64, f64)) -> (f64, f64, f64, f64
     (l, t, r - l, b - t)
 }
 pub use symbols::SymbolLink;
-pub use tools::{PaintOptions, Tool, ToolOptions};
+pub use tools::{MarqueeStyle, PaintOptions, Tool, ToolOptions};
 
 use firecraft_doc::{
     BezierPoint, Bitmap, Contour, Document, Element, ElementKind, Fill, Layer, Path, RectShape, Stroke,
 };
 use firecraft_raster::mask::Combine;
 use firecraft_raster::nine::{self, Insets};
-use firecraft_raster::wand::magic_wand;
 use firecraft_raster::{Mask, Rgba, RgbaImage};
 
 /// An element address: layer index, element index (in the current frame), and for an object
@@ -396,6 +397,8 @@ pub struct DocState {
     /// The bitmap double-clicked into bitmap mode (Fireworks MX: "Edit Bitmap"), while it has no
     /// pixel selection yet; it counts while it stays selected.
     pub bitmap_edit: Option<ElementRef>,
+    /// The last Marquee, Oval Marquee or Magic Wand selection, for Live marquee to redo.
+    live_selection: Option<live_marquee::LiveSelection>,
     /// Image stamps of the bitmaps Insert > Empty Bitmap made: a bitmap still holding one is
     /// untouched (every write gives an image a new stamp), and goes away once deselected.
     empty_bitmaps: Vec<u64>,
@@ -435,6 +438,7 @@ impl DocState {
             live_paint: None,
             empty_bitmaps: Vec::new(),
             bitmap_edit: None,
+            live_selection: None,
             revision: 0,
             interpolation: firecraft_raster::transform::Resample::Bicubic,
         }
@@ -509,7 +513,8 @@ impl DocState {
     /// An undo step that changes only what is selected (Fireworks MX records "Select Pixels",
     /// "Edit Bitmap", "Deselect"): `f` changes the selection (or the current layer); undo brings
     /// back the one before. Nothing is recorded if nothing changed.
-    pub(crate) fn select_step(&mut self, label: &str, f: impl FnOnce(&mut DocState)) {
+    /// `false` if `f` changed nothing (no step is kept then).
+    pub(crate) fn select_step(&mut self, label: &str, f: impl FnOnce(&mut DocState)) -> bool {
         self.commit_live_edit();
         let before = self.selected_now();
         let layer = self.doc.current_layer;
@@ -517,10 +522,11 @@ impl DocState {
         f(self);
         if self.selected_now() == before && self.doc.current_layer == layer {
             self.history.discard_last();
-            return;
+            return false;
         }
         // The document's content is unchanged: redraw, but nothing to save.
         self.revision = self.revision.wrapping_add(1);
+        true
     }
 
     /// Record that the document changed outside an undoable edit (the canvas redraws).
@@ -1021,13 +1027,13 @@ impl DocState {
         let Some(target) = self.pixel_target(x, y) else {
             return;
         };
-        let Some(ElementKind::Bitmap(b)) = self.element(target).map(|e| &e.kind) else {
+        let Some((bx, by, mask)) = self.wand_mask(Some(target), x, y, opts) else {
             return;
         };
-        let (px, py) = ((x - b.x as f64).floor() as i64, (y - b.y as f64).floor() as i64);
-        let mask = magic_wand(&b.image, px, py, opts.wand());
-        let (bx, by) = (b.x, b.y);
-        self.combine_pixels("Magic Wand Tool", Some(target), bx, by, mask, combine);
+        let base = self.pixels.clone();
+        let next = Self::combined(base.clone(), Some(target), bx, by, mask, combine);
+        self.select_step("Magic Wand Tool", |s| s.apply_pixels(next, Some(target)));
+        self.remember_live(live_marquee::LiveOp::Wand { x, y }, Some(target), base, combine);
     }
 
     /// The pixel-grid box a marquee dragged over `rect` (canvas coordinates, any two corners)
@@ -1039,9 +1045,42 @@ impl DocState {
         (ax.min(bx), ay.min(by), ax.max(bx), ay.max(by))
     }
 
+    /// The box a marquee drag from canvas point `a` to `b` selects with the tool's Style, as
+    /// [`marquee_box`](Self::marquee_box) gives it (on the pixel grid). Measured in Fireworks MX
+    /// and CS6 (2026-11-26), which agree:
+    /// * **Fixed Ratio**: the side with the larger ratio number follows the pointer (the height
+    ///   when they're equal) and the other is that times the ratio, rounded (3:1, 7 wide: 2
+    ///   high; 8 wide: 3 high; 2:1, 3 wide: 2 high). The box grows from where the drag started
+    ///   towards the pointer, on each axis on the pointer's side.
+    /// * **Fixed Size**: the box's top-left pixel is the one under the pointer; it follows the
+    ///   pointer while dragged and stays where it's let go (a click puts it there).
+    pub fn marquee_drag_box(a: (f64, f64), b: (f64, f64), opts: &ToolOptions) -> (f64, f64, f64, f64) {
+        match opts.marquee_style {
+            MarqueeStyle::Normal => Self::marquee_box((a.0, a.1, b.0, b.1)),
+            MarqueeStyle::FixedRatio => {
+                let (rx, ry) = (f64::from(opts.marquee_ratio.0.max(1)), f64::from(opts.marquee_ratio.1.max(1)));
+                let (ax, ay) = (a.0.round(), a.1.round());
+                let (dx, dy) = (b.0.round() - ax, b.1.round() - ay);
+                let (w, h) = if rx > ry {
+                    (dx.abs(), (dx.abs() * ry / rx).round())
+                } else {
+                    ((dy.abs() * rx / ry).round(), dy.abs())
+                };
+                let (w, h) = (w.copysign(dx), h.copysign(dy));
+                Self::marquee_box((ax, ay, ax + w, ay + h))
+            }
+            MarqueeStyle::FixedSize => {
+                let (x, y) = (b.0.floor(), b.1.floor());
+                let (w, h) = opts.marquee_size;
+                (x, y, x + f64::from(w), y + f64::from(h))
+            }
+        }
+    }
+
     /// Rectangular or elliptical marquee in canvas coordinates.
     pub fn marquee(&mut self, rect: (f64, f64, f64, f64), oval: bool, opts: &ToolOptions, combine: Combine) {
-        let (x0, y0, x1, y1) = Self::marquee_box(rect);
+        let bx = Self::marquee_box(rect);
+        let (x0, y0, x1, y1) = bx;
         let (cw, ch) = (f64::from(self.doc.width), f64::from(self.doc.height));
         // The bitmap being edited, else one under the marquee's part on the canvas; on empty
         // canvas with no bitmap being edited, none: filling or painting in the marquee then
@@ -1053,9 +1092,19 @@ impl DocState {
                 .pixel_target((vx0 + vx1) / 2.0, (vy0 + vy1) / 2.0)
                 .or_else(|| self.pixel_target(vx0, vy0)),
         };
+        let base = self.pixels.clone();
+        let (ml, mt, mask) = self.marquee_mask(bx, oval, opts.marquee_edge);
+        let next = Self::combined(base.clone(), target, ml, mt, mask, combine);
+        self.select_step("Select Pixels", |s| s.apply_pixels(next, target));
+        self.remember_live(live_marquee::LiveOp::Marquee { rect: bx, oval }, target, base, combine);
+    }
+
+    /// A marquee's mask for the pixel-grid box `(x0, y0, x1, y1)` with `edge`, cut to the
+    /// canvas: its canvas position and the mask.
+    fn marquee_mask(&self, (x0, y0, x1, y1): (f64, f64, f64, f64), oval: bool, edge: firecraft_raster::Edge) -> (i64, i64, Mask) {
         // The mask covers the marquee (and room for a feathered edge), wherever the bitmap is:
         // it stays put when another bitmap is picked for editing.
-        let pad = match opts.marquee_edge {
+        let pad = match edge {
             firecraft_raster::Edge::Feather(r) => r.min(250) as i64,
             _ => 0,
         } + 1;
@@ -1068,7 +1117,7 @@ impl DocState {
         let mut mask = Mask::new((mr - ml).max(1) as u32, (mb - mt).max(1) as u32);
         let (ox, oy) = (ml as f64, mt as f64);
         let (cx, cy, rx, ry) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0);
-        let aa = oval && opts.marquee_edge != firecraft_raster::Edge::Hard;
+        let aa = oval && edge != firecraft_raster::Edge::Hard;
         let ss = if aa { 4 } else { 1 };
         for py in 0..mask.height() as i64 {
             for px in 0..mask.width() as i64 {
@@ -1088,7 +1137,7 @@ impl DocState {
                 mask.set(px, py, (n * 255 / (ss * ss)) as u8);
             }
         }
-        if let firecraft_raster::Edge::Feather(r) = opts.marquee_edge {
+        if let firecraft_raster::Edge::Feather(r) = edge {
             mask.feather(r);
         }
         // What lies off the canvas isn't selected: the marquee shows whole while it is dragged
@@ -1104,7 +1153,7 @@ impl DocState {
                 }
             }
         }
-        self.combine_pixels("Select Pixels", target, ml, mt, mask, combine);
+        (ml, mt, mask)
     }
 
     /// Whether canvas point (`x`, `y`) is inside the pixel selection.
@@ -1128,18 +1177,17 @@ impl DocState {
         });
     }
 
-    /// A new marquee or wand selection (`mask` at canvas `x`, `y`) combined with the current
-    /// one; one undo step named `label` ("Select Pixels", "Magic Wand Tool": Fireworks MX).
-    fn combine_pixels(
-        &mut self,
-        label: &str,
+    /// A new marquee or wand selection (`mask` at canvas `x`, `y`, applying to `target`)
+    /// combined with `base`, the selection before it; `None` if nothing is left selected.
+    fn combined(
+        base: Option<PixelSelection>,
         target: Option<ElementRef>,
         x: i64,
         y: i64,
         mask: Mask,
         combine: Combine,
-    ) {
-        let next = match self.pixels.clone() {
+    ) -> Option<PixelSelection> {
+        let next = match base {
             Some(mut sel) if combine != Combine::Replace => {
                 sel.target = target;
                 sel.combine(x, y, &mask, combine);
@@ -1147,14 +1195,16 @@ impl DocState {
             }
             _ => PixelSelection { target, x, y, mask },
         };
-        let next = (!next.mask.is_empty()).then_some(next);
-        self.select_step(label, |s| {
-            s.pixels = next;
-            s.selection = target.into_iter().collect();
-            if let Some(t) = target {
-                s.doc.current_layer = t.layer;
-            }
-        });
+        (!next.mask.is_empty()).then_some(next)
+    }
+
+    /// Make `next` the pixel selection, applying to `target` (selected, its layer current).
+    fn apply_pixels(&mut self, next: Option<PixelSelection>, target: Option<ElementRef>) {
+        self.pixels = next;
+        self.selection = target.into_iter().collect();
+        if let Some(t) = target {
+            self.doc.current_layer = t.layer;
+        }
     }
 
     /// Edit > Clear / Delete key: remove selected pixels, else delete selected objects.

@@ -13,8 +13,9 @@ Priorities follow Fireworks MX's everyday workflow. Each item is "done" when it 
   animation frames and playback, Live Effects and the bundled Eye Candy / Splat LE filters
   ([parity.md](parity.md))
 - Tools: Pointer, Select Behind, Subselection (path points; members inside groups), Scale /
-  Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee, Magic
-  Wand (Classic + Smooth anti-alias), Line, Pen, Rectangle (primitives with roundness), Ellipse,
+  Skew / Distort / rotate with live preview, 9-slice Scaling tool, Marquee / Oval Marquee (Normal,
+  Fixed Ratio and Fixed Size styles), Magic Wand (Classic + Smooth anti-alias), Live marquee for
+  both (Fireworks CS: changing Edge or Tolerance redoes the selection just made), Line, Pen, Rectangle (primitives with roundness), Ellipse,
   Eyedropper, Hand, Zoom, Brush, Pencil, Eraser, Paint Bucket ([behavior/painting.md](behavior/painting.md))
 - Crop tool, Edit > Crop Document and Crop Selected Bitmap, saved as Fireworks MX saves a crop
   (moved canvas origin) ([behavior/crop.md](behavior/crop.md))
@@ -151,8 +152,6 @@ Other items keep their numbers.
       pressure, preview (`FreeFormPushNPull*`, `FreeFormGrav*`)
     - **Lasso and Polygon Lasso** (item 3): edge and feather, kept apart from the Marquee's
       (`LassoToolAntiAliased`, `LassoToolFeatherAmount`)
-    - **Marquee's Style** (Normal / Fixed Ratio / Fixed Size and their numbers), once built
-      (`MarqueeToolMode`, `MarqueeToolModeRatioX/Y`, `MarqueeToolModeWidthX/Y`)
     - **Crop tool's constraint**, once it has one (`CropTool_Constraint`, `CropTool_Horiz`,
       `CropTool_Vert`)
     - **Modify > Alter Path and Select menu amounts** (item 1 and later): Simplify, Expand Stroke,
