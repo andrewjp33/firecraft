@@ -304,6 +304,8 @@ palette algorithm (roadmap: Fireworks MX's own adaptive palette), not of this op
 
 ## Not yet
 
-2-Up/4-Up and Export Preview; GIF loss (lossy LZW); the color table's Replace Palette Entry;
+2-Up/4-Up and Export Preview; GIF loss (lossy LZW); the color table's Replace Palette Entry; Save/Delete
+Settings, Optimize to Size, Sharpen JPEG Edges; Fireworks MX's own adaptive palette (see
+[roadmap item 7](../roadmap.md));
 Selective JPEG quality; animated WebP export; WebP in the browser build; 16-bit (PNG 48/64) export,
 which needs a 16-bit pipeline (layers are 8 bits per channel).

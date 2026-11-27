@@ -85,14 +85,31 @@ Other items keep their numbers.
      own Patterns folder, decoded by libjpeg; FireCraft's JPEG decoder (zune-jpeg) differs by up to 4
      levels on half the pixels (jpeg-decoder: 3). Also measure where Fireworks MX puts a new pattern's
      handles on an odd-sized object (FireCraft: on the half pixel)
-7. **Optimize panel + Export, the rest**: 2-Up/4-Up and Export Preview; GIF Loss (lossy LZW); custom
-   palettes and the Color Table panel (done: [behavior/export.md](behavior/export.md#the-color-table);
-   Remove Unused Colors and the press-and-hold highlight; left: Replace Palette Entry);
-   Selective JPEG quality; Fireworks MX's own adaptive palette and
-   dither pattern; more dither types, including ones that stay stable from frame to frame in
-   animations (with "Maximize colors per frame" each frame has its own table); animated WebP export; WebP and the PNG optimizer in the browser build (libwebp and
-   libdeflate need a C-to-wasm compiler); export in the background (the PNG optimizer's level 7 can
-   take a while on large images, and the app waits for it)
+7. **Optimize panel + Export, the rest** (done so far: [behavior/export.md](behavior/export.md); the
+   color table with custom palettes, Load/Save Palette, Remove Unused Colors, the press-and-hold
+   highlight, Show Swatch Feedback and Fireworks MX's palette order)
+   - **Previews and export dialogs**: 2-Up/4-Up and Export Preview (the transparency eyedroppers and
+     swatch feedback should work in their views too); Export Wizard; export in the background (the PNG
+     optimizer's level 7 can take a while on large images, and the app waits for it)
+   - **Optimize panel menu items not built**: Save Settings / Delete Settings (the Settings row's + and
+     -, saved presets in an Export Settings folder), Optimize to Size, Sharpen JPEG Edges
+   - **Color table**: Replace Palette Entry (Fireworks MX's palette menu: swap an entry for another
+     color, measure in Fireworks MX how it differs from Edit Color); keep Sort by and Show Swatch
+     Feedback between sessions; perhaps scroll the table to the hovered swatch (with a modifier key, so
+     it doesn't jump while the pointer moves over the image)
+   - **Unchecked in Fireworks MX**: whether its own UI switches the palette menu to Custom on a swatch
+     edit (FireCraft does); whether Sort by Luminance/Popularity reorders the exported file or only the
+     table (FireCraft: only the table)
+   - **Fireworks MX's own adaptive palette**: its color count (cone3 as PNG 8 Adaptive 256 with alpha:
+     Fireworks MX 195 entries, FireCraft's median cut 256 with 10 unused), the order of a reduced
+     palette (Fireworks MX's is unsorted, FireCraft's most used first), the small color shifts of its
+     animated-GIF Adaptive (#00C000 to #00BD00), and a GIF with alpha ordered by the semi-transparent
+     colors' own lightness before the matte (FireCraft: after); plus its dither pattern
+   - More dither types, including ones that stay stable from frame to frame in animations (with
+     "Maximize colors per frame" each frame has its own table)
+   - GIF Loss (lossy LZW); Selective JPEG quality; animated WebP export; WebP and the PNG optimizer in
+     the browser build (libwebp and libdeflate need a C-to-wasm compiler)
+   - Per-slice optimize settings (with slices, item 9)
    - **16-bit colour (PNG 48/64 export)**: layers, effects and the renderer work in 8 bits per
      channel today (Precise colour math computes in `f64` but stores 8 bits between steps), so a
      16-bit export would only hold 8-bit values. Needs 16-bit (or float) images through the
