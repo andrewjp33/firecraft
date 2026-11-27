@@ -200,21 +200,26 @@ pub fn inspector(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     };
     let mut apply = false;
     ui.vertical(|ui| {
-        egui::Grid::new("nine_pi").spacing(vec2(6.0, 2.0)).show(ui, |ui| {
-            ui.label("W:");
-            ui.add(egui::DragValue::new(&mut edit.width).range(1.0..=32000.0));
-            ui.label("Guides  L:");
-            ui.add(egui::DragValue::new(&mut edit.insets.left).range(0.0..=b.2));
-            ui.label("R:");
-            ui.add(egui::DragValue::new(&mut edit.insets.right).range(0.0..=b.2));
-            ui.end_row();
-            ui.label("H:");
-            ui.add(egui::DragValue::new(&mut edit.height).range(1.0..=32000.0));
-            ui.label("T:");
-            ui.add(egui::DragValue::new(&mut edit.insets.top).range(0.0..=b.3));
-            ui.label("B:");
-            ui.add(egui::DragValue::new(&mut edit.insets.bottom).range(0.0..=b.3));
-            ui.end_row();
+        // Made column by column (W over H, L over T, R over B) so Tab goes W, H, L, T, R, B, as
+        // Fireworks tabs down before across.
+        ui.horizontal_top(|ui| {
+            let column = |ui: &mut egui::Ui, rows: [(&str, &mut f64, f64, f64); 2]| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for (label, v, lo, hi) in rows {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.add_sized(vec2(14.0, 18.0), egui::Label::new(label));
+                            ui.add(egui::DragValue::new(v).range(lo..=hi));
+                        });
+                    }
+                });
+            };
+            column(ui, [("W:", &mut edit.width, 1.0, 32000.0), ("H:", &mut edit.height, 1.0, 32000.0)]);
+            ui.add_space(6.0);
+            ui.label("Guides");
+            column(ui, [("L:", &mut edit.insets.left, 0.0, b.2), ("T:", &mut edit.insets.top, 0.0, b.3)]);
+            column(ui, [("R:", &mut edit.insets.right, 0.0, b.2), ("B:", &mut edit.insets.bottom, 0.0, b.3)]);
         });
         ui.horizontal(|ui| {
             apply = ui.button("Apply").clicked();
