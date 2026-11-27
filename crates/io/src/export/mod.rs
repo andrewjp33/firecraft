@@ -368,7 +368,43 @@ fn entry(c: Rgba) -> Entry {
 /// The palette of an indexed export for these (prepared) pixels, at most `n` colors: a custom
 /// palette's colors (as they were before any edit: pixels are matched against those), or the
 /// palette's own colors after the table's locked ones.
+///
+/// Ordered as Fireworks MX writes them (measured on its exports, probes/palette_order_mx; Rec. 601
+/// luma): Adaptive with every color fitting darkest first (an animated GIF's lightest first: Fireworks
+/// MX reverses its Adaptive order there), Exact lightest first; a PNG 8's alpha
+/// palette from Adaptive (reduced too) by opacity, clear first, each level lightest first, and from
+/// Exact the opaque colors lightest first with the clear ones after. A reduced Adaptive palette
+/// without alpha keeps the median cut's order (Fireworks MX's own has an order of its own), fixed
+/// palettes their own, a custom palette the table's.
 fn palette_for(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> Vec<Entry> {
+    let mut palette = unsorted_palette(pixels, s, n, alpha);
+    let adaptive = matches!(s.palette, PaletteKind::Adaptive | PaletteKind::WebAdaptive);
+    if !adaptive && s.palette != PaletteKind::Exact {
+        return palette;
+    }
+    let fits = || {
+        let used: Vec<Entry> = pixels.iter().copied().filter(|p| alpha || p[3] != 0).collect();
+        quantize::histogram(&used).len() <= n
+    };
+    let light = |c: &Entry| 299 * u32::from(c[0]) + 587 * u32::from(c[1]) + 114 * u32::from(c[2]);
+    let exact = s.palette == PaletteKind::Exact && fits();
+    match (alpha, exact) {
+        (true, false) => palette.sort_by_key(|c| (c[3], std::cmp::Reverse(light(c)))),
+        (true, true) => palette.sort_by_key(|c| (std::cmp::Reverse(c[3]), std::cmp::Reverse(light(c)))),
+        (false, true) => palette.sort_by_key(|c| std::cmp::Reverse(light(c))),
+        (false, false) if adaptive && fits() => {
+            if s.format == ExportFormat::AnimatedGif {
+                palette.sort_by_key(|c| std::cmp::Reverse(light(c)));
+            } else {
+                palette.sort_by_key(light);
+            }
+        }
+        (false, false) => {}
+    }
+    palette
+}
+
+fn unsorted_palette(pixels: &[Entry], s: &ExportSettings, n: usize, alpha: bool) -> Vec<Entry> {
     if s.palette == PaletteKind::Custom {
         return s.table.iter().take(n).map(|e| entry(e.source())).collect();
     }
@@ -1477,6 +1513,87 @@ mod tests {
         let e = export(&d, &s).unwrap_or_else(|e| unreachable!("{e}"));
         assert_eq!(e.palette.len(), 2);
         assert_eq!(e.preview.get(1, 1), Some(red));
+    }
+
+    /// Side-by-side bands of (color, width), 10 pixels high.
+    fn bands(spec: &[(Rgba, u32)]) -> Document {
+        let w: u32 = spec.iter().map(|b| b.1).sum();
+        let mut d = Document::new(w, 10, 72.0, None);
+        let mut img = RgbaImage::new(w, 10, Rgba::TRANSPARENT);
+        let mut x0 = 0;
+        for &(c, bw) in spec {
+            for y in 0..10 {
+                for x in x0..x0 + bw {
+                    img.set(i64::from(x), y, c);
+                }
+            }
+            x0 += bw;
+        }
+        if let Some(c) = d.layers[0].elements_mut(0) {
+            c.push(firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(
+                firecraft_doc::Bitmap { x: 0, y: 0, image: img },
+            )));
+        }
+        d
+    }
+
+    #[test]
+    fn palettes_are_ordered_as_fireworks_mx_orders_them() {
+        let hex = |v: u32| Rgba::new((v >> 16) as u8, (v >> 8) as u8, v as u8, 255);
+        let rgb = |p: &[Entry]| -> Vec<u32> {
+            p.iter().map(|c| u32::from(c[0]) << 16 | u32::from(c[1]) << 8 | u32::from(c[2])).collect()
+        };
+        // probes/palette_order_mx/bands.png, exported by Fireworks MX.
+        let d = bands(&[
+            (hex(0xFF0000), 5),
+            (hex(0x00C000), 30),
+            (hex(0x0000FF), 10),
+            (hex(0xFFFFFF), 2),
+            (hex(0x000000), 20),
+            (hex(0xFF8000), 13),
+            (hex(0x8080FF), 7),
+        ]);
+        let gif = |palette| ExportSettings {
+            palette,
+            ..with(ExportFormat::Gif)
+        };
+        let e = export(&d, &gif(PaletteKind::Exact)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0xFFFFFF, 0xFF8000, 0x8080FF, 0x00C000, 0xFF0000, 0x0000FF, 0x000000]);
+        let e = export(&d, &gif(PaletteKind::Adaptive)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0x000000, 0x0000FF, 0xFF0000, 0x00C000, 0x8080FF, 0xFF8000, 0xFFFFFF]);
+        // An animated GIF's Adaptive goes the other way; its Exact doesn't.
+        let anim = |palette| ExportSettings {
+            palette,
+            ..with(ExportFormat::AnimatedGif)
+        };
+        let e = export(&d, &anim(PaletteKind::Adaptive)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0xFFFFFF, 0xFF8000, 0x8080FF, 0x00C000, 0xFF0000, 0x0000FF, 0x000000]);
+        let e = export(&d, &anim(PaletteKind::Exact)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette), [0xFFFFFF, 0xFF8000, 0x8080FF, 0x00C000, 0xFF0000, 0x0000FF, 0x000000]);
+        // probes/palette_order_mx/alpha.png as PNG 8 with alpha: Adaptive puts the clear entry
+        // first, then the partly transparent ones by opacity, then the opaque ones lightest first.
+        let d = bands(&[
+            (hex(0xFFFFFF), 10),
+            (Rgba::new(255, 0, 0, 128), 10),
+            (hex(0x00C000), 10),
+            (Rgba::new(0, 0, 255, 64), 10),
+            (hex(0x000000), 10),
+            (Rgba::TRANSPARENT, 10),
+            (hex(0xFFFF00), 10),
+        ]);
+        let png8 = |palette| ExportSettings {
+            palette,
+            transparency: Transparency::Alpha,
+            ..with(ExportFormat::Png8)
+        };
+        let e = export(&d, &png8(PaletteKind::Adaptive)).unwrap_or_else(|e| unreachable!("{e}"));
+        let alphas: Vec<u8> = e.palette.iter().map(|c| c[3]).collect();
+        assert_eq!(alphas, [0, 64, 128, 255, 255, 255, 255]);
+        assert_eq!(rgb(&e.palette)[3..], [0xFFFFFF, 0xFFFF00, 0x00C000, 0x000000]);
+        // Exact: the opaque colors lightest first, the transparent ones after.
+        let e = export(&d, &png8(PaletteKind::Exact)).unwrap_or_else(|e| unreachable!("{e}"));
+        assert_eq!(rgb(&e.palette)[..4], [0xFFFFFF, 0xFFFF00, 0x00C000, 0x000000]);
+        assert_eq!(e.palette.last().map(|c| c[3]), Some(0));
     }
 
     #[test]

@@ -213,6 +213,18 @@ was too small when every frame was cropped).
 * Dither: Floyd-Steinberg at the dither percentage (Fireworks MX's diffusion pattern unmeasured).
 * The adaptive palette starts from the colors in a fixed order, so an export is the same every
   time (it depended on a hash map's order before).
+* **Palette order** (the file's, and the color table's Sort by None), measured on Fireworks MX's exports
+  (`probes/palette_order_mx`, Rec. 601 luma): Adaptive with every color fitting, darkest first; Exact,
+  lightest first; a GIF's transparent entry last. An animated GIF reverses the Adaptive order (lightest
+  first; a reduced palette's order reversed too: `anim_adaptive4.gif` against `bands_adaptive4.gif`)
+  and keeps Exact's. (Fireworks MX's animated Adaptive also shifts colors a little even when all fit:
+  #00C000 became #00BD00, #FF8000 #FF8400; FireCraft keeps them exact.) A PNG 8's alpha palette from Adaptive, reduced or not:
+  by opacity, the clear entry first, then the partly transparent levels, each lightest first (so `tRNS`
+  ends at the last partly transparent entry); from Exact: opaque colors lightest first, the clear entry
+  after. A reduced Adaptive palette without alpha has Fireworks MX's own order (unsorted), FireCraft's
+  is the median cut's (most used first). Left as is: in a GIF with alpha, Fireworks MX orders the
+  semi-transparent pixels' colors by their own lightness before they are blended onto the matte;
+  FireCraft by the blended color's.
 * Color mapping is by plain RGB distance (Windows/Macintosh above).
 
 ## JPEG
