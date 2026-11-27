@@ -50,7 +50,9 @@ file (27 November 2026): 45 match 100%, 9 more are above 99%, 33 are between 90%
 below 90%. The average is 95.3%. Every file survives the lossless round trip and a FireCraft save
 that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 
-### New in 0.4.0
+### Recently added
+
+Highlights of recent work (the full list is in the release notes):
 
 - **Themes**: Classic (Fireworks MX's look), Classic Dark, Modern (the new default) and Modern
   Dark, following the system's dark mode.
@@ -58,8 +60,6 @@ that re-opens to the same render. Details: [docs/parity.md](docs/parity.md).
 - **Selections**: the Marquee's Fixed Ratio and Fixed Size styles, and Fireworks CS's Live marquee.
 - **Whole-pixel editing**, sub-pixel with Ctrl.
 - **File > Open Recent and Revert**; tool and effect settings kept between sessions.
-
-The full list is in the release notes.
 
 ### Only in FireCraft
 
