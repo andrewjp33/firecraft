@@ -1099,9 +1099,9 @@ const ALIGN: [(&str, &str, Align); 8] = [
     ("Distribute Heights", "Ctrl+Alt+9", Align::DistributeHeights),
 ];
 
-/// What Copy puts on the system clipboard: a note that FireCraft holds the copied objects.
-/// Pasting that text back (Ctrl+V) pastes the objects; text always round-trips through the
-/// system clipboard (X11, Wayland, Windows, browsers), unlike images.
+/// What Copy puts on the system clipboard where it can't put a picture (a browser without the
+/// Clipboard API's ClipboardItem): a note that FireCraft holds the copied objects. Pasting that
+/// text back (Ctrl+V) pastes the objects.
 fn clipboard_note(n: usize) -> String {
     let what = if n == 1 {
         "1 object".to_owned()
@@ -1133,19 +1133,47 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
                 (a.1 + a.3).max(b.1 + b.3) - y0,
             )
         });
-    // The PNG's flat image is the objects' picture: also offered as a DIB (Windows).
-    let shared = bounds
-        .and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b, res).ok())
-        .is_some_and(|png| match firecraft_io::decode_png(&png) {
-            Ok(picture) => firecraft_sysclip::set_png_and_dib(png, firecraft_io::encode_dib(&picture)),
-            Err(_) => firecraft_sysclip::set_png(png),
-        });
+    // The PNG's flat image is the objects' picture: also offered as a DIB (Windows). The
+    // browser takes the PNG as a picture (other applications paste it).
+    let png = bounds.and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b, res).ok());
+    let picture = png.as_deref().and_then(|png| firecraft_io::decode_png(png).ok());
+    let shared = match (png, &picture) {
+        (Some(png), _) if !firecraft_sysclip::available() => app.platform.copy_picture(&png),
+        (Some(png), Some(picture)) => firecraft_sysclip::set_png_and_dib(png, firecraft_io::encode_dib(picture)),
+        (Some(png), None) => firecraft_sysclip::set_png(png),
+        (None, _) => false,
+    };
     let note = clipboard_note(clip.elements.len());
-    // Without a system clipboard for objects (the browser), a note comes back as a paste.
+    // Without a system clipboard for pictures (an old browser), a note comes back as a paste.
     if !shared && !app.clipboard_keys {
         ctx.copy_text(note.clone());
     }
     app.clipboard = Some((clip, note));
+    app.clipboard_picture = picture.filter(|_| shared);
+}
+
+/// Whether a picture pasted from the system clipboard is FireCraft's last copy coming back. The
+/// browser keeps only a copied PNG's picture, decoded and encoded again: a fully transparent
+/// pixel may lose its colour, a partly transparent one may round (premultiplied alpha).
+fn is_own_copy(app: &FireCraftApp, image: &firecraft_raster::RgbaImage) -> bool {
+    app.clipboard.is_some() && app.clipboard_picture.as_ref().is_some_and(|copied| same_picture(copied, image))
+}
+
+/// `a` and `b` are the same picture, allowing for what a browser's re-encoding changes.
+fn same_picture(a: &firecraft_raster::RgbaImage, b: &firecraft_raster::RgbaImage) -> bool {
+    let near = |p: &firecraft_raster::Rgba, q: &firecraft_raster::Rgba| {
+        let alpha = p.a.min(q.a);
+        if p.a.abs_diff(q.a) > 1 {
+            return false;
+        }
+        if alpha == 0 {
+            return true;
+        }
+        let slack = 255 / u16::from(alpha) + 1;
+        let close = |x: u8, y: u8| u16::from(x.abs_diff(y)) <= slack;
+        close(p.r, q.r) && close(p.g, q.g) && close(p.b, q.b)
+    };
+    (a.width(), a.height()) == (b.width(), b.height()) && a.pixels().iter().zip(b.pixels()).all(|(p, q)| near(p, q))
 }
 
 /// Edit > Paste: objects or a picture on the system clipboard (from Fireworks MX, another
@@ -1546,6 +1574,8 @@ fn paste_picture(app: &mut FireCraftApp, kind: PasteKind, bytes: &[u8]) {
         .or_else(|_| firecraft_io::textures::decode_image(bytes).map(firecraft_io::Pasted::Image));
     match pasted {
         Err(e) => app.status = Some((format!("Can't paste the clipboard's picture: {e}"), true)),
+        // FireCraft's own copy, as the browser handed it back: paste the objects.
+        Ok(firecraft_io::Pasted::Image(image)) if is_own_copy(app, &image) => own_or_system_paste(app, kind),
         Ok(firecraft_io::Pasted::Image(image)) if kind == PasteKind::Paste => paste_image(app, image),
         Ok(pasted) => {
             let Some(clip) = pasted_clip(app, pasted) else { return };
@@ -1576,5 +1606,41 @@ fn paste_as_mask_clip(app: &mut FireCraftApp, clip: firecraft_engine::Clipboard)
         app.dialogs.paste_mask = Some(clip);
     } else {
         with_doc(app, |d| d.paste_as_mask(&clip, firecraft_engine::MaskPaste::Replace));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_picture;
+    use firecraft_raster::{Rgba, RgbaImage};
+
+    /// What a browser's premultiplied decode and re-encode does to a pixel.
+    fn premultiplied(p: Rgba) -> Rgba {
+        if p.a == 0 {
+            return Rgba::new(0, 0, 0, 0);
+        }
+        let back = |c: u8| {
+            let pre = (u32::from(c) * u32::from(p.a) + 127) / 255;
+            ((pre * 255 + u32::from(p.a) / 2) / u32::from(p.a)).min(255) as u8
+        };
+        Rgba::new(back(p.r), back(p.g), back(p.b), p.a)
+    }
+
+    #[test]
+    fn own_copy_survives_browser_reencoding() {
+        let pixels: Vec<Rgba> = (0..256u32)
+            .flat_map(|a| (0..64u32).map(move |c| Rgba::new((c * 4) as u8, 255 - (c * 4) as u8, (c * 7 % 256) as u8, a as u8)))
+            .collect();
+        let copied = RgbaImage::from_pixels(64, 256, pixels.clone()).unwrap();
+        let back = RgbaImage::from_pixels(64, 256, pixels.into_iter().map(premultiplied).collect()).unwrap();
+        assert!(same_picture(&copied, &back));
+    }
+
+    #[test]
+    fn other_pictures_are_not_own_copy() {
+        let copied = RgbaImage::new(8, 8, Rgba::new(200, 40, 40, 255));
+        assert!(!same_picture(&copied, &RgbaImage::new(8, 8, Rgba::new(200, 40, 44, 255))));
+        assert!(!same_picture(&copied, &RgbaImage::new(8, 9, Rgba::new(200, 40, 40, 255))));
+        assert!(!same_picture(&copied, &RgbaImage::new(8, 8, Rgba::new(200, 40, 40, 128))));
     }
 }

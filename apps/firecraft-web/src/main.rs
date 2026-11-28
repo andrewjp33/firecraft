@@ -212,6 +212,22 @@ export function listenForPictures(accepts, onPicture) {
   }, true);
 }
 
+// Edit > Copy: copied objects' PNG goes on the clipboard as a picture (the browser keeps the
+// picture, not Fireworks' chunks). False where pictures can't be copied (ClipboardItem: Safari
+// 13.1, Chrome 76, Firefox 127); FireCraft copies a note instead. Called during the copy event
+// (eframe runs the app then), as Safari wants.
+export function copyPicture(bytes) {
+  if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) return false;
+  try {
+    const item = new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) });
+    navigator.clipboard.write([item]).catch((e) => console.warn("Could not copy the picture", e));
+    return true;
+  } catch (e) {
+    console.warn("Could not copy the picture", e);
+    return false;
+  }
+}
+
 // Edit > Paste: the Clipboard API (the browser may ask the visitor first).
 export const clipboardReadable = () => !!(navigator.clipboard && navigator.clipboard.read);
 // The clipboard's first picture as bytes, or null when it holds none.
@@ -334,6 +350,8 @@ export async function writeTo(handle, bytes) {
         fn write_to(handle: &JsValue, bytes: &Uint8Array) -> Promise;
         #[wasm_bindgen(js_name = listenForPictures)]
         fn listen_for_pictures(accepts: &Closure<dyn Fn() -> bool>, on_picture: &Closure<dyn Fn(Uint8Array)>);
+        #[wasm_bindgen(js_name = copyPicture)]
+        fn copy_picture(bytes: &Uint8Array) -> bool;
         #[wasm_bindgen(js_name = clipboardReadable)]
         fn clipboard_readable() -> bool;
         #[wasm_bindgen(js_name = readClipboardPicture)]
@@ -594,6 +612,10 @@ export async function writeTo(handle, bytes) {
 
         fn can_read_clipboard(&self) -> bool {
             clipboard_readable()
+        }
+
+        fn copy_picture(&mut self, png: &[u8]) -> bool {
+            copy_picture(&Uint8Array::from(png))
         }
 
         fn read_clipboard(&mut self) {

@@ -178,6 +178,12 @@ pub trait Platform {
     /// Start reading a picture from the system clipboard (Edit > Paste in the browser). The
     /// answer arrives through [`Platform::take_pasted`] as [`HostPaste::Read`].
     fn read_clipboard(&mut self) {}
+    /// Put copied objects' PNG on the system clipboard as a picture, for the host to do itself
+    /// (the browser's Clipboard API; the desktop uses `firecraft_sysclip`). False if it can't, and
+    /// FireCraft puts a note there instead.
+    fn copy_picture(&mut self, _png: &[u8]) -> bool {
+        false
+    }
     /// Pictures the host got from the system clipboard since the last call.
     fn take_pasted(&mut self) -> Vec<HostPaste> {
         Vec::new()
@@ -649,6 +655,9 @@ pub struct FireCraftApp {
     /// Edit > Copy/Cut: the objects, and the note put on the system clipboard (pasting the
     /// note back pastes them).
     clipboard: Option<(firecraft_engine::Clipboard, String)>,
+    /// The picture of that copy as the system clipboard got it. The browser keeps only the
+    /// picture of a PNG it's given, so a paste of the same picture is the copied objects.
+    clipboard_picture: Option<firecraft_raster::RgbaImage>,
     /// The app handles Ctrl+X/C/V itself (native: egui's clipboard shortcuts are off, so
     /// copied objects can go to the system clipboard in Fireworks' format).
     clipboard_keys: bool,
@@ -709,6 +718,7 @@ impl FireCraftApp {
             path_drag: None,
             effects_ui: effects_ui::EffectsUi::default(),
             clipboard: None,
+            clipboard_picture: None,
             clipboard_keys: false,
             workspace: egui::Rect::NOTHING,
             quit_confirmed: false,
