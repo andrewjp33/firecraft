@@ -1802,6 +1802,41 @@ impl Element {
         (w > 0 && h > 0 && w * h <= MAX_PIXELS).then_some((x, y, w as u32, h as u32))
     }
 
+    /// The rectangle (x, y, w, h; not rounded) a copy of the object fills on the clipboard, as
+    /// Fireworks MX sizes its picture (measured 2026-11-28, docs/behavior/clipboard.md): its
+    /// bounds, a path's grown by its stroke ([`crate::stroke_fw::reach`]), a group's its
+    /// members', then each of its effects in turn adds what it draws outside
+    /// ([`Effect::extent`]: a shadow on its side, a glow all round). A symbol
+    /// instance counts what its symbol draws, placed by its transform.
+    pub fn picture_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {
+        let (x, y, w, h) = match &self.kind {
+            ElementKind::Path(p) => {
+                let (x, y, w, h) = self.bounds()?;
+                let m = p.stroke.as_ref().map_or(0.0, crate::stroke_fw::reach);
+                (x - m, y - m, w + 2.0 * m, h + 2.0 * m)
+            }
+            ElementKind::Group(children) => {
+                union_rects(&mut children.iter().filter_map(|c| c.picture_bounds(ctx)))?
+            }
+            // What the symbol draws, placed by the instance.
+            ElementKind::Instance { matrix, .. } if matrix.is_affine() && ctx.depth < MAX_SYMBOL_DEPTH => {
+                let inner = ctx.deeper(self);
+                self.symbol_elements(ctx)
+                    .and_then(|kids| union_rects(&mut kids.iter().filter_map(|c| c.picture_bounds(&inner))))
+                    .map(|(x, y, w, h)| matrix.map_rect(x, y, w, h))
+                    .or_else(|| self.bounds())?
+            }
+            _ => self.bounds()?,
+        };
+        let r = self
+            .effects
+            .iter()
+            .filter_map(|e| e.active())
+            .fold((x, y, x + w, y + h), |r, e| e.extent(r));
+        let (x0, y0, x1, y1) = r;
+        (x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()).then_some((x0, y0, x1 - x0, y1 - y0))
+    }
+
     /// Where the object can have pixels: its bounds grown by how far its stroke and effects
     /// reach (conservative; for hit testing).
     pub fn visual_bounds(&self, ctx: &RenderCtx) -> Option<(f64, f64, f64, f64)> {

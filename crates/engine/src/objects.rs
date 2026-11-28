@@ -28,12 +28,13 @@ pub struct Clipboard {
     pub picture: Option<(f64, f64, f64, f64)>,
 }
 
-/// The picture a copy of `elements` gets: their bounds rounded out to whole pixels (allowing
-/// for float noise: 9.9999999 doesn't add a pixel), at least 1 x 1. `firecraft_io::clipboard_png`
-/// crops to it, and File > New offers its size.
-pub fn picture_rect(elements: &[Element]) -> Option<(f64, f64, f64, f64)> {
+/// The picture a copy of `elements` gets: what they draw, strokes and effects included
+/// ([`Element::picture_bounds`]), rounded out to whole pixels (allowing for float noise:
+/// 9.9999999 doesn't add a pixel), at least 1 x 1. `firecraft_io::clipboard_png` crops to it,
+/// and File > New offers its size.
+pub fn picture_rect(elements: &[Element], ctx: &firecraft_doc::RenderCtx) -> Option<(f64, f64, f64, f64)> {
     const EPS: f64 = 1e-6;
-    let (x, y, w, h) = elements.iter().filter_map(Element::bounds).reduce(|a, b| {
+    let (x, y, w, h) = elements.iter().filter_map(|e| e.picture_bounds(ctx)).reduce(|a, b| {
         let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
         (x0, y0, (a.0 + a.2).max(b.0 + b.2) - x0, (a.1 + a.3).max(b.1 + b.3) - y0)
     })?;
@@ -145,7 +146,7 @@ impl DocState {
             .filter_map(|id| self.doc.raw_tiles.get(id).cloned())
             .collect();
         Some(Clipboard {
-            picture: picture_rect(&elements),
+            picture: picture_rect(&elements, &self.render_ctx()),
             elements,
             symbols,
             tiles,
@@ -192,6 +193,17 @@ impl DocState {
         });
     }
 
+    /// What drawing this document's objects needs: its symbols, the current frame, its color math.
+    pub(crate) fn render_ctx(&self) -> firecraft_doc::RenderCtx<'_> {
+        firecraft_doc::RenderCtx {
+            symbols: &self.doc.symbols,
+            frame: self.frame(),
+            math: self.doc.color_math,
+            mx_perspective: self.doc.mx_perspective,
+            ..firecraft_doc::RenderCtx::EMPTY
+        }
+    }
+
     /// The part of the canvas in view (x, y, w, h): where the window shows the canvas
     /// ([`DocState::view_rect`]), else the whole canvas.
     pub fn visible_canvas(&self) -> (f64, f64, f64, f64) {
@@ -216,7 +228,7 @@ impl DocState {
     /// * else centred on it, the offset rounded (halves away from zero), even when they're
     ///   bigger than the view (the shadowed rectangle on 50 x 40: the path at (-4, -4)).
     fn paste_offset(&self, clip: &Clipboard) -> (f64, f64) {
-        let Some((bx, by, bw, bh)) = clip.picture.or_else(|| picture_rect(&clip.elements)) else {
+        let Some((bx, by, bw, bh)) = clip.picture.or_else(|| picture_rect(&clip.elements, &self.render_ctx())) else {
             return (0.0, 0.0);
         };
         if (bw, bh) == (f64::from(self.doc.width), f64::from(self.doc.height)) {
@@ -1328,6 +1340,46 @@ mod tests {
         assert_eq!(at(58, 48), Some((0.0, 0.0)));
         assert_eq!(at(50, 40), Some((-4.0, -4.0)));
         assert_eq!(at(57, 47), Some((-1.0, -1.0)));
+    }
+
+    /// Fireworks MX, 2026-11-28: a copy's picture holds what effects draw outside the objects:
+    /// bluesquares2's bitmaps glow 17 pixels all round (width 5 + softness 12), a 10-wide Outer
+    /// Bevel adds 10. File > New offers that size, and the paste fills it.
+    #[test]
+    fn copy_makes_room_for_effects() {
+        let effect = |bevel_type: &str, width: &str| {
+            firecraft_doc::EffectEntry::from_pairs(&[
+                ("EffectIsVisible", "true"),
+                ("EffectMoaID", "{7fe61102-6ce2-11d1-8c76000502701850}"),
+                ("BevelType", bevel_type),
+                ("BevelWidth", "10"),
+                ("BevelContrast", "65"),
+                ("AngleSoftness", "25"),
+                ("MaskSoftness", "12"),
+                ("LightAngle", "135"),
+                ("OuterBevelColor", "#df0000"),
+                ("GlowStartDistance", "0"),
+                ("GlowWidth", width),
+            ])
+        };
+        let copy = |kind: &str| {
+            let mut d = DocState::new(Document::new(200, 200, 72.0, None));
+            let mut e = Element::new(ElementKind::Bitmap(Bitmap {
+                x: 40,
+                y: 46,
+                image: RgbaImage::new(42, 53, Rgba::new(0, 0, 255, 255)),
+            }));
+            e.effects = vec![effect(kind, "5")];
+            d.add_element(e, "Add");
+            d.selection = vec![ElementRef::new(0, 0)];
+            d.copy().expect("copied")
+        };
+        let glowing = copy("4");
+        assert_eq!(glowing.picture, Some((23.0, 29.0, 76.0, 87.0)));
+        assert_eq!(copy("1").picture, Some((30.0, 36.0, 62.0, 73.0)));
+        let mut fresh = DocState::new(Document::new(76, 87, 72.0, None));
+        fresh.paste(&glowing);
+        assert_eq!(fresh.element(fresh.selection[0]).and_then(Element::bounds), Some((17.0, 17.0, 42.0, 53.0)));
     }
 
     fn doc(colours: &[u8]) -> DocState {

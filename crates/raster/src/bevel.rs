@@ -96,6 +96,15 @@ impl Bevel {
         })
     }
 
+    /// How far the effect draws outside the object: an Outer Bevel its width (Fireworks MX's
+    /// copy of one 10 wide is 10 bigger all round), the others nothing.
+    pub fn reach(&self) -> f32 {
+        match self.kind {
+            BevelKind::Inner => 0.0,
+            _ => self.width.max(0.0),
+        }
+    }
+
     /// Pixels the effect may draw outside the object.
     pub fn margin(&self) -> f32 {
         match self.kind {

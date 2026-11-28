@@ -177,6 +177,29 @@ pub fn margin(stroke: &Stroke) -> f64 {
     m.clamp(0.0, 100_000.0)
 }
 
+/// How far a stroke draws beyond the path's outline, as Fireworks MX sizes a copy's picture by
+/// it: half the tip for a centred stroke (a 1-pixel pencil adds half a pixel, lines.png), the
+/// tip drawn at the doubled width for an outside one, nothing inside. A natural brush's tips
+/// and scatter spread as [`margin`] counts them (not measured).
+pub fn reach(stroke: &Stroke) -> f64 {
+    let b = brush_for(stroke, None);
+    let placement = StrokePlacement::from_u32(stroke.placement as u32);
+    if placement == StrokePlacement::Inside {
+        return 0.0;
+    }
+    let fw = FwStroke::new(b.clone(), Argb(0));
+    let dp = firecraft_stroke::stroke::effective_diameter(&fw, placement);
+    let w = firecraft_stroke::brush::tip_width(dp, b.shape == TipShape::Circle);
+    let mut m = w / 2.0;
+    if b.kind == BrushType::Natural {
+        m += b.tip_spacing as f64 * dp / 100.0;
+        if b.row_active(firecraft_stroke::attrs::SenseTarget::Scatter) {
+            m += 10.0 * dp;
+        }
+    }
+    m.clamp(0.0, 100_000.0)
+}
+
 /// The engine's brush for a FireCraft stroke: the file's preset (or FireCraft's pencil) with the
 /// stroke's own settings.
 fn brush_for(stroke: &Stroke, raw: Option<&Node>) -> BrushParams {

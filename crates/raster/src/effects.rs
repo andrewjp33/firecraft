@@ -493,13 +493,8 @@ impl Effect {
                 inner,
                 knock_out,
             } => {
-                let a = angle.to_radians();
                 // Fireworks measures the angle counter-clockwise with y up.
-                // The offset is truncated, not rounded (FirePixel's measurement).
-                let (dx, dy) = (
-                    (a.cos() * distance).trunc() as i64,
-                    (-a.sin() * distance).trunc() as i64,
-                );
+                let (dx, dy) = shadow_offset(*angle, *distance);
                 let radius = softness.round().max(0.0) as usize;
                 let blurred = tent_plane(&alpha_plane(img), img.width(), img.height(), radius, math);
                 let mut soft = shift_plane(&blurred, img.width(), img.height(), dx, dy, 0.0);
@@ -588,6 +583,45 @@ impl Effect {
         }
     }
 
+    /// The rectangle (x0, y0, x1, y1) the effect's result covers when applied to an object
+    /// covering `r`, as Fireworks MX sizes a copy's picture by it (measured 2026-11-28 on 50 x 40
+    /// rectangles, docs/behavior/clipboard.md): a drop shadow adds the object moved by its
+    /// offset (truncated, as it's drawn) and grown by its softness: 315 degrees, 7, 4 adds 8 on
+    /// the right and bottom only; a glow adds offset + width + softness all round (17 for 5 and
+    /// 12); an outer bevel its width; a Gaussian blur its reach; inner effects nothing. Others
+    /// add their [`reach`](Self::reach) all round (not measured).
+    pub fn extent(&self, r: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+        let grow = |m: f64| (r.0 - m, r.1 - m, r.2 + m, r.3 + m);
+        match self {
+            Effect::Shadow { inner: true, .. } | Effect::Glow { inner: true, .. } => r,
+            Effect::Shadow {
+                distance,
+                angle,
+                softness,
+                ..
+            } => {
+                let (dx, dy) = shadow_offset(*angle, *distance);
+                let (dx, dy) = (dx as f64, dy as f64);
+                let s = f64::from(softness.round().max(0.0));
+                (
+                    r.0.min(r.0 + dx - s),
+                    r.1.min(r.1 + dy - s),
+                    r.2.max(r.2 + dx + s),
+                    r.3.max(r.3 + dy + s),
+                )
+            }
+            Effect::Glow { width, softness, .. } if *width <= 0.0 && *softness <= 0.0 => r,
+            Effect::Glow {
+                width,
+                softness,
+                offset,
+                ..
+            } => grow(f64::from(offset.max(0.0) + width.max(0.0) + softness.max(0.0))),
+            Effect::Bevel(b) => grow(f64::from(b.reach())),
+            _ => grow(f64::from(self.reach().clamp(0.0, 500.0))),
+        }
+    }
+
     /// Extra room an effect needs around the object, in pixels: its [`reach`](Self::reach)
     /// and 2 px to spare.
     pub fn margin(&self) -> u32 {
@@ -617,6 +651,15 @@ impl Effect {
             _ => 0.0,
         }
     }
+}
+
+/// A drop or inner shadow's offset (x right, y down) for Fireworks' `angle` (degrees,
+/// counter-clockwise with y up) and `distance`: truncated, not rounded (FirePixel's
+/// measurement), in double precision: Fireworks MX draws a shadow at 30 degrees, distance 10,
+/// 4 pixels up (10 sin 30 is 4.999... in doubles; in single precision it's 5).
+pub fn shadow_offset(angle: f32, distance: f32) -> (i64, i64) {
+    let (a, d) = (f64::from(angle).to_radians(), f64::from(distance));
+    ((a.cos() * d).trunc() as i64, (-a.sin() * d).trunc() as i64)
 }
 
 /// Euclidean distance from each pixel to the nearest `true` pixel (0 on them). Exact squared
@@ -1188,6 +1231,41 @@ fn radial_blur(img: &mut RgbaImage, amount: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fireworks MX, 2026-11-28: how much bigger a copy of a 50 x 40 rectangle at (40, 40) is
+    /// with each effect (copy, File > New, paste: docs/behavior/clipboard.md).
+    #[test]
+    fn copy_extent_as_fireworks_sizes_it() {
+        let r = (40.0, 40.0, 90.0, 80.0);
+        let shadow = |angle: f32, distance: f32, softness: f32, inner: bool| Effect::Shadow {
+            color: Rgba::BLACK,
+            distance,
+            angle,
+            softness,
+            inner,
+            knock_out: false,
+        };
+        assert_eq!(shadow(315.0, 7.0, 4.0, false).extent(r), (40.0, 40.0, 98.0, 88.0));
+        assert_eq!(shadow(135.0, 7.0, 4.0, false).extent(r), (32.0, 32.0, 90.0, 80.0));
+        assert_eq!(shadow(30.0, 10.0, 0.0, false).extent(r), (40.0, 36.0, 98.0, 80.0));
+        assert_eq!(shadow(0.0, 0.0, 10.0, false).extent(r), (30.0, 30.0, 100.0, 90.0));
+        assert_eq!(shadow(315.0, 7.0, 4.0, true).extent(r), r);
+        let glow = |width: f32, softness: f32, offset: f32, inner: bool| Effect::Glow {
+            color: Rgba::BLACK,
+            width,
+            opacity: 65.0,
+            softness,
+            offset,
+            inner,
+        };
+        assert_eq!(glow(5.0, 12.0, 0.0, false).extent(r), (23.0, 23.0, 107.0, 97.0));
+        assert_eq!(glow(2.0, 6.0, 3.0, false).extent(r), (29.0, 29.0, 101.0, 91.0));
+        assert_eq!(glow(4.0, 4.0, 0.0, true).extent(r), r);
+        assert_eq!(Effect::GaussianBlur { radius: 3.0 }.extent(r), (32.0, 32.0, 98.0, 88.0));
+        // Fireworks draws the 30-degree shadow 4 pixels up, as it sizes the copy.
+        assert_eq!(shadow_offset(30.0, 10.0), (8, -4));
+        assert_eq!(shadow_offset(315.0, 7.0), (4, 4));
+    }
 
     /// Precise colour math keeps Fireworks MX's model for Invert and Color Fill on
     /// semi-transparent pixels and only drops its intermediate rounding: within 1 level, or 3

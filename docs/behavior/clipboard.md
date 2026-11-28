@@ -68,12 +68,53 @@ the offsets between objects agree.
 FireCraft does the same (`DocState::paste`, `visible_canvas`; the canvas view records
 `DocState::view_rect` as it draws; `firecraft_io::pasted_image_origin`), also for Fireworks
 PNGs from the system clipboard and copied files. The picture is `Clipboard::picture`: for
-FireCraft's own copy the objects' bounds rounded out (`picture_rect`, which the clipboard PNG
-and File > New use too), for a Fireworks PNG its `XLCf`/`YLCf` and size
-(`firecraft_io::clipboard_picture`). FireCraft's own copy measures objects by `Element::bounds`,
-without effects: for a shadowed object its picture is smaller than Fireworks MX's (unchecked
-beyond that).
-Before a document is first drawn the whole canvas counts as visible.
+FireCraft's own copy what the objects draw, rounded out (`picture_rect`, below; the clipboard
+PNG and File > New use it too), for a Fireworks PNG its `XLCf`/`YLCf` and size
+(`firecraft_io::clipboard_picture`). Before a document is first drawn the whole canvas counts
+as visible.
+
+## How big a copy's picture is
+
+Measured 2026-11-28: copy one object, File > New (a script's `fw.createDocument()` after a copy
+takes the clipboard's size too), paste (the canvas is the picture's size, so the picture lands
+at (0, 0) and the object's place in it is the room the picture adds). 50 x 40 rectangles:
+
+| Effect | Room added (left, top, right, bottom) |
+|---|---|
+| Drop Shadow 315 deg, distance 7, softness 4 | 0, 0, 8, 8 |
+| Drop Shadow 135 deg, 7, 4 | 8, 8, 0, 0 |
+| Drop Shadow 30 deg, 10, softness 0 | 0, 4, 8, 0 |
+| Drop Shadow 0 deg, 0, softness 10 | 10 all round |
+| Glow width 5, softness 12 (bluesquares2, glowpx too) | 17 all round |
+| Glow offset 3, width 2, softness 6 | 11 all round |
+| Outer Bevel width 10 | 10 all round |
+| Gaussian Blur radius 3 | 8 all round |
+| Inner Shadow, Inner Glow, Inner Bevel | none |
+| 1-pixel pencil stroke (lines.png) | half a pixel, then rounded out |
+
+So the picture is the object's bounds, a path's grown by its stroke, then each effect in turn
+adds what it draws outside: a shadow is the object moved by its offset (truncated:
+`firecraft_raster::effects::shadow_offset`) and grown by its softness, a glow grows by offset +
+width + softness, an Outer Bevel by its width, a Gaussian blur by its reach. Bounds rounded out
+to whole pixels. FireCraft: `Element::picture_bounds`, `Effect::extent`, `stroke_fw::reach`;
+`cargo run -p firecraft-io --example picture_rooms -- FILE...` prints each object's picture and
+room, to compare with these measurements.
+
+The 30-degree shadow: Fireworks MX draws it 4 pixels up (fxprobe's shadow starts at row 36 for
+a rectangle at row 40), as its copy says; 10 sin 30 deg is 4.999... in doubles. FireCraft
+computed the offset in single precision (5) until 2026-11-28; in doubles the probe's mean
+difference from Fireworks' render went from 0.19 to 0.15.
+
+Not matched yet (FireCraft's picture differs):
+
+* Gaussian blurs of large radius: ball.png's radius-130 bitmap blur copies 36, 4, 36, 4 (a
+  265 x 265 picture for 193 x 257); circleBlur's radius 220 175, 158, 175, 159. FireCraft adds
+  its blur reach all round (175, or nothing above radius 200).
+* lines2's strokes: the natural brush 60, 71, 78, 78 (FireCraft 80 all round); the second
+  matches (9 all round); the third 4, 5, 5, 5 (FireCraft 5 all round).
+* Symbol instances count what their symbol draws (foo3's matches: 1420 x 655), but box.png's
+  instance copies at 486 x 500 where its symbol's geometry scaled is 403 x 444, and folds'
+  is one pixel wider on the left.
 
 ## How FireCraft uses it
 
