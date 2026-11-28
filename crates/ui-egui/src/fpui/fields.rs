@@ -16,6 +16,18 @@ pub const TEXT_FILTER: egui::EventFilter = egui::EventFilter {
     escape: true,
 };
 
+/// A number field's value after an edit (`before` -> `after`), keeping a drag at or below
+/// `drag_max` though typing may go higher: Fireworks MX's size sliders stop at 100 while its
+/// fields take sizes typed up to 1000. A drag started above `drag_max` (a typed size) can go
+/// down but not further up.
+pub fn cap_drag(resp: &Response, before: f64, after: f64, drag_max: f64) -> f64 {
+    if resp.dragged() && after > drag_max {
+        after.min(before.max(drag_max))
+    } else {
+        after
+    }
+}
+
 pub const VSLIDER_PERCENT_PAD: f32 = 8.0;
 pub const VSLIDER_PERCENT_TRACK: f32 = 200.0;
 

@@ -247,8 +247,12 @@ fn eraser(app: &mut FireCraftApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label("Size:");
-            // Fireworks MX takes sizes typed up to 999 (5000 became 999; measured 2026-11-28).
-            ui.add(DragValue::new(&mut o.eraser_size).range(1..=999));
+            // Fireworks MX takes sizes typed up to 999 (5000 became 999; measured 2026-11-28);
+            // its slider, and dragging here, stop at 100.
+            let before = o.eraser_size;
+            let resp = ui.add(DragValue::new(&mut o.eraser_size).range(1..=999));
+            o.eraser_size =
+                crate::fpui::fields::cap_drag(&resp, f64::from(before), f64::from(o.eraser_size), 100.0) as u32;
             ui.selectable_value(&mut o.eraser_round, true, "Round");
             ui.selectable_value(&mut o.eraser_round, false, "Square");
         });
