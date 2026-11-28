@@ -1120,19 +1120,7 @@ fn copy(app: &mut FireCraftApp, ctx: &egui::Context, cut: bool) {
     let res = (d.doc.resolution, d.doc.resolution_cm);
     let clip = if cut { d.cut() } else { d.copy() };
     let Some(clip) = clip else { return };
-    let bounds = clip
-        .elements
-        .iter()
-        .filter_map(firecraft_doc::Element::bounds)
-        .reduce(|a, b| {
-            let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
-            (
-                x0,
-                y0,
-                (a.0 + a.2).max(b.0 + b.2) - x0,
-                (a.1 + a.3).max(b.1 + b.3) - y0,
-            )
-        });
+    let bounds = clip.picture;
     // The PNG's flat image is the objects' picture: also offered as a DIB (Windows). The
     // browser takes the PNG as a picture (other applications paste it).
     let png = bounds.and_then(|b| firecraft_io::clipboard_png(&clip.elements, &clip.symbols, &clip.tiles, b, res).ok());
@@ -1198,6 +1186,7 @@ fn paste(app: &mut FireCraftApp) {
                     elements,
                     symbols,
                     tiles,
+                    picture: firecraft_io::clipboard_picture(&data),
                 };
                 with_doc(app, |d| d.paste(&clip));
             }
@@ -1250,6 +1239,7 @@ fn paste_files(app: &mut FireCraftApp, files: &[std::path::PathBuf]) {
                 elements,
                 symbols,
                 tiles,
+                picture: None,
             }),
             Err(e) => failed.push(format!("{name}: {e}")),
         }
@@ -1291,14 +1281,9 @@ fn clipboard_canvas(app: &FireCraftApp) -> Option<(u32, u32, Option<firecraft_io
     }
     // FireCraft's own copy (the browser, where no system clipboard holds it).
     let (clip, _) = app.clipboard.as_ref()?;
-    let (x0, y0, x1, y1) = clip
-        .elements
-        .iter()
-        .filter_map(firecraft_doc::Element::bounds)
-        .map(|(x, y, w, h)| (x, y, x + w, y + h))
-        .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))?;
+    let (_, _, w, h) = clip.picture?;
     let res = app.session.active_doc().map(|d| (d.doc.resolution, d.doc.resolution_cm));
-    Some(((x1.ceil() - x0.floor()) as u32, (y1.ceil() - y0.floor()) as u32, res))
+    Some((w as u32, h as u32, res))
 }
 
 /// A picture from another application, pasted as Fireworks MX does: a new bitmap object
@@ -1462,7 +1447,7 @@ fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipbo
         && let Some(data) = system_picture()
     {
         return match firecraft_io::read_clipboard(&data) {
-            Ok(pasted) => pasted_clip(app, pasted),
+            Ok(pasted) => pasted_clip(app, pasted, firecraft_io::clipboard_picture(&data)),
             Err(e) => {
                 app.status = Some((format!("Can't paste the clipboard's image: {e}"), true));
                 None
@@ -1492,13 +1477,20 @@ fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipbo
 }
 
 /// What a paste brings in, as objects: a picture is a bitmap centred on the canvas.
-fn pasted_clip(app: &FireCraftApp, pasted: firecraft_io::Pasted) -> Option<firecraft_engine::Clipboard> {
+/// `picture`: where the clipboard says the copy's picture came from
+/// (`firecraft_io::clipboard_picture`).
+fn pasted_clip(
+    app: &FireCraftApp,
+    pasted: firecraft_io::Pasted,
+    picture: Option<(f64, f64, f64, f64)>,
+) -> Option<firecraft_engine::Clipboard> {
     use firecraft_engine::Clipboard;
     match pasted {
         firecraft_io::Pasted::Objects(elements, symbols, tiles) => Some(Clipboard {
             elements,
             symbols,
             tiles,
+            picture,
         }),
         firecraft_io::Pasted::Image(image) => {
             let d = app.session.active_doc()?;
@@ -1588,7 +1580,7 @@ fn paste_picture(app: &mut FireCraftApp, kind: PasteKind, bytes: &[u8]) {
         Ok(firecraft_io::Pasted::Image(image)) if is_own_copy(app, &image) => own_or_system_paste(app, kind),
         Ok(firecraft_io::Pasted::Image(image)) if kind == PasteKind::Paste => paste_image(app, image),
         Ok(pasted) => {
-            let Some(clip) = pasted_clip(app, pasted) else { return };
+            let Some(clip) = pasted_clip(app, pasted, firecraft_io::clipboard_picture(bytes)) else { return };
             match kind {
                 PasteKind::Paste => with_doc(app, |d| d.paste(&clip)),
                 PasteKind::Inside => paste_inside_clip(app, &clip),

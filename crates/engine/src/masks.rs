@@ -635,8 +635,7 @@ mod tests {
     fn paste_as_mask_as_fireworks_mx_does() {
         let clip = |els: Vec<Element>| crate::Clipboard {
             elements: els,
-            symbols: Vec::new(),
-            tiles: Vec::new(),
+            ..Default::default()
         };
         let mut d = DocState::new(Document::new(40, 10, 72.0, None));
         d.add_element(bitmap(0, 30, Rgba::new(255, 0, 0, 255), "r"), "Add");

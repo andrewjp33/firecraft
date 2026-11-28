@@ -16,7 +16,7 @@ pub mod textures;
 mod write;
 
 pub use clip::{
-    Pasted, clipboard_image_info, clipboard_png, file_as_paste, fireworks_png_in_html, pasted_image_origin, read_clipboard,
+    Pasted, clipboard_image_info, clipboard_picture, clipboard_png, file_as_paste, fireworks_png_in_html, pasted_image_origin, read_clipboard,
     read_clipboard_png,
 };
 pub use dib::{decode_bmp, decode_dib, encode_dib};

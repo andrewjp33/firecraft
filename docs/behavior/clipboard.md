@@ -40,17 +40,40 @@ canvas; `addNewRectangle` 50 x 40 unless noted):
 | (500, 400), 400 x 300 | 300 x 200 | (-50, -50) |
 | (300, 250) | 50 x 40 (File > New from the clipboard) | (0, 0) |
 
-So: objects that overlap the **visible canvas** (the part of the canvas the window shows) stay
-where they were copied; otherwise they move by `round(visible centre - their centre)`, halves
-away from zero (the 388 / 389 pair). A picture from another application goes to the centre of
-the visible canvas the same way (101 x 61: (363, 368) on the 2000 x 1500 canvas, (100, 70) on
-300 x 200). In a small document window the visible canvas is small: a headless run with a
-tiny window put a rectangle at (72, 12) in a 200 x 150 canvas, and the old (80, 20) above.
+2026-11-28, Select All + Copy in `bluesquares.png` (two 42 x 53 bitmaps, 107 x 82 together;
+the clipboard picture is 107 x 82), pasted into new documents: **107 x 82: moved to the corner**
+(the bitmaps at (0, 0) and (65, 29)); 106 x 82, 108 x 82, 107 x 81, 107 x 83, 100 x 100,
+120 x 90, 200 x 200, 2000 x 1500: kept where they were. A 50 x 40 rectangle with a drop shadow
+(clipboard picture 58 x 48, from the path's corner) pasted into 58 x 48: the path at (0, 0);
+50 x 40: (-4, -4); 57 x 47: (-1, -1); 200 x 150 in a tiny window: centred in view.
+
+So, measured by the copy's **picture** (the clipboard image, effects included):
+
+1. A canvas exactly the picture's size gets the picture at (0, 0). File > New offers that size,
+   so Copy, New, Paste fills the new canvas.
+2. Otherwise objects that overlap the **visible canvas** (the part of the canvas the window
+   shows) stay where they were copied, even partly in view or partly off the canvas.
+3. Otherwise they move by `round(visible centre - picture centre)`, halves away from zero (the
+   388 / 389 pair; the -0.5 of 57 x 47), even when bigger than the view.
+
+A picture from another application goes to the centre of the visible canvas the same way
+(101 x 61: (363, 368) on the 2000 x 1500 canvas, (100, 70) on 300 x 200). In a small document
+window the visible canvas is small: a headless run with a tiny window put a rectangle at
+(72, 12) in a 200 x 150 canvas, and the old (80, 20) above.
+
+JSF reports bluesquares' bitmaps at (-7, -13) and (58, 16), while they show (and FireCraft
+reads them) at (40, 46) and (105, 75): an `Image`'s `left`/`top` there is in another frame,
+the offsets between objects agree.
 
 FireCraft does the same (`DocState::paste`, `visible_canvas`; the canvas view records
 `DocState::view_rect` as it draws; `firecraft_io::pasted_image_origin`), also for Fireworks
-PNGs from the system clipboard and copied files, which carry their position; before a document
-is first drawn the whole canvas counts as visible.
+PNGs from the system clipboard and copied files. The picture is `Clipboard::picture`: for
+FireCraft's own copy the objects' bounds rounded out (`picture_rect`, which the clipboard PNG
+and File > New use too), for a Fireworks PNG its `XLCf`/`YLCf` and size
+(`firecraft_io::clipboard_picture`). FireCraft's own copy measures objects by `Element::bounds`,
+without effects: for a shadowed object its picture is smaller than Fireworks MX's (unchecked
+beyond that).
+Before a document is first drawn the whole canvas counts as visible.
 
 ## How FireCraft uses it
 

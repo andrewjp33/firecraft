@@ -21,6 +21,29 @@ pub struct Clipboard {
     pub elements: Vec<Element>,
     pub symbols: Vec<Symbol>,
     pub tiles: Vec<firecraft_fwpng::Tile>,
+    /// The copy's picture (x, y, w, h in canvas pixels, whole): FireCraft's copy is the objects'
+    /// bounds rounded out ([`picture_rect`]); from a Fireworks PNG on the system clipboard, the
+    /// place and size it records (`firecraft_io::clipboard_picture`; Fireworks MX's includes
+    /// effects, a drop shadow say). Pastes are placed by it. `None`: the objects' bounds.
+    pub picture: Option<(f64, f64, f64, f64)>,
+}
+
+/// The picture a copy of `elements` gets: their bounds rounded out to whole pixels (allowing
+/// for float noise: 9.9999999 doesn't add a pixel), at least 1 x 1. `firecraft_io::clipboard_png`
+/// crops to it, and File > New offers its size.
+pub fn picture_rect(elements: &[Element]) -> Option<(f64, f64, f64, f64)> {
+    const EPS: f64 = 1e-6;
+    let (x, y, w, h) = elements.iter().filter_map(Element::bounds).reduce(|a, b| {
+        let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+        (x0, y0, (a.0 + a.2).max(b.0 + b.2) - x0, (a.1 + a.3).max(b.1 + b.3) - y0)
+    })?;
+    let (ox, oy) = ((x + EPS).floor(), (y + EPS).floor());
+    Some((
+        ox,
+        oy,
+        ((x + w - EPS).ceil() - ox).max(1.0),
+        ((y + h - EPS).ceil() - oy).max(1.0),
+    ))
 }
 
 /// Modify > Arrange.
@@ -122,6 +145,7 @@ impl DocState {
             .filter_map(|id| self.doc.raw_tiles.get(id).cloned())
             .collect();
         Some(Clipboard {
+            picture: picture_rect(&elements),
             elements,
             symbols,
             tiles,
@@ -147,7 +171,7 @@ impl DocState {
         }
         let layer = self.writable_layer();
         let mut clip = self.prepared(clip);
-        let (dx, dy) = self.paste_offset(&clip.elements);
+        let (dx, dy) = self.paste_offset(&clip);
         if (dx, dy) != (0.0, 0.0) {
             for e in &mut clip.elements {
                 e.translate(dx, dy);
@@ -181,19 +205,23 @@ impl DocState {
             .unwrap_or((0.0, 0.0, cw, ch))
     }
 
-    /// How far pasted objects move, as Fireworks MX places them (measured 2026-11-27, copying
-    /// rectangles into new documents with the window maximized): where they were copied from
-    /// if they overlap the part of the canvas in view (even partly, or partly off the canvas),
-    /// else centred on it, the offset rounded (halves away from zero), even when they're
-    /// bigger than the view. So a copy pasted into a new document of its own size lands at
-    /// (0, 0).
-    fn paste_offset(&self, elements: &[Element]) -> (f64, f64) {
-        let Some((bx, by, bw, bh)) = elements.iter().filter_map(Element::bounds).reduce(|a, b| {
-            let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
-            (x0, y0, (a.0 + a.2).max(b.0 + b.2) - x0, (a.1 + a.3).max(b.1 + b.3) - y0)
-        }) else {
+    /// How far pasted objects move, as Fireworks MX places them, by the copy's picture
+    /// ([`Clipboard::picture`]; measured 2026-11-27/28 with copies pasted into new documents):
+    /// * a canvas exactly the picture's size (File > New offers it) gets the picture at (0, 0):
+    ///   bluesquares' two bitmaps (107 x 82 together) fill a 107 x 82 canvas, but stay where they
+    ///   were in 106, 108 or 120 wide ones; a rectangle with a drop shadow (picture 58 x 48)
+    ///   fills 58 x 48;
+    /// * else where they were copied from, if they overlap the part of the canvas in view (even
+    ///   partly, or partly off the canvas);
+    /// * else centred on it, the offset rounded (halves away from zero), even when they're
+    ///   bigger than the view (the shadowed rectangle on 50 x 40: the path at (-4, -4)).
+    fn paste_offset(&self, clip: &Clipboard) -> (f64, f64) {
+        let Some((bx, by, bw, bh)) = clip.picture.or_else(|| picture_rect(&clip.elements)) else {
             return (0.0, 0.0);
         };
+        if (bw, bh) == (f64::from(self.doc.width), f64::from(self.doc.height)) {
+            return (-bx, -by);
+        }
         let (vx, vy, vw, vh) = self.visible_canvas();
         let overlaps = bx < vx + vw && bx + bw > vx && by < vy + vh && by + bh > vy;
         if overlaps {
@@ -1257,6 +1285,49 @@ mod tests {
         // File > New takes the copy's size; the paste fills it.
         assert_eq!(pasted_at(300, 250, 50, 40, 50, 40, None), (0.0, 0.0));
         assert_eq!(pasted_at(300, 250, 50, 40, 50, 40, Some((-400.0, -300.0, 850.0, 640.0))), (0.0, 0.0));
+    }
+
+    /// Fireworks MX, 2026-11-28: bluesquares.png's two bitmaps, Select All, Copy, then pasted
+    /// into new documents. Only a canvas of exactly their size moves them (to its corner).
+    #[test]
+    fn paste_fills_a_canvas_of_the_copys_size() {
+        let mut src = DocState::new(Document::new(200, 200, 72.0, None));
+        for (x, y) in [(105, 75), (40, 46)] {
+            let image = RgbaImage::new(42, 53, Rgba::new(0, 0, 255, 255));
+            src.add_element(Element::new(ElementKind::Bitmap(Bitmap { x, y, image })), "Add");
+        }
+        src.selection = vec![ElementRef::new(0, 0), ElementRef::new(0, 1)];
+        let clip = src.copy().expect("copied");
+        assert_eq!(clip.picture, Some((40.0, 46.0, 107.0, 82.0)));
+        let paste = |w: u32, h: u32| {
+            let mut d = DocState::new(Document::new(w, h, 72.0, None));
+            d.paste(&clip);
+            let mut at: Vec<_> = d.selection.iter().filter_map(|r| d.element(*r).and_then(Element::bounds)).map(|b| (b.0, b.1)).collect();
+            at.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+            at
+        };
+        assert_eq!(paste(107, 82), [(0.0, 0.0), (65.0, 29.0)]);
+        for (w, h) in [(108, 82), (107, 83), (106, 82), (120, 90), (200, 200)] {
+            assert_eq!(paste(w, h), [(40.0, 46.0), (105.0, 75.0)], "{w} x {h}");
+        }
+        // A rectangle with a drop shadow: Fireworks' picture (58 x 48) is bigger than the path.
+        let shadowed = Clipboard {
+            elements: vec![Element::new(ElementKind::Bitmap(Bitmap {
+                x: 300,
+                y: 250,
+                image: RgbaImage::new(50, 40, Rgba::new(255, 0, 0, 255)),
+            }))],
+            picture: Some((300.0, 250.0, 58.0, 48.0)),
+            ..Clipboard::default()
+        };
+        let at = |w: u32, h: u32| {
+            let mut d = DocState::new(Document::new(w, h, 72.0, None));
+            d.paste(&shadowed);
+            d.element(d.selection[0]).and_then(Element::bounds).map(|b| (b.0, b.1))
+        };
+        assert_eq!(at(58, 48), Some((0.0, 0.0)));
+        assert_eq!(at(50, 40), Some((-4.0, -4.0)));
+        assert_eq!(at(57, 47), Some((-1.0, -1.0)));
     }
 
     fn doc(colours: &[u8]) -> DocState {

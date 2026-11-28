@@ -150,6 +150,21 @@ fn base64_decode(text: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Where a clipboard Fireworks PNG's picture was copied from: (x, y, w, h), its document's origin
+/// (`XLCf`/`YLCf`) and the picture's size. Fireworks MX's picture includes the objects' effects
+/// (a drop shadow), so it can be bigger than their paths. `None` for a plain picture.
+pub fn clipboard_picture(bytes: &[u8]) -> Option<(f64, f64, f64, f64)> {
+    let fw = firecraft_fwpng::FwPng::read(bytes).ok().filter(firecraft_fwpng::FwPng::is_fireworks)?;
+    let root = fw.tree().ok()??;
+    let (w, h, _) = clipboard_image_info(bytes)?;
+    Some((
+        root.float_of("XLC").unwrap_or(0.0),
+        root.float_of("YLC").unwrap_or(0.0),
+        f64::from(w),
+        f64::from(h),
+    ))
+}
+
 /// What a paste brings in.
 pub enum Pasted {
     /// Objects from Fireworks (or FireCraft), at their places, with the symbols and tiles they
@@ -292,6 +307,7 @@ mod tests {
         e.name = Some("piece".into());
         let png = clipboard_png(std::slice::from_ref(&e), &[], &[], (37.0, 12.0, 5.0, 4.0), (150.0, false)).expect("written");
         let (back, _, _) = read_clipboard_png(&png).expect("read");
+        assert_eq!(clipboard_picture(&png), Some((37.0, 12.0, 5.0, 4.0)));
         assert_eq!(back.len(), 1);
         assert_eq!(back[0].name.as_deref(), Some("piece"));
         assert_eq!(back[0].bounds(), Some((37.0, 12.0, 5.0, 4.0)));
