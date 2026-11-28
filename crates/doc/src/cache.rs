@@ -154,7 +154,9 @@ impl RenderCache {
                 (fingerprint(el, ctx), el.opacity.to_bits(), el.blend.fw_code()).hash(&mut h);
                 UnitSig {
                     sig: h.finish(),
-                    rect: None,
+                    // Where it draws, when known (a bitmap being painted), so a change redraws
+                    // only that much.
+                    rect: el.full_region(ctx).map(|(x, y, w, h)| (x, y, x + i64::from(w), y + i64::from(h))),
                 }
             }
         }
@@ -298,7 +300,7 @@ fn collect_units<'a>(el: &Element, ctx: &RenderCtx<'a>, cache: &mut RenderCache,
         return;
     }
     let bounds = el.deep_bounds(ctx).filter(|b| b.0.is_finite() && b.1.is_finite());
-    let Some((bx, by, _, _)) = bounds.filter(|_| pass_through || el.full_region(ctx).is_some()) else {
+    let Some((bx, by, _, _)) = bounds.filter(|_| !el.live && (pass_through || el.full_region(ctx).is_some())) else {
         units.push(Unit::Direct {
             el: Box::new(el.clone()),
             ctx: *ctx,

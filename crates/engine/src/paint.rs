@@ -69,6 +69,17 @@ struct Dab {
     round: bool,
     /// Cover of each cell, row by row.
     cover: std::sync::Arc<Vec<f64>>,
+    /// Each row's covered cells as runs, so erasing clears a fully covered run at once rather
+    /// than cell by cell (a hard 400 px dab is 160 000 cells, one dab per pixel moved).
+    rows: std::sync::Arc<Vec<Vec<CoverRun>>>,
+}
+
+/// Cells `from..to` of a dab row: all fully covered (`full`), or partly.
+#[derive(Clone, Copy, Debug)]
+struct CoverRun {
+    from: i64,
+    to: i64,
+    full: bool,
 }
 
 impl Dab {
@@ -80,15 +91,67 @@ impl Dab {
         let s = brush::softness_byte(dp, (edge.clamp(0.0, 100.0) * 10.0) as u32) as i64;
         let bell = brush::bell_table();
         let at = |i: i64| (2 * i + 1 - dp as i64) * 8;
-        let cover = (0..cells)
+        let cover: Vec<f64> = (0..cells)
             .flat_map(|y| (0..cells).map(move |x| (x, y)))
             .map(|(x, y)| brush::tip_value(at(x), at(y), rr, s, round, round, &bell) as f64 / 255.0)
+            .collect();
+        let rows = cover
+            .chunks(cells.max(1) as usize)
+            .map(|row| {
+                let mut runs: Vec<CoverRun> = Vec::new();
+                for (x, &c) in row.iter().enumerate() {
+                    if c <= 0.0 {
+                        continue;
+                    }
+                    let (x, full) = (x as i64, c >= 1.0);
+                    match runs.last_mut() {
+                        Some(r) if r.to == x && r.full == full => r.to = x + 1,
+                        _ => runs.push(CoverRun { from: x, to: x + 1, full }),
+                    }
+                }
+                runs
+            })
             .collect();
         Dab {
             cells,
             half: dp / 2.0,
             round,
             cover: std::sync::Arc::new(cover),
+            rows: std::sync::Arc::new(rows),
+        }
+    }
+
+    /// Erase the dab at mouse pixel `p` from `keep`, a `w` x `h` plane of what's left of each
+    /// pixel: each covered cell keeps `1 - cover` of it (fully covered runs are cleared at once;
+    /// the same as cell by cell).
+    fn erase(&self, p: (f64, f64), keep: &mut [f32], w: i64, h: i64) {
+        let (sx, sy) = self.origin(p);
+        for (dy, runs) in self.rows.iter().enumerate() {
+            let y = sy + dy as i64;
+            if y < 0 || y >= h {
+                continue;
+            }
+            let Some(row) = keep.get_mut((y * w) as usize..((y + 1) * w) as usize) else {
+                continue;
+            };
+            let covers = self.cover.get(dy * self.cells as usize..).unwrap_or_default();
+            for run in runs {
+                let (a, b) = ((sx + run.from).max(0), (sx + run.to).min(w));
+                if a >= b {
+                    continue;
+                }
+                let Some(cells) = row.get_mut(a as usize..b as usize) else {
+                    continue;
+                };
+                if run.full {
+                    cells.fill(0.0);
+                } else {
+                    let first = (a - sx) as usize;
+                    for (k, &c) in cells.iter_mut().zip(covers.iter().skip(first)) {
+                        *k *= 1.0 - c as f32;
+                    }
+                }
+            }
         }
     }
 
@@ -111,6 +174,7 @@ impl Dab {
     }
 
     /// Call `f(x, y, cover)` for each cell the dab at `p` covers.
+    #[cfg(test)]
     fn each(&self, p: (f64, f64), mut f: impl FnMut(i64, i64, f64)) {
         let (sx, sy) = self.origin(p);
         for (i, &c) in self.cover.iter().enumerate() {
@@ -277,17 +341,7 @@ impl LivePaint {
             if clipped.2 > clipped.0 && clipped.3 > clipped.1 {
                 area = Some(union(area, clipped));
             }
-            let keep = &mut self.keep;
-            e.dab.each(s, |x, y, c| {
-                if x >= 0
-                    && y >= 0
-                    && x < w
-                    && y < h
-                    && let Some(k) = keep.get_mut((y * w + x) as usize)
-                {
-                    *k *= 1.0 - c as f32;
-                }
-            });
+            e.dab.erase(s, &mut self.keep, w, h);
         }
         area
     }
@@ -549,6 +603,9 @@ impl DocState {
         } else {
             Vec::new()
         };
+        if let Some(e) = self.element_mut(target) {
+            e.live = true;
+        }
         self.live_paint = Some(LivePaint {
             target,
             origin,
@@ -655,6 +712,9 @@ impl DocState {
         let Some(live) = self.live_paint.take() else {
             return;
         };
+        if let Some(e) = self.element_mut(live.target) {
+            e.live = false;
+        }
         let Some(Element {
             kind: ElementKind::Bitmap(b),
             ..
@@ -1141,6 +1201,30 @@ mod tests {
         assert_eq!(shown, d.doc.render(0), "partial redraws add up to the picture");
     }
 
+    /// Erasing a dab run by run leaves exactly what erasing it cell by cell does: hard and soft,
+    /// round and square, odd and even sizes, hanging off every edge.
+    #[test]
+    fn dab_erase_matches_cell_by_cell() {
+        let (w, h) = (90i64, 70i64);
+        for (size, round, edge) in [(400.0, false, 0.0), (37.0, true, 0.0), (40.0, true, 50.0), (13.0, false, 100.0), (1.0, true, 0.0)] {
+            let dab = Dab::new(size, round, edge);
+            for p in [(45.0, 35.0), (2.0, 3.0), (88.0, 69.0), (-10.0, 30.0), (45.0, 75.0)] {
+                let mut fast = vec![0.75f32; (w * h) as usize];
+                let mut slow = fast.clone();
+                dab.erase(p, &mut fast, w, h);
+                dab.erase(p, &mut fast, w, h);
+                for _ in 0..2 {
+                    dab.each(p, |x, y, c| {
+                        if x >= 0 && y >= 0 && x < w && y < h {
+                            slow[(y * w + x) as usize] *= 1.0 - c as f32;
+                        }
+                    });
+                }
+                assert_eq!(fast, slow, "{size} {round} {edge} at {p:?}");
+            }
+        }
+    }
+
     /// The Eraser on a canvas-sized bitmap redraws only what it touched too.
     #[test]
     fn erasing_redraws_only_what_it_touches() {
@@ -1163,7 +1247,9 @@ mod tests {
             }
             shown = d.doc.render_cached(0, &mut cache);
             drawn = d.revision;
+            // The first update redraws everything once: the bitmap starts being drawn live.
             match cache.dirty {
+                _ if i == 1 => {}
                 firecraft_doc::Dirty::Rect { w, h, .. } => assert!(w < 60 && h < 60, "update {i}: {w} x {h}"),
                 other => panic!("update {i}: {other:?}"),
             }

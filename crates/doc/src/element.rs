@@ -833,6 +833,10 @@ pub struct Element {
     /// object stays what it is (a rectangle stays a rectangle in the Layers panel and Property
     /// inspector); the real transform replaces it when the drag ends. Never saved.
     pub preview: Option<std::sync::Arc<Bitmap>>,
+    /// Being painted (a Brush, Pencil or Eraser stroke in progress): it changes at every update,
+    /// so the render cache draws the part that changed straight from it rather than keeping a
+    /// copy (which made every update copy the whole bitmap: 8 MB at 1920 x 1080). Never saved.
+    pub live: bool,
 }
 
 impl Element {
@@ -883,6 +887,7 @@ impl Element {
             kind,
             raw: None,
             preview: None,
+            live: false,
         }
     }
 
