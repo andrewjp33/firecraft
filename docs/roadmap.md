@@ -236,6 +236,12 @@ Other items keep their numbers.
     Fireworks MX first: the name it suggests, whether the copy joins Open Recent, and what it does
     when the copy is given the document's own file name. On the desktop through the save dialog,
     in the browser as a download or the file picker, like Save As.
+21. **Ctrl for sub-pixel Pointer drags** (the user's request, 2026-11-28): with the Pointer
+    tool itself, Ctrl during a drag moves by the exact offset instead of whole pixels (live and
+    on release, `canvas.rs`), as Ctrl does with the Scale, Skew and Distort tools; Ctrl+Alt+drag
+    still duplicates, sub-pixel. Not for a temporary Pointer (Ctrl held with another tool, item
+    19), whose Ctrl is taken. Ctrl's temporary tool is chosen when the drag starts, so Ctrl
+    pressed mid-drag while adding a rectangle or ellipse stays sub-pixel.
 
 ## When needed
 
