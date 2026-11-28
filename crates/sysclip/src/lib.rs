@@ -55,6 +55,9 @@ mod platform {
     pub fn get_text() -> Option<String> {
         None
     }
+    pub fn get_html() -> Option<Vec<u8>> {
+        None
+    }
     pub fn copied_files() -> Vec<std::path::PathBuf> {
         Vec::new()
     }
@@ -94,6 +97,14 @@ pub fn copied_files() -> Vec<std::path::PathBuf> {
 /// The text on the system clipboard (for text fields: FireCraft handles Ctrl+V itself).
 pub fn get_text() -> Option<String> {
     platform::get_text()
+}
+
+/// The HTML on the system clipboard, as the clipboard holds it (UTF-8; on Windows the
+/// "HTML Format" with its header). A browser's FireCraft copies the objects' Fireworks PNG
+/// there as an `<img>` data URL (see `firecraft_io::fireworks_png_in_html`): browsers keep
+/// only the picture of the PNG they're given, but HTML comes through as it was written.
+pub fn get_html() -> Option<Vec<u8>> {
+    platform::get_html()
 }
 
 /// Whether the clipboard still holds what FireCraft last put there (nothing copied since).

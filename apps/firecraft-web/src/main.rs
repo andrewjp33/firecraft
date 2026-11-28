@@ -13,7 +13,7 @@ mod web {
     use std::collections::{HashMap, HashSet};
     use std::rc::Rc;
 
-    use firecraft_ui_egui::{FireCraftApp, FolderKind, HostPaste, Platform, SaveStatus};
+    use firecraft_ui_egui::{ClipboardPicture, FireCraftApp, FolderKind, HostPaste, Platform, SaveStatus};
     use js_sys::{Promise, Reflect, Uint8Array};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::{JsFuture, spawn_local};
@@ -193,9 +193,13 @@ const readBytes = (blob) => new Promise((resolve, reject) => {
   reader.readAsArrayBuffer(blob);
 });
 
+// HTML that may carry copied objects: an <img> with a PNG data URL (see copyPicture).
+const carriesPng = (html) => !!html && /data:image\/png;base64,/i.test(html);
+
 // Pictures pasted with Ctrl+V. eframe passes on only a paste's text, so a picture is taken here
 // first (capture phase) when FireCraft wants one (accepts(): a document is open and no text is
-// being typed), and eframe doesn't see that paste.
+// being typed), and eframe doesn't see that paste. The HTML pasted with it goes along: it holds
+// the Fireworks PNG of objects copied in a FireCraft (onPicture(bytes, html or null)).
 export function listenForPictures(accepts, onPicture) {
   document.addEventListener("paste", (event) => {
     const data = event.clipboardData;
@@ -205,22 +209,35 @@ export function listenForPictures(accepts, onPicture) {
       const item = Array.from(data.items).find((i) => i.kind === "file" && i.type.startsWith("image/"));
       file = item ? item.getAsFile() : null;
     }
-    if (!file) return;
+    let html = data.getData("text/html");
+    if (!carriesPng(html)) html = null;
+    if (!file && !html) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    readBytes(file).then(onPicture, (e) => console.warn("Could not read the pasted picture", e));
+    (file ? readBytes(file) : Promise.resolve(new Uint8Array(0)))
+      .then((bytes) => onPicture(bytes, html), (e) => console.warn("Could not read the pasted picture", e));
   }, true);
 }
 
-// Edit > Copy: copied objects' PNG goes on the clipboard as a picture (the browser keeps the
-// picture, not Fireworks' chunks). False where pictures can't be copied (ClipboardItem: Safari
-// 13.1, Chrome 76, Firefox 127); FireCraft copies a note instead. Called during the copy event
-// (eframe runs the app then), as Safari wants.
+// Edit > Copy: copied objects' Fireworks PNG goes on the clipboard as a picture, which other
+// applications paste. Browsers decode and re-encode it, dropping Fireworks' chunks (Chromium 156,
+// Firefox 159), so the PNG also goes in HTML as an <img> data URL, which comes through
+// unchanged: FireCraft (desktop, or another tab) pastes the objects from it. Fireworks MX reads
+// only the picture. False where pictures can't be copied (ClipboardItem: Safari 13.1, Chrome 76,
+// Firefox 127); FireCraft copies a note instead. Called during the copy event (eframe runs the
+// app then), as Safari wants.
 export function copyPicture(bytes) {
   if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) return false;
   try {
-    const item = new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) });
-    navigator.clipboard.write([item]).catch((e) => console.warn("Could not copy the picture", e));
+    const png = () => new Blob([bytes], { type: "image/png" });
+    let text = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const html = new Blob([`<img src="data:image/png;base64,${btoa(text)}">`], { type: "text/html" });
+    const write = (items) => navigator.clipboard.write([new ClipboardItem(items)]);
+    write({ "image/png": png(), "text/html": html })
+      // Chrome before 86 takes only a picture or text in a ClipboardItem.
+      .catch(() => write({ "image/png": png() }))
+      .catch((e) => console.warn("Could not copy the picture", e));
     return true;
   } catch (e) {
     console.warn("Could not copy the picture", e);
@@ -230,11 +247,17 @@ export function copyPicture(bytes) {
 
 // Edit > Paste: the Clipboard API (the browser may ask the visitor first).
 export const clipboardReadable = () => !!(navigator.clipboard && navigator.clipboard.read);
-// The clipboard's first picture as bytes, or null when it holds none.
+// The clipboard's first picture, and the HTML beside it, as { bytes, html }; null when it holds
+// neither.
 export async function readClipboardPicture() {
   for (const item of await navigator.clipboard.read()) {
     const type = item.types.find((t) => t.startsWith("image/"));
-    if (type) return readBytes(await item.getType(type));
+    let html = null;
+    if (item.types.includes("text/html")) {
+      html = new TextDecoder().decode(await readBytes(await item.getType("text/html")));
+      if (!carriesPng(html)) html = null;
+    }
+    if (type || html) return { bytes: type ? await readBytes(await item.getType(type)) : new Uint8Array(0), html };
   }
   return null;
 }
@@ -349,7 +372,7 @@ export async function writeTo(handle, bytes) {
         #[wasm_bindgen(js_name = writeTo)]
         fn write_to(handle: &JsValue, bytes: &Uint8Array) -> Promise;
         #[wasm_bindgen(js_name = listenForPictures)]
-        fn listen_for_pictures(accepts: &Closure<dyn Fn() -> bool>, on_picture: &Closure<dyn Fn(Uint8Array)>);
+        fn listen_for_pictures(accepts: &Closure<dyn Fn() -> bool>, on_picture: &Closure<dyn Fn(Uint8Array, JsValue)>);
         #[wasm_bindgen(js_name = copyPicture)]
         fn copy_picture(bytes: &Uint8Array) -> bool;
         #[wasm_bindgen(js_name = clipboardReadable)]
@@ -494,8 +517,11 @@ export async function writeTo(handle, bytes) {
                 let shared = browser.shared.clone();
                 let accepts = Closure::<dyn Fn() -> bool>::new(move || shared.accepts_pictures.get());
                 let shared = browser.shared.clone();
-                let on_picture = Closure::<dyn Fn(Uint8Array)>::new(move |bytes: Uint8Array| {
-                    shared.finish_paste(HostPaste::Picture(bytes.to_vec()));
+                let on_picture = Closure::<dyn Fn(Uint8Array, JsValue)>::new(move |bytes: Uint8Array, html: JsValue| {
+                    shared.finish_paste(HostPaste::Picture(ClipboardPicture {
+                        picture: bytes.to_vec(),
+                        html: html.as_string(),
+                    }));
                 });
                 listen_for_pictures(&accepts, &on_picture);
                 accepts.forget();
@@ -623,8 +649,11 @@ export async function writeTo(handle, bytes) {
             let shared = self.shared.clone();
             spawn_local(async move {
                 let read = match JsFuture::from(reading).await {
-                    Ok(bytes) if bytes.is_null() => Ok(None),
-                    Ok(bytes) => Ok(Some(Uint8Array::new(&bytes).to_vec())),
+                    Ok(read) if read.is_null() => Ok(None),
+                    Ok(read) => Ok(Some(ClipboardPicture {
+                        picture: Uint8Array::new(&field(&read, "bytes")).to_vec(),
+                        html: field(&read, "html").as_string(),
+                    })),
                     Err(e) => Err(error_text(&e)),
                 };
                 shared.finish_paste(HostPaste::Read(read));

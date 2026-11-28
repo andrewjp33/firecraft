@@ -1176,12 +1176,21 @@ fn same_picture(a: &firecraft_raster::RgbaImage, b: &firecraft_raster::RgbaImage
     (a.width(), a.height()) == (b.width(), b.height()) && a.pixels().iter().zip(b.pixels()).all(|(p, q)| near(p, q))
 }
 
+/// The picture on the system clipboard (`firecraft_sysclip::get_image`). Objects a browser's
+/// FireCraft copied come first: their Fireworks PNG is in the HTML beside the picture, which the
+/// browser re-encoded without Fireworks' data.
+fn system_picture() -> Option<Vec<u8>> {
+    firecraft_sysclip::get_html()
+        .and_then(|html| firecraft_io::fireworks_png_in_html(&html))
+        .or_else(firecraft_sysclip::get_image)
+}
+
 /// Edit > Paste: objects or a picture on the system clipboard (from Fireworks MX, another
 /// FireCraft, a screenshot, any application), else FireCraft's own last copy.
 fn paste(app: &mut FireCraftApp) {
     if firecraft_sysclip::available()
         && !firecraft_sysclip::owns()
-        && let Some(data) = firecraft_sysclip::get_image()
+        && let Some(data) = system_picture()
     {
         match firecraft_io::read_clipboard(&data) {
             Ok(firecraft_io::Pasted::Objects(elements, symbols, tiles)) => {
@@ -1268,7 +1277,7 @@ pub(crate) fn open_new_doc(app: &mut FireCraftApp) {
 /// The size (and resolution, if known) of what Edit > Paste would bring in.
 fn clipboard_canvas(app: &FireCraftApp) -> Option<(u32, u32, Option<firecraft_io::Resolution>)> {
     if firecraft_sysclip::available() {
-        if let Some(data) = firecraft_sysclip::get_image() {
+        if let Some(data) = system_picture() {
             return firecraft_io::clipboard_image_info(&data).map(|(w, h, r)| (w, h, Some(r)));
         }
         // A copied file (FireCraft's addition): the first one that opens, at the resolution
@@ -1453,7 +1462,7 @@ fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipbo
     use firecraft_engine::Clipboard;
     if firecraft_sysclip::available()
         && !firecraft_sysclip::owns()
-        && let Some(data) = firecraft_sysclip::get_image()
+        && let Some(data) = system_picture()
     {
         return match firecraft_io::read_clipboard(&data) {
             Ok(pasted) => pasted_clip(app, pasted),
@@ -1544,12 +1553,16 @@ fn own_or_system_paste(app: &mut FireCraftApp, kind: PasteKind) {
 pub(crate) fn host_pastes(app: &mut FireCraftApp) {
     for pasted in app.platform.take_pasted() {
         match pasted {
-            crate::HostPaste::Picture(bytes) => paste_picture(app, PasteKind::Paste, &bytes),
+            crate::HostPaste::Picture(picture) => {
+                if let Some(bytes) = picture.into_bytes() {
+                    paste_picture(app, PasteKind::Paste, &bytes);
+                }
+            }
             crate::HostPaste::Read(read) => {
                 let Some(kind) = app.pending_paste.take() else {
                     continue;
                 };
-                match read {
+                match read.map(|p| p.and_then(crate::ClipboardPicture::into_bytes)) {
                     Ok(Some(bytes)) => paste_picture(app, kind, &bytes),
                     _ if app.clipboard.is_some() => own_or_system_paste(app, kind),
                     Ok(None) => app.status = Some(("The clipboard has no picture to paste.".into(), false)),

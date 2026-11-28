@@ -15,6 +15,7 @@ const PNG: &str = "public.png";
 const TIFF: &str = "public.tiff";
 const JPEG: &str = "public.jpeg";
 const TEXT: &str = "public.utf8-plain-text";
+const HTML: &str = "public.html";
 const FILE_URL: &str = "public.file-url";
 
 /// The pasteboard's change count after FireCraft's last copy (-1: never copied).
@@ -52,6 +53,11 @@ pub fn get_text() -> Option<String> {
     NSPasteboard::generalPasteboard()
         .stringForType(&NSString::from_str(TEXT))
         .map(|s| s.to_string())
+}
+
+pub fn get_html() -> Option<Vec<u8>> {
+    let data = NSPasteboard::generalPasteboard().dataForType(&NSString::from_str(HTML))?.to_vec();
+    (!data.is_empty()).then_some(data)
 }
 
 pub fn copied_files() -> Vec<std::path::PathBuf> {

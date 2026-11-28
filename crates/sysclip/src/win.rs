@@ -61,6 +61,18 @@ pub fn get_image() -> Option<Vec<u8>> {
         })
 }
 
+/// "HTML Format" (CF_HTML: a header of offsets, then the UTF-8 HTML), what browsers copy HTML as.
+pub fn get_html() -> Option<Vec<u8>> {
+    let fmt = clipboard_win::register_format("HTML Format")?.get();
+    let _open = Clipboard::new_attempts(10).ok()?;
+    if !raw::is_format_avail(fmt) {
+        return None;
+    }
+    let mut out = Vec::new();
+    raw::get_vec(fmt, &mut out).ok()?;
+    (!out.is_empty()).then_some(out)
+}
+
 pub fn copied_files() -> Vec<std::path::PathBuf> {
     clipboard_win::get_clipboard::<Vec<String>, _>(clipboard_win::formats::FileList)
         .unwrap_or_default()

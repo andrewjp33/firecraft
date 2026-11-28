@@ -287,6 +287,10 @@ fn targets() -> Option<Vec<String>> {
     Some(names)
 }
 
+pub fn get_html() -> Option<Vec<u8>> {
+    targets()?.iter().any(|t| t == "text/html").then(|| get("text/html")).flatten()
+}
+
 pub fn copied_files() -> Vec<std::path::PathBuf> {
     get("text/uri-list").map_or_else(Vec::new, |b| file_uris(&b))
 }

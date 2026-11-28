@@ -215,10 +215,29 @@ pub trait Platform {
 /// A picture (image file bytes: PNG, JPEG, GIF...) the host read from the system clipboard.
 pub enum HostPaste {
     /// Pasted with the keyboard (the browser's paste event): Edit > Paste it.
-    Picture(Vec<u8>),
+    Picture(ClipboardPicture),
     /// The answer to [`Platform::read_clipboard`]: a picture, none on the clipboard, or why
     /// the clipboard could not be read.
-    Read(Result<Option<Vec<u8>>, String>),
+    Read(Result<Option<ClipboardPicture>, String>),
+}
+
+/// A picture the browser read from the system clipboard, and the HTML copied with it. A browser
+/// keeps only the picture of a PNG it's given; FireCraft's copy of objects also puts their
+/// Fireworks PNG in that HTML (`firecraft_io::fireworks_png_in_html`).
+pub struct ClipboardPicture {
+    /// The picture file's bytes (PNG, JPEG...); empty when there's only HTML.
+    pub picture: Vec<u8>,
+    pub html: Option<String>,
+}
+
+impl ClipboardPicture {
+    /// What to paste: the Fireworks PNG in the HTML, else the picture (`None`: neither).
+    pub fn into_bytes(self) -> Option<Vec<u8>> {
+        self.html
+            .as_deref()
+            .and_then(|h| firecraft_io::fireworks_png_in_html(h.as_bytes()))
+            .or_else(|| (!self.picture.is_empty()).then_some(self.picture))
+    }
 }
 
 /// User preferences (Edit > Preferences).

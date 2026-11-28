@@ -92,6 +92,64 @@ pub fn read_clipboard_png(bytes: &[u8]) -> Result<(Vec<Element>, Vec<Symbol>, Ve
     ))
 }
 
+/// The Fireworks PNG in clipboard HTML: FireCraft in a browser copies objects as their picture
+/// (`image/png`) and as HTML holding `<img src="data:image/png;base64,...">` with the whole
+/// Fireworks PNG, because browsers decode and re-encode a copied PNG, dropping Fireworks'
+/// chunks (checked with Chromium 156 and Firefox 159), while HTML's data URLs come through as
+/// written. `None` unless that PNG is a Fireworks document, so a web page's inline pictures
+/// don't stand in for the clipboard's picture.
+pub fn fireworks_png_in_html(html: &[u8]) -> Option<Vec<u8>> {
+    const DATA: &[u8] = b"data:image/png;base64,";
+    // UTF-16 HTML (some Linux programs): drop the high bytes of the ASCII it's made of.
+    let narrow: Vec<u8>;
+    let html = if html.iter().take(64).filter(|&&b| b == 0).count() > 8 {
+        narrow = html.iter().copied().filter(|&b| b != 0).collect();
+        &narrow[..]
+    } else {
+        html
+    };
+    let mut rest = html;
+    while let Some(at) = rest.windows(DATA.len()).position(|w| w.eq_ignore_ascii_case(DATA)) {
+        rest = rest.get(at + DATA.len()..)?;
+        let len = rest
+            .iter()
+            .position(|b| !(b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')))
+            .unwrap_or(rest.len());
+        let (text, after) = rest.split_at(len);
+        if let Some(png) = base64_decode(text)
+            && firecraft_fwpng::FwPng::read(&png).is_ok_and(|fw| fw.is_fireworks())
+        {
+            return Some(png);
+        }
+        rest = after;
+    }
+    None
+}
+
+/// Standard base64 (padding optional). `None` on a character outside the alphabet.
+fn base64_decode(text: &[u8]) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(u32::from(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        }))
+    };
+    let text = text.strip_suffix(b"==").or_else(|| text.strip_suffix(b"=")).unwrap_or(text);
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    for group in text.chunks(4) {
+        let mut n = 0u32;
+        for (i, &c) in group.iter().enumerate() {
+            n |= value(c)? << (18 - 6 * i);
+        }
+        out.extend(n.to_be_bytes().into_iter().skip(1).take(group.len().saturating_sub(1)));
+    }
+    Some(out)
+}
+
 /// What a paste brings in.
 pub enum Pasted {
     /// Objects from Fireworks (or FireCraft), at their places, with the symbols and tiles they
@@ -238,6 +296,51 @@ mod tests {
         assert_eq!(clipboard_image_info(&png), Some((5, 4, (150.0, false))));
         let doc = crate::open(&png, None).expect("opens");
         assert_eq!((doc.resolution, doc.resolution_cm), (150.0, false));
+    }
+
+    fn base64(bytes: &[u8]) -> String {
+        const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for g in bytes.chunks(3) {
+            let n = g.iter().enumerate().fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+            for i in 0..4 {
+                out.push(if i <= g.len() { char::from(A[(n >> (18 - 6 * i) & 63) as usize]) } else { '=' });
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn fireworks_png_from_browser_html() {
+        let e = Element::new(ElementKind::Bitmap(Bitmap {
+            x: 3,
+            y: 4,
+            image: RgbaImage::new(7, 5, Rgba::new(9, 8, 7, 200)),
+        }));
+        let png = clipboard_png(std::slice::from_ref(&e), &[], &[], (3.0, 4.0, 7.0, 5.0), (72.0, false)).expect("written");
+        for cut in 0..3 {
+            // Every padding length.
+            let png = if cut == 0 { png.clone() } else { [&png[..], &vec![0; cut]].concat() };
+            assert_eq!(base64_decode(base64(&png).as_bytes()).as_deref(), Some(&png[..]));
+        }
+        let plain = crate::encode_png(&RgbaImage::new(2, 2, Rgba::new(1, 1, 1, 255)), 72.0).expect("png");
+        // As Chromium writes it, after an ordinary inline picture.
+        let html = format!(
+            r#"<meta charset='utf-8'><img src="data:image/png;base64,{}"><img src="data:image/png;base64,{}">"#,
+            base64(&plain),
+            base64(&png)
+        );
+        assert_eq!(fireworks_png_in_html(html.as_bytes()).as_deref(), Some(&png[..]));
+        // Windows "HTML Format": a header first.
+        let cf = format!("Version:0.9\r\nStartHTML:0000000105\r\n<!--StartFragment-->{html}<!--EndFragment-->");
+        assert_eq!(fireworks_png_in_html(cf.as_bytes()).as_deref(), Some(&png[..]));
+        // UTF-16.
+        let wide: Vec<u8> = html.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        assert_eq!(fireworks_png_in_html(&wide).as_deref(), Some(&png[..]));
+        // A web page's picture alone isn't objects.
+        let page = format!(r#"<img src="data:image/png;base64,{}">"#, base64(&plain));
+        assert_eq!(fireworks_png_in_html(page.as_bytes()), None);
+        assert_eq!(fireworks_png_in_html(b"<b>text</b>"), None);
     }
 
     #[test]
