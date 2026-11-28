@@ -85,6 +85,8 @@ Things no version of Fireworks has:
   objects it masks; select, rename and reorder them, drag objects into or out of a mask, and
   Group, Ungroup, Convert to Symbol or Break Apart right there
   ([docs/behavior/masks.md](docs/behavior/masks.md)).
+- **Sub-pixel editing when you want it**: hold **Ctrl** while moving, resizing or drawing, or type a
+  decimal (50.5) in the Property inspector ([docs/behavior/objects.md](docs/behavior/objects.md)).
 - **Small things that add up**:
   - Ctrl + mouse wheel (or a trackpad pinch) zooms smoothly around the pointer, with any tool.
   - The frame number under the canvas is editable: type a frame and press Enter.
