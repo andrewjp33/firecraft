@@ -304,7 +304,7 @@ pub fn parse_tools(text: &str, o: &mut ToolOptions) -> Pending {
             "pencil_auto_erase" => set(&mut p.pencil_auto_erase, v),
             "eraser_size" => {
                 set(&mut p.eraser_size, v);
-                p.eraser_size = p.eraser_size.clamp(1, 1000);
+                p.eraser_size = p.eraser_size.clamp(1, 999);
             }
             "eraser_round" => set(&mut p.eraser_round, v),
             "eraser_edge" => {

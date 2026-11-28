@@ -140,10 +140,12 @@ pub fn show_in(app: &mut FireCraftApp, ui: &mut egui::Ui, target: Target, place:
                 _ => {}
             }
             let mut size = s.size.round();
+            // Fireworks MX's slider goes to 100, but it takes any size typed up to 1000 (5000 and
+            // 99999 became 1000; measured 2026-11-28).
             let resp = ui.add_enabled(
                 s.has,
                 egui::DragValue::new(&mut size)
-                    .range(1.0..=100.0)
+                    .range(1.0..=1000.0)
                     .max_decimals(0)
                     .suffix(" px"),
             );

@@ -1141,6 +1141,36 @@ mod tests {
         assert_eq!(shown, d.doc.render(0), "partial redraws add up to the picture");
     }
 
+    /// The Eraser on a canvas-sized bitmap redraws only what it touched too.
+    #[test]
+    fn erasing_redraws_only_what_it_touches() {
+        let mut o = options();
+        o.paint.eraser_size = 21;
+        let mut d = DocState::new(Document::new(1920, 1080, 72.0, Some(Rgba::WHITE)));
+        add_bitmap(&mut d, 0, 0, 1920, 1080, RED);
+        let mut cache = firecraft_doc::RenderCache::default();
+        let mut shown = d.doc.render_cached(0, &mut cache);
+        let mut drawn = d.revision;
+        d.begin_paint(PaintTool::Eraser, 300.0, 300.0, &o);
+        for i in 1..=20 {
+            d.extend_paint(300.0 + 8.0 * f64::from(i), 300.0 + 3.0 * f64::from(i), false);
+            d.flush_paint();
+            if let Some((from, to, area)) = d.paint_damage.take()
+                && from == drawn
+                && to == d.revision
+            {
+                cache.changed_within = Some(area);
+            }
+            shown = d.doc.render_cached(0, &mut cache);
+            drawn = d.revision;
+            match cache.dirty {
+                firecraft_doc::Dirty::Rect { w, h, .. } => assert!(w < 60 && h < 60, "update {i}: {w} x {h}"),
+                other => panic!("update {i}: {other:?}"),
+            }
+        }
+        assert_eq!(shown, d.doc.render(0), "partial redraws add up to the picture");
+    }
+
     #[test]
     fn a_click_then_drag_equals_a_drag() {
         let o = ToolOptions {
