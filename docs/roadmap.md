@@ -179,13 +179,13 @@ Other items keep their numbers.
     image on the canvas with a click or drag, as in Fireworks).
 15. Adopt more `craft-libs` crates (craft-ui docking/tabs, craft-keymap, craft-settings) for suite
     consistency; GPU canvas
-17. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
+16. **Bevel Boss profile editor**: the Live Effects dialog for Eye Candy's Bevel Boss edits every
     setting but the bevel profile (`BEvl`, `Bevel: n/x y f/...`) and Darken Deep Areas (`Drkn`).
     Add a curve editor like Eye Candy's (draggable points, add/remove, its preset profiles) with a
     live preview, each point toggling sharp/smooth (the third number per point, 1 = sharp). How
     profiles are drawn is measured (pieces split at sharp points, the polynomial through each,
     clamped; see [behavior/plugins.md](behavior/plugins.md))
-18. **Exact fill edges in Precise colour math** (the user's idea, 2026-11-24): Fireworks MX samples
+17. **Exact fill edges in Precise colour math** (the user's idea, 2026-11-24): Fireworks MX samples
     fills 4 x 4 (edges move in quarter pixels; [behavior/paths.md](behavior/paths.md#fill-anti-aliasing)),
     so a rectangle 20.1 wide gets no partial pixel although W shows 21. In Precise documents, compute
     each pixel's exact covered area instead, rounded once (20.1 wide: a 10% edge, alpha 26; 20.5: 128):
@@ -205,7 +205,7 @@ Other items keep their numbers.
       its 4 x 4 ones when opened there (as Precise effects already differ slightly).
     - Tests: exact-area values (20.1 -> 26, 20.5 -> 128, a diagonal edge against its analytic area,
       the overlap pixels above) and Classic renders unchanged (MX probes and parity).
-19. **Tool cursors for the tools not built yet** (the built tools have theirs: lookalikes drawn from
+18. **Tool cursors for the tools not built yet** (the built tools have theirs: lookalikes drawn from
     shapes in `crates/ui-egui/src/cursors.rs`, never Fireworks' artwork). Seen in Fireworks MX
     over the canvas, 2026-11-26; give each tool its cursor when it's built:
     - **Lasso and Polygon Lasso** (item 3): a lasso loop; Shift/Alt/Shift+Alt add the marquee's
@@ -231,18 +231,18 @@ Other items keep their numbers.
       - **Alt** with the Brush, Pencil, Paint Bucket, Gradient and Line tools shows the eyedropper
         and picks the colour under it.
       Build the behaviour first, then show its cursor.
-20. **File > Save a Copy...**: save the document to another Fireworks PNG while it stays as it is
+19. **File > Save a Copy...**: save the document to another Fireworks PNG while it stays as it is
     (same file name, unsaved changes still marked, Save still going to its own file). Measure
     Fireworks MX first: the name it suggests, whether the copy joins Open Recent, and what it does
     when the copy is given the document's own file name. On the desktop through the save dialog,
     in the browser as a download or the file picker, like Save As.
-21. **Ctrl for sub-pixel Pointer drags** (the user's request, 2026-11-28): with the Pointer
+20. **Ctrl for sub-pixel Pointer drags** (the user's request, 2026-11-28): with the Pointer
     tool itself, Ctrl during a drag moves by the exact offset instead of whole pixels (live and
     on release, `canvas.rs`), as Ctrl does with the Scale, Skew and Distort tools; Ctrl+Alt+drag
     still duplicates, sub-pixel. Not for a temporary Pointer (Ctrl held with another tool, item
-    19), whose Ctrl is taken. Ctrl's temporary tool is chosen when the drag starts, so Ctrl
+    18), whose Ctrl is taken. Ctrl's temporary tool is chosen when the drag starts, so Ctrl
     pressed mid-drag while adding a rectangle or ellipse stays sub-pixel.
-22. **Line tool on whole pixels, Ctrl for sub-pixel** (the user's request, 2026-11-28): the Line
+21. **Line tool on whole pixels, Ctrl for sub-pixel** (the user's request, 2026-11-28): the Line
     tool never snaps (`shape_points` and `add_line` in canvas.rs take the exact pointer position),
     unlike the Rectangle and Ellipse tools. Measure Fireworks MX first: where its Line tool puts
     the endpoints (pixel centres, grid lines or unsnapped) and whether that depends on the stroke
