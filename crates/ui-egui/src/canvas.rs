@@ -982,6 +982,13 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let key = (d.revision << 16) ^ d.doc.current_frame as u64;
     let stale = view.texture.as_ref().is_none_or(|(k, _)| *k != key);
     if stale {
+        // A brush stroke since the last refresh: only what it touched changed.
+        if let Some((from, to, area)) = d.paint_damage.take()
+            && to == d.revision
+            && view.texture.as_ref().is_some_and(|(k, _)| *k == (from << 16) ^ d.doc.current_frame as u64)
+        {
+            view.cache.borrow_mut().changed_within = Some(area);
+        }
         //let t0 = std::time::Instant::now();
         let t0 = Instant::now();
         let img = d

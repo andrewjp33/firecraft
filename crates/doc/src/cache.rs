@@ -46,6 +46,10 @@ pub struct RenderCache {
     pub last: (usize, usize),
     /// What the last render changed.
     pub dirty: Dirty,
+    /// Set before a render: every change since the previous render is inside this rectangle
+    /// (x0, y0, x1, y1; canvas pixels), so only that is redrawn when the objects that changed
+    /// kept their places (a brush stroke painting into a canvas-sized bitmap). Used once.
+    pub changed_within: Option<(i64, i64, i64, i64)>,
     /// The last render: its settings, what it was made of, and the picture.
     previous: Option<(u64, Vec<UnitSig>, RgbaImage)>,
 }
@@ -216,11 +220,14 @@ impl Document {
             h.finish()
         };
         let sigs: Vec<UnitSig> = units.iter().map(|u| cache.sig_of(u)).collect();
+        let hint = cache.changed_within.take();
         let dirty = match &cache.previous {
             Some((b, prev, _)) if *b == base && prev.len() == sigs.len() => {
                 let mut area = None;
                 let mut full = false;
+                let mut kept_places = true;
                 for (p, c) in prev.iter().zip(&sigs).filter(|(p, c)| p != c) {
+                    kept_places &= p.rect == c.rect;
                     match (p.rect, c.rect) {
                         (Some(a), Some(b)) => area = union(union(area, a), b),
                         _ => {
@@ -228,6 +235,9 @@ impl Document {
                             break;
                         }
                     }
+                }
+                if let (Some(h), true) = (hint, kept_places) {
+                    area = area.map(|a| (a.0.max(h.0), a.1.max(h.1), a.2.min(h.2), a.3.min(h.3)));
                 }
                 let clipped = area.map(|r| {
                     (

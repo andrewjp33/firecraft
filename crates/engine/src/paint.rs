@@ -628,14 +628,25 @@ impl DocState {
         let part = live.render(area, math);
         live.painted = Some(union(live.painted, area));
         let target = live.target;
+        let mut at = None;
         if let Some(Element {
             kind: ElementKind::Bitmap(b),
             ..
         }) = self.element_mut(target)
         {
             b.image.copy_from(&part, l, t);
+            at = Some((b.x, b.y));
         }
+        let before = self.revision;
         self.touch();
+        // Only this part of the canvas changed (the bitmap may be as big as the canvas).
+        self.paint_damage = at.map(|(bx, by)| {
+            let area = (area.0 + bx, area.1 + by, area.2 + bx, area.3 + by);
+            match self.paint_damage {
+                Some((from, to, a)) if to == before => (from, self.revision, union(Some(a), area)),
+                _ => (before, self.revision, area),
+            }
+        });
     }
 
     /// Finish the stroke: one undo step; the bitmap shrinks to what it holds.
@@ -1093,6 +1104,41 @@ mod tests {
             assert_eq!(differ, 0, "{} / {}", p.category, p.name);
             a.end_paint();
         }
+    }
+
+    /// A stroke on a big canvas redraws only what it touched each update (it paints into a
+    /// canvas-sized bitmap: without the hint every update redrew and uploaded 1920 x 1080), and
+    /// that partial redraw is the same picture as a whole one.
+    #[test]
+    fn a_stroke_redraws_only_what_it_touches() {
+        let o = ToolOptions {
+            stroke_size: 10,
+            ..options()
+        };
+        let mut d = DocState::new(Document::new(1920, 1080, 72.0, Some(Rgba::WHITE)));
+        let mut cache = firecraft_doc::RenderCache::default();
+        let mut shown = d.doc.render_cached(0, &mut cache);
+        let mut drawn = d.revision;
+        d.begin_paint(PaintTool::Brush, 300.0, 300.0, &o);
+        for i in 1..=20 {
+            d.extend_paint(300.0 + 8.0 * f64::from(i), 300.0 + 3.0 * f64::from(i), false);
+            d.flush_paint();
+            if let Some((from, to, area)) = d.paint_damage.take()
+                && from == drawn
+                && to == d.revision
+            {
+                cache.changed_within = Some(area);
+            }
+            shown = d.doc.render_cached(0, &mut cache);
+            drawn = d.revision;
+            if i > 1 {
+                match cache.dirty {
+                    firecraft_doc::Dirty::Rect { w, h, .. } => assert!(w < 40 && h < 40, "update {i}: {w} x {h}"),
+                    other => panic!("update {i}: {other:?}"),
+                }
+            }
+        }
+        assert_eq!(shown, d.doc.render(0), "partial redraws add up to the picture");
     }
 
     #[test]

@@ -408,6 +408,11 @@ pub struct DocState {
     empty_bitmaps: Vec<u64>,
     /// Bumped on every change; the UI re-renders the canvas when it moves.
     pub revision: u64,
+    /// (from, to, area): the changes from revision `from` to `to` were all inside `area` (x0, y0,
+    /// x1, y1; canvas pixels). A brush stroke sets it, so the canvas redraws and uploads only
+    /// what the stroke touched rather than its whole canvas-sized bitmap. The canvas takes it
+    /// as it draws; the stroke's next update starts a new one.
+    pub paint_damage: Option<(u64, u64, (i64, i64, i64, i64))>,
     /// How bitmaps are resampled when objects are scaled, rotated, skewed or distorted
     /// (Fireworks MX's Preferences > General > Interpolation, `EditTransformMode`; the app sets
     /// it from its preferences).
@@ -445,6 +450,7 @@ impl DocState {
             bitmap_edit: None,
             live_selection: None,
             revision: 0,
+            paint_damage: None,
             interpolation: firecraft_raster::transform::Resample::Bicubic,
         }
     }
