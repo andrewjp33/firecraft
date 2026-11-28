@@ -245,6 +245,9 @@
   var forced = /[?&]wasm=(modern|legacy)(&|$)/.exec(location.search);
   if (forced) wasmBuild = forced[1];
   w.firecraftWasmBuild = wasmBuild;
+  // The one-file build (`make web-debug-single`) has only the modern build.
+  var singleFile = !!w.firecraftSingleFile;
+  if (singleFile) wasmBuild = "modern, one file";
 
   // ---------------------------------------------------------------------------------------
   // What the browser is missing outright (checked now, reported if anything goes wrong).
@@ -352,8 +355,10 @@
     // Harmless, and reported as an error by some browsers.
     if (/ResizeObserver loop/.test(message)) return;
     var file = e.filename || "";
-    // Once running, only FireCraft's own errors (not, say, a browser extension's) count.
-    if (!starting() && file && file.indexOf(location.origin) !== 0) return;
+    // Once running, only FireCraft's own errors (not, say, a browser extension's) count. A page
+    // opened from disk has no origin ("null"); its own scripts are the page itself.
+    var own = location.origin && location.origin !== "null" ? location.origin : location.href.split(/[?#]/)[0];
+    if (!starting() && file && file.indexOf(own) !== 0) return;
     if (e.error) w.firecraftFailed(e.error);
     else w.firecraftFailed(message + (file ? "\n  at " + file + ":" + e.lineno + ":" + e.colno : ""));
   }, true);
@@ -363,6 +368,10 @@
     // some background task failing (FireCraft reports its own), not the app stopping.
     if (starting()) w.firecraftFailed(e.reason);
   });
+
+  if (singleFile && lacking.length) {
+    missing.push("the WebAssembly features this one-file build uses (" + lacking.join(", ") + ")");
+  }
 
   if (missing.length) w.firecraftFailed("Missing: " + missing.join(", "));
 })();

@@ -15,6 +15,10 @@
   module, which Safari has only from 15.) It drops the preload links, so older browsers don't
   download the modern .wasm too; the loader starts that download itself.
 
+`make web-debug-single` runs Trunk once, for index.html only, with FIRECRAFT_WEB_SINGLE=1: this
+hook then only checks the modern build's features and leaves Trunk's loader alone, and
+single_file.py packs the result into one HTML file (no legacy build).
+
 Needs Node.js for the legacy build (npx fetches a pinned esbuild the first time).
 """
 
@@ -149,6 +153,8 @@ def modern(staging: Path, source: Path) -> None:
     check_features(only_wasm(staging), MODERN_FEATURES,
                    "Has Rust started using another one by default? Add it to MODERN_FEATURES here "
                    "and to WASM_FEATURES in support.js.")
+    if os.environ.get("FIRECRAFT_WEB_SINGLE") == "1":
+        return  # single_file.py takes it from here
 
     built = (source / os.environ.get("FIRECRAFT_WEB_LEGACY", LEGACY_DIST)).resolve()
     if not (built / "index.html").is_file():

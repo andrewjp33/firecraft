@@ -31,7 +31,7 @@ PARITY_OUT ?= target/parity
 PARITY_KEEP ?= 10
 DIST := dist
 
-.PHONY: all help build release run windows windows-release windows-msvc windows-msvc-release macos macos-release check-macos web web-serve test lint check parity clean distclean size
+.PHONY: all help build release run windows windows-release windows-msvc windows-msvc-release macos macos-release check-macos web web-debug web-debug-single web-serve test lint check parity clean distclean size
 
 all: build windows
 
@@ -49,6 +49,7 @@ help:
 	@echo "  make check-macos      Check the macOS app compiles (works on Linux; no Mac needed)"
 	@echo "  make web              Browser build (trunk)  -> $(DIST)/web/"
 	@echo "  make web-debug        Browser debug build (dev profile, function names; larger)"
+	@echo "  make web-debug-single One-file browser debug build, opens from disk -> $(DIST)/web-single/firecraft.html"
 	@echo "  make web-serve        Serve the browser build at http://127.0.0.1:8766"
 	@echo "  make run [FILE=x.png] Build and run (debug), optionally opening a file"
 	@echo "  make test             Run all tests"
@@ -138,6 +139,15 @@ web-debug:
 	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
 	$(call WEB_LEGACY_BUILD,)
 	cd apps/firecraft-web && $(WEB_ENV) trunk build
+
+# The debug build as one HTML file with everything inside (the .wasm as base64), which a
+# browser opens straight from disk, no web server needed. Modern build only (no legacy one),
+# so it needs a browser with the modern build's WebAssembly features. Trunk builds into
+# target/web-single, then single_file.py packs that into the one file.
+web-debug-single:
+	@command -v trunk >/dev/null || { echo "trunk not found: cargo install trunk"; exit 1; }
+	cd apps/firecraft-web && $(WEB_ENV) FIRECRAFT_WEB_SINGLE=1 trunk build --dist ../../target/web-single
+	python3 apps/firecraft-web/single_file.py target/web-single $(DIST)/web-single/firecraft.html
 
 # The legacy build is made once at the start; trunk serve rebuilds only the modern one on changes.
 web-serve:
