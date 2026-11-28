@@ -242,6 +242,13 @@ Other items keep their numbers.
     still duplicates, sub-pixel. Not for a temporary Pointer (Ctrl held with another tool, item
     19), whose Ctrl is taken. Ctrl's temporary tool is chosen when the drag starts, so Ctrl
     pressed mid-drag while adding a rectangle or ellipse stays sub-pixel.
+22. **Line tool on whole pixels, Ctrl for sub-pixel** (the user's request, 2026-11-28): the Line
+    tool never snaps (`shape_points` and `add_line` in canvas.rs take the exact pointer position),
+    unlike the Rectangle and Ellipse tools. Measure Fireworks MX first: where its Line tool puts
+    the endpoints (pixel centres, grid lines or unsnapped) and whether that depends on the stroke
+    (a 1-pixel line is crisp along pixel centres, not grid lines). Snap the same way, show the
+    snapped line while dragging, and let Ctrl mid-drag draw exactly at the pointer, as with the
+    Rectangle and Ellipse tools; document it in [behavior/paths.md](behavior/paths.md).
 
 ## When needed
 
