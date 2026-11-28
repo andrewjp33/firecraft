@@ -1238,7 +1238,7 @@ fn paste_files(app: &mut FireCraftApp, files: &[std::path::PathBuf]) {
     let Some(d) = app.session.active_doc_mut() else {
         return;
     };
-    let canvas = (d.doc.width, d.doc.height);
+    let canvas = d.visible_canvas();
     let mut failed = Vec::new();
     for path in files {
         let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
@@ -1302,13 +1302,10 @@ fn clipboard_canvas(app: &FireCraftApp) -> Option<(u32, u32, Option<firecraft_io
 }
 
 /// A picture from another application, pasted as Fireworks MX does: a new bitmap object
-/// centred on the canvas (the canvas keeps its size), selected.
+/// centred on the part of the canvas in view (the canvas keeps its size), selected.
 fn paste_image(app: &mut FireCraftApp, image: firecraft_raster::RgbaImage) {
     with_doc(app, |d| {
-        let (x, y) = firecraft_io::pasted_image_origin(
-            (d.doc.width, d.doc.height),
-            (image.width(), image.height()),
-        );
+        let (x, y) = firecraft_io::pasted_image_origin(d.visible_canvas(), (image.width(), image.height()));
         let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap {
             x,
             y,
@@ -1475,7 +1472,7 @@ fn clipboard_contents(app: &mut FireCraftApp) -> Option<firecraft_engine::Clipbo
     if firecraft_sysclip::available() {
         let files = copied_pictures();
         if !files.is_empty() {
-            let canvas = app.session.active_doc().map(|d| (d.doc.width, d.doc.height))?;
+            let canvas = app.session.active_doc().map(firecraft_engine::DocState::visible_canvas)?;
             let mut clip = Clipboard::default();
             for path in &files {
                 let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
@@ -1505,7 +1502,7 @@ fn pasted_clip(app: &FireCraftApp, pasted: firecraft_io::Pasted) -> Option<firec
         }),
         firecraft_io::Pasted::Image(image) => {
             let d = app.session.active_doc()?;
-            let (x, y) = firecraft_io::pasted_image_origin((d.doc.width, d.doc.height), (image.width(), image.height()));
+            let (x, y) = firecraft_io::pasted_image_origin(d.visible_canvas(), (image.width(), image.height()));
             let el = firecraft_doc::Element::new(firecraft_doc::ElementKind::Bitmap(firecraft_doc::Bitmap { x, y, image }));
             Some(Clipboard {
                 elements: vec![el],

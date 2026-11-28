@@ -972,6 +972,10 @@ fn canvas(app: &mut FireCraftApp, ui: &mut egui::Ui, index: usize, rect: Rect, r
     let to_doc =
         |pos: Pos2| -> (f64, f64) { (((pos.x - origin.x) / z) as f64, ((pos.y - origin.y) / z) as f64) };
     let to_screen = |x: f64, y: f64| -> Pos2 { pos2(origin.x + x as f32 * z, origin.y + y as f32 * z) };
+    // What the window shows, for pastes (Fireworks MX pastes in view).
+    let (vx, vy) = to_doc(rect.min);
+    let (vx1, vy1) = to_doc(rect.max);
+    d.view_rect = Some((vx, vy, vx1 - vx, vy1 - vy));
 
     // Composite texture, refreshed when the document changes.
     // Re-render when the document or the shown frame changes.

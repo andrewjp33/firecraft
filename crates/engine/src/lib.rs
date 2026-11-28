@@ -386,6 +386,10 @@ pub struct DocState {
     /// The region to show when the document first appears (x, y, w, h): the Symbol Editor
     /// shows the symbol's content, not its whole canvas.
     pub view_focus: Option<(f64, f64, f64, f64)>,
+    /// The part of the canvas plane the document's window shows (x, y, w, h in canvas pixels),
+    /// kept by the UI as it draws the document; `None` until it's drawn. Pastes go in view
+    /// ([`DocState::visible_canvas`]).
+    pub view_rect: Option<(f64, f64, f64, f64)>,
     /// Symbol Editor: the symbol's 9-slice guides (left, right, top, bottom; symbol space),
     /// edited here and written back with the content.
     pub symbol_nine: Option<(f64, f64, f64, f64)>,
@@ -433,6 +437,7 @@ impl DocState {
             dirty: false,
             symbol_link: None,
             view_focus: None,
+            view_rect: None,
             symbol_nine: None,
             live_edit: None,
             live_paint: None,

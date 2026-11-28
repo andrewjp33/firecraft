@@ -180,12 +180,14 @@ pub fn read_clipboard(bytes: &[u8]) -> Result<Pasted> {
     crate::dib::decode_dib(bytes).map(Pasted::Image)
 }
 
-/// Where Fireworks MX puts a pasted picture of `size` on a canvas of `canvas` size: centred,
-/// halves rounded away from zero (measured 2026-11-16: 101 x 61 on 300 x 200 at (100, 70),
-/// 303 x 203 at (-2, -2), 500 x 400 at (-100, -100); the canvas doesn't grow).
-pub fn pasted_image_origin(canvas: (u32, u32), size: (u32, u32)) -> (i64, i64) {
-    let c = |canvas: u32, size: u32| ((f64::from(canvas) - f64::from(size)) / 2.0).round() as i64;
-    (c(canvas.0, size.0), c(canvas.1, size.1))
+/// Where Fireworks MX puts a pasted picture of `size`: centred on `area` (x, y, w, h), the part
+/// of the canvas in view (the whole canvas when it all shows), halves rounded away from zero
+/// (measured 2026-11-16: 101 x 61 on 300 x 200 at (100, 70), 303 x 203 at (-2, -2), 500 x 400
+/// at (-100, -100); the canvas doesn't grow. 2026-11-27: on a 2000 x 1500 canvas in a window
+/// showing its top-left 827 x 796, 101 x 61 went to (363, 368)).
+pub fn pasted_image_origin(area: (f64, f64, f64, f64), size: (u32, u32)) -> (i64, i64) {
+    let c = |at: f64, len: f64, size: u32| (at + (len - f64::from(size)) / 2.0).round() as i64;
+    (c(area.0, area.2, size.0), c(area.1, area.3, size.1))
 }
 
 /// The size (pixels) and resolution of the picture in clipboard data, as File > New in
@@ -242,11 +244,15 @@ pub fn clipboard_image_info(bytes: &[u8]) -> Option<(u32, u32, crate::Resolution
 
 /// A copied image file (from a file manager) as pasted objects: a Fireworks PNG's objects
 /// (frame 1 of its visible layers) or a flat image's bitmap, placed so the file's canvas is
-/// centred on a canvas of `canvas` size, as a pasted picture is. Fireworks MX doesn't paste
+/// centred on `area` (the part of the canvas in view), as a pasted picture is. Fireworks MX doesn't paste
 /// files (Edit > Paste stays disabled with only a file on the clipboard, checked 2026-11-16).
-pub fn file_as_paste(bytes: &[u8], name: &str, canvas: (u32, u32)) -> Result<(Vec<Element>, Vec<Symbol>, Vec<Tile>)> {
+pub fn file_as_paste(
+    bytes: &[u8],
+    name: &str,
+    area: (f64, f64, f64, f64),
+) -> Result<(Vec<Element>, Vec<Symbol>, Vec<Tile>)> {
     let doc = crate::open(bytes, Some(name.to_owned()))?;
-    let (dx, dy) = pasted_image_origin(canvas, (doc.width, doc.height));
+    let (dx, dy) = pasted_image_origin(area, (doc.width, doc.height));
     let elements: Vec<Element> = doc
         .layers
         .iter()
@@ -366,10 +372,10 @@ mod tests {
     fn a_copied_file_pastes_centred() {
         let img = RgbaImage::new(101, 61, Rgba::new(200, 30, 30, 255));
         let png = crate::encode_png(&img, 72.0).expect("png");
-        let (els, _, _) = file_as_paste(&png, "odd.png", (300, 200)).expect("pasted");
+        let (els, _, _) = file_as_paste(&png, "odd.png", (0.0, 0.0, 300.0, 200.0)).expect("pasted");
         assert_eq!(els.len(), 1);
         assert_eq!(els[0].bounds(), Some((100.0, 70.0, 101.0, 61.0)));
-        assert!(file_as_paste(b"not a picture", "x.png", (300, 200)).is_err());
+        assert!(file_as_paste(b"not a picture", "x.png", (0.0, 0.0, 300.0, 200.0)).is_err());
     }
 
     #[test]

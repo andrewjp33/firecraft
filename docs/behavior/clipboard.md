@@ -15,9 +15,42 @@ Measured with `tools/fwmx-oracle/xclip.py` (X11 side) and a Windows-side lister 
 Fireworks MX **pastes the `PNG` format back as editable objects** when it's the only format: its
 own clipboard PNG and a FireCraft-written document (18 objects with live effects) both pasted as
 paths with their effects. It **ignores the stored position** (`XLCf`/`YLCf`) of that format, its
-own included: pasted into a 500x400 document, a rectangle copied from (10, 10) lands at (80, 20)
-either way. Pasting Fireworks to Fireworks keeps positions because the private format comes
-first; decoding it is on the roadmap (lowest priority).
+own included, and centres the objects in view as it does a picture (below). Pasting Fireworks to
+Fireworks starts from the copied position because the private format comes first; decoding it
+is on the roadmap (lowest priority).
+
+## Where a paste lands
+
+Measured 2026-11-27 in Fireworks MX (JSF `clipCopy`/`clipPaste` of rectangles into new
+documents; the document window maximized, showing the top-left 827 x 796 of a 2000 x 1500
+canvas; `addNewRectangle` 50 x 40 unless noted):
+
+| Copied at | Pasted into | Lands at |
+|---|---|---|
+| (100, 100) | 2000 x 1500 | (100, 100): in view, kept |
+| (800, 100), partly in view | 2000 x 1500 | (800, 100) |
+| (-20, 100), partly off the canvas | 2000 x 1500 | (-20, 100) |
+| (100, 100), 1000 x 800 | 2000 x 1500 | (100, 100) |
+| (1500, 1200) | 2000 x 1500 | (388, 378): centred in view |
+| (835, 100), just past the view | 2000 x 1500 | (388, 378) |
+| (-100, 100), off the canvas | 2000 x 1500 | (389, 378) |
+| (1500, 1200), 1000 x 800 | 2000 x 1500 | (-87, -2): centred though bigger than the view |
+| (500, 400) | 300 x 200 (smaller than the window) | (125, 80): centred on the canvas |
+| (100, 50) / (280, 50) | 300 x 200 | kept |
+| (500, 400), 400 x 300 | 300 x 200 | (-50, -50) |
+| (300, 250) | 50 x 40 (File > New from the clipboard) | (0, 0) |
+
+So: objects that overlap the **visible canvas** (the part of the canvas the window shows) stay
+where they were copied; otherwise they move by `round(visible centre - their centre)`, halves
+away from zero (the 388 / 389 pair). A picture from another application goes to the centre of
+the visible canvas the same way (101 x 61: (363, 368) on the 2000 x 1500 canvas, (100, 70) on
+300 x 200). In a small document window the visible canvas is small: a headless run with a
+tiny window put a rectangle at (72, 12) in a 200 x 150 canvas, and the old (80, 20) above.
+
+FireCraft does the same (`DocState::paste`, `visible_canvas`; the canvas view records
+`DocState::view_rect` as it draws; `firecraft_io::pasted_image_origin`), also for Fireworks
+PNGs from the system clipboard and copied files, which carry their position; before a document
+is first drawn the whole canvas counts as visible.
 
 ## How FireCraft uses it
 
@@ -32,9 +65,10 @@ first; decoding it is on the roadmap (lowest priority).
   `sysclip_probe.exe set FILE SECS DIB`, then `dom.clipPaste()` gave the file's Rectangle
   and Text, not the DIB's green square).
 * Paste: if the system clipboard holds a picture that FireCraft didn't put there, it is read
-  with `firecraft_io::read_clipboard`: a Fireworks PNG becomes its objects at their original
-  place (symbols come along, renumbered if their ids clash); any other picture becomes a bitmap
-  object centred on the canvas (below). Otherwise FireCraft pastes its own last copy.
+  with `firecraft_io::read_clipboard`: a Fireworks PNG becomes its objects, placed as
+  [above](#where-a-paste-lands) (symbols come along, renumbered if their ids clash); any other
+  picture becomes a bitmap object centred on the visible canvas. Otherwise FireCraft pastes its
+  own last copy.
 * Pictures from other applications (screenshots, browsers, image editors): `firecraft-sysclip`
   reads, in this order, Windows `PNG`, `CF_DIB`, `CF_DIBV5`, `JFIF`; X11 `image/png`,
   `image/bmp` (`image/x-bmp`, `image/x-MS-bmp`), `image/jpeg` (the first the owner lists in

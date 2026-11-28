@@ -146,7 +146,13 @@ impl DocState {
             return;
         }
         let layer = self.writable_layer();
-        let clip = self.prepared(clip);
+        let mut clip = self.prepared(clip);
+        let (dx, dy) = self.paste_offset(&clip.elements);
+        if (dx, dy) != (0.0, 0.0) {
+            for e in &mut clip.elements {
+                e.translate(dx, dy);
+            }
+        }
         self.edit("Paste", |s| {
             s.adopt(&clip);
             let f = s.frame();
@@ -160,6 +166,43 @@ impl DocState {
             s.doc.current_layer = layer;
             s.pixels = None;
         });
+    }
+
+    /// The part of the canvas in view (x, y, w, h): where the window shows the canvas
+    /// ([`DocState::view_rect`]), else the whole canvas.
+    pub fn visible_canvas(&self) -> (f64, f64, f64, f64) {
+        let (cw, ch) = (f64::from(self.doc.width), f64::from(self.doc.height));
+        self.view_rect
+            .and_then(|(x, y, w, h)| {
+                let (x0, y0) = (x.max(0.0), y.max(0.0));
+                let (x1, y1) = ((x + w).min(cw), (y + h).min(ch));
+                (x1 > x0 && y1 > y0).then_some((x0, y0, x1 - x0, y1 - y0))
+            })
+            .unwrap_or((0.0, 0.0, cw, ch))
+    }
+
+    /// How far pasted objects move, as Fireworks MX places them (measured 2026-11-27, copying
+    /// rectangles into new documents with the window maximized): where they were copied from
+    /// if they overlap the part of the canvas in view (even partly, or partly off the canvas),
+    /// else centred on it, the offset rounded (halves away from zero), even when they're
+    /// bigger than the view. So a copy pasted into a new document of its own size lands at
+    /// (0, 0).
+    fn paste_offset(&self, elements: &[Element]) -> (f64, f64) {
+        let Some((bx, by, bw, bh)) = elements.iter().filter_map(Element::bounds).reduce(|a, b| {
+            let (x0, y0) = (a.0.min(b.0), a.1.min(b.1));
+            (x0, y0, (a.0 + a.2).max(b.0 + b.2) - x0, (a.1 + a.3).max(b.1 + b.3) - y0)
+        }) else {
+            return (0.0, 0.0);
+        };
+        let (vx, vy, vw, vh) = self.visible_canvas();
+        let overlaps = bx < vx + vw && bx + bw > vx && by < vy + vh && by + bh > vy;
+        if overlaps {
+            return (0.0, 0.0);
+        }
+        (
+            (vx + vw / 2.0 - (bx + bw / 2.0)).round(),
+            (vy + vh / 2.0 - (by + bh / 2.0)).round(),
+        )
     }
 
     /// The clipboard made ready for this document: symbols and tiles renumbered where their
@@ -1169,6 +1212,53 @@ mod tests {
     use super::*;
 
     /// A document with one bitmap per colour (1-wide columns 10 px apart), selected none.
+    /// Copy a `w` x `h` bitmap at (`x`, `y`) and paste it into a `cw` x `ch` document whose window
+    /// shows `view` (none: not drawn yet); where it lands.
+    fn pasted_at(x: i64, y: i64, w: u32, h: u32, cw: u32, ch: u32, view: Option<(f64, f64, f64, f64)>) -> (f64, f64) {
+        let mut src = DocState::new(Document::new(4000, 3000, 72.0, None));
+        src.add_element(
+            Element::new(ElementKind::Bitmap(Bitmap {
+                x,
+                y,
+                image: RgbaImage::new(w, h, Rgba::new(9, 9, 9, 255)),
+            })),
+            "Add",
+        );
+        let clip = src.copy().expect("copied");
+        let mut dst = DocState::new(Document::new(cw, ch, 72.0, None));
+        dst.view_rect = view;
+        dst.paste(&clip);
+        let r = dst.selection[0];
+        let (px, py, _, _) = dst.element(r).and_then(Element::bounds).expect("pasted");
+        (px, py)
+    }
+
+    /// Fireworks MX, 2026-11-27 (rectangles; a maximized window showing a 2000 x 1500 canvas's
+    /// top-left 827 x 796): kept where copied when they overlap the canvas in view, else centred
+    /// on it.
+    #[test]
+    fn paste_lands_in_view_as_fireworks_does() {
+        let view = Some((0.0, 0.0, 827.0, 796.0));
+        let big = |x, y, w, h| pasted_at(x, y, w, h, 2000, 1500, view);
+        assert_eq!(big(100, 100, 50, 40), (100.0, 100.0));
+        assert_eq!(big(1500, 1200, 50, 40), (388.0, 378.0));
+        assert_eq!(big(800, 100, 50, 40), (800.0, 100.0));
+        assert_eq!(big(835, 100, 50, 40), (388.0, 378.0));
+        assert_eq!(big(-20, 100, 50, 40), (-20.0, 100.0));
+        assert_eq!(big(-100, 100, 50, 40), (389.0, 378.0));
+        assert_eq!(big(1500, 1200, 1000, 800), (-87.0, -2.0));
+        assert_eq!(big(100, 100, 1000, 800), (100.0, 100.0));
+        // A canvas smaller than its window: the canvas is what's in view.
+        let small = Some((-263.5, -298.0, 827.0, 796.0));
+        assert_eq!(pasted_at(500, 400, 50, 40, 300, 200, small), (125.0, 80.0));
+        assert_eq!(pasted_at(100, 50, 50, 40, 300, 200, small), (100.0, 50.0));
+        assert_eq!(pasted_at(280, 50, 50, 40, 300, 200, small), (280.0, 50.0));
+        assert_eq!(pasted_at(500, 400, 400, 300, 300, 200, small), (-50.0, -50.0));
+        // File > New takes the copy's size; the paste fills it.
+        assert_eq!(pasted_at(300, 250, 50, 40, 50, 40, None), (0.0, 0.0));
+        assert_eq!(pasted_at(300, 250, 50, 40, 50, 40, Some((-400.0, -300.0, 850.0, 640.0))), (0.0, 0.0));
+    }
+
     fn doc(colours: &[u8]) -> DocState {
         let mut d = DocState::new(Document::new(100, 100, 72.0, Some(Rgba::WHITE)));
         for (i, &c) in colours.iter().enumerate() {
